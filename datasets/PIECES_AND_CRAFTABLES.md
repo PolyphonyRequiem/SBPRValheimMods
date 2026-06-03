@@ -50,9 +50,9 @@ Each entry has:
 | Mod | Trailborne |
 | Biome tier | Meadows |
 | Craft station | Vanilla Workbench (to BUILD the Explorer's Bench itself) |
-| Recipe | Wood + Stone + 1 Deer Trophy + Raspberries + Resin (exact quantities Q3.10 pending) |
+| Recipe | Wood + Stone + 1 Deer Trophy (exact quantities Q3.10 pending) |
 | Function | Crafting hub for all Trailborne items and pieces; gates the entire Trailborne progression. |
-| Visual notes | Kitbash vanilla Workbench mesh; **antlers from the Deer Trophy visually integrated INTO the bench art** (not mounted on top); plus half-rolled hide-map + bone-needle-in-stone-disk per design/nomap.md §1 |
+| Visual notes | Kitbash vanilla Workbench mesh; **antlers from the Deer Trophy visually integrated INTO the bench art** (not mounted on top — the antlers are part of the bench mesh itself, e.g. carved cups / leg-supports / pen-holders); plus half-rolled hide-map + bone-needle-in-stone-disk per design/nomap.md §1 |
 | Patch surface | Pure prefab work — clone `piece_workbench`, add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"` |
 | Status | SPEC LOCKED (quantities pending) |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
