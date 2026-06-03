@@ -239,9 +239,10 @@ ingredient.
 | **Blue** | 1 blueberry → 2 blue pigment | Black Forest |
 | **Yellow** | 1 cloudberry → 2 yellow pigment | Plains (later tier) |
 
-Pigment cost is naturally biome-tiered. A red sign in your Black Forest base says "I've
-been here since the early days." A blue sign says "I've made it to the forest." A
-yellow sign says "I've crossed the Plains and survived." Color reads as **biography**.
+Pigment cost is naturally biome-tiered, because the ingredients are. What any
+particular color *means* on your server is up to you and your group — Trailborne
+does not assign meanings to colors. Red is not "danger." Blue is not "water."
+Whatever conventions your group settles on are conventions your group invented.
 
 Pigments are consumed at sign-craft time — the sign's color is baked in.
 
@@ -399,11 +400,13 @@ This means:
 - Other players on the same server need the mod installed to see your sign colors and
   pins correctly. (Wisp visibility is per-player anyway — you don't need other players
   to see your amulet's wisps.)
-- The mod is **not designed for general public release**. It's a Niflheim-server
-  experience. The repo is public because we believe in open-source modding; the mod
-  is published because Thunderstore is the only sane distribution path. But the design
-  assumes you've opted into Niflheim's playstyle, not that you're a random Valheim
-  player browsing for "more content."
+- Trailborne is a **publicly-released, standalone Thunderstore mod**. Any server
+  that wants the Explorer role can install it. Niflheim is one SBPR server that
+  uses Trailborne (alongside other SBPR mods); it is not Trailborne's only home.
+- Server-gating in this mod refers to *gameplay patches checking server opt-in
+  before firing*, not to "this is a private mod." This protects players who
+  install Trailborne and then join a vanilla server — the mod is silently inert
+  there, no conflicts — without restricting who Trailborne is for.
 
 ---
 
