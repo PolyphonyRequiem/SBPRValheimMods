@@ -11,6 +11,10 @@ Server-gated Valheim mods built under the SBPR namespace (Starbright + Polyphony
 
 Pre-build. Currently in the **design phase** for the first family.
 
+For an overview of what we're building and how it plays, read
+[**PLAYER_GUIDE.md**](PLAYER_GUIDE.md) — elevator pitch + progression track + player's
+guide, all in one document.
+
 ## Mod families
 
 ### Family 1 — Nomap / Hardcore Navigation
