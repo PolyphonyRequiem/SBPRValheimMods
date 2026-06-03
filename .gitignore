@@ -1,0 +1,37 @@
+# Build artifacts
+bin/
+obj/
+*.dll
+*.pdb
+*.user
+*.suo
+
+# Unity sidecar (not committed)
+unity-project/Library/
+unity-project/Temp/
+unity-project/Obj/
+unity-project/Build/
+unity-project/Builds/
+unity-project/Logs/
+unity-project/UserSettings/
+unity-project/MemoryCaptures/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Decomp / reverse-engineering artifacts — NEVER COMMIT
+# (these contain IronGate code; clean-room doctrine forbids inclusion)
+**/decomp/
+**/disasm/
+**/*.decompiled.cs
+**/subsystems/*.cs
+**/types.tsv
+
+# Local notes
+.scratch/
+SCRATCH.md
