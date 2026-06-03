@@ -219,7 +219,7 @@ Daniel: "it reignites if the cairn is in the 'pristine' piece state rather than 
 
 Daniel: "I think corewood still tracks"
 
-**Path Lamps recipe (v1, locked):** Corewood + Resin (exact quantities TBD)
+**Path Lamps recipe (v1, locked):** 3 Corewood + 2 Resin (Corewood reads as the 3m light pole — visually a slim 3m corewood post topped with a resin-fueled flame)
 - Confirms Path Lamps are technically Black Forest tier (corewood = pine, BF biome) even though introduced under Meadows framing.
 - Consistent with PLAYER_GUIDE.md line 110: "3m corewood torches, resin-fueled, long burn"
 
@@ -363,7 +363,7 @@ Planned scans:
 - **Q3.8: Ember Lamps in v1** ✅ DROPPED FROM v1
 - **Q3.9: Cairn Marker recipe** ✅ LOCKED — 2 Leather Scraps + 1 Finewood + 1 Pigment (player color choice)
 - **Q3.10: Explorer's Bench exact quantities** ✅ LOCKED — 10 Wood + 4 Stone + 1 Deer Trophy. No raspberries. No resin. (Earlier I had inferred raspberries+resin from PLAYER_GUIDE.md narrative — Daniel corrected: the narrative's mention of those ingredients was describing what the bench is USED FOR, not what it's MADE OF.)
-- **Q3.11: Path Lamp exact quantities** — corewood + resin confirmed; numbers TBD next round.
+- **Q3.11: Path Lamp exact quantities** ✅ LOCKED — 3 Corewood + 2 Resin (3m light pole)
 - Round 4 decomp/wiki scans pending (will leverage `design/nomap.md`'s existing line-references first)
 - Round 5 visual assets pending
 - Round 6 out-of-scope confirmation pending
