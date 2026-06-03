@@ -126,10 +126,10 @@ This is the gnarly one. Spec: distinct namespace from vanilla portals, no-portal
 2. **No-portal-restriction override:** vanilla `TeleportWorld.Teleport` blocks on `ZoneSystem.instance.GetGlobalKey(GlobalKeys.NoPortals)` (line 108). Our class **just doesn't check it** — we're independent code.
 3. **Through-terrain rendering:** Unity-side shader trick on the portal name labels (ZTest Always). Pure prefab work, no patches.
 4. **Charged accessory:**
-   - New ItemDrop `SBPR_TwistedKey` with `m_shared.m_useDurability = true` and `m_maxDurability = N`.
-   - "Charge from food consumed": patch `Player.EatFood` (need to find exact method — likely `Player.ConsumeItem` or `Player.EatFood`). Postfix that, if the player has a `SBPR_TwistedKey` equipped in inventory, increments its durability by `foodEaten.m_food / 4` or similar.
-   - **"Bukeperries (Bukeberries) purge food to charge accessory faster":** Bukeberry is a real item (added by Mistlands as a hunger reset). I need to confirm in the decomp whether the bukeberry effect is hardcoded in `Player.RemoveCurrentFood` or routed through `StatusEffect` (`SE_Stats`). I'll grep that when we get to detail design.
-   - **"Charging splits with other copies in inventory":** trivial — when applying a charge increment, divide by the count of `SBPR_TwistedKey` in inventory, apply to each.
+   - New ItemDrop `SBPR_TwistedKey` with `m_shared.m_useDurability = true`, `m_maxDurability = N`, `m_itemType = ItemData.ItemType.Trinket` (enum value `24` — confirmed in `ItemDrop.ItemData.ItemType`, line 57627).
+   - "Charge from food consumed": patch **`Player.EatFood(ItemDrop.ItemData item)`** (line 17462) with a postfix. When `__result == true`, scan `Player.m_localPlayer.GetInventory()` for `SBPR_TwistedKey` instances; for each, increment durability proportional to `item.m_shared.m_food` (or a flat per-meal charge). Bukeberry note below.
+   - **"Bukeperries (Bukeberries) purge food to charge accessory faster":** Bukeberry is data-only — there is no hardcoded "bukeberry" path. The actual food-purge primitive is **`Player.RemoveOneFood()`** (line 17452) which pops one random food slot. A `StatusEffect` attached to bukeberry (via `ItemDrop.m_shared.m_consumeStatusEffect`) is what calls it. For Twisted Key charging-via-bukeberry: postfix `Player.RemoveOneFood` (when `__result == true`) and apply a *larger* charge increment to keys in inventory than a normal `EatFood` postfix would. This way bukeberries become a "spend stomach space for portal range" strategy.
+   - **"Charging splits with other copies in inventory":** trivial — count `SBPR_TwistedKey` instances in inventory, divide the increment, apply to each.
 5. **Rune-name registry:** I like the "rune names" framing. Implement as ZDOVars custom string slot (separate from `s_tag`) so vanilla Portals can't accidentally connect via tag collision. Concretely: `m_zdo.Set("sbpr_rune_name", string)`.
 
 **Risk note:** standing-on-portal overlay is the most "stranger" UI we'll have to build. It's possible but it's a chunk of work — a worldspace `Canvas` with line-of-sight raycasts hidden, plus a `UnityEngine.UI.Text` per nearby portal. I'd build this as the third milestone, not the first.
@@ -138,7 +138,7 @@ This is the gnarly one. Spec: distinct namespace from vanilla portals, no-portal
 
 ## 8. Iron Compass (Swamps)
 
-- **Item:** new ItemDrop `SBPR_IronCompass`, accessory slot (`m_shared.m_itemType = Trinket` — need to confirm enum value; vanilla Megingjord uses this).
+- **Item:** new ItemDrop `SBPR_IronCompass`, accessory slot (`m_shared.m_itemType = ItemData.ItemType.Trinket`, enum value 24 — confirmed at line 57627).
 - **Render:** a small UGUI Image as child of `Hud.instance.m_rootObject`, positioned bottom-center below the map-icon area.
   - Awake of a new `SBPR_CompassHud : MonoBehaviour` attached via `[HarmonyPatch(typeof(Hud), "Awake")]` postfix — instantiate a `RectTransform` under `Hud.instance.m_rootObject`.
 - **Behavior:** `Update()` reads:
@@ -210,3 +210,22 @@ I have **no opinion** on the answers to these; they're aesthetic/pacing calls I 
 9. 🔴 Twisted Portal (custom class, range query, through-terrain UI overlay, durability accessory, food-consumption hook, bukeberry purge integration, stack-sync — this is 4+ subsystems wired together)
 
 **Suggested build order:** start with Tent + Sign + Beacon as a "warm-up PR" that proves the whole pipeline (asset bundle → BepInEx loader → server gating → Thunderstore publish → r2modman install → smoke test on Niflheim). Then map shroud + compass to validate UI/Minimap patches. Then storage. Then portals (pocket then twisted last).
+
+---
+
+## Appendix: precedent mods studied
+
+These are open-source Valheim mods that solve overlapping problems. We treat them as
+**reference reading** — we do not depend on their code, but we study how they
+patch the same vanilla classes we plan to touch.
+
+| Mod                                    | What we learn from it                                |
+| -------------------------------------- | ---------------------------------------------------- |
+| `shudnal/NomapPrinter`                 | How to patch `MapTable.OnRead`/`OnWrite` and `Player.Save`/`Load` for a "screenshot the map and hand it to you" approach. Direct philosophical cousin to what we're doing. |
+| `nbusseneau/BetterCartographyTable`    | The cleanest example of patching `Minimap.AddPin`, `OnMapLeftClick`, `OnMapRightClick`, `GetSharedMapData`, `AddSharedMapData`. Uses Harmony **IL transpilers** when postfixes aren't enough. Essential reading for our zoom-cap / no-scroll / 1000m-shroud patches. |
+| `BugattiBoys/PortalIndicator`          | Portal-aware HUD overlay. Reference for the Iron Compass UI and the Twisted Portal through-terrain name labels. |
+| `KadrioS/RecipePinner`, `FroggerHH/LastTombstonePin`, `yudi7ll/AutoRemoveDeathPin` | Pin add / remove / merge patterns — directly applicable to the Seer's Stone Alt+E logic. |
+| `ArgusMagnus/ValheimServersideQoL`     | Pure server-side mod patterns. Shows what's possible when no client install is required — informs our `SBPRContext.OnSBServer` gating. |
+| `OrianaVenture/VentureValheim`         | A whole stable of mods under one author, organized as one folder per mod. Includes `AsocialCartography` (don't share map data across players), `Custom_RPC_Guide.md`, `Icon_Overlay_101.md`. Structural template for `SBPR.Pact + SBPR.Nomap + SBPR.GuardianStones`. |
+| `RandyKnapp/ValheimMods`               | Gold-standard mod author (also wrote EpicLoot). Read for general code quality and Harmony patterns. |
+| `Valheim-Modding/Jotunn` (source, not dependency) | Their `MinimapManager`, `PieceManager`, `ItemManager`, `SynchronizationManager` source is the canonical reference for *how to do common modding tasks the right way* — even though SBPR doctrine says no Jotunn dependency, their code shows what the well-trodden path looks like. |
