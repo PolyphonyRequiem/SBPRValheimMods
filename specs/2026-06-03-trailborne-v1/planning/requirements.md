@@ -159,26 +159,30 @@ What we will NOT do (in v1):
 
 ---
 
-### Round 3 — Open mechanical questions ✅ CLOSED (Daniel's answers + repo re-read)
+### Round 3 — Open mechanical questions ✅ CLOSED (Daniel's answers + repo + log re-check)
 
-**CRITICAL re-baseline:** Before this round, Starbright re-read `PLAYER_GUIDE.md` (20KB locked design) and `design/nomap.md` (20KB patch-surface cross-reference) which she had not read since session start. The crafting station is called **Orienteering Table**, not "Explorer's Bench" — that name was a hallucination today. Updating throughout.
+**Re-baseline note (corrected 2nd pass):** Two parallel sources of truth need cross-checking, NOT just the repo:
+1. **Committed repo docs** (`PLAYER_GUIDE.md`, `design/*.md`, `README.md`) — but young, may lag behind chat decisions
+2. **Recent chat decisions** (this Discord conversation, especially the prior session that established Trailborne naming, Explorer's Bench rename, and other refinements) — authoritative when they supersede repo docs, but only durable if captured to disk
 
-#### A3.1 — Cairn build cost (NOT YET ANSWERED)
+The crafting station **was renamed from "Orienteering Table" → "Explorer's Bench"** in last night's Discord conversation (confirmed via session DB at id 37430 vicinity). The rename never propagated into PLAYER_GUIDE.md or design/nomap.md. When Starbright re-read those files this morning, she reverted to the older repo name. **Explorer's Bench is correct.** PLAYER_GUIDE.md + design/nomap.md need a doc-PR for the rename.
 
-Daniel: "we covered build costs. find the answer or ask me again. Don't guess."
-Starbright searched: `design/PARKED-2026-06-03.md`, `design/nomap.md`, `design/pin-sharing.md`, `PLAYER_GUIDE.md`, `README.md`, and the holographic fact store. **Cairn per-tier build cost is NOT in any current repo doc or fact entry.** What IS in the repo:
-- 3/4/5/6/7 stone comfort *floor* per tier (PARKED-2026-06-03.md)
-- Repair cost: flat 3 stone + 1 resin (PARKED-2026-06-03.md)
-- Downgrade@25%, collapse@0% (PARKED-2026-06-03.md)
-- Pigment+banner persist across rebuilds (PARKED-2026-06-03.md)
+Skill lesson (already patched): cross-check repo docs AND recent chat decisions; capture chat-decisions to disk same-day or they rot.
 
-But NOT the per-tier build cost. **Re-asking Daniel as instructed. ⏳**
+#### A3.1 — Cairn build cost ✅ LOCKED (Daniel today)
+
+Daniel: "the build cost for a cairn is 3 stone, 1 resin and one pre-made cairn marker. upgrade cost is always 3s + 1r"
+
+**Cairn recipe (v1, locked):**
+- Initial build: **3 Stone + 1 Resin + 1 Cairn Marker (pre-crafted item)**
+- Upgrade (each tier 1→2→3→4→5): **3 Stone + 1 Resin** (flat per upgrade)
+- Repair: **3 Stone + 1 Resin** (flat, matches upgrade — confirmed from PARKED doc)
+
+**New item introduced: Cairn Marker.** This is a pre-crafted consumable item (not a piece) used as the build ingredient for the base cairn. Recipe TBD — needs a Round 3.5 question. Likely crafted at Explorer's Bench. Thematic: the "marker" is what you carry out to plant a new cairn somewhere, after which you stack stones around it on-site (the cairn is built around a planted marker, not from raw stones alone).
 
 #### A3.2 — Blue pigment Meadows-availability ✅ LOCKED
 
 Daniel: "no, blueberries it is. V1"
-
-**Decision:** Blue pigment recipe is `1 blueberry → 2 blue pigment` per `PLAYER_GUIDE.md` line 238. Blueberries are Black Forest tier and that's acceptable — players will craft Blue pigment once they push into Black Forest, even within v1's "Meadows progression" framing. This means v1 effectively spans Meadows through early Black Forest for the pigment ladder, while keeping all the *pieces* themselves Meadows-tier-craftable (just with Blue pigment requiring the player to walk to a blueberry bush).
 
 **Pigment recipes (v1, locked):**
 - Red: 1 raspberry → 2 red pigment
@@ -186,97 +190,85 @@ Daniel: "no, blueberries it is. V1"
 - Black: 1 coal → 2 black pigment
 - Blue: 1 blueberry → 2 blue pigment
 
-Yellow (cloudberry, Plains tier) is v5+ and explicitly NOT in v1.
+v1 effectively spans Meadows through early Black Forest for pigment ladder. Yellow (cloudberry, Plains) is v5+, not v1.
 
 #### A3.3 — Path Lamp chain-ignition ✅ DROPPED
 
 Daniel: "this isn't really a thing we discussed"
 
-**Decision:** Chain-ignition was a Starbright-invented mechanic that did not come from any prior discussion. Dropping it. v1 Path Lamps work like vanilla torches — manual ignition, no chain effect.
+Starbright-hallucinated mechanic, removed. v1 Path Lamps: manual ignition, no chain effect.
 
-**Path Lamp mechanics (v1, locked):**
-- Recipe: Wood + Resin (exact quantities TBD, mirror vanilla torch shape)
-- Light source: dimmer than vanilla torch (trail-illumination, not base-illumination)
-- Fuel duration: longer than vanilla torch (evidence-of-trail shape, not maintenance burden)
-- Per PLAYER_GUIDE: "3m corewood torches, resin-fueled, long burn" — note this hints at corewood not regular wood; needs Round 3.5 confirmation on recipe materials
-- Ember Lamps (eternal, ember-fueled) are Black Forest tier per PLAYER_GUIDE and may or may not be v1 — currently in scope per the "v1 = Meadows through early Black Forest" pigment-ladder framing
+#### A3.4 — Trailblazer's Tools recipe ✅ LOCKED
 
-#### A3.4 — Trailblazer's Tools recipe ✅ LOCKED (corrected from Starbright's guess)
-
-Starbright proposed: 5 Wood + 2 Stone + 2 LeatherScraps
-Daniel corrected: **"Leather Hides not scraps. Flint, not stone. So 5w/2f/2h"**
+Daniel: "Leather Hides not scraps. Flint, not stone. So 5w/2f/2h"
 
 **Trailblazer's Tools recipe (v1, locked):** 5 Wood + 2 Flint + 2 Leather Hides
-
-Note: PLAYER_GUIDE.md line 67 says "wood, tin, flint" for Trailblazer's Tools recipe. Daniel's today-answer SUPERSEDES that — the correct v1 recipe is wood/flint/leather hides, no tin. PLAYER_GUIDE needs a doc-PR followup.
-
-Craft station: Orienteering Table (per PLAYER_GUIDE.md — Trailblazer's Tools are crafted at the Orienteering Table, not the Workbench).
+**Crafted at:** Explorer's Bench
 
 #### A3.5 — Cairn resin re-ignite on repair ✅ LOCKED
 
-Daniel: "it reignites if the cairn is in the 'pristine' piece state rather than the lower tiers of wear and tear. It's just a visual on the wear and tear system. 75% threshold as discussed to 'fizzle out'"
+Daniel: "it reignites if the cairn is in the 'pristine' piece state rather than the lower tiers of wear and tear. 75% threshold as discussed to 'fizzle out'"
 
 **Cairn resin glow mechanic (v1, locked):**
-- Cairn HP state mapping:
-  - **≥75% HP** = pristine — resin glows (visual)
-  - **<75% HP** = fizzled — resin no longer glows (visual signal: "this cairn needs maintenance")
-  - **<25% HP** = downgrade tier (per PARKED-2026-06-03.md)
-  - **0% HP** = collapse (per PARKED-2026-06-03.md)
-- Re-ignite trigger: AUTOMATIC when HP returns to ≥75% via repair. **No player action required.** Purely a visual on the wear-and-tear system.
-- Implementation surface: postfix on `WearNTear.OnDamage` (and/or `OnRepair`) to update the cairn's ParticleSystem `enableEmission` based on HP threshold.
+- **≥75% HP** = pristine, resin glows (visual)
+- **<75% HP** = fizzled, no glow (visual maintenance signal)
+- **<25% HP** = downgrade tier (per PARKED-2026-06-03.md)
+- **0% HP** = collapse (per PARKED-2026-06-03.md)
+- Re-ignite: AUTOMATIC when HP returns to ≥75% via repair. No player action required.
+- Implementation: postfix `WearNTear.OnDamage`/`OnRepair` to toggle `ParticleSystem.emission.enabled` based on HP threshold.
+
+#### A3.7 — Path Lamps wood material ✅ LOCKED
+
+Daniel: "I think corewood still tracks"
+
+**Path Lamps recipe (v1, locked):** Corewood + Resin (exact quantities TBD)
+- Confirms Path Lamps are technically Black Forest tier (corewood = pine, BF biome) even though introduced under Meadows framing.
+- Consistent with PLAYER_GUIDE.md line 110: "3m corewood torches, resin-fueled, long burn"
+
+#### A3.8 — Ember Lamps in v1 ✅ DROPPED FROM v1
+
+Daniel: "No"
+
+**Decision:** Ember Lamps are NOT in v1. They move to v1.1 (or a later release). Keeps v1 scope tight on the Path Lamps tier; Ember Lamps + Beacons come together later.
 
 ---
 
-### MAJOR NAME CORRECTION
-
-The crafting station is **Orienteering Table**, not "Explorer's Bench."
-
-I (Starbright) invented "Explorer's Bench" today as if from scratch when posing Round 2 — *despite* the actual name being locked in `PLAYER_GUIDE.md` and `design/nomap.md` since at least 2026-06-02. Apology to Daniel. Correcting throughout this document.
-
-**Orienteering Table (Meadows, locked, v1):**
+### EXPLORER'S BENCH (LOCKED, supersedes PLAYER_GUIDE.md "Orienteering Table")
 
 | Aspect | Value |
 |---|---|
-| Name | Orienteering Table (NOT Explorer's Bench) |
-| Recipe | 20 Wood + 4 Stone + 4 Bone fragment + 2 Greydwarf eye + 2 Deer hide (from `design/nomap.md` §1) |
-| Function | Crafting hub for all Trailborne pieces and Trailborne items |
+| Name | **Explorer's Bench** (renamed from "Orienteering Table" in prior Discord session; rename pending in PLAYER_GUIDE.md + design/nomap.md) |
+| Function | Crafting hub for all Trailborne pieces + Trailborne items (Trailblazer's Tools, Cairn Markers, Pigments, Painted Signs, Path Lamps) |
 | Piece category | `PieceCategory.Crafting` |
-| Implementation pattern | Clone `piece_workbench` prefab → name `SBPR_OrienteeringTable`, add `CraftingStation` component with `m_name = "$sbpr_piece_orienteering"`. Per `design/nomap.md` §1: "**Patch surface: none — pure prefab work.**" |
-| v1 visual approach | Per Daniel today: "kitbash the workbench a bit for the playtest" — Tier 1 reuse, vanilla workbench mesh with minor visual differentiation (material tint, kit-bashed surface props from `design/nomap.md`'s "half-rolled hide-map + bone needle stuck in a stone disk" hint) |
+| v1 implementation | Kitbash vanilla Workbench (per Daniel today). Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + visual props per design/nomap.md §1's "half-rolled hide-map + bone needle stuck in a stone disk" hint |
+| v1 recipe | Inherit from design/nomap.md §1: **20 Wood + 4 Stone + 4 Bone fragment + 2 Greydwarf eye + 2 Deer hide** (originally specced for Orienteering Table; carries over with the rename). Confirm this still tracks for Explorer's Bench. |
+| Patch surface | Per design/nomap.md §1: "Patch surface: none — pure prefab work." Clone `piece_workbench` → name `SBPR_ExplorersBench`. Add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`. |
+| v1.1+ path | Graduate to visually-distinct mesh once mechanics validate. |
 
 ---
 
 ### Round 4 — Reusability scan against decomp + wiki (NEXT)
 
-`design/nomap.md` already has substantial decomp-surface work done — Starbright must reference it (lines + classes + methods) before doing fresh scans. Planned scans:
-- **Cross-reference `design/nomap.md` first** (it has Minimap, Hammer/Hoe, Sign, Fireplace, TeleportWorld, ZoneSystem, ObjectDB, etc. line-references already done)
-- Decomp scan for `WearNTear` (for cairn resin glow + decay implementation)
-- Decomp scan for `SE_Rested.CalculateComfortLevel` (for cairn comfort patch)
-- Decomp scan for `MapTable` (for v1 disable mechanism)
-- Wiki grep for: Raspberries, Bone fragments, Coal, Resin (for pigment recipe input availability per biome confirmation)
-- Wiki grep for: Banner (for cairn comfort comparison)
-- Wiki grep for: Cartography Table (for disable-surface and player-expectation calibration)
-- Wiki grep for: Torch (for Path Lamp Tier 1 reuse pattern + fuel mechanics)
+Leveraging `design/nomap.md` line-references (Minimap, Hammer/Hoe, Sign, Fireplace, TeleportWorld, ZoneSystem, ObjectDB already mapped). Additional scans needed:
+- `WearNTear` (cairn resin glow + decay)
+- `SE_Rested.CalculateComfortLevel` (cairn comfort patch)
+- `MapTable` (v1 disable mechanism)
+- Wiki: Raspberries, Bone fragments, Coal, Resin, Blueberries (pigment input biome confirmation)
+- Wiki: Banner (cairn comfort comparison)
+- Wiki: Cartography Table (disable surface)
+- Wiki: Torch (Path Lamp Tier 1 reuse pattern + fuel mechanics)
 
 ---
 
-### Round 5 — Visual assets
-*(NOT YET ASKED — will ask after Round 4)*
+### Round 5 — Visual assets *(NOT YET ASKED)*
+
+### Round 6 — Scope boundaries / out-of-scope *(NOT YET ASKED)*
 
 ---
 
-### Round 6 — Scope boundaries / out-of-scope
-*(NOT YET ASKED — will ask after Round 4)*
+### Round 3.5 — Single remaining open question
 
----
-
-### Round 3.5 — Remaining open questions for Daniel (asked this turn)
-
-**Q3.6 — Cairn per-tier build cost** (re-asked per Daniel's instruction): The 3/4/5/6/7 stone *comfort floors* are locked. What's the per-tier *build cost*? Are they the same number (tier-1 cairn = 3 stones to build, tier-5 = 7 stones)? Or a separate cost ladder?
-
-**Q3.7 — Path Lamps wood material** (raised by repo re-read): PLAYER_GUIDE.md line 110 says Path Lamps are "3m corewood torches, resin-fueled, long burn." Corewood is Black Forest tier (cut from pines). Does that hold? — i.e. Path Lamps are *technically* Black Forest tier despite being introduced under the Meadows section because the player will need to walk to pines to craft them. Or do v1 Path Lamps use regular wood and corewood is a v1.1 graduation?
-
-**Q3.8 — Ember Lamps in v1 yes/no:** PLAYER_GUIDE.md introduces Ember Lamps as a Black Forest piece (eternal, ember-fueled, reddish glow). They're a clear v1 piece IF we're shipping "v1 = Meadows through early Black Forest" framing. Are Ember Lamps in v1, or v1.1?
+**Q3.9 — Cairn Marker recipe:** Daniel introduced "Cairn Marker" as a pre-crafted item required to build a cairn (3 stone + 1 resin + 1 cairn marker). What goes into a Cairn Marker? My instinct: thematic ingredients that make it feel like a "trail-claiming artifact" — maybe 1 Stone + 1 Resin + 1 Pigment (your-color choice), so the cairn's color is established at marker-craft time and the planted-marker is what carries the color into the cairn. But: this is your call, not a Starbright guess. What's the recipe?
 
 ---
 
@@ -308,14 +300,16 @@ Planned scans:
 
 ## Explicit features requested (running list)
 
-1. **Orienteering Table** (Meadows, v1 = kitbash vanilla Workbench, recipe 20W+4Stone+4BoneFrag+2GreydwarfEye+2DeerHide per design/nomap.md §1)
-2. **Cairns** — 5-tier comfort floor 3/4/5/6/7, mandatory decay, ≥75% pristine (resin glows) / <75% fizzled / <25% downgrade / 0% collapse, repair flat 3 stone + 1 resin, pigment+banner persist, auto-re-ignite glow on repair-to-pristine, per-tier *build cost* TBD (Q3.6)
-3. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
-4. **Painted Signs** — vanilla sign variant + E/Shift+E color binding + two-tone pins (no-op if nomap=ON), default pin keybind TBD
-5. **Trailblazer's Tools** — single tool item, hoe/hammer-equivalent, 1.5/3/5m path widths, Replant Grass same radii, Clear Vegetation wide-radius, recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Orienteering Table
-6. **Path Lamps** — Wood + Resin (corewood-vs-regular-wood TBD per Q3.7), dimmer than torch, longer fuel, manual ignition (no chain ignition — that was hallucinated)
-7. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
-8. **Ember Lamps?** — Q3.8 pending Daniel decision (in v1 or v1.1)
+1. **Explorer's Bench** (Meadows, v1 = kitbash vanilla Workbench, inherited recipe 20W+4Stone+4BoneFrag+2GreydwarfEye+2DeerHide pending confirmation — renamed from "Orienteering Table" last night in chat, repo docs lag)
+2. **Cairns** — 5-tier comfort floor 3/4/5/6/7, build cost **3 Stone + 1 Resin + 1 Cairn Marker**, upgrade cost flat **3 Stone + 1 Resin** per tier, repair cost flat **3 Stone + 1 Resin**, mandatory decay, ≥75% pristine (resin glows) / <75% fizzled / <25% downgrade / 0% collapse, pigment+banner persist, auto-re-ignite glow on repair-to-pristine
+3. **Cairn Marker** (NEW item — pre-crafted consumable required for cairn build, recipe TBD Q3.9, crafted at Explorer's Bench)
+4. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
+5. **Painted Signs** — vanilla sign variant + E/Shift+E color binding + two-tone pins (no-op if nomap=ON), default pin keybind TBD
+6. **Trailblazer's Tools** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, Replant Grass same radii, Clear Vegetation wide-radius, recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
+7. **Path Lamps** — **Corewood + Resin** (quantities TBD), dimmer than torch, longer fuel, manual ignition (no chain ignition)
+8. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
+
+**NOT in v1:** Ember Lamps, Beacons, Seer's Amulet, Map Station, Pocket Portal, Twisted Portal, Iron Compass, Inert Guardian Stones, Yellow pigment (cloudberry).
 
 ## Constraints stated
 
@@ -349,22 +343,26 @@ Planned scans:
 
 ## Open questions / TBD
 
-- **Q3.6: Cairn per-tier build cost** — `design/PARKED-2026-06-03.md` has the comfort *floors* (3/4/5/6/7 stone) but not the build *cost* ladder. Daniel says we discussed it; not in repo or facts. Asking him to recall.
-- **Q3.7: Path Lamp wood material** — `PLAYER_GUIDE.md` line 110 says corewood (Black Forest tier). Confirm corewood-not-regular-wood, OR v1 uses regular wood with corewood being a v1.1 graduation.
-- **Q3.8: Ember Lamps in v1 yes/no** — early Black Forest piece per PLAYER_GUIDE. Currently uncategorized for v1 scope.
+- **Q3.6: Cairn per-tier build cost** ✅ LOCKED — 3 Stone + 1 Resin + 1 Cairn Marker (initial); 3 Stone + 1 Resin (per upgrade)
+- **Q3.7: Path Lamp wood material** ✅ LOCKED — corewood
+- **Q3.8: Ember Lamps in v1** ✅ DROPPED FROM v1
+- **Q3.9: Cairn Marker recipe** — NEW item introduced by Q3.6 answer. Recipe pending Daniel.
 - Round 4 decomp/wiki scans pending (will leverage `design/nomap.md`'s existing line-references first)
 - Round 5 visual assets pending
 - Round 6 out-of-scope confirmation pending
 
-## PLAYER_GUIDE.md doc-PR follow-up tracker
+## PLAYER_GUIDE.md / design/*.md doc-PR follow-up tracker
 
-After spec finalization, the following PLAYER_GUIDE.md updates are needed to keep it consistent with this requirements.md (which is the authoritative v1 spec going forward):
+After spec finalization, the following doc updates are needed to keep repo consistent with this requirements.md (the authoritative v1 spec):
 
-1. **Trailblazer's Tools recipe** — line 67 currently says "wood, tin, flint". Daniel's today-answer: 5 Wood + 2 Flint + 2 Leather Hides. No tin in v1. Update.
-2. **v1 Cartography Table behavior** — PLAYER_GUIDE.md §"Cartography Table (vanilla) — but rebalanced" describes the regional-observation-post model. That's actually the v2 **Map Station** shape. In v1, vanilla Cartography Table is DISABLED, not "rebalanced." Either move that section to a future-v2 doc or annotate it as "v2 design" inline.
-3. **Path Lamps material confirmation** — line 110 says corewood; needs Daniel confirm (Q3.7 above) before doc lock.
-4. **Pin button keybind** — line 253 says "default keybind _TBD_" for Painted Sign pin trigger. Spec needs a default; PLAYER_GUIDE doc will inherit.
-5. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). The Cairn lifecycle is now fully specified here in requirements.md (3/4/5/6/7 comfort floor, 75% pristine glow threshold, 25% downgrade, 0% collapse, 3 stone + 1 resin flat repair). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows so the Guardian Stones forward-pointer has something to point at.
+1. **Rename Orienteering Table → Explorer's Bench** — applies to `PLAYER_GUIDE.md` (multiple references) and `design/nomap.md` (§1 patch surface). This rename was established in last night's Discord conversation but never propagated to repo docs. Wholesale find/replace.
+2. **Trailblazer's Tools recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
+3. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 Map Station shape. v1 is DISABLED, not "rebalanced." Move that section to a future-v2 doc or annotate inline.
+4. **Path Lamps material confirmation** — line 110's "corewood" is now confirmed. No change to PLAYER_GUIDE on this, but other reference docs (design/nomap.md if relevant) should propagate.
+5. **Pin button keybind** — line 253 says "default keybind _TBD_" for Painted Sign pin trigger. Spec needs a default; PLAYER_GUIDE doc will inherit.
+6. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
+7. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe (pending Q3.9).
+8. **Remove Ember Lamps / Beacons from v1 scope language** — PLAYER_GUIDE includes them in the Black Forest section. They're not in v1. Either move them to a "Roadmap" section or clearly label them v1.1+.
 
 ## Vision context
 
