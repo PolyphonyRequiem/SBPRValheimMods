@@ -351,7 +351,95 @@ Planned scans:
 - Ship-quality custom art for v1 pieces — v1.1+ polish
 
 ## Reusability notes
-*(will be populated by Round 4 — decomp + wiki scan)*
+
+*Round 4 — decomp + wiki + reference-mod scan, derived from `design/PARKED-2026-06-03.md` as source of truth (not re-imagined). Source-of-truth lines/files captured so the implementer doesn't re-derive.*
+
+### Explorer's Bench (custom `CraftingStation`)
+
+- **Vanilla anchor:** `piece_workbench` prefab. Reuse pattern proven by 3+ reference mods (`RandyKnapp/AdvancedPortals` sets `CraftingStation = "piece_workbench"`; `rolopogo/CraftyCarts` does `Prefab.Cache.GetPrefab<GameObject>("piece_workbench").GetComponent<CraftingStation>()`).
+- **Class:** `CraftingStation` (`assembly_valheim.decompiled.cs` lines 56034–56416). Key fields: `m_name`, `m_icon`, `m_discoverRange`, `m_rangeBuild = 10f`, `m_craftRequireRoof = true`, `m_craftRequireFire = false` (vanilla Workbench doesn't need fire), `m_useDistance = 2f`, `m_craftingSkill = Skills.SkillType.Crafting`, `m_areaMarker`, `m_inUseObject`, `m_haveFireObject`.
+- **Registration:** clone `piece_workbench` GameObject in `ZNetScene.Awake` postfix, swap `Piece.m_name = "$sbpr_piece_explorers_bench"`, set the SBPR recipe via `Piece.m_resources`, append the clone to the `_HammerPieceTable.m_pieces` list. **Pitfall:** `PieceTable.m_availablePieces` (`assembly_valheim.decompiled.cs` 59893–60202) caches lazily; register pieces in `ZNetScene.Awake` postfix BEFORE the first `Player.Awake` fires.
+- **Art swap (Tier 1 — vanilla mesh + custom material):** runtime material swap on the workbench mesh. Antler integration deferred to visual round.
+
+### Trailblazer's Tools (Hoe-class ground-modification tool — NOT a Hammer-class piece spawner)
+
+- **Per PARKED v1 scope:** "1.5/3/5m paths, Cultivate replant, ClearVegetation". This is a **Hoe variant**, not a build-piece spawner. Three terrain-paint modes (path widths) plus replant and clear actions.
+- **Vanilla anchors:** `TerrainComp` (`assembly_valheim.decompiled.cs` line 123154) owns ground modifications; `Heightmap` exposes `IsCultivated(worldPos)` (line 109613), `IsCleared`, and the paint-mask enum (`PaintType.Cultivate`, `PaintType.Path`, etc. — see line 123801 / 109565). The vanilla `Hoe` prefab + tool item is the closest peer.
+- **Class:** clone the `Hoe` item prefab, replace its `m_buildPieces` PieceTable with a Trailborne-specific table that exposes three "path" entries (1.5m / 3m / 5m widths) plus replant + clear actions. The paint operations bottom out at `TerrainModifier.PaintType.Path` / `Cultivate` / `Reset` — vanilla already supports the brush widths via radius parameters; we're not inventing terrain ops, we're wrapping them at our widths.
+- **Replant mechanic:** when a `Pickable` was picked (`m_picked = true` on its ZDO), the Cultivate action with replant intent re-spawns the picked plant by reading `Pickable.m_itemPrefab` and dropping a seed/sapling adjacent. Needs more thought during implementation — flagged.
+- **ClearVegetation:** uses `TerrainModifier`'s clear paint mode on a radius; effectively a fast "remove bushes/grass/small rocks" pass. Vanilla operation; we wrap and surface as a third tool mode.
+
+### Painted Signs (subclass vanilla `Sign` + custom edit dialog)
+
+- **Per PARKED v1 scope:** "E=text color, Shift+E=accent, two-tone pins (no-op if nomap ON)". **Corrected this round to match Daniel's actual UX intent:**
+  - **E** opens a **custom multi-field edit dialog**: pick text color, pick accent color, type label, **live preview**, OK/Cancel, **resources-needed panel like the crafting UI**. Single dialog covers the whole interaction; player isn't bouncing between modes.
+  - **Shift+E** = pin trigger on the already-placed sign. Pin reflects the sign's two-tone (text + accent) on the minimap.
+  - **No-op if nomap is ON** — the pin button does nothing because there's no map to pin to. Sign still placeable, paintable, labellable; it just doesn't surface as a pin.
+- **Class:** `Sign` (`assembly_valheim.decompiled.cs` lines 121412–121589). Implements `Hoverable, Interactable, TextReceiver`. Subclass as `SBPR_PaintedSign : Sign` to inherit ZDO sync, text storage, network behavior. Additional ZDO fields: `text_color` (uint), `accent_color` (uint). Persists with the sign's existing ZDO container.
+- **Custom edit dialog (NEW — not a vanilla pattern):** vanilla `Sign` uses `TextInput.RequestText(this, "$piece_sign_input", limit)` (single-line text only — confirmed at decomp line 27163 for renaming pattern). Our multi-field dialog needs a **custom UI panel** cloned from `InventoryGui`'s smaller dialog templates (recipe panel, resource-cost panel — both already exist as InventoryGui children, can be cloned at runtime). Live preview = a small `TextMeshProUGUI` instance mirroring the sign's display with current color picker state.
+- **Pin behavior:** on Shift+E hover, postfix `Player.Update` (or wire via the sign's `Interact` override with `alt=true`) — `Minimap.AddPin(sign.transform.position, PinType.Icon3 or custom, sign.Text, save=true, isChecked=false, ownerID)`. Two-tone is rendered as a custom pin sprite (icon + accent ring). Check `Minimap.GetClosestPin` for merge before adding. If `nomap_mode == ON`, the postfix early-returns without calling AddPin.
+- **UGC gate (decision LOCKED 2026-06-03):** v1 Painted Signs inherit vanilla `Sign`'s UGC gate as-is. Defer the bypass conversation to v2.
+
+### Cairns (custom piece + comfort-level state machine via `SE_Rested.CalculateComfortLevel` patch)
+
+- **Per PARKED v1 scope:** "3/4/5/6/7 comfort floor, max() clamp, patch `SE_Rested.CalculateComfortLevel` directly (not in vanilla `ComfortGroup` enum), repair flat 3 stone + 1 resin, pigment+banner persist, downgrade@25%, collapse@0%."
+- **Vanilla anchors:** `SE_Rested` class at `assembly_valheim.decompiled.cs` line 25338. `SE_Rested.CalculateComfortLevel(Player)` at line 25397, overload `CalculateComfortLevel(bool inShelter, Vector3 position)` at line 25402. Vanilla `ComfortGroup` enum at line 116068; `Piece.m_comfortGroup` at line 116123 — confirmed that adding to the enum requires touching the assembly; the PARKED decision to patch `CalculateComfortLevel` directly bypasses this.
+- **Why the `CalculateComfortLevel` patch (PARKED rationale):** vanilla comfort is computed by iterating nearby pieces grouped by `ComfortGroup` and picking the highest-comfort piece in each group. Cairns aren't in any vanilla group. Adding a new enum value would require IL-modifying the enum (fragile across game updates). Instead, postfix `SE_Rested.CalculateComfortLevel(bool, Vector3)`: scan nearby SBPR cairns within vanilla's comfort search radius, find the highest-tier (3-7), `result = Mathf.Max(vanillaResult, cairnTier)`. Clean and update-tolerant.
+- **Lifecycle state machine:** Cairn has 5 tiers, comfort floor 3/4/5/6/7. Health tracked via vanilla `WearNTear.m_health` (line 128064) and `m_onDamaged` delegate (line 128029). Postfix `WearNTear.OnDamage` to check our thresholds: at `m_healthPercentage < 75%` lose pristine (visual indicator), at `< 25%` downgrade by one tier (reduces comfort floor by 1, resets health to 100% of new tier), at `0%` collapse (destroy piece, leave a pile-of-rocks remnant).
+- **Repair:** flat 3 Stone + 1 Resin per tier-upgrade or per pristine-restore. Painted color + banner attachment persist through downgrade/upgrade — stored on cairn's ZDO, re-applied on tier swap.
+- **Initial build:** 3 Stone + 1 Resin + 1 Cairn Marker. Marker carries the pigment color choice into the cairn ZDO at place-time.
+- **Open thread (PARKED):** "Cairn downgrade re-ignite resin? lean: deliberate-only." Stays open.
+
+### Pigments (custom `ItemDrop`, consumable craft input)
+
+- **Per PARKED v1 scope:** "R/W/B/Blue, 2/craft, stack 20, weight 0.1". Four pigments in v1: red, white, black, blue. Each recipe yields 2 pigments per craft, max stack 20, item weight 0.1.
+- **Vanilla anchor:** no vanilla pigment/dye/ink/paint item exists (full wiki grep returns only `Trinkets.md`). Pigments are novel; naming space is clean.
+- **Pattern:** clone any simple consumable prefab (e.g. `Raspberry`) as a sprite-only stand-in, swap `m_shared.m_name`, `m_shared.m_icons`, `m_shared.m_maxStackSize = 20`, `m_shared.m_weight = 0.1f`. One `Recipe` per color, crafted at Explorer's Bench, yields 2 per craft.
+- **v1 ingredient inputs:** red ← raspberries; blue ← blueberries; white ← (TBD — bone fragment? mushroom?); black ← (TBD — coal? greydwarf eye?). These are reasonable instincts only — needs Daniel confirmation in Round 5 alongside icons.
+
+### Cairn Marker (custom `ItemDrop`, single-use consumable)
+
+- **Recipe (LOCKED):** 2 Leather Scraps + 1 Finewood + 1 Pigment. Pigment color selected at craft-time → cairn color at build-time.
+- **Pattern:** simple `ItemDrop` clone (any small consumable), recipe at Explorer's Bench. Consumed by the Cairn piece's `Piece.m_resources` requirement on initial build only (not on tier upgrades).
+
+### Path Lamps (kitbash vanilla `piece_groundtorch_wood`)
+
+- **Recipe (LOCKED Q3.11):** 3 Corewood + 2 Resin.
+- **Vanilla anchor:** `piece_groundtorch_wood` (Fireplace + Piece combo). Tune `Fireplace.m_fuelItem = Resin`, extend `m_secPerFuel` for "long burn" (vanilla torch ~600s/resin; ours ~1800s/resin so a 2-resin lamp = ~1hr burn), reduce child `Light.intensity` ~30% for "dimmer trail glow."
+- **Visual:** slim 3m corewood post topped with resin-fueled flame (per Q3.11 lock).
+
+### v1 Cartography Table (DISABLED)
+
+- **Approach:** prefix `MapTable.OnRead` and `MapTable.OnWrite` (`assembly_valheim.decompiled.cs` 114014–114141) to return false. Show MessageHud text: "$sbpr_cartography_disabled_v1 — coming in v2."
+- **Reference:** `shudnal/NomapPrinter` already patches the exact same `MapTable.OnRead`/`OnWrite` surface (`HarmonyPatch(typeof(MapTable), nameof(MapTable.OnRead))`). Clean precedent — different intent, same surface.
+
+### Map situation (PARKED-locked, NOT a piece — global behavior)
+
+- **Per PARKED:** "nomap ON = no map at all. nomap OFF = minimap ONLY, freely rotating, NO north indicator. No M-key map."
+- **When nomap mode is OFF:** patch `Minimap.SetMapMode` to suppress `MapMode.Large` (full M-key map blocked); patch the minimap rotation/north-arrow logic in `Minimap.Awake`/`Minimap.UpdateMap` to disable the compass needle.
+- **When nomap mode is ON:** patch `Minimap.IsOpen` to return false (compose with NomapPrinter's existing patch on this method — read NomapPrinter for the precise pattern, do not copy).
+- **Pin behavior coupling:** when nomap is ON, `Minimap.AddPin` calls from Painted Signs early-return (PARKED: "no-op if nomap ON"). When nomap is OFF, pins land on the minimap as normal.
+
+### Vanilla content corpus-verified this round
+
+- ✅ `piece_workbench` exists; clone pattern proven by 3+ reference mods.
+- ✅ `Sign` class signature current as of Bog Witch/Ashlands decomp; UGC gate at `Sign.Interact` confirmed.
+- ✅ `WearNTear.m_health` / `m_onDamaged` / `OnDamage` / `Repair` all current.
+- ✅ `SE_Rested.CalculateComfortLevel` exists at lines 25397/25402; both overloads present. `ComfortGroup` enum at 116068. PARKED rationale for patching `CalculateComfortLevel` directly (rather than extending the enum) is sound — confirmed cairns aren't in the vanilla enum.
+- ✅ `TerrainComp` + `Heightmap.IsCultivated`/`IsCleared` exist (lines 123154, 109613). `PaintType.Cultivate`, `Path`, `Reset` enum values present (line 123801). Trailblazer's Tools wraps these.
+- ✅ `Pickable.m_picked` + `m_itemPrefab` + `m_amount` + `m_respawnTimeMinutes` exist — usable for replant and v4 Seer's Stone area-pop.
+- ✅ `Resin` is real, drops from all tree types + Greylings.
+- ✅ Vanilla `Cairns` (`Waymarker01`/`Waymarker02`) are inert Mountain-biome POI, NOT buildable. Our buildable + tiered + comfort-emitting Cairn is original.
+- ✅ `TextInput.RequestText` is the vanilla single-line input dialog (line 27163 — used by rename). For our multi-field sign edit dialog, we'll clone `InventoryGui` panel templates at runtime (no vanilla multi-field text-input dialog exists).
+- ❌ No vanilla pigment/dye/ink/paint item. Pigments are fully novel.
+- ❌ No vanilla "tiered building piece with comfort progression" — Cairn lifecycle is original work.
+
+### What this round did NOT cover (deferred to later rounds or already locked elsewhere)
+
+- **Pact** — out of scope for this mod entirely. Trailborne v1 ships standalone with no shared-library dependency.
+- **Shared-infrastructure code organization** — also out of scope; each mod stands alone for now.
+- **LOC estimates** — withdrawn. Not useful before tasks decomposition; was anchored to imaginary shared infrastructure.
+- **Inert Guardian Stones** — PARKED as stretch goal contingent on `valheim-regions` macro boundaries finalizing first. NOT a v1 blocker.
 
 ## Visual assets
 *(none provided yet — will be requested in Round 5)*
@@ -380,7 +468,7 @@ After spec finalization, the following doc updates are needed to keep repo consi
 ### ⏳ Remaining doc-PR work
 1. **Trailblazer's Tools recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
 2. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 Map Station shape. v1 is DISABLED, not "rebalanced." Move that section to a future-v2 doc or annotate inline.
-3. **Pin button keybind** — line 253 says "default keybind _TBD_" for Painted Sign pin trigger. Spec needs a default; PLAYER_GUIDE doc will inherit.
+3. **Painted Sign interaction model** — line 253 says "default keybind _TBD_" for the pin trigger. Today-locked: **E** opens a custom multi-field edit dialog (text color, accent color, label text, live preview, OK/Cancel, resource-cost panel). **Shift+E** pins the placed sign. Pin is two-tone (text color + accent color), no-op if nomap mode is ON. PLAYER_GUIDE needs the full interaction surfaced (not just the keybind).
 4. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
 5. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe: 2 Leather Scraps + 1 Finewood + 1 Pigment.
 6. **Remove Ember Lamps / Beacons from v1 scope language** — PLAYER_GUIDE includes them in the Black Forest section. They're not in v1. Either move them to a "Roadmap" section or clearly label them v1.1+.
