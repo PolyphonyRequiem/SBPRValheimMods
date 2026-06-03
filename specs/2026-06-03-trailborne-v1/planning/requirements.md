@@ -240,10 +240,27 @@ Daniel: "No"
 | Name | **Explorer's Bench** (renamed from "Orienteering Table" in prior Discord session; rename pending in PLAYER_GUIDE.md + design/nomap.md) |
 | Function | Crafting hub for all Trailborne pieces + Trailborne items (Trailblazer's Tools, Cairn Markers, Pigments, Painted Signs, Path Lamps) |
 | Piece category | `PieceCategory.Crafting` |
-| v1 implementation | Kitbash vanilla Workbench (per Daniel today). Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + visual props per design/nomap.md §1's "half-rolled hide-map + bone needle stuck in a stone disk" hint |
-| v1 recipe | Inherit from design/nomap.md §1: **20 Wood + 4 Stone + 4 Bone fragment + 2 Greydwarf eye + 2 Deer hide** (originally specced for Orienteering Table; carries over with the rename). Confirm this still tracks for Explorer's Bench. |
-| Patch surface | Per design/nomap.md §1: "Patch surface: none — pure prefab work." Clone `piece_workbench` → name `SBPR_ExplorersBench`. Add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`. |
+| v1 implementation | Kitbash vanilla Workbench (per Daniel today). Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + **deer trophy mounted on top with antlers used as pigment-mixing cups** (per Daniel today) + half-rolled hide-map and bone needle stuck in a stone disk (per design/nomap.md §1 prop hint) |
+| v1 recipe (Daniel today) | **Includes Deer Trophy** — antler is repurposed as pigment-mixing cups on the bench surface. Resolves a repo conflict: `design/nomap.md` §1 says "2 Deer Hide" but `PLAYER_GUIDE.md` line 58-61 narrative says "deer trophy (to mount its antler as an inkwell)" + "raspberries (for red pigment)" + "resin (for ink fixative)". PLAYER_GUIDE narrative wins. **Locked v1 recipe (composite of confirmed elements):** Wood + Stone + 1 Deer Trophy + Raspberries + Resin. **Exact quantities TBD as Q3.10** — need Daniel to confirm a coherent number set. |
+| Patch surface | Per design/nomap.md §1: "Patch surface: none — pure prefab work." Clone `piece_workbench` → name `SBPR_ExplorersBench`. Add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`. Add deer-trophy decoration via runtime prefab composition (vanilla `TrophyDeer` prefab attached to bench mesh). |
 | v1.1+ path | Graduate to visually-distinct mesh once mechanics validate. |
+
+---
+
+### CAIRN MARKER (LOCKED — pre-crafted item, gates Cairn construction)
+
+| Aspect | Value |
+|---|---|
+| Name | Cairn Marker |
+| Type | `ItemDrop` (consumable item, used as build-ingredient for Cairn pieces) |
+| Recipe (Daniel today) | **2 Leather Scraps + 1 Finewood + 1 Pigment (player's color choice)** |
+| Crafted at | Explorer's Bench |
+| Function | Required ingredient for Cairn initial-build (1 Cairn Marker + 3 Stone + 1 Resin → Tier 1 Cairn). Consumed on placement. |
+| Color-binding | The Pigment color used to craft the Marker IS the color the placed Cairn takes. The marker is what carries the cairn's color/banner identity from craft-time to plant-time. *Pigment+banner persist across rebuilds* (per PARKED-2026-06-03.md) implies the Cairn ZDO remembers its initial-marker color even after collapse/rebuild. |
+| Thematic | The "marker" is the trail-claiming artifact you carry out into the wilderness. Stones-around-a-planted-marker is the cairn assembly mental model — you don't build a cairn from raw stones alone, you build it *around something you brought*. |
+| Stack size | TBD — likely 10 (matches similar consumables like Surtling Core / Greydwarf Eye stacking shape) |
+| Weight | TBD — likely 0.5 |
+| Patch surface | None — pure ObjectDB registration. Recipe registers via standard `Recipe` ScriptableObject pattern. Cairn `Piece.m_resources` declares 1 `ItemDrop.ItemData` of type `Item_CairnMarker` as a required ingredient. |
 
 ---
 
@@ -300,9 +317,9 @@ Planned scans:
 
 ## Explicit features requested (running list)
 
-1. **Explorer's Bench** (Meadows, v1 = kitbash vanilla Workbench, inherited recipe 20W+4Stone+4BoneFrag+2GreydwarfEye+2DeerHide pending confirmation — renamed from "Orienteering Table" last night in chat, repo docs lag)
+1. **Explorer's Bench** (Meadows, v1 = kitbash vanilla Workbench + mounted Deer Trophy with antlers-as-pigment-cups, recipe = Wood + Stone + 1 Deer Trophy + Raspberries + Resin per PLAYER_GUIDE narrative — exact quantities TBD Q3.10)
 2. **Cairns** — 5-tier comfort floor 3/4/5/6/7, build cost **3 Stone + 1 Resin + 1 Cairn Marker**, upgrade cost flat **3 Stone + 1 Resin** per tier, repair cost flat **3 Stone + 1 Resin**, mandatory decay, ≥75% pristine (resin glows) / <75% fizzled / <25% downgrade / 0% collapse, pigment+banner persist, auto-re-ignite glow on repair-to-pristine
-3. **Cairn Marker** (NEW item — pre-crafted consumable required for cairn build, recipe TBD Q3.9, crafted at Explorer's Bench)
+3. **Cairn Marker** (pre-crafted consumable, recipe = **2 Leather Scraps + 1 Finewood + 1 Pigment** of player's color, crafted at Explorer's Bench, pigment color binds cairn color at craft-time)
 4. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
 5. **Painted Signs** — vanilla sign variant + E/Shift+E color binding + two-tone pins (no-op if nomap=ON), default pin keybind TBD
 6. **Trailblazer's Tools** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, Replant Grass same radii, Clear Vegetation wide-radius, recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
@@ -346,7 +363,8 @@ Planned scans:
 - **Q3.6: Cairn per-tier build cost** ✅ LOCKED — 3 Stone + 1 Resin + 1 Cairn Marker (initial); 3 Stone + 1 Resin (per upgrade)
 - **Q3.7: Path Lamp wood material** ✅ LOCKED — corewood
 - **Q3.8: Ember Lamps in v1** ✅ DROPPED FROM v1
-- **Q3.9: Cairn Marker recipe** — NEW item introduced by Q3.6 answer. Recipe pending Daniel.
+- **Q3.9: Cairn Marker recipe** ✅ LOCKED — 2 Leather Scraps + 1 Finewood + 1 Pigment (player color choice)
+- **Q3.10: Explorer's Bench exact quantities** — narrative-locked to Wood + Stone + Deer Trophy + Raspberries + Resin. Need quantity numbers.
 - Round 4 decomp/wiki scans pending (will leverage `design/nomap.md`'s existing line-references first)
 - Round 5 visual assets pending
 - Round 6 out-of-scope confirmation pending
@@ -361,8 +379,9 @@ After spec finalization, the following doc updates are needed to keep repo consi
 4. **Path Lamps material confirmation** — line 110's "corewood" is now confirmed. No change to PLAYER_GUIDE on this, but other reference docs (design/nomap.md if relevant) should propagate.
 5. **Pin button keybind** — line 253 says "default keybind _TBD_" for Painted Sign pin trigger. Spec needs a default; PLAYER_GUIDE doc will inherit.
 6. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
-7. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe (pending Q3.9).
+7. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe: 2 Leather Scraps + 1 Finewood + 1 Pigment.
 8. **Remove Ember Lamps / Beacons from v1 scope language** — PLAYER_GUIDE includes them in the Black Forest section. They're not in v1. Either move them to a "Roadmap" section or clearly label them v1.1+.
+9. **design/nomap.md §1 Orienteering Table recipe** — currently says `20W + 4Stone + 4Bone fragment + 2Greydwarf eye + 2Deer hide`. Daniel's today-answer + PLAYER_GUIDE narrative supersede: it's **Deer Trophy, not Deer Hide**, with antler functioning as pigment-mixing cups; and the recipe should match PLAYER_GUIDE's narrative ingredient set (Wood + Stone + Deer Trophy + Raspberries + Resin), not design/nomap.md's set. Doc-PR needed to align design/nomap.md §1 with this requirements.md's locked recipe once Q3.10 confirms quantities.
 
 ## Vision context
 
