@@ -329,6 +329,41 @@ sides are **lost forever** — traveler beware.
 
 ---
 
+## Future families (post-Explorer)
+
+### Guardian Stones — _TBD, distant horizon_
+
+The next mod family on the roadmap. **Forward-pointer only — not yet designed in
+detail.** Recording the load-bearing connection so future-us doesn't lose it:
+
+Guardian Stones will introduce a **server-wide change to building wear and tear.**
+Today's vanilla floor (durability never falls below 50% in most conditions) goes
+away. Neglected regions of the map — bases nobody visits, outposts left to weather,
+abandoned settlements — will eventually decay and fall apart entirely. Weather will
+do real, permanent damage.
+
+Guardian Stones are the counterweight: a player-built Guardian Stone, **maintained
+the way Cairns are maintained**, projects a protective field that prevents the
+no-floor wear-and-tear from chewing structures in its area. A well-tended Guardian
+Stone keeps a base intact indefinitely; a neglected one stops protecting, and the
+base under it begins to decay.
+
+The maintenance model is **exactly the Cairn lifecycle from this mod** — donate
+materials, level up over time, downgrade-with-grace at low durability, collapse if
+fully neglected. The Cairn is the design rehearsal for the Guardian Stone.
+
+When we get to this, the questions to answer will include:
+- What's the Guardian Stone's coverage radius (and does it scale with level)?
+- What materials feed it (probably scarcer than the Cairn's stone/resin)?
+- How does the no-floor wear-and-tear get applied — globally, or only on SBPR
+  servers, or only inside coverage gaps?
+- Does the Guardian Stone interact with the cartography system (e.g., does a
+  Map Station auto-mark Guardian Stone coverage areas on the map)?
+
+Not now. Just noting the connection.
+
+---
+
 ## What's NOT in v1
 
 To be honest about scope:
