@@ -32,22 +32,21 @@ The whole map system lives in **one MonoBehaviour singleton** — `Minimap` (lin
 
 ---
 
-## 1. Orienteering Table (Meadows)
+## 1. Explorer's Bench (Meadows)
 
 A new workbench-tier crafting station.
 - **Patch surface:** **none** — pure prefab work.
-  - Clone `piece_workbench` → set new prefab name `SBPR_OrienteeringTable`.
-  - Add a new `CraftingStation` (line 56034) component with `m_name = "$sbpr_piece_orienteering"`.
-  - It becomes the `Piece.m_craftingStation` requirement for the orienteering pieces below.
+  - Clone `piece_workbench` → set new prefab name `SBPR_ExplorersBench`.
+  - Add a new `CraftingStation` (line 56034) component with `m_name = "$sbpr_piece_explorers_bench"`.
+  - It becomes the `Piece.m_craftingStation` requirement for the explorer pieces below.
 - **Piece definition:** `Piece` (line 116052). Set `m_category = PieceCategory.Crafting`. `m_resources = Requirement[]` where each `Requirement.m_resItem` points to an existing `ItemDrop`.
-- **Resource brainstorm (no new drops):**
-  - Wood ×20 — frame.
+- **Locked recipe (Daniel, 2026-06-03):**
+  - Wood ×10 — frame.
   - Stone ×4 — surface to draw on.
-  - **Bone fragment ×4** — for a primitive compass needle / dividers (lore: dead reckoning).
-  - **Greydwarf eye ×2** — "sight-stone" inlay for trinkets we craft here. Sets up the later "magic seeing" theme of Twisted Portals.
-  - **Deer hide ×2** — to make blank maps / scrolls.
-  - All five are vanilla Meadows/Black-Forest drops, no new resources needed.
-  - Visual cue: the table has a half-rolled hide-map on its surface + a chunk of bone needle stuck in a stone disk.
+  - **Deer trophy ×1** — antlers are visually integrated INTO the bench art (carved cups / supports / pen-holders). Not "mounted on top" as a trophy decoration — the antler shapes become part of the bench mesh itself via kitbash/material composition.
+  - That's it. No bone fragments. No greydwarf eyes. No deer hide. No raspberries. No resin. (The earlier brainstorm here proposed bone fragments + greydwarf eyes + deer hide; PLAYER_GUIDE.md narrative further implied raspberries + resin. Daniel corrected: the bench recipe is just Wood + Stone + Deer Trophy. Raspberries and resin in PLAYER_GUIDE were describing what the bench is USED FOR — pigment grinding, ink fixative — not what it's MADE OF.)
+  - All three are vanilla Meadows drops, no new resources needed.
+  - Visual cue: half-rolled hide-map on the bench surface + a chunk of bone needle stuck in a stone disk + antler shapes integrated into the bench's structure.
 
 ---
 
@@ -187,10 +186,10 @@ These three are all on **one class**, all clean Harmony postfixes/prefixes. No r
 ## Open questions for Daniel (the design ones I can't decide for you)
 
 1. **Map shroud radius — rolling vs fixed?** "No map beyond 1000m" → from your current position as you move (rolling shroud), or from where you stood at the cartography table?
-2. **What unlocks the Orienteering Table itself?** I assumed it's available at Meadows tier from start. Or does it require something first (kill an Eikthyr, find a specific item)?
+2. **What unlocks the Explorer's Bench itself?** I assumed it's available at Meadows tier from start. Or does it require something first (kill an Eikthyr, find a specific item)?
 3. **Twisted Portal vs vanilla portal — coexist or replace?** Are vanilla portals still craftable for people who don't want to bother with the Key durability dance? Or does Twisted replace vanilla entirely once unlocked?
 4. **Seer's Stone scope** — only `Pickable` + `Location`, or also creatures (deer / boars for hunting)? "pickables and locations" was the spec but I want to confirm I'm not under-reading.
-5. **Trailblazer's Tools tier** — Meadows (any antler-pickaxe-tier player can build one) or gated behind the Orienteering Table?
+5. **Trailblazer's Tools tier** — Meadows (any antler-pickaxe-tier player can build one) or gated behind the Explorer's Bench?
 6. **Public chest size** of Traveler's Storage — 4×4? Bigger? Smaller (forces selection of what to leave)?
 
 I have **no opinion** on the answers to these; they're aesthetic/pacing calls I want from you.
@@ -203,7 +202,7 @@ I have **no opinion** on the answers to these; they're aesthetic/pacing calls I 
 2. ✅ Sign collection + Beacon (prefabs only, Fireplace fuel works perfectly)
 3. ✅ Iron Compass (pure HUD overlay, no game-state patches)
 4. ✅ Pocket Portal (prefab clone + recipe)
-5. ⚠️ Orienteering Table + Trailblazer's Tools (prefab work, but new ItemDrop with PieceTable requires asset-bundle build pipeline working)
+5. ⚠️ Explorer's Bench + Trailblazer's Tools (prefab work, but new ItemDrop with PieceTable requires asset-bundle build pipeline working)
 6. ⚠️ Map shroud / zoom cap / no scroll (Minimap is a 2420-line god-class, patches are surgically simple but the class is big — high risk of conflict with other Minimap-touching mods)
 7. ⚠️ Seer's Stone (raycast + camera + pin merging — straightforward but lots of edge cases)
 8. 🔴 Traveler's Storage (per-player private inventory in ZDO blob — novel serialization, needs careful testing)

@@ -114,15 +114,13 @@ What we will NOT do (in v1):
 | **ClearVegetation** | Removes existing vegetation along the laid path (small brush, grass, mushrooms — NOT trees) so the path is *visually a path*, not a stripe through bushes |
 | **Implementation surface** | Likely a new item class analogous to `Hoe`, with custom `m_operations` array entries for the three widths + cultivate-replant + clear-vegetation. May patch `Hoe` directly OR introduce a new `TrailblazerTool` MonoBehaviour. Decision for spec-writer. |
 
-#### A2.3 — Orienteering Table (LOCKED — kitbash for playtest)
+#### A2.3 — Explorer's Bench (LOCKED — kitbash for playtest)
 
-⚠️ **NAME CORRECTION**: this section was originally written "Explorer's Bench" — that was Starbright inventing a name today. The locked station name from `PLAYER_GUIDE.md` + `design/nomap.md` is **Orienteering Table**. See the dedicated Orienteering Table section below Round 3 for the full locked definition. Brief summary for Round 2 closure:
-
-**v1 approach:** kitbash the vanilla Workbench. Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + visual props (half-rolled hide-map + bone-needle-in-stone-disk per `design/nomap.md` §1). Trailborne recipes register as new tabs on the Orienteering Table (its own CraftingStation, NOT the vanilla Workbench).
+**v1 approach:** kitbash the vanilla Workbench. Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + visual props (half-rolled hide-map + bone-needle-in-stone-disk per `design/nomap.md` §1 + antlers from Deer Trophy visually integrated into the bench mesh). Trailborne recipes register as new tabs on the Explorer's Bench (its own CraftingStation, NOT the vanilla Workbench).
 
 **v1.1+ path:** graduate to a visually-distinct mesh once mechanics validate. Retains thematic anchor (own recipe, own discovery moment).
 
-**Recipe (v1, from `design/nomap.md` §1):** 20 Wood + 4 Stone + 4 Bone fragment + 2 Greydwarf eye + 2 Deer hide.
+**Recipe (LOCKED, Daniel 2026-06-03):** 10 Wood + 4 Stone + 1 Deer Trophy. No raspberries, no resin. See the dedicated Explorer's Bench section below for full detail.
 
 #### A2.4 — Path Lamps (LOCKED, added in this round per Daniel)
 
@@ -233,16 +231,16 @@ Daniel: "No"
 
 ---
 
-### EXPLORER'S BENCH (LOCKED, supersedes PLAYER_GUIDE.md "Orienteering Table")
+### EXPLORER'S BENCH (LOCKED)
 
 | Aspect | Value |
 |---|---|
-| Name | **Explorer's Bench** (renamed from "Orienteering Table" in prior Discord session; rename pending in PLAYER_GUIDE.md + design/nomap.md) |
+| Name | **Explorer's Bench** |
 | Function | Crafting hub for all Trailborne pieces + Trailborne items (Trailblazer's Tools, Cairn Markers, Pigments, Painted Signs, Path Lamps) |
 | Piece category | `PieceCategory.Crafting` |
-| v1 implementation | Kitbash vanilla Workbench (per Daniel today). Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + **antlers from the Deer Trophy used visually in the table art** (per Daniel today — NOT a mounted trophy decoration; the antlers are *visually integrated into the bench surface itself*, e.g. as pigment-mixing cups carved/embedded into the wood, or as the bench's leg supports, or as ink-pen-holders — exact composition deferred to visual-design stage) + half-rolled hide-map and bone needle stuck in a stone disk (per design/nomap.md §1 prop hint) |
-| v1 recipe (Daniel today) | **Wood + Stone + 1 Deer Trophy.** That's it. No raspberries, no resin. (Earlier in this round I had inferred raspberries + resin from PLAYER_GUIDE.md's narrative — Daniel corrected: those ingredients are NOT part of the bench recipe. The narrative's "raspberries / resin" prose was describing what the bench is *used for* (pigment grinding, ink fixative), not what it's *made of*. The bench itself is a simple wood/stone construction with a Deer Trophy whose antlers visually integrate into the bench art.) **Exact quantities TBD as Q3.10.** |
-| Patch surface | Per design/nomap.md §1: "Patch surface: none — pure prefab work." Clone `piece_workbench` → name `SBPR_ExplorersBench`. Add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`. Visual integration of antler shapes into the bench mesh is a kitbash/material composition task — NOT attaching the vanilla `TrophyDeer` prefab as a child. The antlers should *be part of the bench*, not sit *on* the bench. |
+| v1 implementation | Kitbash vanilla Workbench. Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + **antlers from the Deer Trophy visually integrated into the bench art itself** (NOT mounted on top as a trophy decoration — the antler shapes are part of the bench's structure: carved cups, leg supports, pen-holders, etc.; final composition deferred to visual-design stage) + half-rolled hide-map and bone needle stuck in a stone disk (per `design/nomap.md` §1 prop hint) |
+| v1 recipe (LOCKED, Daniel 2026-06-03) | **10 Wood + 4 Stone + 1 Deer Trophy.** No raspberries. No resin. No bone fragments. No greydwarf eyes. No deer hide. (Earlier brainstorms in `design/nomap.md` §1 and prose in `PLAYER_GUIDE.md` lines 58-60 implied other ingredients; this recipe supersedes them and both docs have been updated to match.) |
+| Patch surface | Pure prefab work. Clone `piece_workbench` → name `SBPR_ExplorersBench`. Add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`. Visual integration of antler shapes into the bench mesh is a kitbash / material composition task — NOT attaching the vanilla `TrophyDeer` prefab as a child. The antlers should *be part of the bench*, not sit *on* the bench. |
 | v1.1+ path | Graduate to visually-distinct mesh once mechanics validate. |
 
 ---
@@ -317,7 +315,7 @@ Planned scans:
 
 ## Explicit features requested (running list)
 
-1. **Explorer's Bench** (Meadows, v1 = kitbash vanilla Workbench with antlers from Deer Trophy integrated into bench art, recipe = **Wood + Stone + 1 Deer Trophy** — exact quantities TBD Q3.10)
+1. **Explorer's Bench** (Meadows, v1 = kitbash vanilla Workbench with antlers from Deer Trophy integrated into bench art, recipe = **10 Wood + 4 Stone + 1 Deer Trophy**)
 2. **Cairns** — 5-tier comfort floor 3/4/5/6/7, build cost **3 Stone + 1 Resin + 1 Cairn Marker**, upgrade cost flat **3 Stone + 1 Resin** per tier, repair cost flat **3 Stone + 1 Resin**, mandatory decay, ≥75% pristine (resin glows) / <75% fizzled / <25% downgrade / 0% collapse, pigment+banner persist, auto-re-ignite glow on repair-to-pristine
 3. **Cairn Marker** (pre-crafted consumable, recipe = **2 Leather Scraps + 1 Finewood + 1 Pigment** of player's color, crafted at Explorer's Bench, pigment color binds cairn color at craft-time)
 4. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
@@ -364,7 +362,8 @@ Planned scans:
 - **Q3.7: Path Lamp wood material** ✅ LOCKED — corewood
 - **Q3.8: Ember Lamps in v1** ✅ DROPPED FROM v1
 - **Q3.9: Cairn Marker recipe** ✅ LOCKED — 2 Leather Scraps + 1 Finewood + 1 Pigment (player color choice)
-- **Q3.10: Explorer's Bench exact quantities** — narrative-locked to Wood + Stone + Deer Trophy + Raspberries + Resin. Need quantity numbers.
+- **Q3.10: Explorer's Bench exact quantities** ✅ LOCKED — 10 Wood + 4 Stone + 1 Deer Trophy. No raspberries. No resin. (Earlier I had inferred raspberries+resin from PLAYER_GUIDE.md narrative — Daniel corrected: the narrative's mention of those ingredients was describing what the bench is USED FOR, not what it's MADE OF.)
+- **Q3.11: Path Lamp exact quantities** — corewood + resin confirmed; numbers TBD next round.
 - Round 4 decomp/wiki scans pending (will leverage `design/nomap.md`'s existing line-references first)
 - Round 5 visual assets pending
 - Round 6 out-of-scope confirmation pending
@@ -373,15 +372,18 @@ Planned scans:
 
 After spec finalization, the following doc updates are needed to keep repo consistent with this requirements.md (the authoritative v1 spec):
 
-1. **Rename Orienteering Table → Explorer's Bench** — applies to `PLAYER_GUIDE.md` (multiple references) and `design/nomap.md` (§1 patch surface). This rename was established in last night's Discord conversation but never propagated to repo docs. Wholesale find/replace.
-2. **Trailblazer's Tools recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
-3. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 Map Station shape. v1 is DISABLED, not "rebalanced." Move that section to a future-v2 doc or annotate inline.
-4. **Path Lamps material confirmation** — line 110's "corewood" is now confirmed. No change to PLAYER_GUIDE on this, but other reference docs (design/nomap.md if relevant) should propagate.
-5. **Pin button keybind** — line 253 says "default keybind _TBD_" for Painted Sign pin trigger. Spec needs a default; PLAYER_GUIDE doc will inherit.
-6. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
-7. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe: 2 Leather Scraps + 1 Finewood + 1 Pigment.
-8. **Remove Ember Lamps / Beacons from v1 scope language** — PLAYER_GUIDE includes them in the Black Forest section. They're not in v1. Either move them to a "Roadmap" section or clearly label them v1.1+.
-9. **design/nomap.md §1 Orienteering Table recipe** — currently says `20W + 4Stone + 4Bone fragment + 2Greydwarf eye + 2Deer hide`. Daniel's today-answer supersedes: the recipe is **Wood + Stone + 1 Deer Trophy. Period.** No bone fragments, no greydwarf eyes, no deer hide, no raspberries, no resin. PLAYER_GUIDE.md's narrative mention of raspberries/resin was describing what the bench is USED FOR (pigment grinding, ink fixative), not what it's MADE OF — easy misread that the assistant made and Daniel corrected. Doc-PR needed: align design/nomap.md §1 (and any PLAYER_GUIDE prose that implies raspberries/resin are bench ingredients) with the locked Wood+Stone+1 Deer Trophy recipe once Q3.10 quantities lock.
+### ✅ Done this session
+- **Rename Orienteering Table → Explorer's Bench** — propagated to `README.md` (module list line 28), `PLAYER_GUIDE.md` (lines 56-62, 87, 121, 229-230), and `design/nomap.md` (§1 heading, prefab name `SBPR_ExplorersBench`, localization key `$sbpr_piece_explorers_bench`, plus references in open-questions §2 and §5 and risk-ranking §5).
+- **design/nomap.md §1 recipe** — corrected to `10 Wood + 4 Stone + 1 Deer Trophy` (was `20W + 4Stone + 4Bone fragment + 2Greydwarf eye + 2Deer hide`). Explanatory note added inline so future readers see why the change was made.
+- **PLAYER_GUIDE.md bench-recipe prose** — line 58-62 rewritten. Now explicitly states `10 Wood + 4 Stone + 1 Deer Trophy` and clarifies that antlers are part of the bench art (not mounted-on-top). The misread-inducing phrase "raspberries (for red pigment), and resin (for ink fixative and lamp oil)" has been removed from the recipe paragraph (raspberries/resin are still mentioned later in §Meadows as pigment inputs, which is correct — they're what the bench is *used to process*, not ingredients in the bench itself).
+
+### ⏳ Remaining doc-PR work
+1. **Trailblazer's Tools recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
+2. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 Map Station shape. v1 is DISABLED, not "rebalanced." Move that section to a future-v2 doc or annotate inline.
+3. **Pin button keybind** — line 253 says "default keybind _TBD_" for Painted Sign pin trigger. Spec needs a default; PLAYER_GUIDE doc will inherit.
+4. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
+5. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe: 2 Leather Scraps + 1 Finewood + 1 Pigment.
+6. **Remove Ember Lamps / Beacons from v1 scope language** — PLAYER_GUIDE includes them in the Black Forest section. They're not in v1. Either move them to a "Roadmap" section or clearly label them v1.1+.
 
 ## Vision context
 

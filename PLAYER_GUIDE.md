@@ -56,12 +56,13 @@ right around you — a small bright window in a sea of fog.
 You kill some deer. You get the trophy. You build a workbench. So far, this is Valheim.
 
 But the deer trophy is now meaningful for a new reason: you can take it to a workbench
-and craft an **Orienteering Table**. It needs wood, stone, the deer trophy (to mount
-its antler as an inkwell), raspberries (for red pigment), and resin (for ink fixative
-and lamp oil). The table is a writing desk — somewhere you can grind pigments, store
-your tools, and start preparing the things you'll need to mark up the world.
+and craft an **Explorer's Bench**. The recipe is simple — **10 Wood, 4 Stone, and 1 Deer
+Trophy.** The trophy's antlers are incorporated into the bench art itself (they become
+part of the bench's form — carved cups, supports, pen-holders, however the kitbash lands),
+and the bench is the writing desk where you can grind pigments, store your tools, and
+start preparing the things you'll need to mark up the world.
 
-Once your Orienteering Table is built, you can craft:
+Once your Explorer's Bench is built, you can craft:
 
 - **Red pigment** from raspberries — your first ink color
 - **Trailblazer's Tools** (wood, tin, flint) — your sign-and-marker hand tool
@@ -84,7 +85,7 @@ This is the loop. You walk out, you mark things, you walk back, the map remember
 ### Meadows — the writing desk
 
 You can build:
-- **Orienteering Table** (workbench-tier) — your crafting hub for everything explorer
+- **Explorer's Bench** (workbench-tier) — your crafting hub for everything explorer
 - **Red Pigment** (from raspberries) — basic ink
 - **White Pigment** (from bone fragments) — for "safe / friendly / settlement" signs
 - **Trailblazer's Tools** — _your main Meadows unlock and the heart of the Explorer
@@ -118,7 +119,7 @@ between two places so that everyone after you walks it faster.
 You kill greydwarves. You find surtling cores. You meet your first copper vein and your
 first kiln.
 
-Now your Orienteering Table can be **upgraded with a Scrying Altar** — a connected
+Now your Explorer's Bench can be **upgraded with a Scrying Altar** — a connected
 crafting station, the same way a workbench connects to a chopping block. The altar
 brings *minor magics* into reach, all of them themed around **sight, fire, and conduction**.
 
@@ -226,8 +227,8 @@ those tiers in their own play. The mod scaffolds the role; new content fills it.
 
 ### Pigments
 
-Pigments are stackable items (stack to 20, weight 0.1) crafted at the Orienteering
-Table. Each pigment recipe produces **2 pigment** per craft, consuming the base
+Pigments are stackable items (stack to 20, weight 0.1) crafted at the Explorer's
+Bench. Each pigment recipe produces **2 pigment** per craft, consuming the base
 ingredient.
 
 | Pigment | Recipe | Biome of origin |
