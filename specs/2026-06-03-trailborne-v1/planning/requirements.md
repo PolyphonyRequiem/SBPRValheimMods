@@ -363,10 +363,11 @@ Planned scans:
 
 ### Trailblazer's Tools (Hoe-class ground-modification tool — NOT a Hammer-class piece spawner)
 
-- **Per PARKED v1 scope:** "1.5/3/5m paths, Cultivate replant, ClearVegetation". This is a **Hoe variant**, not a build-piece spawner. Three terrain-paint modes (path widths) plus replant and clear actions.
-- **Vanilla anchors:** `TerrainComp` (`assembly_valheim.decompiled.cs` line 123154) owns ground modifications; `Heightmap` exposes `IsCultivated(worldPos)` (line 109613), `IsCleared`, and the paint-mask enum (`PaintType.Cultivate`, `PaintType.Path`, etc. — see line 123801 / 109565). The vanilla `Hoe` prefab + tool item is the closest peer.
-- **Class:** clone the `Hoe` item prefab, replace its `m_buildPieces` PieceTable with a Trailborne-specific table that exposes three "path" entries (1.5m / 3m / 5m widths) plus replant + clear actions. The paint operations bottom out at `TerrainModifier.PaintType.Path` / `Cultivate` / `Reset` — vanilla already supports the brush widths via radius parameters; we're not inventing terrain ops, we're wrapping them at our widths.
-- **Replant mechanic:** when a `Pickable` was picked (`m_picked = true` on its ZDO), the Cultivate action with replant intent re-spawns the picked plant by reading `Pickable.m_itemPrefab` and dropping a seed/sapling adjacent. Needs more thought during implementation — flagged.
+- **Per PARKED v1 scope:** "1.5/3/5m paths, replant, ClearVegetation". This is a **Hoe variant**, not a build-piece spawner. Three terrain-paint modes (path widths) plus replant and clear actions.
+- **🔴 NOT in scope:** **No Cultivate ability.** Cultivate is the vanilla Cultivator's job (turning ground into cultivated soil for crops). Trailblazer's Tools stays in its own lane — exploration/trail-discipline, not farming. Earlier draft said "Cultivate replant"; that was a misread of PARKED's shorthand. Removed.
+- **Vanilla anchors:** `TerrainComp` (`assembly_valheim.decompiled.cs` line 123154) owns ground modifications; `Heightmap` exposes `IsCleared` and the paint-mask enum (`PaintType.Path`, `PaintType.Reset` — line 123801 / 109565). The vanilla `Hoe` prefab + tool item is the closest peer (path-paint surface).
+- **Class:** clone the `Hoe` item prefab, replace its `m_buildPieces` PieceTable with a Trailborne-specific table that exposes three "path" entries (1.5m / 3m / 5m widths) plus replant + clear actions. The paint operations bottom out at `TerrainModifier.PaintType.Path` / `Reset` — vanilla already supports the brush widths via radius parameters; we wrap them at our widths.
+- **Replant mechanic:** when a `Pickable` was picked (`m_picked = true` on its ZDO), the replant action re-spawns the picked plant by reading `Pickable.m_itemPrefab` and placing it adjacent. Does NOT require cultivated ground (deliberately — the Cultivator already owns that gate). Implementation detail to revisit during build: whether replant directly resets `m_picked = false` on the original ZDO + re-arms `m_respawnTimeMinutes`, or spawns a fresh `Pickable` ZDO adjacent.
 - **ClearVegetation:** uses `TerrainModifier`'s clear paint mode on a radius; effectively a fast "remove bushes/grass/small rocks" pass. Vanilla operation; we wrap and surface as a third tool mode.
 
 ### Painted Signs (subclass vanilla `Sign` + custom edit dialog)
@@ -442,7 +443,37 @@ Planned scans:
 - **Inert Guardian Stones** — PARKED as stretch goal contingent on `valheim-regions` macro boundaries finalizing first. NOT a v1 blocker.
 
 ## Visual assets
-*(none provided yet — will be requested in Round 5)*
+
+**v0.1 decision (LOCKED 2026-06-03):** ship with **placeholder art**. Focus on getting gameplay elements working first; visual polish iterates from a working playtest, not before. Asset doctrine (fact #112 — zero Unity assetbundles, Tier 0/1/2 reuse only) still applies — placeholders are runtime-loaded PNGs and vanilla material swaps, not custom Unity geometry.
+
+### Placeholder art lanes for v0.1
+
+- **Item icons** (Trailblazer's Tools, Cairn Marker, 4 Pigments, Path Lamp): runtime-loaded PNGs via `File.ReadAllBytes` → `Texture2D.LoadImage` → `Sprite.Create`. Generated as needed via FLUX local lane; quick + good-enough is the bar. Iterate freely in v0.1 → v0.2.
+- **Build icons** (Explorer's Bench, Painted Sign, Cairn × 5 tiers, Path Lamp build form): same runtime-PNG approach.
+- **In-world meshes:**
+  - Explorer's Bench → vanilla Workbench mesh + color-tinted material (so it visually reads as "not-quite-Workbench" in the world; the dialog hover-name + icon disambiguate it).
+  - Cairn (5 tiers) → procedurally-stacked vanilla Stone prefabs at runtime, scaled per tier. Pigment overlay = material tint on the stack. Banner attachment = vanilla Banner prefab parented to the cairn root at place-time.
+  - Painted Sign → vanilla Sign mesh + runtime material color override per-instance (reads `text_color` + `accent_color` from ZDO, applies to mesh material at spawn).
+  - Path Lamp → vanilla `piece_groundtorch_wood` mesh, no swap. Lower light intensity is the visual differentiation.
+  - Trailblazer's Tools → vanilla Hoe item mesh; icon does the work of disambiguation in inventory.
+- **Custom UI panel** for the Painted Sign edit dialog: clone existing `InventoryGui` panel templates (the recipe + resource-cost panels are already in the GUI tree) at runtime, retext + retarget. No new Unity prefabs for v0.1.
+
+### Asset generation as needed
+
+Starbright generates placeholders on demand during implementation. FLUX local lane is the default (fast, free, run from RequiemSoul → Prime-W). Style target for placeholders: legibly Valheim-shaped, low-fi-okay, recognizable silhouette. Polish quality is explicitly NOT the bar — "you can tell what it is" is the bar.
+
+### Deferred to v0.2+ (after gameplay works)
+
+- Iconography polish pass (consistent line weight, palette, silhouette discipline across the set)
+- Antler integration for Explorer's Bench mesh (per Q3.10 — deer trophy antlers visually integrated into the bench, not mounted on top)
+- Custom mesh authoring (if/when v2 brings Map Station, Iron Compass, Tents — those have genuine geometry needs)
+- Visual differentiation of the 5 Cairn tiers beyond "scale + color" (e.g. moss progression, lichen, accumulated character)
+- Pigment vegetation-stain visual on Cairns (color seeps slightly into the rock surface vs flat tint)
+
+### Open for placeholder generation when implementation gets there
+
+- 4 Pigment ingredient confirms: red ← raspberries ✓, blue ← blueberries ✓, white ← bone fragment OR mushroom (TBD), black ← coal OR greydwarf eye (TBD). Pick at icon-time alongside the visual.
+- Painted Sign accent + text color palette: Round-1 captured "color is emergent player decision" (pillar 2). v0.1 ships with a fixed palette of available colors derived from the 4 pigments; combinations (text + accent) are the player's choice. Generate the palette swatches alongside the sign icons.
 
 ## Open questions / TBD
 
