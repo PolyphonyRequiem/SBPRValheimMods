@@ -46,7 +46,7 @@ To draw it, someone has to **go look**.
 
 That someone is your Explorer. They carry the Trailblazer's Tools. They mix
 pigments and paint signs on the trails. They build beacons on high ground so
-the fighters can find their way back. They wear the Seer's Amulet and pin every
+the fighters can find their way back. They wear the Seer's Stone and pin every
 berry patch, every copper vein, every dungeon entrance they pass. They make the
 maps the rest of your group reads.
 
@@ -92,7 +92,7 @@ specs. When a doc deviates, this is the canonical source.
   world. Each is also a map pin.
 - **Cairns** — maintained stone landmarks placed by the Explorer; lifecycle
   rehearsal for the Guardian Stone mod family.
-- **The Seer's Amulet** — Mountains-tier accessory that reveals "wisps" over
+- **The Seer's Stone** — Mountains-tier accessory that reveals "wisps" over
   pickable clusters and locations within the wearer's sight range.
 
 These are not negotiable per-doc. If a doc needs a different term, it goes here

@@ -324,7 +324,7 @@ Planned scans:
 7. **Path Lamps** — **Corewood + Resin** (quantities TBD), dimmer than torch, longer fuel, manual ignition (no chain ignition)
 8. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
 
-**NOT in v1:** Ember Lamps, Beacons, Seer's Amulet, Map Station, Pocket Portal, Twisted Portal, Iron Compass, Inert Guardian Stones, Yellow pigment (cloudberry).
+**NOT in v1:** Ember Lamps, Beacons, Seer's Stone, Map Station, Pocket Portal, Twisted Portal, Iron Compass, Inert Guardian Stones, Yellow pigment (cloudberry).
 
 ## Constraints stated
 
@@ -344,7 +344,7 @@ Planned scans:
 - Cartographer's Kit (gated on 4 pigment discovery) — v2
 - Iron Compass — v3 (Swamps tier, iron is Swamps metal)
 - Twisted Portal, Beacons, Ember magic, Scrying Altar, Smokeless Cookfire — v3
-- Seer's Amulet (crystal-gated, Stone Golem drop) — v4 (Mountains tier, sole headline)
+- Seer's Stone (crystal-gated, Stone Golem drop) — v4 (Mountains tier, sole headline)
 - Plains sailing tier, lighthouse-promote, Star Glass — v5
 - Portable map magic — v6 (Mistlands)
 - Custom Unity-authored assets — deferred to Locations work (v∞)

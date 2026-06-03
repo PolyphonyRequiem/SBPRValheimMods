@@ -36,7 +36,7 @@ To draw it, someone has to **go look**.
 
 That someone is your Explorer. They carry the Trailblazer's Tools. They mix pigments
 and paint signs on the trails. They build beacons on high ground so the fighters can
-find their way back. They wear the Seer's Amulet and pin every berry patch, every
+find their way back. They wear the Seer's Stone and pin every berry patch, every
 copper vein, every dungeon entrance they pass. They make the maps the rest of your
 group reads.
 
@@ -141,28 +141,30 @@ You unlock:
 - **Pocket Portal** — a single-use stackable teleport piece. Place one, walk away with
   the matching piece in your inventory. Place its pair somewhere new. The link is
   established. Stack of 5.
-- **Seer's Amulet** (copper, surtling core, greydwarf eyes) — *the Explorer's signature
-  item*. When worn, the world starts to whisper.
+- **Seer's Stone** (copper, surtling core, greydwarf eyes) — *the Explorer's signature
+  item*. Worn as an accessory — looks like an amulet in art (a polished stone set in
+  a copper bezel on a leather cord around the neck). When worn, the world starts to
+  whisper.
 
-### How the Seer's Amulet feels
+### How the Seer's Stone feels
 
-Put on the amulet. Walk into the Black Forest. Around the edges of your vision, you
+Put on the stone. Walk into the Black Forest. Around the edges of your vision, you
 start to see **wisps** — soft, drifting motes of light, hovering above clusters of
 interesting things in the world. A berry patch glows. A mushroom cluster glows. A
 crypt entrance glows. A surtling spawner glows.
 
-Take the amulet off — the wisps vanish. The world looks ordinary again.
+Take the stone off — the wisps vanish. The world looks ordinary again.
 
 These wisps are personal. Other players don't see them. They're not in the world for
 everyone — they're in the world *for you*, because you're the one wearing the lens.
 
 When you see a wisp, you can press a pin button while looking at it, and that cluster
 or location goes onto your map as a pin. **You don't have to walk up to each berry.**
-You don't have to scan every rock. The amulet shows you the *abundance*, and you choose
+You don't have to scan every rock. The stone shows you the *abundance*, and you choose
 what's worth remembering.
 
-This is why the Explorer is load-bearing. Without the amulet, finding every mushroom
-patch in a Black Forest is hours of walking. With the amulet, it's minutes.
+This is why the Explorer is load-bearing. Without the stone, finding every mushroom
+patch in a Black Forest is hours of walking. With the stone, it's minutes.
 
 ### Cartography Table (vanilla) — but rebalanced
 
@@ -262,12 +264,12 @@ are shared with the table (and with every player who later reads it). This is th
 **only** way pins propagate between players in Niflheim — see the [pin-sharing design
 doc](design/pin-sharing.md) for the full model.
 
-### The Seer's Amulet and the wisps
+### The Seer's Stone and the wisps
 
-The amulet's wisps are spawned by the world-generation system itself. When the engine
+The stone's wisps are spawned by the world-generation system itself. When the engine
 places a cluster of pickables in a zone (berries, mushrooms, thistle, etc.), our mod
 adds one invisible wisp at the cluster's centroid. The wisp is invisible to non-wearers;
-when you put on the amulet, the wisps drift into visibility in the area around you.
+when you put on the stone, the wisps drift into visibility in the area around you.
 
 Wisp-eligible clusters:
 - All berries (raspberry, blueberry, cloudberry)
@@ -276,7 +278,7 @@ Wisp-eligible clusters:
 - Dandelion
 - Carrot / turnip / onion seeds
 - Surtling spawners
-- _Full whitelist TBD with the Seer's Amulet implementation pass_
+- _Full whitelist TBD with the Seer's Stone implementation pass_
 
 Wisp-ineligible: stone, branch, flint (too common to mean anything).
 
@@ -378,7 +380,7 @@ To be honest about scope:
 - **No real-time cartography-table sync.** When two players have the same table open,
   you don't see each other's edits live. You see them on next read. (Future enhancement.)
 - **No per-pin sharing-mode UI.** v1 will auto-mark Painted Sign pins as `Public`
-  (because the sign is already public) and treat Seer's Amulet pins as `Private`. v2
+  (because the sign is already public) and treat Seer's Stone pins as `Private`. v2
   adds a popover for per-pin sharing control.
 - **No replacement of vanilla portals.** Pocket Portals and Twisted Portals coexist
   with vanilla portals. Players who don't want the explorer dance can still use vanilla.
@@ -399,7 +401,7 @@ This means:
   non-SBPR worlds.
 - Other players on the same server need the mod installed to see your sign colors and
   pins correctly. (Wisp visibility is per-player anyway — you don't need other players
-  to see your amulet's wisps.)
+  to see your stone's wisps.)
 - Trailborne is a **publicly-released, standalone Thunderstore mod**. Any server
   that wants the Explorer role can install it. Niflheim is one SBPR server that
   uses Trailborne (alongside other SBPR mods); it is not Trailborne's only home.
@@ -413,11 +415,11 @@ This means:
 ## A note about the role
 
 The Explorer role is **opt-in**. Nothing in the mod *forces* a player to specialize.
-You can craft signs without committing to the role. You can wear the Seer's Amulet
+You can craft signs without committing to the role. You can wear the Seer's Stone
 without abandoning your sword.
 
 But the role is *designed to reward specialization*. If you build out the full
-explorer's kit — Trailblazer's Tools, full pigment library, Seer's Amulet, a base
+explorer's kit — Trailblazer's Tools, full pigment library, Seer's Stone, a base
 network of beacons, a curated set of cartography tables across the map — you become
 **the player the rest of the server consults when they want to know where something
 is.** Your maps are the maps the group uses. Your signs are the signs they follow.

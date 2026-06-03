@@ -70,7 +70,7 @@ to v2+.
   - Iron Compass (handheld nav aid — Swamps because iron is Swamps metal)
 
 - **Mountains tier:**
-  - Seer's Amulet (the sole headline at Mountain tier — exact mechanic TBD)
+  - Seer's Stone (the sole headline at Mountain tier — exact mechanic TBD)
 
 - **Plains tier:**
   - Plains sailing angle (open question, deferred)
@@ -87,7 +87,7 @@ sub-piece (TBD).
 - Local Maps + Map Stations → v2
 - Real Tents → v2
 - Iron Compass → v3 (Swamps tier unlock)
-- Seer's Amulet → v4 (Mountains tier)
+- Seer's Stone → v4 (Mountains tier)
 - Plains sailing → v5
 - On-demand map viewing → v6 (Mistlands capstone)
 - Inert Guardian Stones → pre-release polish gate only, never a v1 mechanic

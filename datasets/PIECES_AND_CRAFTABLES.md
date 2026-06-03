@@ -197,7 +197,7 @@ Each entry has:
 - **Real Tents** (Trailborne v2)
 - **Pocket Portal / Twisted Portal** (Trailborne v3+)
 - **Iron Compass** (Trailborne v3+, optional)
-- **Seer's Amulet** (Trailborne v4+)
+- **Seer's Stone** (Trailborne v4+)
 
 ---
 
