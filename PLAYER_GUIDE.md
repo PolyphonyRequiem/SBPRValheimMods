@@ -87,12 +87,31 @@ You can build:
 - **Orienteering Table** (workbench-tier) — your crafting hub for everything explorer
 - **Red Pigment** (from raspberries) — basic ink
 - **White Pigment** (from bone fragments) — for "safe / friendly / settlement" signs
-- **Trailblazer's Tools** — tin and flint tools, no magic, just craftsmanship
+- **Trailblazer's Tools** — _your main Meadows unlock and the heart of the Explorer
+  toolkit._ Tin and flint construction, no magic, just craftsmanship. Functions as the
+  **explorer's hammer**: its own build menu, its own pieces, its own categories. Where
+  the Hammer raises walls and the Hoe levels foundations, the Trailblazer's Tools
+  **pave the world between settlements**. Specifically, the Tools place:
+  - **Trail / Road / Highway** path-paving at three widths — narrow (1.5m radius),
+    standard (3m), and wide (5m). The widest setting is 2.5x the Hoe's standard path
+    radius, suitable for ox-cart routes, beacon platforms, and forecourts.
+  - **Replant Grass** at the same three radii — restore cleared land, undo terraforming
+    scars, re-green an outpost. This is the cultivator's `cultivate` action at vastly
+    larger scale.
+  - **Clear Vegetation** at the wide radius — clear a viewpoint, prep a beacon site.
+  - **All Painted Signs** (see below) — only craftable when holding the Tools.
+  - **Path Lamps** and later, **Ember Lamps** and **Beacons**.
+  - **Pocket Portals** (Black Forest unlock).
+
+  In short: anything an Explorer places in the world goes through the Trailblazer's
+  Tools. The Hoe and Hammer remain in your kit, but they're the *settler's* tools.
+  The Trailblazer's Tools are the *wanderer's*.
 - **Painted Signs** in red and white — and once you have more pigments, more colors
 - **Path Lamps** (3m corewood torches, resin-fueled, long burn) — light the trails you walk
 
 The Meadows tier is about **establishing a vocabulary**. You can mark danger (red) and
-safety (white). You can light a path. You can name a place.
+safety (white). You can light a path. You can name a place. You can shape the road
+between two places so that everyone after you walks it faster.
 
 ### Black Forest — the magic begins
 
