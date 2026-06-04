@@ -16,7 +16,7 @@ namespace SBPR.Trailborne
     /// nobody re-read the spec on every change. Now the server screams
     /// the moment drift appears.
     ///
-    /// LOCKED SOURCE: specs/2026-06-03-trailborne-v1/planning/requirements.md
+    /// LOCKED SOURCE: docs/v0.1.0/planning/requirements.md
     /// (lines 170-222, 318-323). Update BOTH this manifest AND the spec
     /// in the same commit when intentionally changing a recipe.
     /// </summary>
