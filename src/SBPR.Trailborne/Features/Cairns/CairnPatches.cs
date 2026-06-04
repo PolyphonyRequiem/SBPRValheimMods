@@ -2,7 +2,7 @@ using System;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Cairns
 {
     /// <summary>
     /// Harmony patches for cairn behavior:

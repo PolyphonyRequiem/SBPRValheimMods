@@ -6,6 +6,8 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
+using SBPR.Trailborne.Features.Cairns;
 
 namespace SBPR.Trailborne
 {

@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
+using SBPR.Trailborne.Features.Pigments;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
     /// Painted Signs (4 buildable variants, color tinted from base material).

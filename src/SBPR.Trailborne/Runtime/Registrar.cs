@@ -1,7 +1,12 @@
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Features.Trailhead;
+using SBPR.Trailborne.Features.Trailblazing;
+using SBPR.Trailborne.Features.Pigments;
+using SBPR.Trailborne.Features.Signs;
+using SBPR.Trailborne.Features.Cairns;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Runtime
 {
     /// <summary>
     /// Thin registration dispatcher. We piggy-back on ZNetScene.Awake (prefabs

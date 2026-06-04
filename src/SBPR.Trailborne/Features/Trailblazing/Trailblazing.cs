@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Trailblazing
 {
     /// <summary>
     /// M3 content: Trailblazer's Spade real path/replant behavior, plus the

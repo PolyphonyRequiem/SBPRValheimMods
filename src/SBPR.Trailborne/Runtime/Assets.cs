@@ -4,7 +4,7 @@ using System.Linq;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Runtime
 {
     /// <summary>
     /// M0 helpers: PNG → Sprite loader, prefab cloning, hammer/objectdb wiring.

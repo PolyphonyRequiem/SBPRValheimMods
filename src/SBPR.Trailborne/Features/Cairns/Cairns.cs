@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
+using SBPR.Trailborne.Features.Pigments;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Cairns
 {
     /// <summary>
     /// M2 content: 4 Cairn Marker variants (one per ink color) + 4 Cairn

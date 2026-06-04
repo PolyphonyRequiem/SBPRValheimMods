@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Pigments
 {
     /// <summary>
     /// Pigment items (Red/White/Blue/Black inks) — the shared crafting

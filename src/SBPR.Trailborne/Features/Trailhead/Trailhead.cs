@@ -1,7 +1,8 @@
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Trailhead
 {
     /// <summary>
     /// Trailhead content: the Explorer's Bench (the crafting station that every

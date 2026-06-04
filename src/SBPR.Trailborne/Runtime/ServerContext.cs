@@ -1,4 +1,4 @@
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Runtime
 {
     /// <summary>
     /// Server gate. M0 stub: always true. M1 wires real handshake.

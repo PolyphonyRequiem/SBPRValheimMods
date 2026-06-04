@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
     /// Marker tag attached to each colored sign clone so we can identify

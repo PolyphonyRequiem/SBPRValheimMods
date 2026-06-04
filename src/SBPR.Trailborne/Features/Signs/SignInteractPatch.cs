@@ -2,7 +2,7 @@ using System;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
     /// Harmony hook on Sign.Interact: when the player holds Shift and presses E

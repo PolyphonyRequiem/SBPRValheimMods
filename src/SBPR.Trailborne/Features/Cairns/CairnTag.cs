@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Features.Cairns
 {
     /// <summary>
     /// Marker tag attached to each cairn clone. Carries color identity and provides
