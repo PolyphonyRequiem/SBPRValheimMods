@@ -1,10 +1,12 @@
 # Build artifacts
 bin/
 obj/
+build/
 *.dll
 *.pdb
 *.user
 *.suo
+*.zip
 
 # Unity sidecar (not committed)
 unity-project/Library/
@@ -35,3 +37,7 @@ Thumbs.db
 # Local notes
 .scratch/
 SCRATCH.md
+
+# C# build artifacts
+src/**/bin/
+src/**/obj/

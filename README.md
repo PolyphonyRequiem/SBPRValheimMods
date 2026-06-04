@@ -25,7 +25,7 @@ mid-progression craft; map *viewing* is a Mistlands-tier convenience.
 Design doc: [`design/nomap.md`](design/nomap.md)
 
 Nine modules currently in scope:
-1. Orienteering Table (Meadows crafting station)
+1. Explorer's Bench (Meadows crafting station)
 2. Trailblazer's Tools (signage + roadwork hand-tool)
 3. Trail signage (Sign + Beacon variants)
 4. Traveler's Storage (public + per-player private chest)

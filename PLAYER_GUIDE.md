@@ -36,7 +36,7 @@ To draw it, someone has to **go look**.
 
 That someone is your Explorer. They carry the Trailblazer's Tools. They mix pigments
 and paint signs on the trails. They build beacons on high ground so the fighters can
-find their way back. They wear the Seer's Amulet and pin every berry patch, every
+find their way back. They wear the Seer's Stone and pin every berry patch, every
 copper vein, every dungeon entrance they pass. They make the maps the rest of your
 group reads.
 
@@ -56,12 +56,13 @@ right around you — a small bright window in a sea of fog.
 You kill some deer. You get the trophy. You build a workbench. So far, this is Valheim.
 
 But the deer trophy is now meaningful for a new reason: you can take it to a workbench
-and craft an **Orienteering Table**. It needs wood, stone, the deer trophy (to mount
-its antler as an inkwell), raspberries (for red pigment), and resin (for ink fixative
-and lamp oil). The table is a writing desk — somewhere you can grind pigments, store
-your tools, and start preparing the things you'll need to mark up the world.
+and craft an **Explorer's Bench**. The recipe is simple — **10 Wood, 4 Stone, and 1 Deer
+Trophy.** The trophy's antlers are incorporated into the bench art itself (they become
+part of the bench's form — carved cups, supports, pen-holders, however the kitbash lands),
+and the bench is the writing desk where you can grind pigments, store your tools, and
+start preparing the things you'll need to mark up the world.
 
-Once your Orienteering Table is built, you can craft:
+Once your Explorer's Bench is built, you can craft:
 
 - **Red pigment** from raspberries — your first ink color
 - **Trailblazer's Tools** (wood, tin, flint) — your sign-and-marker hand tool
@@ -84,7 +85,7 @@ This is the loop. You walk out, you mark things, you walk back, the map remember
 ### Meadows — the writing desk
 
 You can build:
-- **Orienteering Table** (workbench-tier) — your crafting hub for everything explorer
+- **Explorer's Bench** (workbench-tier) — your crafting hub for everything explorer
 - **Red Pigment** (from raspberries) — basic ink
 - **White Pigment** (from bone fragments) — for "safe / friendly / settlement" signs
 - **Trailblazer's Tools** — _your main Meadows unlock and the heart of the Explorer
@@ -118,7 +119,7 @@ between two places so that everyone after you walks it faster.
 You kill greydwarves. You find surtling cores. You meet your first copper vein and your
 first kiln.
 
-Now your Orienteering Table can be **upgraded with a Scrying Altar** — a connected
+Now your Explorer's Bench can be **upgraded with a Scrying Altar** — a connected
 crafting station, the same way a workbench connects to a chopping block. The altar
 brings *minor magics* into reach, all of them themed around **sight, fire, and conduction**.
 
@@ -140,28 +141,30 @@ You unlock:
 - **Pocket Portal** — a single-use stackable teleport piece. Place one, walk away with
   the matching piece in your inventory. Place its pair somewhere new. The link is
   established. Stack of 5.
-- **Seer's Amulet** (copper, surtling core, greydwarf eyes) — *the Explorer's signature
-  item*. When worn, the world starts to whisper.
+- **Seer's Stone** (copper, surtling core, greydwarf eyes) — *the Explorer's signature
+  item*. Worn as an accessory — looks like an amulet in art (a polished stone set in
+  a copper bezel on a leather cord around the neck). When worn, the world starts to
+  whisper.
 
-### How the Seer's Amulet feels
+### How the Seer's Stone feels
 
-Put on the amulet. Walk into the Black Forest. Around the edges of your vision, you
+Put on the stone. Walk into the Black Forest. Around the edges of your vision, you
 start to see **wisps** — soft, drifting motes of light, hovering above clusters of
 interesting things in the world. A berry patch glows. A mushroom cluster glows. A
 crypt entrance glows. A surtling spawner glows.
 
-Take the amulet off — the wisps vanish. The world looks ordinary again.
+Take the stone off — the wisps vanish. The world looks ordinary again.
 
 These wisps are personal. Other players don't see them. They're not in the world for
 everyone — they're in the world *for you*, because you're the one wearing the lens.
 
 When you see a wisp, you can press a pin button while looking at it, and that cluster
 or location goes onto your map as a pin. **You don't have to walk up to each berry.**
-You don't have to scan every rock. The amulet shows you the *abundance*, and you choose
+You don't have to scan every rock. The stone shows you the *abundance*, and you choose
 what's worth remembering.
 
-This is why the Explorer is load-bearing. Without the amulet, finding every mushroom
-patch in a Black Forest is hours of walking. With the amulet, it's minutes.
+This is why the Explorer is load-bearing. Without the stone, finding every mushroom
+patch in a Black Forest is hours of walking. With the stone, it's minutes.
 
 ### Cartography Table (vanilla) — but rebalanced
 
@@ -226,8 +229,8 @@ those tiers in their own play. The mod scaffolds the role; new content fills it.
 
 ### Pigments
 
-Pigments are stackable items (stack to 20, weight 0.1) crafted at the Orienteering
-Table. Each pigment recipe produces **2 pigment** per craft, consuming the base
+Pigments are stackable items (stack to 20, weight 0.1) crafted at the Explorer's
+Bench. Each pigment recipe produces **2 pigment** per craft, consuming the base
 ingredient.
 
 | Pigment | Recipe | Biome of origin |
@@ -238,9 +241,10 @@ ingredient.
 | **Blue** | 1 blueberry → 2 blue pigment | Black Forest |
 | **Yellow** | 1 cloudberry → 2 yellow pigment | Plains (later tier) |
 
-Pigment cost is naturally biome-tiered. A red sign in your Black Forest base says "I've
-been here since the early days." A blue sign says "I've made it to the forest." A
-yellow sign says "I've crossed the Plains and survived." Color reads as **biography**.
+Pigment cost is naturally biome-tiered, because the ingredients are. What any
+particular color *means* on your server is up to you and your group — Trailborne
+does not assign meanings to colors. Red is not "danger." Blue is not "water."
+Whatever conventions your group settles on are conventions your group invented.
 
 Pigments are consumed at sign-craft time — the sign's color is baked in.
 
@@ -260,12 +264,12 @@ are shared with the table (and with every player who later reads it). This is th
 **only** way pins propagate between players in Niflheim — see the [pin-sharing design
 doc](design/pin-sharing.md) for the full model.
 
-### The Seer's Amulet and the wisps
+### The Seer's Stone and the wisps
 
-The amulet's wisps are spawned by the world-generation system itself. When the engine
+The stone's wisps are spawned by the world-generation system itself. When the engine
 places a cluster of pickables in a zone (berries, mushrooms, thistle, etc.), our mod
 adds one invisible wisp at the cluster's centroid. The wisp is invisible to non-wearers;
-when you put on the amulet, the wisps drift into visibility in the area around you.
+when you put on the stone, the wisps drift into visibility in the area around you.
 
 Wisp-eligible clusters:
 - All berries (raspberry, blueberry, cloudberry)
@@ -274,7 +278,7 @@ Wisp-eligible clusters:
 - Dandelion
 - Carrot / turnip / onion seeds
 - Surtling spawners
-- _Full whitelist TBD with the Seer's Amulet implementation pass_
+- _Full whitelist TBD with the Seer's Stone implementation pass_
 
 Wisp-ineligible: stone, branch, flint (too common to mean anything).
 
@@ -376,7 +380,7 @@ To be honest about scope:
 - **No real-time cartography-table sync.** When two players have the same table open,
   you don't see each other's edits live. You see them on next read. (Future enhancement.)
 - **No per-pin sharing-mode UI.** v1 will auto-mark Painted Sign pins as `Public`
-  (because the sign is already public) and treat Seer's Amulet pins as `Private`. v2
+  (because the sign is already public) and treat Seer's Stone pins as `Private`. v2
   adds a popover for per-pin sharing control.
 - **No replacement of vanilla portals.** Pocket Portals and Twisted Portals coexist
   with vanilla portals. Players who don't want the explorer dance can still use vanilla.
@@ -397,23 +401,25 @@ This means:
   non-SBPR worlds.
 - Other players on the same server need the mod installed to see your sign colors and
   pins correctly. (Wisp visibility is per-player anyway — you don't need other players
-  to see your amulet's wisps.)
-- The mod is **not designed for general public release**. It's a Niflheim-server
-  experience. The repo is public because we believe in open-source modding; the mod
-  is published because Thunderstore is the only sane distribution path. But the design
-  assumes you've opted into Niflheim's playstyle, not that you're a random Valheim
-  player browsing for "more content."
+  to see your stone's wisps.)
+- Trailborne is a **publicly-released, standalone Thunderstore mod**. Any server
+  that wants the Explorer role can install it. Niflheim is one SBPR server that
+  uses Trailborne (alongside other SBPR mods); it is not Trailborne's only home.
+- Server-gating in this mod refers to *gameplay patches checking server opt-in
+  before firing*, not to "this is a private mod." This protects players who
+  install Trailborne and then join a vanilla server — the mod is silently inert
+  there, no conflicts — without restricting who Trailborne is for.
 
 ---
 
 ## A note about the role
 
 The Explorer role is **opt-in**. Nothing in the mod *forces* a player to specialize.
-You can craft signs without committing to the role. You can wear the Seer's Amulet
+You can craft signs without committing to the role. You can wear the Seer's Stone
 without abandoning your sword.
 
 But the role is *designed to reward specialization*. If you build out the full
-explorer's kit — Trailblazer's Tools, full pigment library, Seer's Amulet, a base
+explorer's kit — Trailblazer's Tools, full pigment library, Seer's Stone, a base
 network of beacons, a curated set of cartography tables across the map — you become
 **the player the rest of the server consults when they want to know where something
 is.** Your maps are the maps the group uses. Your signs are the signs they follow.

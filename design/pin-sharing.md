@@ -2,7 +2,7 @@
 
 > _Pre-design investigation for the Niflheim Modpack — how vanilla Valheim handles
 > player-to-player pin sharing, what BetterCartographyTable did about it, and what
-> SBPR should do for our Painted Signs + Seer's Amulet systems._
+> SBPR should do for our Painted Signs + Seer's Stone systems._
 
 ## TL;DR
 
@@ -134,7 +134,7 @@ We have two new pin-creation paths that don't exist in vanilla:
 
 1. **Painted Sign pins** (player walks up to a sign, presses pin button, gets a pin matching the sign's pigment color). The pin should be tagged with the *sign's identity* (its ZDOID + author), not just the player's.
 
-2. **Seer's Amulet pins** (player wears the amulet, sees a wisp, presses pin button, gets a pin for that pickable cluster or location). Personal-only by nature — the amulet is a personal lens.
+2. **Seer's Stone pins** (player wears the stone, sees a wisp, presses pin button, gets a pin for that pickable cluster or location). Personal-only by nature — the stone is a personal lens.
 
 Plus our **fixed-shroud cartography table** rebalance (Q1) — tables now have a *defined 1000m visible window*, which means a table's stored data is semantically a *regional snapshot* tied to where the table was built.
 
@@ -142,7 +142,7 @@ These three changes shift the design space:
 
 - **Painted Signs are inherently a public artifact.** Anyone can see the sign in the world. So pin-sharing from a sign isn't an inherent privacy decision — *the sign is already public information by being placed*. The only question is whether the *pin* travels via the table's regional snapshot.
 
-- **Seer's Amulet pins should default to private.** The whole flavor is "I have the lens, I can see this thing, my map records it." Sharing is a separate action.
+- **Seer's Stone pins should default to private.** The whole flavor is "I have the lens, I can see this thing, my map records it." Sharing is a separate action.
 
 - **Tables now have *position-defined regional identity*.** A table at coordinates X only stores pins+fog within its 1000m window. This means we can ask the structurally cleaner question: "which table holds this pin?" rather than "is this pin shared globally?"
 
@@ -152,7 +152,7 @@ These three changes shift the design space:
 
 ### Option A — Pure-vanilla behavior
 
-Don't touch pin-sharing at all. Painted Sign pins and Seer's Amulet pins are just regular pins; they ride the vanilla all-or-nothing sharing through map tables.
+Don't touch pin-sharing at all. Painted Sign pins and Seer's Stone pins are just regular pins; they ride the vanilla all-or-nothing sharing through map tables.
 
 **Pros:** Zero new code. Behavior matches what vanilla players expect.
 
@@ -174,7 +174,7 @@ Same architectural shape as BCT: pins are private by default, players individual
 
 Painted Sign pins are *intrinsically shared via their sign's ZDO*. The sign itself is the pin's "home"; any player who sees the sign and pins it gets a pin that *points back to the sign's ZDO*. When a player reads a cartography table that covers the sign's region, they get the sign's pin automatically — but it's keyed to the sign, not added to their personal map list independently.
 
-Seer's Amulet pins remain personal (Option A behavior).
+Seer's Stone pins remain personal (Option A behavior).
 
 **Pros:** No pin subclassing needed. The sign IS the shared artifact; pinning it is just "I want this sign to show on my map." Conflict resolution is automatic — there's exactly one canonical position/name/color per sign, because there's exactly one sign. Editing the sign edits the pin for everyone who has pinned it.
 
@@ -186,7 +186,7 @@ Seer's Amulet pins remain personal (Option A behavior).
 
 Use the per-pin sharing model (B) as the foundation — every pin is sharable, default private, explicit opt-in to share. Then layer the sign-driven UX on top: when a player creates a pin from a Painted Sign, it's pre-marked with `SharingMode = Public` AND tagged with the sign's ZDOID for identity. Later sign edits propagate via the same regional-table mechanism.
 
-For Seer's Amulet pins — default `Private`, player can opt-in to share like any other pin.
+For Seer's Stone pins — default `Private`, player can opt-in to share like any other pin.
 
 **Pros:** Best of both. Solves vanilla pin-clutter problems generally (Option B benefit). Makes sign-pinning *frictionless and obviously shared* (Option C benefit). Maintains our doctrine that everything is opt-in / explicit.
 
@@ -207,9 +207,9 @@ Build it in two passes, both as separate PRs:
 - Painted Sign pins are auto-tagged `Public` and carry the sign's ZDOID as a new field `m_sourceSignZDOID`
 - **No UI for the per-pin toggle yet.** All sign-pins are public-by-creation; all other pins default to vanilla-like (`Public` if they were already in `m_pins` at install time, so nothing breaks for existing players).
 
-### Pass 2 (with the Seer's Amulet PR)
+### Pass 2 (with the Seer's Stone PR)
 - Add the per-pin sharing-mode UI (a small popover when you right-click a pin on the map)
-- Seer's Amulet pins default to `Private`
+- Seer's Stone pins default to `Private`
 - Player can promote any pin to `Public` via the popover
 
 ### What we explicitly are NOT building
