@@ -6,6 +6,11 @@ using SBPR.Trailborne.Runtime;
 
 namespace SBPR.Trailborne.Features.Trailblazing
 {
+    // Alias the Trailhead TYPE: from this sibling Features.* namespace the bare
+    // name `Trailhead` would bind to the sibling NAMESPACE, so alias it to the
+    // type to keep the readable `Trailhead.ExplorersBenchName` station lookup.
+    using Trailhead = SBPR.Trailborne.Features.Trailhead.Trailhead;
+
     /// <summary>
     /// M3 content: Trailblazer's Spade real path/replant behavior, plus the
     /// Spade ITEM itself (prefab + recipe) lifted out of the old fat Registrar
@@ -37,9 +42,6 @@ namespace SBPR.Trailborne.Features.Trailblazing
         private const string SourcePath      = "path";
         private const string SourceCultivate = "cultivate";
         private const string SourceHoe       = "Hoe";
-
-        // Crafting station the spade recipe attaches to (Explorer's Bench).
-        private const string OrienteeringTableName = "piece_sbpr_explorers_bench";
 
         private const string IconFile        = "trailblazers_spade_v0.1.png";
 
@@ -195,7 +197,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
                     r.m_item           = spade.GetComponent<ItemDrop>();
                     r.m_amount         = 1;
                     r.m_minStationLevel = 1;
-                    r.m_craftingStation = FindStation(OrienteeringTableName);
+                    r.m_craftingStation = FindStation(Trailhead.ExplorersBenchName);
                     r.m_resources      = new[]
                     {
                         BuildReq("Wood", 5),

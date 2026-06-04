@@ -12,6 +12,7 @@ namespace SBPR.Trailborne.Features.Cairns
     // searched before a compilation-unit alias), so we alias the name to the type
     // INSIDE this namespace body to keep the readable `Pigments.InkRedName` syntax.
     using Pigments = SBPR.Trailborne.Features.Pigments.Pigments;
+    using Trailhead = SBPR.Trailborne.Features.Trailhead.Trailhead;
 
     /// <summary>
     /// M2 content: 4 Cairn Marker variants (one per ink color) + 4 Cairn
@@ -191,7 +192,7 @@ namespace SBPR.Trailborne.Features.Cairns
                         recipe.m_item            = markerItem.GetComponent<ItemDrop>();
                         recipe.m_amount          = 1;
                         recipe.m_minStationLevel = 1;
-                        recipe.m_craftingStation = FindStation("piece_sbpr_explorers_bench");
+                        recipe.m_craftingStation = FindStation(Trailhead.ExplorersBenchName);
                         recipe.m_resources       = new[]
                         {
                             BuildReq("LeatherScraps", 2),

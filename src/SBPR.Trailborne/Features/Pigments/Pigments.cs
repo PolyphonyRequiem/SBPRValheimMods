@@ -6,6 +6,11 @@ using SBPR.Trailborne.Runtime;
 
 namespace SBPR.Trailborne.Features.Pigments
 {
+    // Alias the Trailhead TYPE: from this sibling Features.* namespace the bare
+    // name `Trailhead` would bind to the sibling NAMESPACE, so alias it to the
+    // type to keep the readable `Trailhead.ExplorersBenchName` station lookup.
+    using Trailhead = SBPR.Trailborne.Features.Trailhead.Trailhead;
+
     /// <summary>
     /// Pigment items (Red/White/Blue/Black inks) — the shared crafting
     /// ingredient consumed by both Signs and Cairns. Split out of the old
@@ -124,7 +129,7 @@ namespace SBPR.Trailborne.Features.Pigments
             recipe.m_item            = inkPrefab.GetComponent<ItemDrop>();
             recipe.m_amount          = amount;
             recipe.m_minStationLevel = 1;
-            recipe.m_craftingStation = FindStation("piece_sbpr_explorers_bench");
+            recipe.m_craftingStation = FindStation(Trailhead.ExplorersBenchName);
             recipe.m_resources       = new[] { BuildReq(ingredient, 1) };
             odb.m_recipes.Add(recipe);
         }
