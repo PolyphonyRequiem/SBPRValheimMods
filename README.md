@@ -22,7 +22,7 @@ guide, all in one document.
 table is rebalanced toward a late-game role; on-demand map *making* becomes a
 mid-progression craft; map *viewing* is a Mistlands-tier convenience.
 
-Design doc: [`design/nomap.md`](design/nomap.md)
+Design doc: [`docs/design/nomap.md`](docs/design/nomap.md)
 
 Nine modules currently in scope:
 1. Explorer's Bench (Meadows crafting station)
@@ -55,6 +55,17 @@ Distribution: Thunderstore once the first mod ships.
 ## License
 
 MIT. Code only. No IronGate assets, no decompiled source, no game binaries.
+
+## Documentation
+
+Contributor and design documentation lives under [`docs/`](docs/):
+
+- [`docs/design/`](docs/design/) — durable design intent (vision, pillars, investigations)
+- [`docs/v0.1.0/`](docs/v0.1.0/) — specs, planning, and playtest logs for the v0.1.0 release
+- [`docs/datasets/`](docs/datasets/) — reference data tables (pieces, craftables, recipes)
+
+Each folder carries a `README.md` (orientation) and an `index.md` (machine-readable
+manifest). Start at [`docs/README.md`](docs/README.md).
 
 ## Server
 

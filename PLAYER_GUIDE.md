@@ -262,7 +262,7 @@ recordable by every traveler who passes it.
 When you read a cartography table, sign-pins that fall within the table's 1000m window
 are shared with the table (and with every player who later reads it). This is the
 **only** way pins propagate between players in Niflheim — see the [pin-sharing design
-doc](design/pin-sharing.md) for the full model.
+doc](docs/design/pin-sharing.md) for the full model.
 
 ### The Seer's Stone and the wisps
 
