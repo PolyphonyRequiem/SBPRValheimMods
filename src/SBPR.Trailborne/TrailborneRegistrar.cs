@@ -14,7 +14,7 @@ namespace SBPR.Trailborne
     /// </summary>
     public static class TrailborneRegistrar
     {
-        private const string OrienteeringTableName = "piece_sbpr_orienteering_table";
+        private const string OrienteeringTableName = "piece_sbpr_explorers_bench";
         private const string PathLampName          = "piece_sbpr_path_lamp";
         private const string SpadeName             = "SBPR_TrailblazersSpade";
         public  const string PublicSpadeName       = SpadeName;
@@ -136,8 +136,8 @@ namespace SBPR.Trailborne
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
-                piece.m_name        = "$piece_sbpr_orienteering_table";
-                piece.m_description = "Plan your routes. Crafts trail tools and lamps.";
+                piece.m_name        = "Explorer's Bench";
+                piece.m_description = "The explorer's writing desk. Crafts inks, signs, lamps, and trail tools.";
                 piece.m_category    = Piece.PieceCategory.Crafting;
                 piece.m_icon        = TrailborneAssets.LoadPngAsSprite(IconFile);
                 piece.m_resources   = new[]
@@ -149,7 +149,7 @@ namespace SBPR.Trailborne
             // Already a CraftingStation (workbench is one) — leave m_name unchanged so
             // existing recipes that name "piece_workbench" don't accidentally collide.
             var station = clone.GetComponent<CraftingStation>();
-            if (station != null) station.m_name = "$piece_sbpr_orienteering_table";
+            if (station != null) station.m_name = "Explorer's Bench";
 
             TrailborneAssets.RegisterPrefabInZNetScene(clone);
             TrailbornePlugin.Log.LogInfo($"[Trailborne] Registered piece: {OrienteeringTableName}");
@@ -164,7 +164,7 @@ namespace SBPR.Trailborne
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
-                piece.m_name        = "$piece_sbpr_path_lamp";
+                piece.m_name        = "Path Lamp";
                 piece.m_description = "A standing lamp for marking trails after dark.";
                 piece.m_category    = Piece.PieceCategory.Furniture;
                 piece.m_icon        = TrailborneAssets.LoadPngAsSprite(IconFile);
@@ -188,7 +188,7 @@ namespace SBPR.Trailborne
             var drop = clone.GetComponent<ItemDrop>();
             if (drop != null)
             {
-                drop.m_itemData.m_shared.m_name        = "$item_sbpr_spade";
+                drop.m_itemData.m_shared.m_name        = "Trailblazer's Spade";
                 drop.m_itemData.m_shared.m_description = "Trailblazer's Spade — scroll to cycle path mode (dirt / paved / clear).";
                 var sprite = TrailborneAssets.LoadPngAsSprite(IconFile);
                 if (sprite != null)

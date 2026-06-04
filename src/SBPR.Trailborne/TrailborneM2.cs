@@ -45,7 +45,7 @@ namespace SBPR.Trailborne
             var drop = clone.GetComponent<ItemDrop>();
             if (drop != null)
             {
-                drop.m_itemData.m_shared.m_name        = "$item_sbpr_cairn_marker";
+                drop.m_itemData.m_shared.m_name        = "Cairn Marker";
                 drop.m_itemData.m_shared.m_description = "A wooden marker plank with a blank hide pennant. Place on stones to declare a Cairn.";
                 drop.m_itemData.m_shared.m_maxStackSize = 10;
                 drop.m_itemData.m_shared.m_weight      = 0.5f;
@@ -71,7 +71,7 @@ namespace SBPR.Trailborne
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
-                piece.m_name        = "$piece_sbpr_cairn";
+                piece.m_name        = "Cairn";
                 piece.m_description = "A stacked-stone cairn. Provides shelter comfort when complete.";
                 piece.m_category    = Piece.PieceCategory.Crafting;
                 piece.m_resources   = new[]
@@ -112,7 +112,7 @@ namespace SBPR.Trailborne
                     recipe.m_item            = markerItem.GetComponent<ItemDrop>();
                     recipe.m_amount          = 1;
                     recipe.m_minStationLevel = 1;
-                    recipe.m_craftingStation = FindStation("piece_sbpr_orienteering_table");
+                    recipe.m_craftingStation = FindStation("piece_sbpr_explorers_bench");
                     recipe.m_resources       = new[]
                     {
                         BuildReq("Wood", 2),

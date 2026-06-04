@@ -45,6 +45,18 @@ namespace SBPR.Trailborne
                 RegisterRadiusVariant(zns, kv.Key, kv.Value.source, kv.Value.radius);
         }
 
+        private static string NicePieceName(string prefab)
+        {
+            switch (prefab)
+            {
+                case PathNarrowName:   return "Spade: Path (1.5m)";
+                case PathStandardName: return "Spade: Path (3m)";
+                case PathWideName:     return "Spade: Path (5m)";
+                case ReplantWideName:  return "Spade: Replant (5m)";
+                default:               return prefab;
+            }
+        }
+
         private static void RegisterRadiusVariant(ZNetScene zns, string name, string source, float radius)
         {
             if (zns.GetPrefab(name) != null) return;
@@ -65,7 +77,7 @@ namespace SBPR.Trailborne
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
-                piece.m_name        = "$piece_" + name;
+                piece.m_name        = NicePieceName(name);
                 piece.m_description = $"Trailblazer path/ground op — {radius:F1}m radius.";
                 piece.m_category    = Piece.PieceCategory.Misc;
                 // Free placement like vanilla hoe ops — no resource cost

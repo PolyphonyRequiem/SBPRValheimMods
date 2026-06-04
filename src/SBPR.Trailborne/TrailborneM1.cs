@@ -75,16 +75,16 @@ namespace SBPR.Trailborne
         public static void RegisterPrefabs(ZNetScene zns)
         {
             // Ink items: clone Coins (tiny consumable, simplest ItemDrop)
-            RegisterInkPrefab(zns, InkRedName,   "$item_sbpr_ink_red",   "Red Ink (raspberry).");
-            RegisterInkPrefab(zns, InkWhiteName, "$item_sbpr_ink_white", "White Ink (bone).");
-            RegisterInkPrefab(zns, InkBlueName,  "$item_sbpr_ink_blue",  "Blue Ink (blueberry).");
-            RegisterInkPrefab(zns, InkBlackName, "$item_sbpr_ink_black", "Black Ink (coal).");
+            RegisterInkPrefab(zns, InkRedName,   "Red Ink",   "Red Ink (raspberry).");
+            RegisterInkPrefab(zns, InkWhiteName, "White Ink", "White Ink (bone).");
+            RegisterInkPrefab(zns, InkBlueName,  "Blue Ink",  "Blue Ink (blueberry).");
+            RegisterInkPrefab(zns, InkBlackName, "Black Ink", "Black Ink (coal).");
 
             // Sign pieces — clone vanilla sign + tint
-            RegisterSignPrefab(zns, SignRedName,   "$piece_sbpr_sign_red",   "Painted Sign (red).");
-            RegisterSignPrefab(zns, SignWhiteName, "$piece_sbpr_sign_white", "Painted Sign (white).");
-            RegisterSignPrefab(zns, SignBlueName,  "$piece_sbpr_sign_blue",  "Painted Sign (blue).");
-            RegisterSignPrefab(zns, SignBlackName, "$piece_sbpr_sign_black", "Painted Sign (black).");
+            RegisterSignPrefab(zns, SignRedName,   "Painted Sign (Red)",   "Painted Sign (red).");
+            RegisterSignPrefab(zns, SignWhiteName, "Painted Sign (White)", "Painted Sign (white).");
+            RegisterSignPrefab(zns, SignBlueName,  "Painted Sign (Blue)",  "Painted Sign (blue).");
+            RegisterSignPrefab(zns, SignBlackName, "Painted Sign (Black)", "Painted Sign (black).");
         }
 
         private static void RegisterInkPrefab(ZNetScene zns, string name, string displayName, string desc)
@@ -245,7 +245,7 @@ namespace SBPR.Trailborne
             recipe.m_item            = inkPrefab.GetComponent<ItemDrop>();
             recipe.m_amount          = amount;
             recipe.m_minStationLevel = 1;
-            recipe.m_craftingStation = FindStation("piece_sbpr_orienteering_table");
+            recipe.m_craftingStation = FindStation("piece_sbpr_explorers_bench");
             recipe.m_resources       = new[] { BuildReq(ingredient, 1) };
             odb.m_recipes.Add(recipe);
         }
