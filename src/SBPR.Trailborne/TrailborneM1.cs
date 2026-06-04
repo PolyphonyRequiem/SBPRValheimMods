@@ -97,7 +97,7 @@ namespace SBPR.Trailborne
             {
                 drop.m_itemData.m_shared.m_name        = displayName;
                 drop.m_itemData.m_shared.m_description = desc;
-                drop.m_itemData.m_shared.m_maxStackSize = 50;
+                drop.m_itemData.m_shared.m_maxStackSize = 20; // spec PARKED v1: stack 20
                 drop.m_itemData.m_shared.m_weight      = 0.1f;
                 drop.m_itemData.m_shared.m_itemType    = ItemDrop.ItemData.ItemType.Material;
                 if (_icons.TryGetValue(name, out var iconFile))
@@ -208,15 +208,23 @@ namespace SBPR.Trailborne
             AddInkRecipe(InkBlueName,  "Blueberries",   amount: 2);
             AddInkRecipe(InkBlackName, "Coal",          amount: 2);
 
-            // Sign pieces into Hammer build menu
+            // Sign pieces into Hammer build menu + REBUILD their resource lists
+            // now that ink items exist in ObjectDB.
             var hammerTable = TrailborneAssets.GetHammerPieceTable();
-            if (hammerTable != null)
+            foreach (var n in new[] { SignRedName, SignWhiteName, SignBlueName, SignBlackName })
             {
-                foreach (var n in new[] { SignRedName, SignWhiteName, SignBlueName, SignBlackName })
+                var p = zns?.GetPrefab(n);
+                if (p == null) continue;
+                var piece = p.GetComponent<Piece>();
+                if (piece != null)
                 {
-                    var p = zns?.GetPrefab(n);
-                    if (p != null) TrailborneAssets.AddPieceToTable(p, hammerTable);
+                    piece.m_resources = new[]
+                    {
+                        BuildReq("Wood", 2),
+                        BuildReq(InkLookupForSign(n), 1),
+                    };
                 }
+                if (hammerTable != null) TrailborneAssets.AddPieceToTable(p, hammerTable);
             }
 
             TrailbornePlugin.Log.LogInfo("[Trailborne/M1] M1 ObjectDB wiring complete (inks + sign recipes + hammer pieces).");
@@ -254,19 +262,19 @@ namespace SBPR.Trailborne
         {
             var zns = ZNetScene.instance;
             var p = zns?.GetPrefab(piecePrefabName);
-            return p?.GetComponent<CraftingStation>();
+            var station = p?.GetComponent<CraftingStation>();
+            if (station == null)
+            {
+                TrailbornePlugin.Log.LogWarning(
+                    $"[Trailborne/M1] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
+                    "Recipe will register against null station (no bench requirement).");
+            }
+            return station;
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
         {
-            var odb = ObjectDB.instance;
-            var item = odb?.GetItemPrefab(resourcePrefabName)?.GetComponent<ItemDrop>();
-            return new Piece.Requirement
-            {
-                m_resItem = item,
-                m_amount  = amount,
-                m_recover = true,
-            };
+            return TrailborneAssets.BuildReq(resourcePrefabName, amount, "M1");
         }
     }
 

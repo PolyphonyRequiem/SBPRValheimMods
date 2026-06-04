@@ -97,14 +97,37 @@ namespace SBPR.Trailborne
                 // Recipes — only build them once items are in ODB.
                 AddRecipes();
 
-                // Pieces into Hammer build menu
+                // Pieces into Hammer build menu + REBUILD their resource lists
+                // now that ODB is populated. (Pieces built at ZNetScene.Awake
+                // had unresolved m_resItem for any non-vanilla prefab.)
                 var hammerTable = TrailborneAssets.GetHammerPieceTable();
-                if (hammerTable != null && zns != null)
+                if (zns != null)
                 {
                     var table = zns.GetPrefab(OrienteeringTableName);
                     var lamp  = zns.GetPrefab(PathLampName);
-                    if (table != null) TrailborneAssets.AddPieceToTable(table, hammerTable);
-                    if (lamp  != null) TrailborneAssets.AddPieceToTable(lamp,  hammerTable);
+                    if (table != null)
+                    {
+                        var tablePiece = table.GetComponent<Piece>();
+                        if (tablePiece != null)
+                            tablePiece.m_resources = new[]
+                            {
+                                BuildReq("Wood", 10),
+                                BuildReq("Stone", 4),
+                                BuildReq("TrophyDeer", 1),
+                            };
+                        if (hammerTable != null) TrailborneAssets.AddPieceToTable(table, hammerTable);
+                    }
+                    if (lamp != null)
+                    {
+                        var lampPiece = lamp.GetComponent<Piece>();
+                        if (lampPiece != null)
+                            lampPiece.m_resources = new[]
+                            {
+                                BuildReq("ElderBark", 3),
+                                BuildReq("Resin", 2),
+                            };
+                        if (hammerTable != null) TrailborneAssets.AddPieceToTable(lamp, hammerTable);
+                    }
                 }
 
                 _objectDbDone = true;
@@ -116,6 +139,9 @@ namespace SBPR.Trailborne
                 TrailborneM2.DoObjectDBWiring(zns);
                 // M3 wiring (spade path/replant ops)
                 TrailborneM3.DoObjectDBWiring(zns);
+
+                // Spec-drift watchdog — runs LAST after all wiring complete.
+                TrailborneSpecCheck.Run();
             }
             catch (System.Exception e)
             {
@@ -143,7 +169,8 @@ namespace SBPR.Trailborne
                 piece.m_resources   = new[]
                 {
                     BuildReq("Wood", 10),
-                    BuildReq("Stone", 5),
+                    BuildReq("Stone", 4),
+                    BuildReq("TrophyDeer", 1),
                 };
             }
             // Already a CraftingStation (workbench is one) — leave m_name unchanged so
@@ -223,7 +250,8 @@ namespace SBPR.Trailborne
                     r.m_resources      = new[]
                     {
                         BuildReq("Wood", 5),
-                        BuildReq("Stone", 5),
+                        BuildReq("Flint", 2),
+                        BuildReq("LeatherScraps", 2),
                     };
                     odb.m_recipes.Add(r);
                     TrailbornePlugin.Log.LogInfo("[Trailborne] Added recipe for spade.");
@@ -246,19 +274,19 @@ namespace SBPR.Trailborne
         {
             var zns = ZNetScene.instance;
             var p   = zns?.GetPrefab(piecePrefabName);
-            return p?.GetComponent<CraftingStation>();
+            var station = p?.GetComponent<CraftingStation>();
+            if (station == null)
+            {
+                TrailbornePlugin.Log.LogWarning(
+                    $"[Trailborne] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
+                    "Recipe will register against null station (no bench requirement).");
+            }
+            return station;
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
         {
-            var odb = ObjectDB.instance;
-            var item = odb?.GetItemPrefab(resourcePrefabName)?.GetComponent<ItemDrop>();
-            return new Piece.Requirement
-            {
-                m_resItem = item,
-                m_amount  = amount,
-                m_recover = true,
-            };
+            return TrailborneAssets.BuildReq(resourcePrefabName, amount, "Core");
         }
     }
 }

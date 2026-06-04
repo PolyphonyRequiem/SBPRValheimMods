@@ -131,6 +131,30 @@ namespace SBPR.Trailborne
                 table.m_pieces.Add(piecePrefab);
         }
 
+        /// <summary>
+        /// Centralized Piece.Requirement builder. Resolves the resource prefab
+        /// against ObjectDB and LOUDLY logs if it's missing — previously a
+        /// missing prefab silently produced a Requirement with null m_resItem,
+        /// which the game accepts and then quietly skips the cost.
+        /// </summary>
+        public static Piece.Requirement BuildReq(string resourcePrefabName, int amount, string tag = "Trailborne")
+        {
+            var odb = ObjectDB.instance;
+            var item = odb?.GetItemPrefab(resourcePrefabName)?.GetComponent<ItemDrop>();
+            if (item == null)
+            {
+                TrailbornePlugin.Log.LogWarning(
+                    $"[Trailborne/{tag}] BuildReq: resource prefab '{resourcePrefabName}' NOT FOUND in ObjectDB. " +
+                    "Recipe ingredient will silently fail to require this resource. Check prefab name vs decomp.");
+            }
+            return new Piece.Requirement
+            {
+                m_resItem = item,
+                m_amount  = amount,
+                m_recover = true,
+            };
+        }
+
         public static ItemDrop FindItemDrop(string prefabName)
         {
             var odb = ObjectDB.instance;
