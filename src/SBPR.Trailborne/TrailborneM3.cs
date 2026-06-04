@@ -89,24 +89,33 @@ namespace SBPR.Trailborne
 
         public static void DoObjectDBWiring(ZNetScene zns)
         {
-            // Add our spade ops to the Trailblazer Spade's PieceTable.
-            // The spade currently inherits the Hoe's table (M0 simplification);
-            // adding our pieces to that table makes them appear when the spade
-            // is equipped AND the hoe is equipped. TWEAK ME for v0.2.0.
             var spadePrefab = zns?.GetPrefab(TrailborneRegistrar.PublicSpadeName);
             var drop = spadePrefab?.GetComponent<ItemDrop>();
-            var table = drop?.m_itemData?.m_shared?.m_buildPieces;
-            if (table == null)
+            if (drop == null)
             {
-                TrailbornePlugin.Log.LogWarning("[Trailborne/M3] Spade PieceTable missing; cannot wire path ops.");
+                TrailbornePlugin.Log.LogWarning("[Trailborne/M3] Spade prefab missing; cannot wire spade table.");
                 return;
             }
+
+            // Build a fresh, spade-only PieceTable so the player never sees vanilla
+            // raise/level/paved_road when wielding the spade. Hosted on the same
+            // PrefabHolder so its GameObject doesn't get collected.
+            var holderGo = new GameObject("SBPR_SpadePieceTable");
+            UnityEngine.Object.DontDestroyOnLoad(holderGo);
+            var table = holderGo.AddComponent<PieceTable>();
+            table.m_pieces = new List<GameObject>();
+            table.m_categories = new List<Piece.PieceCategory> { Piece.PieceCategory.Misc };
+            table.m_categoryLabels = new List<string> { "Trail" };
+            table.m_canRemovePieces = true;
+
             foreach (var n in _variants.Keys)
             {
                 var p = zns?.GetPrefab(n);
                 if (p != null) TrailborneAssets.AddPieceToTable(p, table);
             }
-            TrailbornePlugin.Log.LogInfo("[Trailborne/M3] M3 wiring complete (spade path ops attached to spade table).");
+
+            drop.m_itemData.m_shared.m_buildPieces = table;
+            TrailbornePlugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} ops.");
         }
     }
 }
