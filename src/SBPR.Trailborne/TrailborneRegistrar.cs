@@ -44,6 +44,7 @@ namespace SBPR.Trailborne
                 RegisterPathLampPrefab(__instance);
                 RegisterSpadeItemPrefab(__instance);
                 TrailborneM1.RegisterPrefabs(__instance);
+                TrailborneM2.RegisterPrefabs(__instance);
 
                 _znetSceneDone = true;
                 TrailbornePlugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -109,6 +110,8 @@ namespace SBPR.Trailborne
 
                 // M1 wiring (inks + sign pieces + recipes)
                 TrailborneM1.DoObjectDBWiring(zns);
+                // M2 wiring (cairn marker + cairn piece + recipe)
+                TrailborneM2.DoObjectDBWiring(zns);
             }
             catch (System.Exception e)
             {
