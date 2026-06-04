@@ -17,6 +17,7 @@ namespace SBPR.Trailborne
         private const string OrienteeringTableName = "piece_sbpr_orienteering_table";
         private const string PathLampName          = "piece_sbpr_path_lamp";
         private const string SpadeName             = "SBPR_TrailblazersSpade";
+        public  const string PublicSpadeName       = SpadeName;
 
         private const string SourceWorkbench       = "piece_workbench";
         private const string SourceGroundTorch     = "piece_groundtorch_wood";
@@ -45,6 +46,7 @@ namespace SBPR.Trailborne
                 RegisterSpadeItemPrefab(__instance);
                 TrailborneM1.RegisterPrefabs(__instance);
                 TrailborneM2.RegisterPrefabs(__instance);
+                TrailborneM3.RegisterPrefabs(__instance);
 
                 _znetSceneDone = true;
                 TrailbornePlugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -112,6 +114,8 @@ namespace SBPR.Trailborne
                 TrailborneM1.DoObjectDBWiring(zns);
                 // M2 wiring (cairn marker + cairn piece + recipe)
                 TrailborneM2.DoObjectDBWiring(zns);
+                // M3 wiring (spade path/replant ops)
+                TrailborneM3.DoObjectDBWiring(zns);
             }
             catch (System.Exception e)
             {
