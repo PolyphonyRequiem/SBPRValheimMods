@@ -53,19 +53,19 @@ namespace SBPR.Trailborne
                 Resources = new[] { R("Wood", 5), R("Flint", 2), R("LeatherScraps", 2) }
             },
             new RecipeSpec {
-                Item = TrailborneM1.InkRedName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = TrailbornePigments.InkRedName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Raspberry", 1) }
             },
             new RecipeSpec {
-                Item = TrailborneM1.InkWhiteName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = TrailbornePigments.InkWhiteName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("BoneFragments", 1) }
             },
             new RecipeSpec {
-                Item = TrailborneM1.InkBlueName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = TrailbornePigments.InkBlueName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Blueberries", 1) }
             },
             new RecipeSpec {
-                Item = TrailborneM1.InkBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = TrailbornePigments.InkBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Coal", 1) }
             },
         };
