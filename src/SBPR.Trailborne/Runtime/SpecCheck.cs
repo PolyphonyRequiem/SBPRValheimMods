@@ -22,7 +22,7 @@ namespace SBPR.Trailborne.Runtime
     /// (lines 170-222, 318-323). Update BOTH this manifest AND the spec
     /// in the same commit when intentionally changing a recipe.
     /// </summary>
-    internal static class TrailborneSpecCheck
+    internal static class SpecCheck
     {
         private struct Req { public string Resource; public int Amount; }
         private static Req R(string resource, int amount) => new Req { Resource = resource, Amount = amount };
@@ -55,19 +55,19 @@ namespace SBPR.Trailborne.Runtime
                 Resources = new[] { R("Wood", 5), R("Flint", 2), R("LeatherScraps", 2) }
             },
             new RecipeSpec {
-                Item = TrailbornePigments.InkRedName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.InkRedName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Raspberry", 1) }
             },
             new RecipeSpec {
-                Item = TrailbornePigments.InkWhiteName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.InkWhiteName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("BoneFragments", 1) }
             },
             new RecipeSpec {
-                Item = TrailbornePigments.InkBlueName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.InkBlueName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Blueberries", 1) }
             },
             new RecipeSpec {
-                Item = TrailbornePigments.InkBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.InkBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Coal", 1) }
             },
         };
@@ -78,7 +78,7 @@ namespace SBPR.Trailborne.Runtime
             var zns = ZNetScene.instance;
             if (odb == null || zns == null)
             {
-                TrailbornePlugin.Log.LogWarning("[Trailborne/SpecCheck] Skipped: ODB or ZNetScene not ready.");
+                Plugin.Log.LogWarning("[Trailborne/SpecCheck] Skipped: ODB or ZNetScene not ready.");
                 return;
             }
 
@@ -97,7 +97,7 @@ namespace SBPR.Trailborne.Runtime
                 }
                 if (found == null)
                 {
-                    TrailbornePlugin.Log.LogError($"[Trailborne/SpecCheck] MISSING RECIPE: {spec.Item}");
+                    Plugin.Log.LogError($"[Trailborne/SpecCheck] MISSING RECIPE: {spec.Item}");
                     errors++;
                     continue;
                 }
@@ -119,7 +119,7 @@ namespace SBPR.Trailborne.Runtime
                 var piece  = prefab?.GetComponent<Piece>();
                 if (piece == null)
                 {
-                    TrailbornePlugin.Log.LogError($"[Trailborne/SpecCheck] MISSING PIECE: {spec.Piece}");
+                    Plugin.Log.LogError($"[Trailborne/SpecCheck] MISSING PIECE: {spec.Piece}");
                     errors++;
                     continue;
                 }
@@ -128,11 +128,11 @@ namespace SBPR.Trailborne.Runtime
 
             // ── Color-variant cairn markers + cairn pieces ──
             // Generated rather than enumerated because it's 4× repetitive.
-            foreach (var color in TrailborneM2.Colors)
+            foreach (var color in Cairns.Colors)
             {
-                var markerName = TrailborneM2.MarkerName(color);
-                var cairnName  = TrailborneM2.CairnName(color);
-                var ink        = TrailborneM2.InkNameFor(color);
+                var markerName = Cairns.MarkerName(color);
+                var cairnName  = Cairns.CairnName(color);
+                var ink        = Cairns.InkNameFor(color);
 
                 // Cairn marker recipe
                 checks++;
@@ -144,7 +144,7 @@ namespace SBPR.Trailborne.Runtime
                 }
                 if (markerRecipe == null)
                 {
-                    TrailbornePlugin.Log.LogError($"[Trailborne/SpecCheck] MISSING RECIPE: {markerName}");
+                    Plugin.Log.LogError($"[Trailborne/SpecCheck] MISSING RECIPE: {markerName}");
                     errors++;
                 }
                 else
@@ -159,22 +159,22 @@ namespace SBPR.Trailborne.Runtime
                 var cairnPiece  = cairnPrefab?.GetComponent<Piece>();
                 if (cairnPiece == null)
                 {
-                    TrailbornePlugin.Log.LogError($"[Trailborne/SpecCheck] MISSING PIECE: {cairnName}");
+                    Plugin.Log.LogError($"[Trailborne/SpecCheck] MISSING PIECE: {cairnName}");
                     errors++;
                 }
                 else
                 {
                     // Tier-1 build cost (v0.1.0 cairn ladder: 9/12/15/18/21 stone per tier).
-                    // Upgrade-cost validation happens at runtime in TrailborneM2.TryUpgradeCairn.
+                    // Upgrade-cost validation happens at runtime in Cairns.TryUpgradeCairn.
                     var expected = new[] { R("Stone", 9), R("Resin", 1), R(markerName, 1) };
                     CompareResources(cairnName, expected, cairnPiece.m_resources, ref errors);
                 }
             }
 
             if (errors == 0)
-                TrailbornePlugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest.");
+                Plugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest.");
             else
-                TrailbornePlugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} checks. See above.");
+                Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} checks. See above.");
         }
 
         private static void CompareResources(string itemName, Req[] expected, Piece.Requirement[] actual, ref int errors)
@@ -186,7 +186,7 @@ namespace SBPR.Trailborne.Runtime
             var nullCount = actual.Count(r => r != null && r.m_resItem == null);
             if (nullCount > 0)
             {
-                TrailbornePlugin.Log.LogError(
+                Plugin.Log.LogError(
                     $"[Trailborne/SpecCheck] {itemName}: {nullCount} resource requirement(s) have NULL m_resItem (prefab name not resolved). " +
                     "Check BuildReq warnings above for which prefab name failed to resolve.");
                 errors++;
@@ -196,7 +196,7 @@ namespace SBPR.Trailborne.Runtime
             {
                 if (!actualNamed.TryGetValue(exp.Resource, out var amt))
                 {
-                    TrailbornePlugin.Log.LogError($"[Trailborne/SpecCheck] {itemName}: MISSING resource '{exp.Resource}' (spec wants {exp.Amount}).");
+                    Plugin.Log.LogError($"[Trailborne/SpecCheck] {itemName}: MISSING resource '{exp.Resource}' (spec wants {exp.Amount}).");
                     errors++;
                 }
                 else if (amt != exp.Amount)
@@ -209,7 +209,7 @@ namespace SBPR.Trailborne.Runtime
             {
                 if (!expected.Any(e => e.Resource == have.Key))
                 {
-                    TrailbornePlugin.Log.LogError(
+                    Plugin.Log.LogError(
                         $"[Trailborne/SpecCheck] {itemName}: EXTRA resource '{have.Key}' x{have.Value} (not in spec).");
                     errors++;
                 }
@@ -218,7 +218,7 @@ namespace SBPR.Trailborne.Runtime
 
         private static void LogDrift(string item, string field, string expected, string actual, ref int errors)
         {
-            TrailbornePlugin.Log.LogError(
+            Plugin.Log.LogError(
                 $"[Trailborne/SpecCheck] DRIFT — {item}: {field} expected '{expected}', registered '{actual}'.");
             errors++;
         }

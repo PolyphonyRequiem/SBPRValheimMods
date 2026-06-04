@@ -10,7 +10,7 @@ namespace SBPR.Trailborne.Features.Cairns
     /// ZDO-backed tier accessors. Also assembles + rescales the kitbash rock stack
     /// based on tier on Awake / tier change.
     /// </summary>
-    public class TrailborneCairnTag : MonoBehaviour
+    public class CairnTag : MonoBehaviour
     {
         public string Color;
         private ZNetView _nview;
@@ -26,9 +26,9 @@ namespace SBPR.Trailborne.Features.Cairns
         public int ReadTier()
         {
             if (_nview == null || _nview.GetZDO() == null) return 1;
-            int t = _nview.GetZDO().GetInt(TrailborneM2.ZdoTier, 1);
+            int t = _nview.GetZDO().GetInt(Cairns.ZdoTier, 1);
             if (t < 1) t = 1;
-            if (t > TrailborneM2.MaxTier) t = TrailborneM2.MaxTier;
+            if (t > Cairns.MaxTier) t = Cairns.MaxTier;
             return t;
         }
 
@@ -37,8 +37,8 @@ namespace SBPR.Trailborne.Features.Cairns
             if (_nview == null || _nview.GetZDO() == null) return false;
             if (!_nview.IsOwner()) _nview.ClaimOwnership();
             if (newTier < 1) newTier = 1;
-            if (newTier > TrailborneM2.MaxTier) newTier = TrailborneM2.MaxTier;
-            _nview.GetZDO().Set(TrailborneM2.ZdoTier, newTier);
+            if (newTier > Cairns.MaxTier) newTier = Cairns.MaxTier;
+            _nview.GetZDO().Set(Cairns.ZdoTier, newTier);
             BuildKitbashArt();
             return true;
         }
@@ -64,7 +64,7 @@ namespace SBPR.Trailborne.Features.Cairns
             var rockSrc = zns.GetPrefab("rock_low");
             if (rockSrc == null)
             {
-                TrailbornePlugin.Log.LogWarning("[Trailborne/M2] rock_low prefab missing; cairn art will be bonfire-stub.");
+                Plugin.Log.LogWarning("[Trailborne/M2] rock_low prefab missing; cairn art will be bonfire-stub.");
                 return;
             }
 

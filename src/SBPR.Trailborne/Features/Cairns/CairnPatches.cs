@@ -14,7 +14,7 @@ namespace SBPR.Trailborne.Features.Cairns
     ///     floor into the result.
     /// </summary>
     [HarmonyPatch]
-    public static class TrailborneCairnPatches
+    public static class CairnPatches
     {
         // ── Damage immunity ─────────────────────────────────────────────
         [HarmonyPatch(typeof(WearNTear), nameof(WearNTear.Damage))]
@@ -23,8 +23,8 @@ namespace SBPR.Trailborne.Features.Cairns
         {
             if (__instance == null) return true;
             // GetComponentInParent so Harmony works regardless of which child collider was hit.
-            var tag = __instance.GetComponent<TrailborneCairnTag>();
-            if (tag == null) tag = __instance.GetComponentInParent<TrailborneCairnTag>();
+            var tag = __instance.GetComponent<CairnTag>();
+            if (tag == null) tag = __instance.GetComponentInParent<CairnTag>();
             if (tag != null)
             {
                 // Swallow the damage entirely. Cairns only decay via UpdateWear weather paths.
@@ -39,7 +39,7 @@ namespace SBPR.Trailborne.Features.Cairns
         public static void WearNTear_Awake_Postfix(WearNTear __instance)
         {
             if (__instance == null) return;
-            var tag = __instance.GetComponent<TrailborneCairnTag>();
+            var tag = __instance.GetComponent<CairnTag>();
             if (tag == null) return;
             var nview = __instance.GetComponent<ZNetView>();
             if (nview == null || nview.GetZDO() == null) return;
@@ -47,18 +47,18 @@ namespace SBPR.Trailborne.Features.Cairns
 
             double nowDay = ZNet.instance != null ? ZNet.instance.GetTimeSeconds() / 86400.0 : 0.0;
             // GetFloat works for backfill — Valheim's in-game-day is small enough to fit comfortably.
-            float lastWearDay = nview.GetZDO().GetFloat(TrailborneM2.ZdoLastWearTick, -1f);
+            float lastWearDay = nview.GetZDO().GetFloat(Cairns.ZdoLastWearTick, -1f);
             if (lastWearDay < 0f)
             {
                 // First load — seed and bail.
-                nview.GetZDO().Set(TrailborneM2.ZdoLastWearTick, (float)nowDay);
+                nview.GetZDO().Set(Cairns.ZdoLastWearTick, (float)nowDay);
                 return;
             }
 
             float deltaDays = (float)nowDay - lastWearDay;
             if (deltaDays <= 0f)
             {
-                nview.GetZDO().Set(TrailborneM2.ZdoLastWearTick, (float)nowDay);
+                nview.GetZDO().Set(Cairns.ZdoLastWearTick, (float)nowDay);
                 return;
             }
 
@@ -73,10 +73,10 @@ namespace SBPR.Trailborne.Features.Cairns
             {
                 nview.GetZDO().Set(ZDOVars.s_health, newHp);
                 nview.InvokeRPC(ZNetView.Everybody, "WNTHealthChanged", newHp);
-                TrailbornePlugin.Log.LogInfo(
+                Plugin.Log.LogInfo(
                     $"[Trailborne/M2] Cairn backfill: missed {deltaDays:F2}d → decayed {decayHp:F1} HP ({curHp:F0} → {newHp:F0}).");
             }
-            nview.GetZDO().Set(TrailborneM2.ZdoLastWearTick, (float)nowDay);
+            nview.GetZDO().Set(Cairns.ZdoLastWearTick, (float)nowDay);
         }
 
         // ── Comfort floor injection ─────────────────────────────────────
@@ -90,12 +90,12 @@ namespace SBPR.Trailborne.Features.Cairns
         {
             try
             {
-                int bonus = TrailborneM2.GetCairnComfortBonus(position);
+                int bonus = Cairns.GetCairnComfortBonus(position);
                 if (bonus > __result) __result = bonus;
             }
             catch (Exception e)
             {
-                TrailbornePlugin.Log.LogWarning($"[Trailborne/M2] Comfort patch suppressed exception: {e.Message}");
+                Plugin.Log.LogWarning($"[Trailborne/M2] Comfort patch suppressed exception: {e.Message}");
             }
         }
     }

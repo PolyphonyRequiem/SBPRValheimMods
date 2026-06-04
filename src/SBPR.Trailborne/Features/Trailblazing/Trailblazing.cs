@@ -24,7 +24,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
     /// grass which is the "clear" act in a different direction.
     /// TWEAK ME: real ClearVegetation in v0.2.0.
     /// </summary>
-    public static class TrailborneM3
+    public static class Trailblazing
     {
         // Spade item prefab name (lifted from Registrar — was PublicSpadeName)
         public const string SpadeName = "SBPR_TrailblazersSpade";
@@ -66,7 +66,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
         private static void RegisterSpadeItemPrefab(ZNetScene zns)
         {
             if (zns.GetPrefab(SpadeName) != null) return;
-            var clone = TrailborneAssets.ClonePrefab(SourceHoe, SpadeName);
+            var clone = Assets.ClonePrefab(SourceHoe, SpadeName);
             if (clone == null) return;
 
             var drop = clone.GetComponent<ItemDrop>();
@@ -74,7 +74,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
             {
                 drop.m_itemData.m_shared.m_name        = "Trailblazer's Spade";
                 drop.m_itemData.m_shared.m_description = "Trailblazer's Spade — scroll to cycle path mode (dirt / paved / clear).";
-                var sprite = TrailborneAssets.LoadPngAsSprite(IconFile);
+                var sprite = Assets.LoadPngAsSprite(IconFile);
                 if (sprite != null)
                     drop.m_itemData.m_shared.m_icons = new[] { sprite };
                 // m_buildPieces inherits from Hoe — already has terrain-op pieces
@@ -83,8 +83,8 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 // wiring a new right-click handler. TWEAK ME: right-click rebind.
             }
 
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne] Registered item prefab: {SpadeName}");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne] Registered item prefab: {SpadeName}");
         }
 
         private static string NicePieceName(string prefab)
@@ -102,10 +102,10 @@ namespace SBPR.Trailborne.Features.Trailblazing
         private static void RegisterRadiusVariant(ZNetScene zns, string name, string source, float radius)
         {
             if (zns.GetPrefab(name) != null) return;
-            var clone = TrailborneAssets.ClonePrefab(source, name);
+            var clone = Assets.ClonePrefab(source, name);
             if (clone == null)
             {
-                TrailbornePlugin.Log.LogWarning($"[Trailborne/M3] Source '{source}' missing; skipping {name}");
+                Plugin.Log.LogWarning($"[Trailborne/M3] Source '{source}' missing; skipping {name}");
                 return;
             }
             // Scale terrain radii on the cloned TerrainModifier
@@ -125,8 +125,8 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 // Free placement like vanilla hoe ops — no resource cost
                 piece.m_resources   = Array.Empty<Piece.Requirement>();
             }
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne/M3] Registered spade op: {name} ({radius:F1}m)");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne/M3] Registered spade op: {name} ({radius:F1}m)");
         }
 
         // ───────────────────────────────────────────────
@@ -144,7 +144,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
             if (zns != null)
             {
                 var spadePrefab = zns.GetPrefab(SpadeName);
-                if (spadePrefab != null) TrailborneAssets.RegisterItemInObjectDB(spadePrefab);
+                if (spadePrefab != null) Assets.RegisterItemInObjectDB(spadePrefab);
             }
 
             // Spade recipe — at orienteering table (was Registrar.AddRecipes).
@@ -154,7 +154,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
             var drop = zns?.GetPrefab(SpadeName)?.GetComponent<ItemDrop>();
             if (drop == null)
             {
-                TrailbornePlugin.Log.LogWarning("[Trailborne/M3] Spade prefab missing; cannot wire spade table.");
+                Plugin.Log.LogWarning("[Trailborne/M3] Spade prefab missing; cannot wire spade table.");
                 return;
             }
 
@@ -172,11 +172,11 @@ namespace SBPR.Trailborne.Features.Trailblazing
             foreach (var n in _variants.Keys)
             {
                 var p = zns?.GetPrefab(n);
-                if (p != null) TrailborneAssets.AddPieceToTable(p, table);
+                if (p != null) Assets.AddPieceToTable(p, table);
             }
 
             drop.m_itemData.m_shared.m_buildPieces = table;
-            TrailbornePlugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} ops.");
+            Plugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} ops.");
         }
 
         private static void AddSpadeRecipe()
@@ -203,7 +203,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
                         BuildReq("LeatherScraps", 2),
                     };
                     odb.m_recipes.Add(r);
-                    TrailbornePlugin.Log.LogInfo("[Trailborne] Added recipe for spade.");
+                    Plugin.Log.LogInfo("[Trailborne] Added recipe for spade.");
                 }
             }
         }
@@ -226,7 +226,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
             var station = p?.GetComponent<CraftingStation>();
             if (station == null)
             {
-                TrailbornePlugin.Log.LogWarning(
+                Plugin.Log.LogWarning(
                     $"[Trailborne] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
                     "Recipe will register against null station (no bench requirement).");
             }
@@ -235,7 +235,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
         {
-            return TrailborneAssets.BuildReq(resourcePrefabName, amount, "Core");
+            return Assets.BuildReq(resourcePrefabName, amount, "Core");
         }
     }
 }

@@ -3,19 +3,25 @@ using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 using SBPR.Trailborne.Runtime;
-using SBPR.Trailborne.Features.Pigments;
 
 namespace SBPR.Trailborne.Features.Signs
 {
+    // The Pigments TYPE lives in namespace SBPR.Trailborne.Features.Pigments. From
+    // inside this sibling Features.* namespace the bare name `Pigments` would
+    // otherwise bind to that sibling NAMESPACE (the enclosing `Features` scope is
+    // searched before a compilation-unit alias), so we alias the name to the type
+    // INSIDE this namespace body to keep the readable `Pigments.InkRedName` syntax.
+    using Pigments = SBPR.Trailborne.Features.Pigments.Pigments;
+
     /// <summary>
     /// Painted Signs (4 buildable variants, color tinted from base material).
     /// Player presses Shift+E on a placed sign to add a colored map pin matching
     /// the sign's text + color. Split out of the old M1; depends DOWN on
     /// Pigments for its ink ingredient.
     ///
-    /// All gated behind SBPRContext.OnSBServer.
+    /// All gated behind ServerContext.OnSBServer.
     /// </summary>
-    public static class TrailborneSigns
+    public static class Signs
     {
         // Sign piece prefab names
         public const string SignRedName   = "piece_sbpr_sign_red";
@@ -69,10 +75,10 @@ namespace SBPR.Trailborne.Features.Signs
         private static void RegisterSignPrefab(ZNetScene zns, string name, string displayName, string desc)
         {
             if (zns.GetPrefab(name) != null) return;
-            var clone = TrailborneAssets.ClonePrefab(SourceSign, name);
+            var clone = Assets.ClonePrefab(SourceSign, name);
             if (clone == null)
             {
-                TrailbornePlugin.Log.LogWarning($"[Trailborne/M1] Source sign prefab missing, skipping {name}");
+                Plugin.Log.LogWarning($"[Trailborne/M1] Source sign prefab missing, skipping {name}");
                 return;
             }
 
@@ -88,30 +94,30 @@ namespace SBPR.Trailborne.Features.Signs
                     BuildReq(InkLookupForSign(name), 1),
                 };
                 if (_icons.TryGetValue(name, out var iconFile))
-                    piece.m_icon = TrailborneAssets.LoadPngAsSprite(iconFile);
+                    piece.m_icon = Assets.LoadPngAsSprite(iconFile);
             }
 
             // Tag the sign with our colored variant so Interact handler can color-pin later
-            var tag = clone.AddComponent<TrailborneSignTag>();
+            var tag = clone.AddComponent<SignTag>();
             tag.PrefabName = name;
 
             // Tint the visible mesh
             if (SignColors.TryGetValue(name, out var col))
                 TintMeshRenderers(clone, col);
 
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne/M1] Registered sign piece: {name}");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne/M1] Registered sign piece: {name}");
         }
 
         private static string InkLookupForSign(string signName)
         {
             switch (signName)
             {
-                case SignRedName:   return TrailbornePigments.InkRedName;
-                case SignWhiteName: return TrailbornePigments.InkWhiteName;
-                case SignBlueName:  return TrailbornePigments.InkBlueName;
-                case SignBlackName: return TrailbornePigments.InkBlackName;
-                default: return TrailbornePigments.InkRedName;
+                case SignRedName:   return Pigments.InkRedName;
+                case SignWhiteName: return Pigments.InkWhiteName;
+                case SignBlueName:  return Pigments.InkBlueName;
+                case SignBlackName: return Pigments.InkBlackName;
+                default: return Pigments.InkRedName;
             }
         }
 
@@ -137,7 +143,7 @@ namespace SBPR.Trailborne.Features.Signs
                 }
                 catch (Exception e)
                 {
-                    TrailbornePlugin.Log.LogWarning($"[Trailborne/M1] Tint failed on {go.name}: {e.Message}");
+                    Plugin.Log.LogWarning($"[Trailborne/M1] Tint failed on {go.name}: {e.Message}");
                 }
             }
         }
@@ -153,7 +159,7 @@ namespace SBPR.Trailborne.Features.Signs
 
             // Sign pieces into Hammer build menu + REBUILD their resource lists
             // now that ink items exist in ObjectDB.
-            var hammerTable = TrailborneAssets.GetHammerPieceTable();
+            var hammerTable = Assets.GetHammerPieceTable();
             foreach (var n in new[] { SignRedName, SignWhiteName, SignBlueName, SignBlackName })
             {
                 var p = zns?.GetPrefab(n);
@@ -167,15 +173,15 @@ namespace SBPR.Trailborne.Features.Signs
                         BuildReq(InkLookupForSign(n), 1),
                     };
                 }
-                if (hammerTable != null) TrailborneAssets.AddPieceToTable(p, hammerTable);
+                if (hammerTable != null) Assets.AddPieceToTable(p, hammerTable);
             }
 
-            TrailbornePlugin.Log.LogInfo("[Trailborne/M1] Signs ObjectDB wiring complete (sign recipes + hammer pieces).");
+            Plugin.Log.LogInfo("[Trailborne/M1] Signs ObjectDB wiring complete (sign recipes + hammer pieces).");
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
         {
-            return TrailborneAssets.BuildReq(resourcePrefabName, amount, "M1");
+            return Assets.BuildReq(resourcePrefabName, amount, "M1");
         }
     }
 }

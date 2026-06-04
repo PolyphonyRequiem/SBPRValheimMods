@@ -10,9 +10,9 @@ namespace SBPR.Trailborne.Features.Trailhead
     /// Registrar so the station — foundational content that all other features
     /// reference by name — lives in its own vertical slice.
     ///
-    /// All gated behind SBPRContext.OnSBServer (the caller, Registrar, checks it).
+    /// All gated behind ServerContext.OnSBServer (the caller, Registrar, checks it).
     /// </summary>
-    public static class TrailborneTrailhead
+    public static class Trailhead
     {
         // Piece prefab names
         public const string ExplorersBenchName = "piece_sbpr_explorers_bench";
@@ -37,7 +37,7 @@ namespace SBPR.Trailborne.Features.Trailhead
         private static void RegisterExplorersBenchPrefab(ZNetScene zns)
         {
             if (zns.GetPrefab(ExplorersBenchName) != null) return;
-            var clone = TrailborneAssets.ClonePrefab(SourceWorkbench, ExplorersBenchName);
+            var clone = Assets.ClonePrefab(SourceWorkbench, ExplorersBenchName);
             if (clone == null) return;
 
             var piece = clone.GetComponent<Piece>();
@@ -46,7 +46,7 @@ namespace SBPR.Trailborne.Features.Trailhead
                 piece.m_name        = "Explorer's Bench";
                 piece.m_description = "The explorer's writing desk. Crafts inks, signs, lamps, and trail tools.";
                 piece.m_category    = Piece.PieceCategory.Crafting;
-                piece.m_icon        = TrailborneAssets.LoadPngAsSprite(IconFile);
+                piece.m_icon        = Assets.LoadPngAsSprite(IconFile);
                 piece.m_resources   = new[]
                 {
                     BuildReq("Wood", 10),
@@ -59,14 +59,14 @@ namespace SBPR.Trailborne.Features.Trailhead
             var station = clone.GetComponent<CraftingStation>();
             if (station != null) station.m_name = "Explorer's Bench";
 
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne] Registered piece: {ExplorersBenchName}");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne] Registered piece: {ExplorersBenchName}");
         }
 
         private static void RegisterPathLampPrefab(ZNetScene zns)
         {
             if (zns.GetPrefab(PathLampName) != null) return;
-            var clone = TrailborneAssets.ClonePrefab(SourceGroundTorch, PathLampName);
+            var clone = Assets.ClonePrefab(SourceGroundTorch, PathLampName);
             if (clone == null) return;
 
             var piece = clone.GetComponent<Piece>();
@@ -75,7 +75,7 @@ namespace SBPR.Trailborne.Features.Trailhead
                 piece.m_name        = "Path Lamp";
                 piece.m_description = "A standing lamp for marking trails after dark.";
                 piece.m_category    = Piece.PieceCategory.Furniture;
-                piece.m_icon        = TrailborneAssets.LoadPngAsSprite(IconFile);
+                piece.m_icon        = Assets.LoadPngAsSprite(IconFile);
                 piece.m_resources   = new[]
                 {
                     BuildReq("Wood", 3),       // Meadows-tier
@@ -83,8 +83,8 @@ namespace SBPR.Trailborne.Features.Trailhead
                 };
             }
 
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne] Registered piece: {PathLampName}");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne] Registered piece: {PathLampName}");
         }
 
         // ───────────────────────────────────────────────
@@ -96,7 +96,7 @@ namespace SBPR.Trailborne.Features.Trailhead
             // Pieces into Hammer build menu + REBUILD their resource lists
             // now that ODB is populated. (Pieces built at ZNetScene.Awake
             // had unresolved m_resItem for any non-vanilla prefab.)
-            var hammerTable = TrailborneAssets.GetHammerPieceTable();
+            var hammerTable = Assets.GetHammerPieceTable();
             if (zns == null) return;
 
             var table = zns.GetPrefab(ExplorersBenchName);
@@ -111,7 +111,7 @@ namespace SBPR.Trailborne.Features.Trailhead
                         BuildReq("Stone", 4),
                         BuildReq("TrophyDeer", 1),
                     };
-                if (hammerTable != null) TrailborneAssets.AddPieceToTable(table, hammerTable);
+                if (hammerTable != null) Assets.AddPieceToTable(table, hammerTable);
             }
             if (lamp != null)
             {
@@ -122,13 +122,13 @@ namespace SBPR.Trailborne.Features.Trailhead
                         BuildReq("Wood", 3),
                         BuildReq("Resin", 2),
                     };
-                if (hammerTable != null) TrailborneAssets.AddPieceToTable(lamp, hammerTable);
+                if (hammerTable != null) Assets.AddPieceToTable(lamp, hammerTable);
             }
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
         {
-            return TrailborneAssets.BuildReq(resourcePrefabName, amount, "Core");
+            return Assets.BuildReq(resourcePrefabName, amount, "Core");
         }
     }
 }

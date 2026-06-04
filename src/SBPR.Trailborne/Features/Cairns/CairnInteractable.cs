@@ -7,20 +7,20 @@ namespace SBPR.Trailborne.Features.Cairns
     /// <summary>
     /// Interactable surface for cairns:
     ///   • E (no alt)          → repair+upgrade combo, gated on HP &lt; 75%
-    ///   • Shift+E (alt=true)  → debug-damage to 70% HP, gated on TrailbornePlugin.DebugCairnDamage
+    ///   • Shift+E (alt=true)  → debug-damage to 70% HP, gated on Plugin.DebugCairnDamage
     ///
     /// Hover text reports tier, HP%, and next-action affordance.
     /// </summary>
-    public class TrailborneCairnInteractable : MonoBehaviour, Hoverable, Interactable
+    public class CairnInteractable : MonoBehaviour, Hoverable, Interactable
     {
         private const float UseDistance = 4.0f;
-        private TrailborneCairnTag _tag;
+        private CairnTag _tag;
         private WearNTear _wnt;
         private Piece _piece;
 
         private void Awake()
         {
-            _tag = GetComponent<TrailborneCairnTag>();
+            _tag = GetComponent<CairnTag>();
             _wnt = GetComponent<WearNTear>();
             _piece = GetComponent<Piece>();
         }
@@ -36,15 +36,15 @@ namespace SBPR.Trailborne.Features.Cairns
             int tier = _tag.ReadTier();
             float hp = _wnt != null ? _wnt.GetHealthPercentage() : 1f;
             int hpPct = Mathf.RoundToInt(hp * 100f);
-            int comfortFloor = TrailborneM2.ComfortFloorForTier(tier);
+            int comfortFloor = Cairns.ComfortFloorForTier(tier);
 
             string line2;
-            if (hp < TrailborneM2.PristineHpFraction)
+            if (hp < Cairns.PristineHpFraction)
             {
-                if (tier < TrailborneM2.MaxTier)
-                    line2 = $"[<color=yellow><b>$KEY_Use</b></color>] Repair + Upgrade → T{tier + 1} ({TrailborneM2.UpgradeStoneCost} Stone + {TrailborneM2.UpgradeResinCost} Resin)";
+                if (tier < Cairns.MaxTier)
+                    line2 = $"[<color=yellow><b>$KEY_Use</b></color>] Repair + Upgrade → T{tier + 1} ({Cairns.UpgradeStoneCost} Stone + {Cairns.UpgradeResinCost} Resin)";
                 else
-                    line2 = $"[<color=yellow><b>$KEY_Use</b></color>] Repair ({TrailborneM2.UpgradeStoneCost} Stone + {TrailborneM2.UpgradeResinCost} Resin)";
+                    line2 = $"[<color=yellow><b>$KEY_Use</b></color>] Repair ({Cairns.UpgradeStoneCost} Stone + {Cairns.UpgradeResinCost} Resin)";
             }
             else
             {
@@ -52,10 +52,10 @@ namespace SBPR.Trailborne.Features.Cairns
             }
 
             string line3 = "";
-            if (TrailbornePlugin.DebugCairnDamage != null && TrailbornePlugin.DebugCairnDamage.Value)
+            if (Plugin.DebugCairnDamage != null && Plugin.DebugCairnDamage.Value)
                 line3 = "\n[<color=#ff8b3d><b>Shift+$KEY_Use</b></color>] (debug) damage to 70%";
 
-            return $"{_piece.m_name}\nTier {tier} / {TrailborneM2.MaxTier} — comfort floor {comfortFloor} — HP {hpPct}%\n{line2}{line3}";
+            return $"{_piece.m_name}\nTier {tier} / {Cairns.MaxTier} — comfort floor {comfortFloor} — HP {hpPct}%\n{line2}{line3}";
         }
 
         public bool Interact(Humanoid user, bool hold, bool alt)
@@ -68,7 +68,7 @@ namespace SBPR.Trailborne.Features.Cairns
             if (alt)
             {
                 // Shift+E debug damage
-                if (TrailbornePlugin.DebugCairnDamage == null || !TrailbornePlugin.DebugCairnDamage.Value)
+                if (Plugin.DebugCairnDamage == null || !Plugin.DebugCairnDamage.Value)
                     return false;
                 return DoDebugDamage();
             }
@@ -81,7 +81,7 @@ namespace SBPR.Trailborne.Features.Cairns
         private bool DoRepairAndUpgrade(Humanoid user)
         {
             float hp = _wnt.GetHealthPercentage();
-            if (hp >= TrailborneM2.PristineHpFraction)
+            if (hp >= Cairns.PristineHpFraction)
             {
                 MessageHud.instance?.ShowMessage(
                     MessageHud.MessageType.Center,
@@ -91,8 +91,8 @@ namespace SBPR.Trailborne.Features.Cairns
 
             var inv = user.GetInventory();
             if (inv == null) return false;
-            int needStone = TrailborneM2.UpgradeStoneCost;
-            int needResin = TrailborneM2.UpgradeResinCost;
+            int needStone = Cairns.UpgradeStoneCost;
+            int needResin = Cairns.UpgradeResinCost;
             if (inv.CountItems("$item_stone") < needStone || inv.CountItems("$item_resin") < needResin)
             {
                 MessageHud.instance?.ShowMessage(
@@ -107,11 +107,11 @@ namespace SBPR.Trailborne.Features.Cairns
 
             // Repair to max via vanilla path — handles ZDO + RPC fanout cleanly.
             try { _wnt.Repair(); }
-            catch (Exception e) { TrailbornePlugin.Log.LogWarning($"[Trailborne/M2] Repair() threw: {e.Message}"); }
+            catch (Exception e) { Plugin.Log.LogWarning($"[Trailborne/M2] Repair() threw: {e.Message}"); }
 
             int tier = _tag.ReadTier();
             string action = "Repaired";
-            if (tier < TrailborneM2.MaxTier)
+            if (tier < Cairns.MaxTier)
             {
                 _tag.WriteTier(tier + 1);
                 action = $"Repaired + upgraded to T{tier + 1}";
@@ -130,7 +130,7 @@ namespace SBPR.Trailborne.Features.Cairns
         {
             if (_wnt == null) return false;
             float curPct = _wnt.GetHealthPercentage();
-            if (curPct < TrailborneM2.PristineHpFraction)
+            if (curPct < Cairns.PristineHpFraction)
             {
                 MessageHud.instance?.ShowMessage(
                     MessageHud.MessageType.Center,
@@ -139,16 +139,16 @@ namespace SBPR.Trailborne.Features.Cairns
             }
             // ApplyDamage bypasses our Damage(HitData) immunity prefix on purpose —
             // this is the deliberate debug back-door for the v0.1.0 playtest.
-            float damageAmount = _wnt.m_health * (1f - TrailborneM2.DebugDamageTargetFraction);
+            float damageAmount = _wnt.m_health * (1f - Cairns.DebugDamageTargetFraction);
             try { _wnt.ApplyDamage(damageAmount); }
             catch (Exception e)
             {
-                TrailbornePlugin.Log.LogWarning($"[Trailborne/M2] Debug ApplyDamage threw: {e.Message}");
+                Plugin.Log.LogWarning($"[Trailborne/M2] Debug ApplyDamage threw: {e.Message}");
                 return false;
             }
             MessageHud.instance?.ShowMessage(
                 MessageHud.MessageType.Center,
-                $"(debug) Cairn damaged to ~{Mathf.RoundToInt(TrailborneM2.DebugDamageTargetFraction * 100f)}% HP");
+                $"(debug) Cairn damaged to ~{Mathf.RoundToInt(Cairns.DebugDamageTargetFraction * 100f)}% HP");
             return true;
         }
     }

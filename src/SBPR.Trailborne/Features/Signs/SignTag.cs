@@ -7,7 +7,7 @@ namespace SBPR.Trailborne.Features.Signs
     /// the variant + look up its pin color at Interact time without
     /// reading mesh tints back.
     /// </summary>
-    public class TrailborneSignTag : MonoBehaviour
+    public class SignTag : MonoBehaviour
     {
         public string PrefabName;
     }

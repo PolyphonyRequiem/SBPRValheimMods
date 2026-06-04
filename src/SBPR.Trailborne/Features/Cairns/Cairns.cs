@@ -3,10 +3,16 @@ using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 using SBPR.Trailborne.Runtime;
-using SBPR.Trailborne.Features.Pigments;
 
 namespace SBPR.Trailborne.Features.Cairns
 {
+    // The Pigments TYPE lives in namespace SBPR.Trailborne.Features.Pigments. From
+    // inside this sibling Features.* namespace the bare name `Pigments` would
+    // otherwise bind to that sibling NAMESPACE (the enclosing `Features` scope is
+    // searched before a compilation-unit alias), so we alias the name to the type
+    // INSIDE this namespace body to keep the readable `Pigments.InkRedName` syntax.
+    using Pigments = SBPR.Trailborne.Features.Pigments.Pigments;
+
     /// <summary>
     /// M2 content: 4 Cairn Marker variants (one per ink color) + 4 Cairn
     /// piece variants (one per color). Cairns are now full 5-tier with
@@ -31,9 +37,9 @@ namespace SBPR.Trailborne.Features.Cairns
     ///   &lt;25% HP   → downgrade tier  [HOOK PRESENT; M2.5+ wires actual downgrade visual]
     ///    0% HP    → collapse         [vanilla WearNTear destroy path]
     ///
-    /// All gated behind SBPRContext.OnSBServer.
+    /// All gated behind ServerContext.OnSBServer.
     /// </summary>
-    public static class TrailborneM2
+    public static class Cairns
     {
         // Color identifiers — must match Pigments ink names
         public static readonly string[] Colors = { "red", "white", "blue", "black" };
@@ -44,11 +50,11 @@ namespace SBPR.Trailborne.Features.Cairns
         {
             switch (color)
             {
-                case "red":   return TrailbornePigments.InkRedName;
-                case "white": return TrailbornePigments.InkWhiteName;
-                case "blue":  return TrailbornePigments.InkBlueName;
-                case "black": return TrailbornePigments.InkBlackName;
-                default: return TrailbornePigments.InkWhiteName;
+                case "red":   return Pigments.InkRedName;
+                case "white": return Pigments.InkWhiteName;
+                case "blue":  return Pigments.InkBlueName;
+                case "black": return Pigments.InkBlackName;
+                default: return Pigments.InkWhiteName;
             }
         }
 
@@ -101,7 +107,7 @@ namespace SBPR.Trailborne.Features.Cairns
         {
             var name = MarkerName(color);
             if (zns.GetPrefab(name) != null) return;
-            var clone = TrailborneAssets.ClonePrefab(SourceConsumable, name);
+            var clone = Assets.ClonePrefab(SourceConsumable, name);
             if (clone == null) return;
             var drop = clone.GetComponent<ItemDrop>();
             if (drop != null)
@@ -112,11 +118,11 @@ namespace SBPR.Trailborne.Features.Cairns
                 drop.m_itemData.m_shared.m_maxStackSize = 10;
                 drop.m_itemData.m_shared.m_weight      = 0.5f;
                 drop.m_itemData.m_shared.m_itemType    = ItemDrop.ItemData.ItemType.Material;
-                var sprite = TrailborneAssets.LoadPngAsSprite("cairn_marker_v0.1.png");
+                var sprite = Assets.LoadPngAsSprite("cairn_marker_v0.1.png");
                 if (sprite != null) drop.m_itemData.m_shared.m_icons = new[] { sprite };
             }
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne/M2] Registered cairn marker item: {name}");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne/M2] Registered cairn marker item: {name}");
         }
 
         private static void RegisterCairnPiecePrefab(ZNetScene zns, string color)
@@ -125,10 +131,10 @@ namespace SBPR.Trailborne.Features.Cairns
             if (zns.GetPrefab(name) != null) return;
             // Bonfire is a chunky stone-y piece; use as a base and bury its visual
             // children under a runtime-assembled kitbash stack (see BuildKitbashArt).
-            var clone = TrailborneAssets.ClonePrefab(SourceBonfire, name);
+            var clone = Assets.ClonePrefab(SourceBonfire, name);
             if (clone == null)
             {
-                TrailbornePlugin.Log.LogWarning($"[Trailborne/M2] Source bonfire prefab missing, skipping cairn ({color}).");
+                Plugin.Log.LogWarning($"[Trailborne/M2] Source bonfire prefab missing, skipping cairn ({color}).");
                 return;
             }
             var piece = clone.GetComponent<Piece>();
@@ -145,7 +151,7 @@ namespace SBPR.Trailborne.Features.Cairns
                     BuildReq("Resin", 1),
                     BuildReq(MarkerName(color), 1),
                 };
-                var sprite = TrailborneAssets.LoadPngAsSprite("cairn_marker_v0.1.png");
+                var sprite = Assets.LoadPngAsSprite("cairn_marker_v0.1.png");
                 if (sprite != null) piece.m_icon = sprite;
                 // Comfort is applied dynamically via SE_Rested patch — base piece carries 0
                 // so we don't double-count in the vanilla ComfortGroup dedup table.
@@ -153,15 +159,15 @@ namespace SBPR.Trailborne.Features.Cairns
                 piece.m_comfortGroup = Piece.ComfortGroup.None;
             }
 
-            var tag = clone.AddComponent<TrailborneCairnTag>();
+            var tag = clone.AddComponent<CairnTag>();
             tag.Color = color;
 
             // The Cairn interactable handles E (repair+upgrade combo) and Shift+E
-            // (debug damage, gated on TrailbornePlugin.DebugCairnDamage config).
-            clone.AddComponent<TrailborneCairnInteractable>();
+            // (debug damage, gated on Plugin.DebugCairnDamage config).
+            clone.AddComponent<CairnInteractable>();
 
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne/M2] Registered cairn piece: {name}");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne/M2] Registered cairn piece: {name}");
         }
 
         public static void DoObjectDBWiring(ZNetScene zns)
@@ -173,7 +179,7 @@ namespace SBPR.Trailborne.Features.Cairns
             {
                 var markerName = MarkerName(color);
                 var marker = zns?.GetPrefab(markerName);
-                if (marker != null) TrailborneAssets.RegisterItemInObjectDB(marker);
+                if (marker != null) Assets.RegisterItemInObjectDB(marker);
 
                 if (!HasRecipe(markerName))
                 {
@@ -200,7 +206,7 @@ namespace SBPR.Trailborne.Features.Cairns
             // Cairn pieces into Hammer build menu + REBUILD their resource list
             // now that markers exist in ObjectDB. (Pieces built at ZNetScene.Awake
             // had null marker requirements because ODB wasn't populated yet.)
-            var hammerTable = TrailborneAssets.GetHammerPieceTable();
+            var hammerTable = Assets.GetHammerPieceTable();
             foreach (var color in Colors)
             {
                 var cairnPrefab = zns?.GetPrefab(CairnName(color));
@@ -215,10 +221,10 @@ namespace SBPR.Trailborne.Features.Cairns
                         BuildReq(MarkerName(color), 1),
                     };
                 }
-                if (hammerTable != null) TrailborneAssets.AddPieceToTable(cairnPrefab, hammerTable);
+                if (hammerTable != null) Assets.AddPieceToTable(cairnPrefab, hammerTable);
             }
 
-            TrailbornePlugin.Log.LogInfo(
+            Plugin.Log.LogInfo(
                 $"[Trailborne/M2] M2 ObjectDB wiring complete (4 marker variants + 4 cairn variants + " +
                 $"5-tier ladder 9/12/15/18/21 stone, comfort floors 3/4/5/6/7).");
         }
@@ -239,7 +245,7 @@ namespace SBPR.Trailborne.Features.Cairns
             {
                 var h = hits[i];
                 if (h == null) continue;
-                var tag = h.GetComponentInParent<TrailborneCairnTag>();
+                var tag = h.GetComponentInParent<CairnTag>();
                 if (tag == null) continue;
                 int tier = tag.ReadTier();
                 int bonus = ComfortFloorForTier(tier);
@@ -265,7 +271,7 @@ namespace SBPR.Trailborne.Features.Cairns
             var station = p?.GetComponent<CraftingStation>();
             if (station == null)
             {
-                TrailbornePlugin.Log.LogWarning(
+                Plugin.Log.LogWarning(
                     $"[Trailborne/M2] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
                     "Recipe will register against null station (no bench requirement).");
             }
@@ -274,7 +280,7 @@ namespace SBPR.Trailborne.Features.Cairns
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
         {
-            return TrailborneAssets.BuildReq(resourcePrefabName, amount, "M2");
+            return Assets.BuildReq(resourcePrefabName, amount, "M2");
         }
 
         private static string Capitalize(string s)

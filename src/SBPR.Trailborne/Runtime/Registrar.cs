@@ -15,7 +15,7 @@ namespace SBPR.Trailborne.Runtime
     /// then fan out to each feature's RegisterPrefabs / DoObjectDBWiring.
     ///
     /// M0 strategy: clone vanilla prefabs at runtime (no asset bundles). All
-    /// gated by SBPRContext.OnSBServer.
+    /// gated by ServerContext.OnSBServer.
     ///
     /// Feature dispatch order is load-bearing: Pigments must register its ink
     /// items into ObjectDB before Signs and Cairns build recipes that consume
@@ -23,7 +23,7 @@ namespace SBPR.Trailborne.Runtime
     /// preserves the original recipe-registration order (spade, inks, markers)
     /// and hammer build-menu order (bench, lamp, signs, cairns).
     /// </summary>
-    public static class TrailborneRegistrar
+    public static class Registrar
     {
         private static bool _znetSceneDone;
         private static bool _objectDbDone;
@@ -32,23 +32,23 @@ namespace SBPR.Trailborne.Runtime
         [HarmonyPostfix]
         private static void OnZNetSceneAwake(ZNetScene __instance)
         {
-            if (!SBPRContext.OnSBServer)
+            if (!ServerContext.OnSBServer)
             {
-                TrailbornePlugin.Log.LogInfo("[Trailborne] OnSBServer=false; skipping ZNetScene registration.");
+                Plugin.Log.LogInfo("[Trailborne] OnSBServer=false; skipping ZNetScene registration.");
                 return;
             }
             try
             {
-                TrailbornePlugin.Log.LogInfo("[Trailborne] ZNetScene.Awake postfix — registering content surfaces…");
+                Plugin.Log.LogInfo("[Trailborne] ZNetScene.Awake postfix — registering content surfaces…");
 
-                TrailborneTrailhead.RegisterPrefabs(__instance);
-                TrailborneM3.RegisterPrefabs(__instance);
-                TrailbornePigments.RegisterPrefabs(__instance);
-                TrailborneSigns.RegisterPrefabs(__instance);
-                TrailborneM2.RegisterPrefabs(__instance);
+                Trailhead.RegisterPrefabs(__instance);
+                Trailblazing.RegisterPrefabs(__instance);
+                Pigments.RegisterPrefabs(__instance);
+                Signs.RegisterPrefabs(__instance);
+                Cairns.RegisterPrefabs(__instance);
 
                 _znetSceneDone = true;
-                TrailbornePlugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
+                Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
 
                 // If ObjectDB.Awake already fired before us (race on some scene loads),
                 // also do the ODB wiring now.
@@ -57,7 +57,7 @@ namespace SBPR.Trailborne.Runtime
             }
             catch (System.Exception e)
             {
-                TrailbornePlugin.Log.LogError($"[Trailborne] ZNetScene registration failed: {e}");
+                Plugin.Log.LogError($"[Trailborne] ZNetScene registration failed: {e}");
             }
         }
 
@@ -65,7 +65,7 @@ namespace SBPR.Trailborne.Runtime
         [HarmonyPostfix]
         private static void OnObjectDBCopy()
         {
-            if (!SBPRContext.OnSBServer) return;
+            if (!ServerContext.OnSBServer) return;
             DoObjectDBWiring();
         }
 
@@ -73,7 +73,7 @@ namespace SBPR.Trailborne.Runtime
         [HarmonyPostfix]
         private static void OnObjectDBAwake()
         {
-            if (!SBPRContext.OnSBServer) return;
+            if (!ServerContext.OnSBServer) return;
             DoObjectDBWiring();
         }
 
@@ -86,25 +86,25 @@ namespace SBPR.Trailborne.Runtime
                 var zns = ZNetScene.instance;
 
                 // Trailhead: rebuild bench/lamp resources now ODB is populated + hammer.
-                TrailborneTrailhead.DoObjectDBWiring(zns);
+                Trailhead.DoObjectDBWiring(zns);
                 // Trailblazing: spade item → ODB, spade recipe, spade-only PieceTable.
-                TrailborneM3.DoObjectDBWiring(zns);
+                Trailblazing.DoObjectDBWiring(zns);
                 // Pigments: ink items → ODB + ink recipes (must precede Signs/Cairns).
-                TrailbornePigments.DoObjectDBWiring(zns);
+                Pigments.DoObjectDBWiring(zns);
                 // Signs: sign piece resource rebuild + hammer.
-                TrailborneSigns.DoObjectDBWiring(zns);
+                Signs.DoObjectDBWiring(zns);
                 // Cairns: marker items → ODB, marker recipes, cairn rebuild + hammer.
-                TrailborneM2.DoObjectDBWiring(zns);
+                Cairns.DoObjectDBWiring(zns);
 
                 _objectDbDone = true;
-                TrailbornePlugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
+                Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 
                 // Spec-drift watchdog — runs LAST after all wiring complete.
-                TrailborneSpecCheck.Run();
+                SpecCheck.Run();
             }
             catch (System.Exception e)
             {
-                TrailbornePlugin.Log.LogError($"[Trailborne] ObjectDB wiring failed: {e}");
+                Plugin.Log.LogError($"[Trailborne] ObjectDB wiring failed: {e}");
             }
         }
     }

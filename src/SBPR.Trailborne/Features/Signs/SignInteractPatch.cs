@@ -6,7 +6,7 @@ namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
     /// Harmony hook on Sign.Interact: when the player holds Shift and presses E
-    /// on a TrailborneSignTag-flagged sign, add a colored map pin matching the
+    /// on a SignTag-flagged sign, add a colored map pin matching the
     /// sign's text + color INSTEAD of opening the text-edit dialog. Plain E
     /// opens the dialog as vanilla.
     ///
@@ -17,13 +17,13 @@ namespace SBPR.Trailborne.Features.Signs
     /// plan §6 R1. This refactor preserves the existing (unregistered) state.
     /// </summary>
     [HarmonyPatch(typeof(Sign), nameof(Sign.Interact))]
-    public static class Sign_Interact_Patch
+    public static class SignInteractPatch
     {
         [HarmonyPrefix]
         private static bool Prefix(Sign __instance, Humanoid character, bool hold, bool alt, ref bool __result)
         {
             if (hold) return true;
-            var tag = __instance.GetComponent<TrailborneSignTag>();
+            var tag = __instance.GetComponent<SignTag>();
             if (tag == null) return true; // not ours — vanilla behavior
 
             // Shift+E = pin to map. Plain E = vanilla text edit.
@@ -43,7 +43,7 @@ namespace SBPR.Trailborne.Features.Signs
                 if (string.IsNullOrEmpty(text)) text = "Painted Sign";
 
                 Minimap.PinType pinType = Minimap.PinType.Icon0;
-                if (TrailborneSigns.SignPinTypes.TryGetValue(tag.PrefabName, out var t)) pinType = t;
+                if (Signs.SignPinTypes.TryGetValue(tag.PrefabName, out var t)) pinType = t;
 
                 minimap.AddPin(__instance.transform.position, pinType, text, save: true, isChecked: false, player.GetPlayerID());
                 MessageHud.instance?.ShowMessage(MessageHud.MessageType.TopLeft, $"Pinned: {text}");
@@ -53,7 +53,7 @@ namespace SBPR.Trailborne.Features.Signs
             }
             catch (Exception e)
             {
-                TrailbornePlugin.Log.LogError($"[Trailborne/M1] Pin-on-Shift+E failed: {e}");
+                Plugin.Log.LogError($"[Trailborne/M1] Pin-on-Shift+E failed: {e}");
                 return true;
             }
         }

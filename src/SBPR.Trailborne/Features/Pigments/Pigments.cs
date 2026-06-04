@@ -18,9 +18,9 @@ namespace SBPR.Trailborne.Features.Pigments
     ///   Blue  ← Blueberries        (Black Forest)
     ///   Black ← Coal               (Black Forest)
     ///
-    /// All gated behind SBPRContext.OnSBServer.
+    /// All gated behind ServerContext.OnSBServer.
     /// </summary>
-    public static class TrailbornePigments
+    public static class Pigments
     {
         // Item prefab names
         public const string InkRedName   = "SBPR_InkRed";
@@ -56,7 +56,7 @@ namespace SBPR.Trailborne.Features.Pigments
         private static void RegisterInkPrefab(ZNetScene zns, string name, string displayName, string desc)
         {
             if (zns.GetPrefab(name) != null) return;
-            var clone = TrailborneAssets.ClonePrefab(SourceCoinItem, name);
+            var clone = Assets.ClonePrefab(SourceCoinItem, name);
             if (clone == null) return;
             var drop = clone.GetComponent<ItemDrop>();
             if (drop != null)
@@ -68,12 +68,12 @@ namespace SBPR.Trailborne.Features.Pigments
                 drop.m_itemData.m_shared.m_itemType    = ItemDrop.ItemData.ItemType.Material;
                 if (_icons.TryGetValue(name, out var iconFile))
                 {
-                    var sprite = TrailborneAssets.LoadPngAsSprite(iconFile);
+                    var sprite = Assets.LoadPngAsSprite(iconFile);
                     if (sprite != null) drop.m_itemData.m_shared.m_icons = new[] { sprite };
                 }
             }
-            TrailborneAssets.RegisterPrefabInZNetScene(clone);
-            TrailbornePlugin.Log.LogInfo($"[Trailborne/M1] Registered ink item: {name}");
+            Assets.RegisterPrefabInZNetScene(clone);
+            Plugin.Log.LogInfo($"[Trailborne/M1] Registered ink item: {name}");
         }
 
         // ───────────────────────────────────────────────
@@ -89,7 +89,7 @@ namespace SBPR.Trailborne.Features.Pigments
             foreach (var n in new[] { InkRedName, InkWhiteName, InkBlueName, InkBlackName })
             {
                 var p = zns?.GetPrefab(n);
-                if (p != null) TrailborneAssets.RegisterItemInObjectDB(p);
+                if (p != null) Assets.RegisterItemInObjectDB(p);
             }
 
             // Recipes
@@ -98,7 +98,7 @@ namespace SBPR.Trailborne.Features.Pigments
             AddInkRecipe(InkBlueName,  "Blueberries",   amount: 2);
             AddInkRecipe(InkBlackName, "Coal",          amount: 2);
 
-            TrailbornePlugin.Log.LogInfo("[Trailborne/M1] Pigments ObjectDB wiring complete (4 ink items + recipes).");
+            Plugin.Log.LogInfo("[Trailborne/M1] Pigments ObjectDB wiring complete (4 ink items + recipes).");
         }
 
         private static void AddInkRecipe(string inkName, string ingredient, int amount)
@@ -115,7 +115,7 @@ namespace SBPR.Trailborne.Features.Pigments
             var ingredientItem = odb.GetItemPrefab(ingredient)?.GetComponent<ItemDrop>();
             if (ingredientItem == null)
             {
-                TrailbornePlugin.Log.LogWarning($"[Trailborne/M1] Recipe ingredient '{ingredient}' not in ODB; skipping ink '{inkName}'.");
+                Plugin.Log.LogWarning($"[Trailborne/M1] Recipe ingredient '{ingredient}' not in ODB; skipping ink '{inkName}'.");
                 return;
             }
 
@@ -136,7 +136,7 @@ namespace SBPR.Trailborne.Features.Pigments
             var station = p?.GetComponent<CraftingStation>();
             if (station == null)
             {
-                TrailbornePlugin.Log.LogWarning(
+                Plugin.Log.LogWarning(
                     $"[Trailborne/M1] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
                     "Recipe will register against null station (no bench requirement).");
             }
@@ -145,7 +145,7 @@ namespace SBPR.Trailborne.Features.Pigments
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
         {
-            return TrailborneAssets.BuildReq(resourcePrefabName, amount, "M1");
+            return Assets.BuildReq(resourcePrefabName, amount, "M1");
         }
     }
 }
