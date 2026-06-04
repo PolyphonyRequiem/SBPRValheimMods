@@ -123,7 +123,7 @@ namespace SBPR.Trailborne
                         if (lampPiece != null)
                             lampPiece.m_resources = new[]
                             {
-                                BuildReq("ElderBark", 3),
+                                BuildReq("Wood", 3),
                                 BuildReq("Resin", 2),
                             };
                         if (hammerTable != null) TrailborneAssets.AddPieceToTable(lamp, hammerTable);
@@ -197,7 +197,7 @@ namespace SBPR.Trailborne
                 piece.m_icon        = TrailborneAssets.LoadPngAsSprite(IconFile);
                 piece.m_resources   = new[]
                 {
-                    BuildReq("ElderBark", 3),  // "Corewood"
+                    BuildReq("Wood", 3),       // Meadows-tier
                     BuildReq("Resin", 2),
                 };
             }

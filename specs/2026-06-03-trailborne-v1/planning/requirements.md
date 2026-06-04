@@ -171,9 +171,14 @@ Skill lesson (already patched): cross-check repo docs AND recent chat decisions;
 
 Daniel: "the build cost for a cairn is 3 stone, 1 resin and one pre-made cairn marker. upgrade cost is always 3s + 1r"
 
-**Cairn recipe (v1, locked):**
-- Initial build: **3 Stone + 1 Resin + 1 Cairn Marker (pre-crafted item)**
-- Upgrade (each tier 1→2→3→4→5): **3 Stone + 1 Resin** (flat per upgrade)
+**Cairn recipe (v1, locked — 2026-06-04 ladder update):**
+- Initial build (Tier 1): **9 Stone + 1 Resin + 1 Cairn Marker (pre-crafted item)**
+- Per-tier stone build cost (cumulative ladder, flat +3 per tier): **T1=9 / T2=12 / T3=15 / T4=18 / T5=21**
+- Comfort floor per tier: **T1=3 / T2=4 / T3=5 / T4=6 / T5=7**
+- Upgrade / repair gesture (combo E-press): **3 Stone + 1 Resin** flat per use, gated on HP <75%. Always repairs to max; if tier<5, simultaneously upgrades to tier+1. One-press, outcome state-dependent.
+- **Damage immunity (LOCKED):** cairns are immune to player + monster damage (Harmony-prefix on `WearNTear.Damage`). Only weather/time decay ticks affect HP. Combat cannot grief cairns; only abandonment can.
+- **Out-of-zone decay (LOCKED):** ZDO-persisted `SBPR_LastWearTick` (in-game day-time) + Harmony-postfix on `WearNTear.Awake` backfills missed wear ticks at vanilla rate when a chunk reloads after being unloaded. Tested rate v0.1.0: ~10 HP/day. Tunable v0.2.0.
+- **Shift+E debug-damage (v0.1.0 only):** `SBPR_DebugCairnDamage` BepInEx config (default `true`). With a pristine cairn (≥75% HP), Shift+E drops it to ~70% so the combo gesture is exercisable without waiting on weather. Flip false or remove in v0.2.0 once natural decay is tuned.
 - Repair: **3 Stone + 1 Resin** (flat, matches upgrade — confirmed from PARKED doc)
 
 **New item introduced: Cairn Marker.** This is a pre-crafted consumable item (not a piece) used as the build ingredient for the base cairn. Recipe TBD — needs a Round 3.5 question. Likely crafted at Explorer's Bench. Thematic: the "marker" is what you carry out to plant a new cairn somewhere, after which you stack stones around it on-site (the cairn is built around a planted marker, not from raw stones alone).
@@ -219,8 +224,8 @@ Daniel: "it reignites if the cairn is in the 'pristine' piece state rather than 
 
 Daniel: "I think corewood still tracks"
 
-**Path Lamps recipe (v1, locked):** 3 Corewood + 2 Resin (Corewood reads as the 3m light pole — visually a slim 3m corewood post topped with a resin-fueled flame)
-- Confirms Path Lamps are technically Black Forest tier (corewood = pine, BF biome) even though introduced under Meadows framing.
+**Path Lamps recipe (v1, locked — 2026-06-04 update):** **3 Wood + 2 Resin** (downshifted from Corewood to plain Wood per Daniel's morning playtest pass — Meadows-tier accessibility wins over the Black Forest gate; visual remains a slim post topped with a resin-fueled flame).
+- Path Lamps are now squarely Meadows-tier — no Black Forest material gate. Pure trail discipline, available the moment a player has a workbench.
 - Consistent with PLAYER_GUIDE.md line 110: "3m corewood torches, resin-fueled, long burn"
 
 #### A3.8 — Ember Lamps in v1 ✅ DROPPED FROM v1

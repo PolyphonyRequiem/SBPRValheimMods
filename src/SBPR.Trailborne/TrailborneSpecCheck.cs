@@ -44,7 +44,7 @@ namespace SBPR.Trailborne
             },
             new RecipeSpec {
                 Piece = "piece_sbpr_path_lamp", Station = null,
-                Resources = new[] { R("ElderBark", 3), R("Resin", 2) }
+                Resources = new[] { R("Wood", 3), R("Resin", 2) }
             },
 
             // ── Item recipes ───────────────────────────────────────────
@@ -162,7 +162,9 @@ namespace SBPR.Trailborne
                 }
                 else
                 {
-                    var expected = new[] { R("Stone", 3), R("Resin", 1), R(markerName, 1) };
+                    // Tier-1 build cost (v0.1.0 cairn ladder: 9/12/15/18/21 stone per tier).
+                    // Upgrade-cost validation happens at runtime in TrailborneM2.TryUpgradeCairn.
+                    var expected = new[] { R("Stone", 9), R("Resin", 1), R(markerName, 1) };
                     CompareResources(cairnName, expected, cairnPiece.m_resources, ref errors);
                 }
             }
