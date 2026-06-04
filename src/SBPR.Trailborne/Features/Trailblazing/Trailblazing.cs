@@ -187,7 +187,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
             if (odb == null) return;
 
             // Spade recipe — at orienteering table
-            if (!HasRecipeFor(SpadeName))
+            if (!RecipeHelpers.HasRecipe(SpadeName))
             {
                 var spade = odb.GetItemPrefab(SpadeName);
                 if (spade != null)
@@ -197,7 +197,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
                     r.m_item           = spade.GetComponent<ItemDrop>();
                     r.m_amount         = 1;
                     r.m_minStationLevel = 1;
-                    r.m_craftingStation = FindStation(Trailhead.ExplorersBenchName);
+                    r.m_craftingStation = RecipeHelpers.FindStation(Trailhead.ExplorersBenchName);
                     r.m_resources      = new[]
                     {
                         BuildReq("Wood", 5),
@@ -208,31 +208,6 @@ namespace SBPR.Trailborne.Features.Trailblazing
                     Plugin.Log.LogInfo("[Trailborne] Added recipe for spade.");
                 }
             }
-        }
-
-        private static bool HasRecipeFor(string itemPrefabName)
-        {
-            var odb = ObjectDB.instance;
-            if (odb == null) return false;
-            foreach (var r in odb.m_recipes)
-                if (r != null && r.m_item != null && r.m_item.gameObject != null &&
-                    r.m_item.gameObject.name == itemPrefabName)
-                    return true;
-            return false;
-        }
-
-        private static CraftingStation FindStation(string piecePrefabName)
-        {
-            var zns = ZNetScene.instance;
-            var p   = zns?.GetPrefab(piecePrefabName);
-            var station = p?.GetComponent<CraftingStation>();
-            if (station == null)
-            {
-                Plugin.Log.LogWarning(
-                    $"[Trailborne] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
-                    "Recipe will register against null station (no bench requirement).");
-            }
-            return station;
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)

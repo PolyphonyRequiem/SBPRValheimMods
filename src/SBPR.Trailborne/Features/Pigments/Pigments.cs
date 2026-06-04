@@ -129,23 +129,9 @@ namespace SBPR.Trailborne.Features.Pigments
             recipe.m_item            = inkPrefab.GetComponent<ItemDrop>();
             recipe.m_amount          = amount;
             recipe.m_minStationLevel = 1;
-            recipe.m_craftingStation = FindStation(Trailhead.ExplorersBenchName);
+            recipe.m_craftingStation = RecipeHelpers.FindStation(Trailhead.ExplorersBenchName);
             recipe.m_resources       = new[] { BuildReq(ingredient, 1) };
             odb.m_recipes.Add(recipe);
-        }
-
-        private static CraftingStation FindStation(string piecePrefabName)
-        {
-            var zns = ZNetScene.instance;
-            var p = zns?.GetPrefab(piecePrefabName);
-            var station = p?.GetComponent<CraftingStation>();
-            if (station == null)
-            {
-                Plugin.Log.LogWarning(
-                    $"[Trailborne/M1] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
-                    "Recipe will register against null station (no bench requirement).");
-            }
-            return station;
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)

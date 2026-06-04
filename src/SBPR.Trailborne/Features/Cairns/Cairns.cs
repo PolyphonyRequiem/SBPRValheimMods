@@ -182,7 +182,7 @@ namespace SBPR.Trailborne.Features.Cairns
                 var marker = zns?.GetPrefab(markerName);
                 if (marker != null) Assets.RegisterItemInObjectDB(marker);
 
-                if (!HasRecipe(markerName))
+                if (!RecipeHelpers.HasRecipe(markerName))
                 {
                     var markerItem = odb.GetItemPrefab(markerName);
                     if (markerItem != null)
@@ -192,7 +192,7 @@ namespace SBPR.Trailborne.Features.Cairns
                         recipe.m_item            = markerItem.GetComponent<ItemDrop>();
                         recipe.m_amount          = 1;
                         recipe.m_minStationLevel = 1;
-                        recipe.m_craftingStation = FindStation(Trailhead.ExplorersBenchName);
+                        recipe.m_craftingStation = RecipeHelpers.FindStation(Trailhead.ExplorersBenchName);
                         recipe.m_resources       = new[]
                         {
                             BuildReq("LeatherScraps", 2),
@@ -253,30 +253,6 @@ namespace SBPR.Trailborne.Features.Cairns
                 if (bonus > floor) floor = bonus;
             }
             return floor;
-        }
-
-        private static bool HasRecipe(string itemPrefabName)
-        {
-            var odb = ObjectDB.instance;
-            if (odb == null) return false;
-            foreach (var r in odb.m_recipes)
-                if (r != null && r.m_item != null && r.m_item.gameObject != null && r.m_item.gameObject.name == itemPrefabName)
-                    return true;
-            return false;
-        }
-
-        private static CraftingStation FindStation(string piecePrefabName)
-        {
-            var zns = ZNetScene.instance;
-            var p = zns?.GetPrefab(piecePrefabName);
-            var station = p?.GetComponent<CraftingStation>();
-            if (station == null)
-            {
-                Plugin.Log.LogWarning(
-                    $"[Trailborne/M2] FindStation: '{piecePrefabName}' missing or has no CraftingStation. " +
-                    "Recipe will register against null station (no bench requirement).");
-            }
-            return station;
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
