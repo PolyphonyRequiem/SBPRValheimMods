@@ -25,8 +25,8 @@ namespace SBPR.Trailborne.Runtime
     /// </summary>
     public static class Registrar
     {
-        private static bool _znetSceneDone;
-        private static bool _objectDbDone;
+        private static bool znetSceneDone;
+        private static bool objectDbDone;
 
         [HarmonyPatch(typeof(ZNetScene), "Awake")]
         [HarmonyPostfix]
@@ -47,7 +47,7 @@ namespace SBPR.Trailborne.Runtime
                 Signs.RegisterPrefabs(__instance);
                 Cairns.RegisterPrefabs(__instance);
 
-                _znetSceneDone = true;
+                znetSceneDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
 
                 // If ObjectDB.Awake already fired before us (race on some scene loads),
@@ -96,7 +96,7 @@ namespace SBPR.Trailborne.Runtime
                 // Cairns: marker items → ODB, marker recipes, cairn rebuild + hammer.
                 Cairns.DoObjectDBWiring(zns);
 
-                _objectDbDone = true;
+                objectDbDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 
                 // Spec-drift watchdog — runs LAST after all wiring complete.

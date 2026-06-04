@@ -20,7 +20,7 @@ namespace SBPR.Trailborne
 
         internal static ManualLogSource Log;
         internal static string PluginFolder;
-        private  Harmony _harmony;
+        private  Harmony harmony;
 
         // ── Config ──────────────────────────────────────────────────
         // Shift+E debug-damage flag. When true, Shift+E on a pristine cairn
@@ -44,16 +44,16 @@ namespace SBPR.Trailborne
                 "gesture is exercisable without waiting for natural decay. v0.1.0 playtest aid. Flip false (or " +
                 "remove this section) once decay tuning lands.");
 
-            _harmony = new Harmony(ModId);
-            _harmony.PatchAll(typeof(Registrar));
-            _harmony.PatchAll(typeof(CairnPatches));
+            harmony = new Harmony(ModId);
+            harmony.PatchAll(typeof(Registrar));
+            harmony.PatchAll(typeof(CairnPatches));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
         }
 
         private void OnDestroy()
         {
-            _harmony?.UnpatchSelf();
+            harmony?.UnpatchSelf();
         }
     }
 }

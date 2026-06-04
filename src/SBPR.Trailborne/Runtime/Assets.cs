@@ -39,16 +39,16 @@ namespace SBPR.Trailborne.Runtime
             }
         }
 
-        private static GameObject _holder;
+        private static GameObject holder;
         private static GameObject GetHolder()
         {
-            if (_holder == null)
+            if (holder == null)
             {
-                _holder = new GameObject("SBPR.Trailborne.PrefabHolder");
-                _holder.SetActive(false);
-                UnityEngine.Object.DontDestroyOnLoad(_holder);
+                holder = new GameObject("SBPR.Trailborne.PrefabHolder");
+                holder.SetActive(false);
+                UnityEngine.Object.DontDestroyOnLoad(holder);
             }
-            return _holder;
+            return holder;
         }
 
         /// <summary>

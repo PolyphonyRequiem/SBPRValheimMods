@@ -13,20 +13,20 @@ namespace SBPR.Trailborne.Features.Cairns
     public class CairnTag : MonoBehaviour
     {
         public string Color;
-        private ZNetView _nview;
-        private GameObject _kitbashRoot;
-        private int _lastBuiltTier = -1;
+        private ZNetView nview;
+        private GameObject kitbashRoot;
+        private int lastBuiltTier = -1;
 
         private void Awake()
         {
-            _nview = GetComponent<ZNetView>();
+            nview = GetComponent<ZNetView>();
             BuildKitbashArt(); // tier from ZDO or default 1
         }
 
         public int ReadTier()
         {
-            if (_nview == null || _nview.GetZDO() == null) return 1;
-            int t = _nview.GetZDO().GetInt(Cairns.ZdoTier, 1);
+            if (nview == null || nview.GetZDO() == null) return 1;
+            int t = nview.GetZDO().GetInt(Cairns.ZdoTier, 1);
             if (t < 1) t = 1;
             if (t > Cairns.MaxTier) t = Cairns.MaxTier;
             return t;
@@ -34,11 +34,11 @@ namespace SBPR.Trailborne.Features.Cairns
 
         public bool WriteTier(int newTier)
         {
-            if (_nview == null || _nview.GetZDO() == null) return false;
-            if (!_nview.IsOwner()) _nview.ClaimOwnership();
+            if (nview == null || nview.GetZDO() == null) return false;
+            if (!nview.IsOwner()) nview.ClaimOwnership();
             if (newTier < 1) newTier = 1;
             if (newTier > Cairns.MaxTier) newTier = Cairns.MaxTier;
-            _nview.GetZDO().Set(Cairns.ZdoTier, newTier);
+            nview.GetZDO().Set(Cairns.ZdoTier, newTier);
             BuildKitbashArt();
             return true;
         }
@@ -53,11 +53,11 @@ namespace SBPR.Trailborne.Features.Cairns
         public void BuildKitbashArt()
         {
             int tier = ReadTier();
-            if (tier == _lastBuiltTier && _kitbashRoot != null) return;
-            _lastBuiltTier = tier;
+            if (tier == lastBuiltTier && kitbashRoot != null) return;
+            lastBuiltTier = tier;
 
             // Strip prior kitbash root
-            if (_kitbashRoot != null) UnityEngine.Object.Destroy(_kitbashRoot);
+            if (kitbashRoot != null) UnityEngine.Object.Destroy(kitbashRoot);
 
             var zns = ZNetScene.instance;
             if (zns == null) return;
@@ -68,16 +68,16 @@ namespace SBPR.Trailborne.Features.Cairns
                 return;
             }
 
-            _kitbashRoot = new GameObject("SBPR_CairnKitbash");
-            _kitbashRoot.transform.SetParent(transform, worldPositionStays: false);
+            kitbashRoot = new GameObject("SBPR_CairnKitbash");
+            kitbashRoot.transform.SetParent(transform, worldPositionStays: false);
 
             // Pile size scales with tier: T1=4, T2=6, T3=8, T4=10, T5=12 stones.
             int stones = 2 + tier * 2;
 
             // Deterministic seed from ZDO so the same cairn looks the same after reload.
             int seed = 1337;
-            if (_nview != null && _nview.GetZDO() != null)
-                seed = _nview.GetZDO().m_uid.GetHashCode();
+            if (nview != null && nview.GetZDO() != null)
+                seed = nview.GetZDO().m_uid.GetHashCode();
             var rng = new System.Random(seed);
 
             // Stack from bottom up; each layer shrinks slightly.
@@ -86,7 +86,7 @@ namespace SBPR.Trailborne.Features.Cairns
             for (int i = 0; i < stones; i++)
             {
                 // Reuse only the rock_low's visual children — clone a fresh GO with the mesh.
-                var rockClone = GameObject.Instantiate(rockSrc, _kitbashRoot.transform);
+                var rockClone = GameObject.Instantiate(rockSrc, kitbashRoot.transform);
                 // Strip behaviour components — we want art only, no terrain modifier / pickable.
                 StripGameplayComponents(rockClone);
 
@@ -143,7 +143,7 @@ namespace SBPR.Trailborne.Features.Cairns
             foreach (var t in GetComponentsInChildren<Transform>(includeInactive: true))
             {
                 if (t == null || t == transform) continue;
-                if (t.parent == _kitbashRoot?.transform || t.IsChildOf(_kitbashRoot?.transform ?? transform) && _kitbashRoot != null && t != _kitbashRoot.transform) continue;
+                if (t.parent == kitbashRoot?.transform || t.IsChildOf(kitbashRoot?.transform ?? transform) && kitbashRoot != null && t != kitbashRoot.transform) continue;
                 foreach (var n in hideNames)
                 {
                     if (t.name.Contains(n))

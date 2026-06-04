@@ -45,7 +45,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
 
         private const string IconFile        = "trailblazers_spade_v0.1.png";
 
-        private static readonly Dictionary<string, (string source, float radius)> _variants =
+        private static readonly Dictionary<string, (string source, float radius)> variants =
             new Dictionary<string, (string, float)>
             {
                 { PathNarrowName,   (SourcePath,      1.5f) },
@@ -61,7 +61,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
         public static void RegisterPrefabs(ZNetScene zns)
         {
             RegisterSpadeItemPrefab(zns);
-            foreach (var kv in _variants)
+            foreach (var kv in variants)
                 RegisterRadiusVariant(zns, kv.Key, kv.Value.source, kv.Value.radius);
         }
 
@@ -171,7 +171,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
             table.m_categoryLabels = new List<string> { "Trail" };
             table.m_canRemovePieces = true;
 
-            foreach (var n in _variants.Keys)
+            foreach (var n in variants.Keys)
             {
                 var p = zns?.GetPrefab(n);
                 if (p != null) Assets.AddPieceToTable(p, table);

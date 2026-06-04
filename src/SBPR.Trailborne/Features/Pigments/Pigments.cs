@@ -37,7 +37,7 @@ namespace SBPR.Trailborne.Features.Pigments
         private const string SourceCoinItem = "Coins"; // safe clone for tiny consumable item
 
         // Icon file mapping
-        private static readonly Dictionary<string, string> _icons = new Dictionary<string, string>
+        private static readonly Dictionary<string, string> icons = new Dictionary<string, string>
         {
             { InkRedName,   "ink_red_v0.1.png"   },
             { InkWhiteName, "ink_white_v0.1.png" },
@@ -71,7 +71,7 @@ namespace SBPR.Trailborne.Features.Pigments
                 drop.m_itemData.m_shared.m_maxStackSize = 20; // spec PARKED v1: stack 20
                 drop.m_itemData.m_shared.m_weight      = 0.1f;
                 drop.m_itemData.m_shared.m_itemType    = ItemDrop.ItemData.ItemType.Material;
-                if (_icons.TryGetValue(name, out var iconFile))
+                if (icons.TryGetValue(name, out var iconFile))
                 {
                     var sprite = Assets.LoadPngAsSprite(iconFile);
                     if (sprite != null) drop.m_itemData.m_shared.m_icons = new[] { sprite };

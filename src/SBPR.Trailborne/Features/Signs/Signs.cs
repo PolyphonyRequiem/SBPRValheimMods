@@ -33,7 +33,7 @@ namespace SBPR.Trailborne.Features.Signs
         private const string SourceSign     = "sign";
 
         // Icon file mapping
-        private static readonly Dictionary<string, string> _icons = new Dictionary<string, string>
+        private static readonly Dictionary<string, string> icons = new Dictionary<string, string>
         {
             { SignRedName,   "ink_red_v0.1.png"   },
             { SignWhiteName, "ink_white_v0.1.png" },
@@ -93,7 +93,7 @@ namespace SBPR.Trailborne.Features.Signs
                     BuildReq("Wood", 2),
                     BuildReq(InkLookupForSign(name), 1),
                 };
-                if (_icons.TryGetValue(name, out var iconFile))
+                if (icons.TryGetValue(name, out var iconFile))
                     piece.m_icon = Assets.LoadPngAsSprite(iconFile);
             }
 
