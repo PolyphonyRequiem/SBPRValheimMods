@@ -35,3 +35,7 @@ Thumbs.db
 # Local notes
 .scratch/
 SCRATCH.md
+
+# C# build artifacts
+src/**/bin/
+src/**/obj/
