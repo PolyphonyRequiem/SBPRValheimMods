@@ -43,6 +43,7 @@ namespace SBPR.Trailborne
                 RegisterOrienteeringTablePrefab(__instance);
                 RegisterPathLampPrefab(__instance);
                 RegisterSpadeItemPrefab(__instance);
+                TrailborneM1.RegisterPrefabs(__instance);
 
                 _znetSceneDone = true;
                 TrailbornePlugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -105,6 +106,9 @@ namespace SBPR.Trailborne
 
                 _objectDbDone = true;
                 TrailbornePlugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
+
+                // M1 wiring (inks + sign pieces + recipes)
+                TrailborneM1.DoObjectDBWiring(zns);
             }
             catch (System.Exception e)
             {
