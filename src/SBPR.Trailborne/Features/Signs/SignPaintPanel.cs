@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace SBPR.Trailborne.Features.Signs
@@ -135,8 +136,15 @@ namespace SBPR.Trailborne.Features.Signs
         {
             _font = ResolveFont();
 
-            // Fullscreen overlay canvas. Reuses the scene's existing EventSystem for
-            // click routing; we only add our own GraphicRaycaster.
+            // Fullscreen overlay canvas. Normally reuses the scene's existing
+            // EventSystem for click/keyboard routing; we add our own GraphicRaycaster.
+            // Valheim ships an EventSystem with its own uGUI, but guard against its
+            // absence (or a scene where it hasn't spawned yet) so the panel can never
+            // open "dead" — without an EventSystem + InputModule, swatches/buttons/the
+            // text field receive no events and the panel is unclickable. Public
+            // UnityEngine.EventSystems API only (clean-room).
+            EnsureEventSystem();
+
             _root = new GameObject("SBPR_SignPanelRoot");
             _root.transform.SetParent(transform, false);
             _canvas = _root.AddComponent<Canvas>();
@@ -562,6 +570,25 @@ namespace SBPR.Trailborne.Features.Signs
             if (btn != null) btn.interactable = enabled;
             if (label != null)
                 label.color = enabled ? new Color(0.97f, 0.95f, 0.88f, 1f) : new Color(0.55f, 0.53f, 0.48f, 1f);
+        }
+
+        /// <summary>
+        /// Guarantee an active <see cref="EventSystem"/> + input module exist so our
+        /// uGUI is clickable. Valheim normally provides one; if it's missing (or not
+        /// yet spawned) we create a minimal owned one under our DontDestroyOnLoad host
+        /// so the panel never opens unresponsive. We never destroy or replace the
+        /// game's EventSystem — only add a fallback when there is none.
+        /// </summary>
+        private void EnsureEventSystem()
+        {
+            if (EventSystem.current != null) return;
+            var existing = FindAnyObjectByType<EventSystem>();
+            if (existing != null) return; // game has one — leave it alone
+
+            var es = new GameObject("SBPR_SignPanelEventSystem");
+            es.transform.SetParent(transform, false);
+            es.AddComponent<EventSystem>();
+            es.AddComponent<StandaloneInputModule>();
         }
 
         private void OnDestroy()
