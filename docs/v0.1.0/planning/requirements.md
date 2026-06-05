@@ -147,22 +147,41 @@ What we will NOT do (in v1):
 | **Recipe inputs** | TBD per color — needs Round 3 with Daniel (likely: berries/clay/coal/mushroom mapped to colors) |
 | **Craft station** | Explorer's Bench (v1 = vanilla Workbench kitbash) |
 
-#### A2.6 — Painted Signs (LOCKED — single-sign + paint-via-ink model, Daniel 2026-06-04)
+#### A2.6 — Painted Signs (LOCKED — single combined Paint+Text panel, two-tone, Daniel 2026-06-05)
 
-> **SUPERSEDES the earlier "E=text color / Shift+E=accent / two-tone pin" model.**
-> Daniel re-locked this on 2026-06-04 after a playtest surfaced four buildable
-> sign variants (Painted Sign Red/White/Blue/Black) where the design intends ONE.
-> The two-tone accent concept is dropped for v0.1.0; a sign carries a single color.
+> **SUPERSEDES the 2026-06-04 "single-color, apply-ink-item, no UI" lock**, which
+> itself superseded the older "E=text color / Shift+E=accent / two-tone pin" model.
+> Daniel re-locked this on 2026-06-05 from a UI mockup. Two deliberate reversals of
+> the 6/04 lock: **(1) a real UI panel returns** (replaces apply-ink-item), and
+> **(2) two-tone returns** — a sign now carries a **text color AND a border color**.
+> Still ONE buildable sign piece (the four-variant sprawl stays dropped).
+
+A single panel handles **both** painting and text, opened by interacting with a
+placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
+
+```
+--- PAINTING ---
+ Set Text Color:  [Red][Blue][Black][White][·][·][·]   (extra slots disabled)
+ Border Color:    [Red][Blue][Black][White][·][·][·]   (extra slots disabled)
+ Cost:            <icon> 1 Red Pigment   <icon> 1 White Pigment
+ { Paint this and consume }
+--- TEXT ---
+ [ text field ]   (enabled only once a paint color is chosen)
+ { Update Text }
+```
 
 | Aspect | Locked value |
 |---|---|
-| **Base** | ONE buildable piece (`piece_sbpr_sign`), variant of the vanilla wood sign |
-| **Build state** | Placed **UNPAINTED** — plain vanilla wood mesh, no color baked in. Build cost **2 Wood** (ink is NOT a build ingredient) |
-| **Painting** | A SEPARATE action AFTER placement: apply a pigment/ink item (red/white/blue/black) to the placed sign to set its color. Re-applying a different ink **repaints** it. One ink consumed per paint |
-| **Color persistence** | Color is per-instance runtime state stored on the sign's ZDO (`SBPR_SignColor`; `""` = unpainted), so it persists across reloads + syncs to clients. Re-applied to the mesh on spawn |
-| **Text** | Vanilla `E` text-edit dialog; default label stays "Painted Sign" |
-| **Pin (deferred)** | Pin-on-Shift+E reflects the sign's single color when `nomap=OFF`; no-op if `nomap=ON`. Pin path is currently **unregistered** (follow-up — see §"Painted Signs" below) |
-| **Implementation surface** | `Sign.UseItem` prefix (apply-ink-to-paint, the `Interactable.UseItem` / ItemStand pattern); ZDO color field + owner-write via `ZNetView` (mirrors `CairnTag`). No `Minimap.AddPin` two-tone patch (concept dropped) |
+| **Base** | ONE buildable piece (`piece_sbpr_sign`), variant of the vanilla wood sign. Placed **UNPAINTED** (plain wood). Build cost **2 Wood** (pigment is NOT a build ingredient) |
+| **Panel** | Interacting with a placed sign opens the **combined Painted Sign panel** (custom uGUI), NOT the vanilla text dialog. Two sections: PAINTING + TEXT |
+| **Set Text Color** | Swatch row — `Red / Blue / Black / White` active; extra slots rendered **disabled** (reserved for future pigments). Sets the **board/text** tint |
+| **Border Color** | Second swatch row, same 4 active + disabled extras. Sets a **separate border** tint (two-tone) |
+| **Cost** | Crafting-style display with **pigment icons** — **one pigment per filled color slot** (text Red + border White → 1 Red + 1 White Pigment). Same color in both slots = **2 of that pigment** (one per slot). Border is **optional** (text-only paint = 1 pigment); **at least one** color required |
+| **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed pigments from inventory, tints board=text color + border element=border color, writes both to ZDO. **Disabled** unless the player holds the required pigments. **Re-painting later re-consumes** |
+| **`{ Update Text }`** | Commits the text. **Free** (no pigment cost — Cost applies to PAINTING only). Text field is **locked until ≥1 paint color is chosen** |
+| **Color persistence** | Per-instance ZDO: `SBPR_SignTextColor`, `SBPR_SignBorderColor` (`""` = unset) + vanilla text. Persists across reloads, syncs to clients, both tints re-applied on spawn (mirrors `CairnTag`) |
+| **Pin (deferred)** | Minimap pin path stays **unregistered** for v0.1.0 (follow-up). If later registered, the pin reflects the **text** color when `nomap=OFF`; no-op if `nomap=ON` |
+| **Implementation surface** | NEW custom uGUI panel replacing the vanilla `Sign` text dialog (intercept the text-edit interaction). Existing `SignPaintPatch.cs` apply-ink seam is **retired as the paint entrypoint**; its ZDO-write + `Signs.TintRenderers` logic is **reused as the backend** the panel drives. ⚠️ `TintRenderers` currently tints **all** renderers one color — a **separate border renderer/material must be identified or added** to support two-tone (open technical question for the engineer). Owner-write via `ZNetView` (mirrors `CairnTag`) |
 
 ---
 
@@ -394,7 +413,7 @@ Planned scans:
 - **Replant mechanic (3 widths — Daniel playtest 2026-06-05; supersedes the single-op form from 2026-06-04):** clone the vanilla **`replant` prefab** (the Cultivator's "Grass" mode — `Assets/GameElements/Pieces/replant.prefab`, display token `piece_replant` → "Grass") **three times** and register `piece_sbpr_replant_narrow/standard/wide` at **1.5m / 3m / 5m**, mirroring the three path widths. Each clone scales **ONLY `m_paintRadius`** (the grass/vegetation footprint) and leaves `m_levelRadius`/`m_smoothRadius` at the vanilla op's stock values, so every width behaves like the Cultivator's "Grass" mode — a grass-restore brush that regrows grass on dirt with **no terrain raise/level/cultivate at any width**. ⚠️ The original M3 build wrongly cloned the **`cultivate`** prefab (the soil-tiller that turns ground into farmland) at a forced **5m** radius, producing a wide terrain-modifying "UBER level" op (the PR #16 bug). The fix was to clone `replant` instead; this slice extends it to three grass-restore widths while **preserving that fix by construction** — because the level/smooth radii are never written, no replant width can reintroduce terrain modification. `cultivate` is the Cultivator's farming job and stays out of the spade's lane.
 - **ClearVegetation (deferred to v0.2.0):** would use a clear/`Reset` paint pass on a radius to remove bushes/grass/small rocks. NOT shipped in v0.1.0 — the spade ships only Path (×3) + Replant.
 
-### Painted Signs (single buildable + paint-via-ink)
+### Painted Signs (single buildable + combined Paint+Text panel, two-tone)
 
 - **Model (LOCKED 2026-06-04, Daniel):** ONE buildable sign, placed UNPAINTED, painted afterward by applying a pigment/ink item. This SUPERSEDES the earlier "subclass `Sign` + custom multi-field edit dialog + E text-color / Shift+E accent-color / two-tone pin" design. No custom edit dialog, no accent color, no two-tone pin for v0.1.0.
   - **Build:** `piece_sbpr_sign` ("Painted Sign"), **Trailblazer's Spade build menu** ('Trail' tab — NOT the Hammer; design pillar: Explorer-placed pieces live on the Tools), **2 Wood**, **no station-proximity required to place** (`Piece.m_craftingStation` cleared). Clone of the vanilla wood `sign` prefab **kitbashed onto a vanilla 2m wood pole (`wood_pole2`)** so it stands free on the ground like a trail signpost (Daniel 2026-06-05), board raised to readable height (~1.2m). The pole is a decorative child stripped of ZNetView/Piece/WearNTear/Collider (no own ZDO, not separately destructible, never intercepts the E raycast — board stays the sole interact/paint target). Ships in plain wood (unpainted); ink is NOT a build ingredient.
@@ -478,10 +497,10 @@ Planned scans:
 - **In-world meshes:**
   - Explorer's Bench → vanilla Workbench mesh + color-tinted material (so it visually reads as "not-quite-Workbench" in the world; the dialog hover-name + icon disambiguate it).
   - Cairn (5 tiers) → procedurally-stacked vanilla Stone prefabs at runtime, scaled per tier. Pigment overlay = material tint on the stack. Banner attachment = vanilla Banner prefab parented to the cairn root at place-time.
-  - Painted Sign → vanilla Sign mesh; built unpainted (plain wood material), runtime material color override per-instance once painted (reads `SBPR_SignColor` from ZDO, applies the single color to the mesh material at spawn).
+  - Painted Sign → vanilla Sign mesh; built unpainted (plain wood material), runtime per-instance tint once painted (reads `SBPR_SignTextColor` + `SBPR_SignBorderColor` from ZDO, applies the two tones — board + border — at spawn). ⚠️ Needs a separable border renderer/material on the mesh (open technical question).
   - Path Lamp → vanilla `piece_groundtorch_wood` mesh, no swap. Lower light intensity is the visual differentiation.
   - Trailblazer's Tools → vanilla Hoe item mesh; icon does the work of disambiguation in inventory.
-- **Custom UI panel** — NOT needed for v0.1.0. The earlier multi-field sign edit dialog was dropped with the two-tone model (Daniel 2026-06-04): the single Painted Sign uses the vanilla single-line `E` text dialog, and painting is the separate apply-ink gesture (no color-picker UI). No new Unity prefabs.
+- **Custom UI panel** — **REQUIRED for v0.1.0** (re-locked Daniel 2026-06-05). The Painted Sign uses a **custom combined Paint+Text uGUI panel** (text color + border color swatches, crafting-style pigment cost, `{Paint this and consume}` + `{Update Text}` buttons) that replaces the vanilla single-line text dialog. This **reverses** the 6/04 "no UI, apply-ink" note. Panel is built clean-room (no copied vanilla UI prefab); no new *mesh* prefabs required, but the sign mesh needs a separable border renderer for the two-tone tint.
 
 ### Asset generation as needed
 
@@ -498,7 +517,7 @@ Starbright generates placeholders on demand during implementation. FLUX local la
 ### Open for placeholder generation when implementation gets there
 
 - 4 Pigment ingredient confirms: red ← raspberries ✓, blue ← blueberries ✓, white ← bone fragment OR mushroom (TBD), black ← coal OR greydwarf eye (TBD). Pick at icon-time alongside the visual.
-- Painted Sign color palette: Round-1 captured "color is emergent player decision" (pillar 2). v0.1 ships with a fixed palette of 4 colors derived from the 4 pigments; the player chooses a sign's single color by which ink they apply after placement (no accent/text split — that was dropped 2026-06-04). No per-color sign icons needed (one buildable, vanilla wood icon); the color swatches live on the ink items.
+- Painted Sign color palette: Round-1 captured "color is emergent player decision" (pillar 2). v0.1 ships with a fixed palette of 4 colors derived from the 4 pigments; the player chooses a sign's **text color and border color** (two-tone) via the combined Paint+Text panel after placement (two-tone re-locked 2026-06-05, reversing the 6/04 single-color drop). No per-color sign icons needed (one buildable, vanilla wood icon); the swatches live in the panel.
 
 ## Open questions / TBD
 
@@ -524,7 +543,7 @@ After spec finalization, the following doc updates are needed to keep repo consi
 ### ⏳ Remaining doc-PR work
 1. **Trailblazer's Tools recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
 2. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 Map Station shape. v1 is DISABLED, not "rebalanced." Move that section to a future-v2 doc or annotate inline.
-3. **Painted Sign interaction model** — line 253 says "default keybind _TBD_" for the pin trigger. **Re-locked 2026-06-04 (Daniel):** ONE buildable sign, placed UNPAINTED (2 Wood). Painting is a separate gesture — apply an ink item (red/white/blue/black) to the placed sign to set/repaint its single color. **E** = vanilla single-line text dialog (no custom multi-field/color-picker dialog). **Shift+E** pin trigger (single color, no-op if nomap=ON) is deferred + currently unregistered. PLAYER_GUIDE needs the build-unpainted-then-paint-with-ink loop surfaced (and the "color baked at craft time" line corrected).
+3. **Painted Sign interaction model** — line 253 says "default keybind _TBD_" for the pin trigger. **Re-locked 2026-06-05 (Daniel, from UI mockup):** ONE buildable sign, placed UNPAINTED (2 Wood). Interacting with a placed sign opens a **custom combined Paint+Text panel** — set a **text color AND a border color** (two-tone), pay one pigment per filled slot via `{Paint this and consume}` (border optional, re-paint re-consumes), and edit the label via `{Update Text}` (free, locked until a color is chosen). This **supersedes** the 6/04 apply-ink/single-color/no-UI lock. Pin trigger (text color, no-op if nomap=ON) deferred + currently unregistered. PLAYER_GUIDE needs the build-unpainted-then-open-panel loop surfaced (and the "color baked at craft time" line corrected).
 4. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
 5. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe: 2 Leather Scraps + 1 Finewood + 1 Pigment.
 6. **Remove Ember Lamps / Beacons from v1 scope language** — PLAYER_GUIDE includes them in the Black Forest section. They're not in v1. Either move them to a "Roadmap" section or clearly label them v1.1+.

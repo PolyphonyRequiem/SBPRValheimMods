@@ -177,7 +177,7 @@ Each entry has:
 
 - **Cartography Table** — v1 disables build AND functionality on existing instances
 - **Minimap** — v1 nomap-config controls visibility (nomap=ON → no map; nomap=OFF → minimap only, no M-key, no north indicator)
-- **Vanilla Sign** — `Sign.UseItem` patched so applying one of our four inks to a placed Painted Sign paints/repaints it (single-sign + paint-via-ink model). Non-ink items and non-SBPR signs fall through to vanilla.
+- **Vanilla Sign** — the placed Painted Sign's text-edit interaction is intercepted to open a custom combined Paint+Text uGUI panel (two-tone: text color + border color, pigment cost per slot). Non-SBPR signs fall through to vanilla. (Combined-panel + two-tone model, Daniel 2026-06-05; supersedes the 6/04 apply-ink model.)
 
 ---
 
