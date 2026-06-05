@@ -257,9 +257,9 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 if (p != null) Assets.AddPieceToTable(p, table);
             }
 
-            // Explorer-placed signage + lighting belong on the Trailblazer's Tools
-            // (the Spade), NOT the Hammer — design pillar (design/design-pillars.md
-            // lines 31-33: "Paths, signs, cairns, lamps… all live on the Tools").
+            // Explorer-placed signage + lighting belong on the Trailblazer's Spade,
+            // NOT the Hammer — design pillar (design/design-pillars.md
+            // lines 31-33: "Paths, signs, cairns, lamps… all live on the Spade").
             // Fixing code-vs-spec drift flagged by Daniel's 2026-06-05 playtest: the
             // Painted Sign + Path Lamp were wrongly wired onto the Hammer. We add them
             // to the SPADE table here instead.

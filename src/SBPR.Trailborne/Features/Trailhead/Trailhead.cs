@@ -110,7 +110,7 @@ namespace SBPR.Trailborne.Features.Trailhead
                 piece.m_name        = "Path Lamp";
                 piece.m_description = "A tall standing lamp for marking trails after dark.";
                 // SPADE menu home (design pillar: Explorer-placed pieces live on the
-                // Trailblazer's Tools, not the Hammer). The spade's PieceTable declares
+                // Trailblazer's Spade, not the Hammer). The spade's PieceTable declares
                 // only the Misc category ('Trail' tab), so the lamp MUST be Misc to
                 // render there — Furniture would bucket into a tab the table doesn't have.
                 piece.m_category    = Piece.PieceCategory.Misc;
