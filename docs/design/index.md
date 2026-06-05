@@ -8,4 +8,5 @@
 | design-pillars.md | The load-bearing design constraints, non-negotiable |
 | nomap.md | Investigation: how Valheim tracks the map + no-map patch-surface cross-reference |
 | pin-sharing.md | Investigation: multiplayer pin-sharing surface under server gating |
+| constitution.md | Governing principles for spec-driven v2 (ADR-0005 Option C) — Spec Kit vocabulary + load-bearing invariants |
 | PARKED-2026-06-03.md | Working-state resume point from the 2026-06-03 session |
