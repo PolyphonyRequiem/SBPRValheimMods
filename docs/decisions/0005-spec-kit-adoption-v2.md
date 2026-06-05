@@ -1,13 +1,15 @@
 ---
-title: "ADR-0005: GitHub Spec Kit adoption for v2 (brainstorm — NOT a decision)"
-status: proposed
+title: "ADR-0005: GitHub Spec Kit adoption for v2 (Option C — ACCEPTED)"
+status: accepted
 ---
 
-# ADR-0005: GitHub Spec Kit adoption for v2 (brainstorm — NOT a decision)
+# ADR-0005: GitHub Spec Kit adoption for v2 (Option C)
 
-- **Status:** proposed — **discussion draft for Daniel's gate. This ADR records a recommendation, not a settled decision.** Do not treat `proposed` as `accepted`.
-- **Date:** 2026-06-04
-- **Deciders:** Daniel (gates) — drafted by architect (Kanban worker, card `t_0911c126`)
+- **Status:** **ACCEPTED 2026-06-05 (Daniel).** Option C ratified: adopt Spec Kit vocabulary + templates + a constitution now; defer the `specify` CLI / `.specify/` / `specs/NNN/` machinery behind a throwaway spike; keep our runtime watchdog, corpus-first grounding, and writer ≠ verifier discipline unchanged. v2-greenfield only — do not retrofit v0.1.0.
+- **Date:** 2026-06-04 (drafted) · 2026-06-05 (accepted)
+- **Deciders:** Daniel (gated + accepted) — drafted by architect (Kanban worker, card `t_0911c126`)
+
+> **Acceptance note (2026-06-05):** Daniel accepted Option C and authorized implementation. The four open questions are resolved at the bottom of this ADR ("Open questions — RESOLVED"). Implementation tracked on the Kanban board (constitution authoring + vocabulary-mapping doc). The `specify` CLI spike remains **NO-GO** until separately authorized.
 
 > **Renumber note:** the card asked for `0004-spec-kit-adoption-v2.md`, but `0004`
 > is already taken by *deterministic-publish-then-pr-releases*. This is `0005`
@@ -184,18 +186,13 @@ those to fit vanilla Spec Kit re-opens the exact drift class ADR-0002 closed.
 
 ---
 
-## Open questions for Daniel (gate)
+## Open questions for Daniel (gate) — RESOLVED 2026-06-05 (Daniel: accept + implement)
 
-1. **`valheim-regions` precedent:** what convention did it actually choose? (Unverifiable from
-   this machine — needs a human with repo access.) If it went full `specs/NNN/`, that's a data
-   point for/against Option A.
-2. **Constitution home:** standalone `docs/design/constitution.md`, or fold into `AGENTS.md`?
-3. **Spike the CLI?** Authorize a throwaway `specify init` in `/tmp` to evaluate the
-   preset/override path against our watchdog + `docs-lint`? (Not done here — no installs this run.)
-4. **Vocabulary commitment:** adopt `/speckit.*` stage names as the team dialect for v2, or
-   keep our SDD role names as primary?
+1. **`valheim-regions` precedent:** **Won't-block.** Repo isn't on this machine and isn't a v2 dependency yet; we are NOT adopting the `specs/NNN/` layout regardless (Option C keeps the semver tree), so its convention doesn't gate anything. Revisit only if/when an Option-A spike is ever authorized.
+2. **Constitution home:** **Standalone `docs/design/constitution.md`** that *references* the ADRs (does not duplicate them). Keeps `AGENTS.md` lean and gives principles one machine-referenceable home.
+3. **Spike the CLI?** **NO-GO for now** (deferred). No `specify init`, no global install this cycle. A throwaway `/tmp` spike must be separately authorized later and must prove a preset can carry the `SpecCheck` watchdog + corpus-first + cross-agent verify AND pass `docs-lint` before any real adoption.
+4. **Vocabulary commitment:** **ADOPT `/speckit.*` stage names** (constitution → specify → clarify → plan → tasks → implement → analyze) as the team dialect for v2, mapped onto our SDD roles via the table above. One shared vocabulary for Daniel + every agent.
 
-**Go / no-go (recommended):**
-- **GO** on vocabulary + templates + constitution (low-risk, high-clarity).
-- **NO-GO / defer** on the `specify` CLI + `.specify/` + `specs/NNN/` layout until a spike
-  proves a preset can carry our discipline and pass `docs-lint`.
+**Final go / no-go (ratified):**
+- ✅ **GO** — vocabulary + templates + constitution.
+- ⛔ **NO-GO / deferred** — `specify` CLI + `.specify/` + `specs/NNN/` layout, pending a future authorized spike.
