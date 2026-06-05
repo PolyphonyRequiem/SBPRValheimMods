@@ -111,6 +111,7 @@ What we will NOT do (in v1):
 | Capability | Detail |
 |---|---|
 | **Path widths** | **1.5m / 3m / 5m** — three selectable widths (analogous to hoe's flatten radii) |
+| **Path stamina** | **Flat 2 stamina per path/replant op, INDEPENDENT of width** (1.5m / 3m / 5m all cost 2). See A3.9. |
 | **Cultivate replant** | When laying a path through cultivated ground, replants underlying vegetation appropriately (i.e. doesn't permanently destroy cultivation) |
 | **ClearVegetation** | Removes existing vegetation along the laid path (small brush, grass, mushrooms — NOT trees) so the path is *visually a path*, not a stripe through bushes |
 | **Implementation surface** | Likely a new item class analogous to `Hoe`, with custom `m_operations` array entries for the three widths + cultivate-replant + clear-vegetation. May patch `Hoe` directly OR introduce a new `TrailblazerTool` MonoBehaviour. Decision for spec-writer. |
@@ -234,6 +235,16 @@ Daniel: "I think corewood still tracks"
 Daniel: "No"
 
 **Decision:** Ember Lamps are NOT in v1. They move to v1.1 (or a later release). Keeps v1 scope tight on the Path Lamps tier; Ember Lamps + Beacons come together later.
+
+#### A3.9 — Spade path stamina is flat 2, radius-independent ✅ LOCKED
+
+Daniel (2026-06-04 playtest): "Pathing is supposed to only be 2 stamina with the spade regardless of size."
+
+**Spade path/replant stamina (v1, locked):** **Flat 2 stamina per op for ALL widths** — 1.5m, 3m, and 5m each drain exactly 2. Stamina does NOT scale with radius.
+
+- **Why the tool, not the op piece:** terrain-op / build stamina is driven by the *wielding tool*, not the placed op. `Player.GetBuildStamina()` returns the right-hand `ItemDrop`'s `m_shared.m_attack.m_attackStamina`. `Piece` / `TerrainModifier` carry no stamina field, so per-variant pinning is impossible; the only correct layer is the spade item itself. (Cross-ref `design/nomap.md` §2, which already recommended setting `m_attackStamina` on the tool.)
+- **Implementation:** `Trailblazing.RegisterSpadeItemPrefab` sets `m_shared.m_attack.m_attackStamina = 2f` (and `m_secondaryAttack` to match) on the cloned spade. Because the spade's `SharedData`/`Attack` are `[Serializable]` and deep-copied by `Instantiate`, this does not mutate the vanilla Hoe.
+- Radius-independence is structural: a single scalar on the tool cannot vary by op width.
 
 ---
 

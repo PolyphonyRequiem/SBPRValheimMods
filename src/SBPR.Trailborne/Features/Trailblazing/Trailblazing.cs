@@ -45,6 +45,16 @@ namespace SBPR.Trailborne.Features.Trailblazing
 
         private const string IconFile        = "trailblazers_spade_v0.1.png";
 
+        // Flat stamina drain per path/replant op, INDEPENDENT of radius
+        // (1.5m / 3m / 5m all cost the same). See requirements.md A3.9
+        // (Daniel, 2026-06-04 playtest lock). Terrain-op / build stamina is
+        // driven by the WIELDING TOOL, not the op piece: Player.GetBuildStamina()
+        // reads the right-hand ItemDrop's m_shared.m_attack.m_attackStamina.
+        // Pieces / TerrainModifier carry no stamina field, so this is the only
+        // layer where the cost can be pinned — and pinning it here is
+        // radius-independent by construction. (design/nomap.md §2.)
+        private const float PathOpStamina    = 2f;
+
         private static readonly Dictionary<string, (string source, float radius)> variants =
             new Dictionary<string, (string, float)>
             {
@@ -79,6 +89,19 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 var sprite = Assets.LoadPngAsSprite(IconFile);
                 if (sprite != null)
                     drop.m_itemData.m_shared.m_icons = new[] { sprite };
+
+                // Flat path/replant stamina: pin the tool's build-stamina to 2 so
+                // every width (1.5m / 3m / 5m) costs the same. Player.GetBuildStamina()
+                // returns the wielded item's m_shared.m_attack.m_attackStamina, so the
+                // spade — not the cloned op pieces — is the correct layer. This clone
+                // owns its own [Serializable] SharedData/Attack (deep-copied by
+                // Instantiate), so we are NOT mutating the vanilla Hoe.
+                var shared = drop.m_itemData.m_shared;
+                if (shared.m_attack != null)
+                    shared.m_attack.m_attackStamina = PathOpStamina;
+                if (shared.m_secondaryAttack != null)
+                    shared.m_secondaryAttack.m_attackStamina = PathOpStamina;
+
                 // m_buildPieces inherits from Hoe — already has terrain-op pieces
                 // (raise/level/paved_road) accessible via the vanilla scroll-wheel
                 // cycler. For M0 we use that as the path-mode cycler instead of
