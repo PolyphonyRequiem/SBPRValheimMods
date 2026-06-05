@@ -104,6 +104,21 @@ shopt -u nullglob
 for png in "${icons[@]}"; do cp "$png" "$PLUGDIR/"; done
 ok "Plugin folder: 1 DLL + ${#icons[@]} icon(s)"
 
+# 3) Overlay bundled third-party mods we ship for playtesters.
+#    ServerDevcommands (JereKuusela, Unlicense/public-domain) turns on the dev
+#    console cheat commands (spawn/god/fly) for admin playtesters — on a DEDICATED
+#    server, vanilla F5+admin only enables the *admin* verbs; the cheat verbs stay
+#    blocked until ServerDevcommands runs on the admin's CLIENT. Bundling it here is
+#    what actually lights up devcommands for everyone via the one-liner installer.
+SDC_DIR="$REPO_ROOT/assets/bundled-mods/ServerDevcommands-1.106.0"
+[ -f "$SDC_DIR/ServerDevcommands.dll" ] || fail "bundled ServerDevcommands.dll missing: $SDC_DIR"
+PLUGDIR_SDC="$TREE/BepInEx/plugins/ServerDevcommands"
+mkdir -p "$PLUGDIR_SDC"
+cp "$SDC_DIR/ServerDevcommands.dll" "$PLUGDIR_SDC/"
+cp "$SDC_DIR/manifest.json"        "$PLUGDIR_SDC/"
+cp "$SDC_DIR/LICENSE"              "$PLUGDIR_SDC/" 2>/dev/null || true
+ok "ServerDevcommands 1.106.0 bundled"
+
 # ── Zip it (DETERMINISTIC: fixed mtimes, sorted entries, no extra attrs) ─────
 # Normalising timestamps makes the zip's SHA256 reproducible for identical
 # content — so the same commit always packs to the same hash. That is what lets
