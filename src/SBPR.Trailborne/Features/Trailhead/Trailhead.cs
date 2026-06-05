@@ -54,10 +54,28 @@ namespace SBPR.Trailborne.Features.Trailhead
                     BuildReq("TrophyDeer", 1),
                 };
             }
-            // Already a CraftingStation (workbench is one) — leave m_name unchanged so
-            // existing recipes that name "piece_workbench" don't accidentally collide.
+            // Give the clone its OWN CraftingStation identity (spec: requirements.md
+            // ~line 119 + ADR-0003 — "its own CraftingStation, NOT the vanilla Workbench").
+            // Two independent things are required for that, and the bench needs BOTH:
+            //
+            //   1. A distinct m_name. Recipes keyed to a station are matched by station
+            //      name, so a name that differs from the Workbench's keeps Workbench-keyed
+            //      recipes off the bench. (This was already in place — it was never the
+            //      cause of the vanilla-craftables leak below.)
+            //
+            //   2. m_showBasicRecipies = false. The vanilla Workbench is the ONLY station
+            //      that surfaces the stationless "basic" recipes you can otherwise craft by
+            //      hand (Club, Torch, Stone Axe, Hammer, Hoe, rag armor, …). A raw clone
+            //      inherits that flag = true, so the Explorer's Bench wrongly offered all of
+            //      them (playtest, Daniel 2026-06-04, card t_30f97042). Every other vanilla
+            //      station (forge, stonecutter, cauldron, …) ships this false; we match them
+            //      so ONLY Trailborne recipes appear here.
             var station = clone.GetComponent<CraftingStation>();
-            if (station != null) station.m_name = "Explorer's Bench";
+            if (station != null)
+            {
+                station.m_name              = "Explorer's Bench";
+                station.m_showBasicRecipies = false;
+            }
 
             Assets.RegisterPrefabInZNetScene(clone);
             Plugin.Log.LogInfo($"[Trailborne] Registered piece: {ExplorersBenchName}");

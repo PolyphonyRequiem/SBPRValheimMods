@@ -29,8 +29,17 @@ already locks this: "its own CraftingStation, NOT the vanilla Workbench."
 
 - Our recipes must be re-pointed at the new station name, and `SpecCheck` records
   that station for our items — keep them consistent.
-- Resolves three playtest bugs at the root: vanilla craftables on the bench, the
-  Hugin tutorial, and the "two workbenches" confusion.
+- **The "vanilla craftables on the bench" leak is NOT a station-name collision.**
+  The clone already carried a distinct station name; the leak came from a *separate*
+  inherited flag, `CraftingStation.m_showBasicRecipies`. The vanilla Workbench is the
+  ONLY station that ships this `true` — it's the flag that surfaces the stationless
+  "basic" hand-craft recipes (Club, Torch, Stone Axe, Hammer, Hoe, rag armor, …). A
+  raw clone inherits `true`, so those vanilla items appeared on the Explorer's Bench.
+  The fix sets `m_showBasicRecipies = false` on the clone's CraftingStation (in
+  `Trailhead.RegisterExplorersBenchPrefab`), matching every other vanilla station.
+  Distinct station identity (`m_name`) + `m_showBasicRecipies = false` together give
+  the bench a clean, Trailborne-only recipe list. (Card t_30f97042, playtest 2026-06-04.)
+- Resolves the vanilla-craftables leak and the "two workbenches" confusion at the root.
 - **An agent must not "simplify" the bench back to a raw Workbench clone** to dodge
   recipe wiring. That reintroduces all three bugs.
 
