@@ -66,8 +66,8 @@ Once your Explorer's Bench is built, you can craft:
 
 - **Red pigment** from raspberries — your first ink color
 - **Trailblazer's Tools** (wood, tin, flint) — your sign-and-marker hand tool
-- **Painted Signs** — wooden signposts you place in the world, colored by whichever
-  pigment you used to craft them
+- **Painted Signs** — wooden signposts you place in the world unpainted, then
+  color by applying an ink (red/white/blue/black); re-ink to repaint
 
 You take your tools and your first stack of red pigment and walk out into the woods.
 You find a copper vein. You place a red signpost: **"Copper here."** You walk back
@@ -249,13 +249,17 @@ particular color *means* on your server is up to you and your group — Trailbor
 does not assign meanings to colors. Red is not "danger." Blue is not "water."
 Whatever conventions your group settles on are conventions your group invented.
 
-Pigments are consumed at sign-craft time — the sign's color is baked in.
+Pigments are consumed when you paint: Cairn Markers bind their color at craft time,
+while Painted Signs are painted *after* you place them by applying an ink.
 
 ### Painted Signs
 
-Painted Signs are wooden posts that carry text and a color. The color comes from
-whichever pigment you used to craft the sign. The text is whatever you write on it
-(same UGC-filter as vanilla signs).
+Painted Signs are wooden posts that carry text and a color. You build a single
+Painted Sign (2 Wood) and place it **unpainted** — plain wood. To color it, hold
+an ink (red, white, blue, or black) and apply it to the placed sign; the sign
+takes that color. Apply a different ink later to **repaint** it. The color sticks
+with the sign (it survives reloads and other players see it). The text is whatever
+you write on it with E (same UGC-filter as vanilla signs).
 
 When you stand near a sign and press the pin button (default keybind _TBD_), the sign's
 location is pinned to your map. The pin's color matches the sign's color. The pin's

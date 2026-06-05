@@ -84,17 +84,17 @@ Each entry has:
 | Field | Value |
 |---|---|
 | Display name | Painted Sign |
-| Prefab name | `SBPR_PaintedSign` (or variants per color — TBD) |
+| Prefab name | `piece_sbpr_sign` (single piece — color is per-instance ZDO state, NOT a prefab fork) |
 | Type | `Piece` (Sign variant) |
 | Mod | Trailborne |
 | Biome tier | Meadows |
-| Craft station | Explorer's Bench (build menu) |
-| Recipe | TBD — likely Wood + Pigment (mirror vanilla Sign shape) |
-| Function | Vanilla sign variant with two-color binding (E = text color, Shift+E = accent color) + two-tone pin emission when nomap=OFF |
-| Visual notes | Vanilla `sign` prefab as base, recolored per E/Shift+E player input |
-| Patch surface | `Sign.OnUse` for color picker UI; pin emission piggybacks on Minimap pin system from design/nomap.md §3 |
-| Status | SPEC LOCKED (pin keybind default TBD) |
-| Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
+| Craft station | Explorer's Bench (build menu) — Hammer Furniture tab |
+| Recipe | 2 Wood (placed UNPAINTED; ink is NOT a build ingredient) |
+| Function | One buildable signpost, placed unpainted. Painted AFTER placement by applying a pigment/ink item (red/white/blue/black) to the placed sign; re-applying a different ink repaints it. Color persists + syncs via the sign's ZDO. Text written via vanilla E dialog. |
+| Visual notes | Vanilla `sign` prefab as base, shown in its plain wood (unpainted) material until painted; on paint, the mesh is runtime-tinted to the applied color, re-applied on spawn from ZDO. |
+| Patch surface | `Sign.UseItem` prefix (apply-ink-to-paint, the ItemStand `Interactable.UseItem` pattern); per-instance ZDO color field `SBPR_SignColor` ("" = unpainted). Pin emission (Shift+E) piggybacks on the Minimap pin system from design/nomap.md §3 — currently unregistered (follow-up). |
+| Status | SPEC LOCKED (single-sign + paint-via-ink model, Daniel 2026-06-04) |
+| Source spec | `docs/v0.1.0/planning/requirements.md` §A2.6 |
 
 #### Path Lamp
 
@@ -163,7 +163,7 @@ Each entry has:
 | Recipe (W) | 1 Bone Fragment → 2 White Pigment |
 | Recipe (B) | 1 Coal → 2 Black Pigment |
 | Recipe (Blue) | 1 Blueberry → 2 Blue Pigment |
-| Function | Crafting ingredient for Cairn Markers and Painted Signs (color binding). |
+| Function | Crafting ingredient: consumed at craft time to bind a Cairn Marker's color; applied to a placed Painted Sign to paint/repaint it. |
 | Stack size | 20 |
 | Weight | 0.1 |
 | Patch surface | None — pure ObjectDB registration |
@@ -177,7 +177,7 @@ Each entry has:
 
 - **Cartography Table** — v1 disables build AND functionality on existing instances
 - **Minimap** — v1 nomap-config controls visibility (nomap=ON → no map; nomap=OFF → minimap only, no M-key, no north indicator)
-- **Vanilla Sign** — pin emission patched to use SBPR two-tone pin variants when Painted Sign nearby
+- **Vanilla Sign** — `Sign.UseItem` patched so applying one of our four inks to a placed Painted Sign paints/repaints it (single-sign + paint-via-ink model). Non-ink items and non-SBPR signs fall through to vanilla.
 
 ---
 

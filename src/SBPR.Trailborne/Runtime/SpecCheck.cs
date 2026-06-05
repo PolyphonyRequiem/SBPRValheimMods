@@ -48,6 +48,14 @@ namespace SBPR.Trailborne.Runtime
                 Piece = "piece_sbpr_path_lamp", Station = null,
                 Resources = new[] { R("Wood", 3), R("Resin", 2) }
             },
+            // Single Painted Sign (v0.1.0 model, Daniel 2026-06-04): ONE buildable
+            // piece, placed UNPAINTED, painted afterward by applying an ink item.
+            // Ink is NOT a build ingredient — it is consumed at paint time. This
+            // replaced the four tinted sign buildables (each Wood + 1 matching ink).
+            new RecipeSpec {
+                Piece = "piece_sbpr_sign", Station = null,
+                Resources = new[] { R("Wood", 2) }
+            },
 
             // ── Item recipes ───────────────────────────────────────────
             new RecipeSpec {
