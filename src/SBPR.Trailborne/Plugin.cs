@@ -47,6 +47,12 @@ namespace SBPR.Trailborne
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
+            // Client-facing refresh layer: Player.OnSpawned recipe reload +
+            // PieceTable.UpdateAvailable array repair. Makes registered content
+            // actually craftable/buildable on a joined client (task
+            // fix-client-registration). Server-safe: no local Player, no build
+            // menu, so these hooks are inert on the dedicated server.
+            harmony.PatchAll(typeof(ClientRefreshPatches));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
         }

@@ -27,8 +27,24 @@ namespace SBPR.Trailborne.Runtime
     {
         private static bool znetSceneDone;
 
+        // Set true once the single real in-world ObjectDB wiring pass has
+        // completed (items + recipes + hammer pieces registered and SpecCheck
+        // run). The client-facing refresh layer (ClientRefreshPatches, Fix A)
+        // gates its Player.OnSpawned recipe refresh on this so it only re-scans
+        // once our content is actually present in ObjectDB. Replaces the old
+        // objectDbDone flag deleted in the boot-log-noise hygiene pass.
+        private static bool contentWired;
+        public static bool ContentWired => contentWired;
+
+        // Registration mutation runs at Priority.Last so our additions land at
+        // the END of each method's postfix chain — after vanilla's body and
+        // after any peer mod's same-method postfix. This makes our content
+        // present in a fully-settled DB regardless of modpack load order, and
+        // lets SpecCheck validate the final state. (Aggravating factor #3 in
+        // the gap analysis: bare postfixes left ordering undefined.)
         [HarmonyPatch(typeof(ZNetScene), "Awake")]
         [HarmonyPostfix]
+        [HarmonyPriority(Priority.Last)]
         private static void OnZNetSceneAwake(ZNetScene __instance)
         {
             if (!ServerContext.OnSBServer)
@@ -62,6 +78,7 @@ namespace SBPR.Trailborne.Runtime
 
         [HarmonyPatch(typeof(ObjectDB), nameof(ObjectDB.CopyOtherDB))]
         [HarmonyPostfix]
+        [HarmonyPriority(Priority.Last)]
         private static void OnObjectDBCopy()
         {
             if (!ServerContext.OnSBServer) return;
@@ -70,6 +87,7 @@ namespace SBPR.Trailborne.Runtime
 
         [HarmonyPatch(typeof(ObjectDB), "Awake")]
         [HarmonyPostfix]
+        [HarmonyPriority(Priority.Last)]
         private static void OnObjectDBAwake()
         {
             if (!ServerContext.OnSBServer) return;
@@ -102,6 +120,11 @@ namespace SBPR.Trailborne.Runtime
 
                 // Spec-drift watchdog — runs LAST after all wiring complete.
                 SpecCheck.Run();
+
+                // Mark content live so the client-facing refresh layer
+                // (ClientRefreshPatches Fix A) knows it's worth re-scanning the
+                // player's known-recipe list on the next Player.OnSpawned.
+                contentWired = true;
             }
             catch (System.Exception e)
             {
