@@ -96,10 +96,13 @@ You can build:
   - **Trail / Road / Highway** path-paving at three widths — narrow (1.5m radius),
     standard (3m), and wide (5m). The widest setting is 2.5x the Hoe's standard path
     radius, suitable for ox-cart routes, beacon platforms, and forecourts.
-  - **Replant Grass** at the same three radii — restore cleared land, undo terraforming
-    scars, re-green an outpost. This is the cultivator's `cultivate` action at vastly
-    larger scale.
-  - **Clear Vegetation** at the wide radius — clear a viewpoint, prep a beacon site.
+  - **Replant Grass** — restore cleared land, undo terraforming scars, re-green an
+    outpost. This mirrors the vanilla **Cultivator's replant ("Grass") mode exactly**:
+    a focused grass-restore brush at the Cultivator's own radius. It is *not* a wide
+    terrain modifier and does *not* cultivate soil for farming — it just brings the
+    grass back.
+  - **Clear Vegetation** — clear a viewpoint, prep a beacon site. _(Planned for v0.2.0 —
+    not in the v0.1.0 build.)_
   - **All Painted Signs** (see below) — only craftable when holding the Tools.
   - **Path Lamps** and later, **Ember Lamps** and **Beacons**.
   - **Pocket Portals** (Black Forest unlock).

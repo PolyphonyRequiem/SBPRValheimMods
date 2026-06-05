@@ -21,7 +21,7 @@ Black Forest tier (Blue/Black pigment, Scrying Altar, embers, beacons, pocket po
 | M0 | Plugin loads + Bench + Spade (Hoe-clone) + Path Lamp               | ✅ ship  |
 | M1 | Pigments (R/W/B/K inks) + Painted Signs (color + Shift+E map pin)  | ✅ ship  |
 | M2 | Cairn Marker + Cairn piece + SE_Rested comfort floor (tier-1)      | ✅ ship  |
-| M3 | Spade real ops — 3 path radii + wide replant                       | ✅ ship  |
+| M3 | Spade real ops — 3 path radii + vanilla-radius grass replant      | ✅ ship  |
 | M4 | Explorer's Bench rename, English display names (locale-less)       | ✅ ship  |
 | -- | **v0.1.0 ships ✅** — tag, push when greenlit                       | ✅ ship  |
 | M5 | Real client/server handshake (replace OnSBServer stub)             | v0.2.0   |
