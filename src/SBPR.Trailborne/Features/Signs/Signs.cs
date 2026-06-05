@@ -199,7 +199,7 @@ namespace SBPR.Trailborne.Features.Signs
             clone.AddComponent<SignTag>();
 
             Assets.RegisterPrefabInZNetScene(clone);
-            Plugin.Log.LogInfo($"[Trailborne/M1] Registered sign piece: {SignName} (single, unpainted; paint via ink)");
+            Plugin.Log.LogInfo($"[Trailborne/M1] Registered sign piece: {SignName} (single, unpainted; paint via combined Paint+Text panel)");
         }
 
         // ───────────────────────────────────────────────
@@ -232,7 +232,7 @@ namespace SBPR.Trailborne.Features.Signs
             // and the sign prefab is already registered from the earlier
             // RegisterPrefabs pass, so the lookup there resolves).
 
-            Plugin.Log.LogInfo("[Trailborne/M1] Signs ObjectDB wiring complete (single Painted Sign piece; paint-via-ink; placed via Spade menu).");
+            Plugin.Log.LogInfo("[Trailborne/M1] Signs ObjectDB wiring complete (single Painted Sign piece; paint via combined Paint+Text panel; placed via Spade menu).");
         }
 
         /// <summary>
