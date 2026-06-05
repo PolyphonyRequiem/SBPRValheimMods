@@ -41,7 +41,9 @@ param(
     # GitHub release asset (the assembled modpack). Pinned to a tag for stability.
     [string]$ModpackUrl    = 'https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.1.0-playtest/SBPR-Trailborne-Modpack-v0.1.0.zip',
     [string]$ExpectedSha256= '001ec0bbbaa1bf88e2f132bd0e3f66361b9854f69da277b1fb5179dc298d0225',
-    [string]$ServerJoinCode= '078214',
+    # Live server status (join code drifts on every restart, so we FETCH it at
+    # runtime instead of baking a stale code in). Falls back gracefully if down.
+    [string]$StatusUrl     = 'https://gist.githubusercontent.com/PolyphonyRequiem/7b54a29aeefb3effee0393df79d0b03e/raw/niflheim-status.json',
     [string]$ModdedDirName = 'Valheim-Modded',
     [switch]$Force,          # skip the confirmation prompt
     [switch]$NoShortcut      # don't drop a Desktop shortcut
@@ -61,6 +63,27 @@ function Die  { param($m) Write-Host "`nXX $m" -ForegroundColor Red; exit 1 }
 Say ""
 Say "Trailborne playtest bootstrapper  v$Version" White
 Say "This copies Valheim to a modded folder (vanilla untouched), installs the mod, makes a launcher." DarkGray
+
+# ── Live server status (fetched, not hardcoded — the join code drifts) ───
+function Get-ServerStatus {
+    param([string]$url)
+    try {
+        $j = Invoke-RestMethod -Uri $url -UseBasicParsing -TimeoutSec 10
+        return [pscustomobject]@{
+            Code   = "$($j.join_code)"
+            Status = "$($j.status)"
+            Stamp  = "$($j.updated_utc)"
+        }
+    } catch {
+        return $null
+    }
+}
+$srv = Get-ServerStatus -url $StatusUrl
+function Format-JoinLine {
+    if (-not $srv)            { return "join code: (couldn't reach status — ask Daniel for the current code)" }
+    if ($srv.Status -ne 'online') { return "server is currently OFFLINE (status checked just now) — ask Daniel" }
+    return "join code  $($srv.Code)   (live, as of $($srv.Stamp))"
+}
 
 # ── 1. Locate Steam + Valheim ────────────────────────────────────────────
 Step "Locating Steam and Valheim"
@@ -118,7 +141,7 @@ $downloads = Join-Path $base 'downloads'
 Step "Plan"
 Note "Modded copy  -> $modded"
 Note "Vanilla stays pristine at the path above (Steam still launches it normally)."
-Note "Server join code for tonight: $ServerJoinCode"
+Note "Server status: $(Format-JoinLine)"
 
 if (-not $Force) {
     $resp = Read-Host "`nProceed? This will copy Valheim (~1-2 GB) into the modded folder. [Y/n]"
@@ -214,9 +237,9 @@ Say " Trailborne is installed. Vanilla Valheim is untouched." Green
 Say "============================================================" Green
 Say ""
 Say " Play:    double-click 'Play Trailborne (Modded)' on your Desktop" White
-Say "          (or run Launch-Trailborne-Direct.cmd in the modded folder)" DarkGray
+Say "          (or run Launch-Trailborne.cmd in the modded folder)" DarkGray
 Say " Folder:  $modded" White
-Say " Server:  join code  $ServerJoinCode" White
+Say " Server:  $(Format-JoinLine)" White
 Say ""
 Say " First launch shows a black BepInEx console window briefly — that's normal." DarkGray
 Say " To uninstall: delete  $base  and the Desktop shortcut." DarkGray
