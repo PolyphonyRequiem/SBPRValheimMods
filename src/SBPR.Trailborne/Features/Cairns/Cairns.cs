@@ -32,11 +32,17 @@ namespace SBPR.Trailborne.Features.Cairns
     ///     pristine cairn to 70% so the combo gesture is exercisable without waiting
     ///     on weather.
     ///
-    /// Decay state machine (LOCKED per requirements.md §A3.5):
-    ///   ≥75% HP   → pristine (resin glows visually — wired in M2.5+ when we have a glow VFX)
-    ///   &lt;75% HP   → fizzled (visual maintenance signal)
-    ///   &lt;25% HP   → downgrade tier  [HOOK PRESENT; M2.5+ wires actual downgrade visual]
-    ///    0% HP    → collapse         [vanilla WearNTear destroy path]
+    /// Decay state machine (LOCKED per requirements.md §A3.5 / §A2.1b):
+    ///   ≥75% HP   → pristine (small wear EMBER lit at the pile top — §A2.1b)
+    ///   &lt;75% HP   → fizzled (ember out; also the repair-eligible threshold)
+    ///   &lt;25% HP   → downgrade one tier, HP reset to 100% of new tier; pile
+    ///                rebuilds at the lower stone count  (CairnTag.HpBracketTick)
+    ///    0% HP    → collapse (at tier 1 only; vanilla WearNTear destroy path)
+    ///
+    /// The pile visual + ember live in CairnTag (§A2.1b): a per-tier haphazard,
+    /// deterministic (ZDO-seeded) stack of squashed rock_low clones whose count
+    /// equals the stone ladder, with the HP-gated ember layered on the
+    /// PR #23-neutralized bonfire base.
     ///
     /// All gated behind ServerContext.OnSBServer.
     /// </summary>

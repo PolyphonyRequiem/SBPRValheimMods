@@ -87,12 +87,13 @@ namespace SBPR.Trailborne.Features.Cairns
             nview = GetComponent<ZNetView>();
             wnt = GetComponent<WearNTear>();
             BuildKitbashArt(); // tier from ZDO or default 1
-            // Health-bracket poll: path-independent ember toggle. Catches repair-UP
-            // (50%→100%), debug-damage-down, out-of-zone backfill, and natural weather
-            // decay alike — a single WearNTear.OnDamage postfix would miss repair-up.
-            // 1 s cadence is imperceptible for a fizzle/relight wear indicator and costs
-            // ~nothing (one float read + a bracket compare).
-            InvokeRepeating(nameof(EmberTick), 1.0f, 1.0f);
+            // Health-bracket poll: path-independent ember toggle + auto-downgrade.
+            // Catches repair-UP (50%→100%), debug-damage-down, out-of-zone backfill,
+            // and natural weather decay alike — a single WearNTear.OnDamage postfix
+            // would miss repair-up. 1 s cadence is imperceptible for a fizzle/relight
+            // wear indicator and an abandonment-decay downgrade, and costs ~nothing
+            // (one float read + a bracket compare).
+            InvokeRepeating(nameof(HpBracketTick), 1.0f, 1.0f);
         }
 
         public int ReadTier()
@@ -372,11 +373,49 @@ namespace SBPR.Trailborne.Features.Cairns
         }
 
         /// <summary>
-        /// Health-bracket poll (1 Hz via InvokeRepeating). Toggles the ember only when
-        /// the pristine/fizzled bracket actually flips, so it's a cheap no-op most ticks.
-        /// Path-independent: fires for repair-UP, damage-DOWN, backfill, and decay.
+        /// Health-bracket poll (1 Hz via InvokeRepeating). Two responsibilities, both
+        /// keyed off the current HP fraction so they fire path-independently (repair-UP,
+        /// damage-DOWN, backfill, decay):
+        ///
+        ///   1. EMBER — toggle the wear ember only when the pristine/fizzled bracket
+        ///      (≥75% HP) actually flips, so it's a cheap no-op most ticks.
+        ///   2. AUTO-DOWNGRADE (§A2.1b wear ladder / §A3.5) — when HP falls below 25%
+        ///      and tier &gt; 1, drop one tier and reset HP to 100% of the new tier
+        ///      (per requirements.md §A3.5: "reduces comfort floor by 1, resets health
+        ///      to 100% of new tier"). WriteTier rebuilds the pile at the lower stone
+        ///      count; the subsequent Repair lands HP at full so the ember relights and
+        ///      the piece doesn't immediately collapse. Owner-only (ZDO writes + Repair
+        ///      route through the network owner). At tier 1, no downgrade — the cairn is
+        ///      left to fall to 0% and collapse via the vanilla WearNTear destroy path.
         /// </summary>
-        private void EmberTick()
+        private void HpBracketTick()
+        {
+            if (wnt == null) return;
+
+            // 2. Auto-downgrade first (it mutates HP, then the ember reconciles below).
+            //    Only the ZDO owner performs the authoritative tier+HP write.
+            if (nview != null && nview.IsOwner())
+            {
+                float hp = wnt.GetHealthPercentage();
+                int tier = ReadTier();
+                if (hp < Cairns.DowngradeHpFraction && hp > 0f && tier > 1)
+                {
+                    WriteTier(tier - 1);                 // rebuilds the pile at the lower stone count
+                    try { wnt.Repair(); }                // §A3.5: reset HP to 100% of the new tier
+                    catch (Exception e) { Plugin.Log.LogWarning($"[Trailborne/M2] Downgrade Repair() threw: {e.Message}"); }
+                    Plugin.Log.LogInfo($"[Trailborne/M2] Cairn decayed below 25% → downgraded T{tier}→T{tier - 1}, HP reset.");
+                }
+            }
+
+            // 1. Ember reconcile (also covers the no-owner clients and the post-downgrade state).
+            ReconcileEmber();
+        }
+
+        /// <summary>
+        /// Toggle the ember to match the current HP bracket, only when it actually
+        /// flips. Cheap no-op most ticks. Safe on non-owner clients (read-only).
+        /// </summary>
+        private void ReconcileEmber()
         {
             if (emberObj == null) return;
             bool lit = EmberShouldBeLit();
@@ -390,7 +429,7 @@ namespace SBPR.Trailborne.Features.Cairns
         /// after a Repair so the relight is instant (no up-to-1 s poll wait on the
         /// player's own action). Cheap no-op if a tier rebuild already set the state.
         /// </summary>
-        public void RefreshEmber() => EmberTick();
+        public void RefreshEmber() => ReconcileEmber();
 
         // ── Donor-fire neutralization (PR #23 path — UNCHANGED) ────────────────────
 
