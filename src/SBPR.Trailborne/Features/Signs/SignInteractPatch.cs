@@ -5,21 +5,22 @@ using UnityEngine;
 namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
-    /// Harmony hook on Sign.Interact: when the player holds Shift and presses E
-    /// on a SignTag-flagged sign, add a map pin matching the sign's text + its
-    /// painted color INSTEAD of opening the text-edit dialog. Plain E opens the
-    /// dialog as vanilla.
+    /// Harmony prefix on <c>Sign.Interact</c>: when the player interacts with one of
+    /// OUR placed signs (carries a <see cref="SignTag"/>), open the custom combined
+    /// Paint+Text panel (§A2.6) INSTEAD of the vanilla single-line text dialog, and
+    /// skip the vanilla body. Signs without a SignTag fall through to vanilla unchanged.
     ///
-    /// Pin color now reads the sign's per-instance ZDO color (Signs.ZdoColor)
-    /// via SignTag.ReadColor() — there is a single Painted Sign prefab, so the
-    /// old per-prefab pin-type map is gone. An unpainted sign pins with the
-    /// generic Icon0.
+    /// This is the player ENTRYPOINT for the Painted Sign feature (re-lock 2026-06-05):
+    /// it replaces both the vanilla text dialog AND the retired apply-ink-item gesture.
     ///
-    /// ⚠ NOTE: this patch class is currently NOT registered via Harmony
-    /// (no Plugin.Awake PatchAll(typeof(...)) call references it), so the
-    /// Shift+E pin behaviour is presently dead code. Wiring it is a deliberate
-    /// behaviour change tracked as a separate follow-up — see PR C architecture
-    /// plan §6 R1. This refactor preserves the existing (unregistered) state.
+    /// Behaviour notes:
+    ///   • Only the primary interact (not hold) opens the panel; a held interact falls
+    ///     through to vanilla so we don't fight the long-press affordance.
+    ///   • Client-only effect: the panel early-returns without a local Player, so on the
+    ///     dedicated server this prefix simply suppresses the vanilla dialog for our
+    ///     piece (there is no server-side sign dialog anyway).
+    ///   • The deferred Shift+E map-pin gesture is NOT wired in v0.1.0 (tracked
+    ///     follow-up); this patch intentionally does not add it.
     /// </summary>
     [HarmonyPatch(typeof(Sign), nameof(Sign.Interact))]
     public static class SignInteractPatch
@@ -27,38 +28,20 @@ namespace SBPR.Trailborne.Features.Signs
         [HarmonyPrefix]
         private static bool Prefix(Sign __instance, Humanoid character, bool hold, bool alt, ref bool __result)
         {
-            if (hold) return true;
+            if (hold) return true; // let vanilla handle held-interact
             var tag = __instance.GetComponent<SignTag>();
             if (tag == null) return true; // not ours — vanilla behavior
 
-            // Shift+E = pin to map. Plain E = vanilla text edit.
-            if (!UnityEngine.Input.GetKey(KeyCode.LeftShift) && !UnityEngine.Input.GetKey(KeyCode.RightShift))
-                return true;
-
             try
             {
-                var minimap = Minimap.instance;
-                var player  = Player.m_localPlayer;
-                if (minimap == null || player == null)
-                {
-                    __result = false;
-                    return false;
-                }
-                var text = __instance.GetText();
-                if (string.IsNullOrEmpty(text)) text = "Painted Sign";
-
-                Minimap.PinType pinType = Signs.PinTypeForColor(tag.ReadColor());
-
-                minimap.AddPin(__instance.transform.position, pinType, text, save: true, isChecked: false, player.GetPlayerID());
-                MessageHud.instance?.ShowMessage(MessageHud.MessageType.TopLeft, $"Pinned: {text}");
-
-                __result = true;
-                return false;
+                SignPaintPanel.Open(__instance);
+                __result = true;  // interaction handled
+                return false;     // skip the vanilla text dialog
             }
             catch (Exception e)
             {
-                Plugin.Log.LogError($"[Trailborne/M1] Pin-on-Shift+E failed: {e}");
-                return true;
+                Plugin.Log.LogError($"[Trailborne/M1] Failed to open sign panel: {e}");
+                return true; // fall back to vanilla on unexpected error
             }
         }
     }

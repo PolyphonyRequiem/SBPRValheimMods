@@ -14,18 +14,20 @@ namespace SBPR.Trailborne.Features.Signs
     using Pigments = SBPR.Trailborne.Features.Pigments.Pigments;
 
     /// <summary>
-    /// Painted Sign — ONE buildable signpost (v0.1.0 model, locked by Daniel
-    /// 2026-06-04). The sign is built UNPAINTED (plain vanilla wood mesh, no
-    /// color baked in). Color is runtime state applied AFTER placement by
-    /// applying a pigment/ink item to the placed sign (the ItemStand pattern,
-    /// via the vanilla Interactable.UseItem contract). Re-applying a different
-    /// ink repaints it. The chosen color persists + syncs via the sign's ZDO
-    /// (string field SBPR_SignColor; empty = unpainted).
+    /// Painted Sign — ONE buildable signpost. The sign is built UNPAINTED (plain
+    /// vanilla wood mesh, no color baked in). After placement, interacting with it
+    /// opens the custom combined Paint+Text uGUI panel (§A2.6, re-lock 2026-06-05),
+    /// which replaces the vanilla text dialog. The panel paints the sign TWO-TONE —
+    /// a board/text color AND a separate border color — charging one pigment per
+    /// filled color slot, and edits the text label (free). Both colors persist +
+    /// sync via per-instance ZDO string fields (<see cref="ZdoTextColor"/> +
+    /// <see cref="ZdoBorderColor"/>; empty = unset). The board mesh carries no
+    /// separable frame, so a thin border element is kitbashed in at register time
+    /// (<see cref="BorderChildName"/>) to receive the second tone.
     ///
-    /// This REPLACES the earlier four-tinted-buildables design
-    /// (piece_sbpr_sign_{red,white,blue,black}) — color no longer forks the
-    /// prefab; it is a per-instance ZDO field. (SignInteractPatch.cs still
-    /// defaults the pin/text label to "Painted Sign".)
+    /// This REPLACES the earlier four-tinted-buildables design AND the interim
+    /// single-color apply-ink-item model — color is no longer a prefab fork nor an
+    /// item-application gesture; it is per-instance ZDO state driven by the panel.
     ///
     /// All gated behind ServerContext.OnSBServer.
     /// </summary>
@@ -52,12 +54,25 @@ namespace SBPR.Trailborne.Features.Signs
         // consumed at paint time, one ink per paint, on the PLACED sign.
         public const int WoodCost = 2;
 
-        // ZDO field storing the applied color identity ("" = unpainted).
+        // ZDO field storing the LEGACY single applied color ("" = unpainted). Retained
+        // for one-way migration only: a sign painted under the old single-color model
+        // (SBPR_SignColor) is read once on spawn and folded into SBPR_SignTextColor.
         public const string ZdoColor = "SBPR_SignColor";
+
+        // Two-tone ZDO fields (§A2.6, re-lock 2026-06-05). Board/text tone + a separate
+        // border tone. "" = that slot unset. Owner-write via ZNetView (mirrors CairnTag).
+        public const string ZdoTextColor   = "SBPR_SignTextColor";
+        public const string ZdoBorderColor = "SBPR_SignBorderColor";
 
         // Name of the kitbashed decorative pole child. TintRenderers skips renderers
         // under this subtree so painting tints the BOARD only, not the post.
         private const string PostChildName = "SBPR_SignPost";
+
+        // Name of the kitbashed two-tone BORDER child (§A2.6). A thin colored matte/frame
+        // around the board, tinted independently of the board so the sign reads two-tone.
+        // The vanilla sign mesh has no separable frame renderer, so we add this element
+        // (clean-room: reuses the board's own mesh, scaled — no new authored geometry).
+        public const string BorderChildName = "SBPR_SignBorder";
 
         // Color identifiers — must match Pigments ink colors + Cairns.Colors.
         public static readonly string[] Colors = { "red", "white", "blue", "black" };
@@ -82,9 +97,10 @@ namespace SBPR.Trailborne.Features.Signs
         };
 
         /// <summary>
-        /// Map an ink ITEM prefab name to its color identity, or null if the
-        /// prefab is not one of our four inks. Used by SignPaintPatch to decide
-        /// whether a UseItem call is a paint action.
+        /// Map an ink ITEM prefab name to its color identity, or null if the prefab
+        /// is not one of our four inks. Inverse of <see cref="InkForColor"/>. Retained
+        /// as public API for ink-detection (e.g. the deferred pin path); the retired
+        /// apply-ink paint seam that originally drove it is gone.
         /// </summary>
         public static string? ColorForInk(string inkPrefabName)
         {
@@ -93,6 +109,31 @@ namespace SBPR.Trailborne.Features.Signs
             if (inkPrefabName == Pigments.InkBlueName)  return "blue";
             if (inkPrefabName == Pigments.InkBlackName) return "black";
             return null;
+        }
+
+        /// <summary>
+        /// Map a color identity ("red"/"white"/"blue"/"black") to the matching ink
+        /// ITEM prefab name (the pigment the panel charges for that slot), or null if
+        /// the color isn't one of our four. Inverse of <see cref="ColorForInk"/>;
+        /// used by the paint backend to compute + consume the crafting-style cost.
+        /// </summary>
+        public static string? InkForColor(string color)
+        {
+            switch (color)
+            {
+                case "red":   return Pigments.InkRedName;
+                case "white": return Pigments.InkWhiteName;
+                case "blue":  return Pigments.InkBlueName;
+                case "black": return Pigments.InkBlackName;
+                default:      return null;
+            }
+        }
+
+        /// <summary>Human-facing pigment label for a color id, e.g. "Red Pigment".</summary>
+        public static string PigmentLabel(string color)
+        {
+            if (string.IsNullOrEmpty(color)) return "";
+            return char.ToUpperInvariant(color[0]) + color.Substring(1) + " Pigment";
         }
 
         public static Minimap.PinType PinTypeForColor(string color)
@@ -121,8 +162,9 @@ namespace SBPR.Trailborne.Features.Signs
             {
                 piece.m_name        = "Painted Sign";
                 piece.m_description =
-                    "A free-standing wooden signpost on a 2m pole, placed unpainted. Apply an ink " +
-                    "(red / white / blue / black) to paint it; apply a different ink to repaint. Press E to write text.";
+                    "A free-standing wooden signpost on a 2m pole, placed unpainted. " +
+                    "Interact to open its panel: pick a text color and an optional border " +
+                    "color (one pigment each), paint it, and write the text.";
                 // SPADE menu home (design pillar: Explorer-placed pieces live on the
                 // Trailblazer's Tools, not the Hammer). The spade's PieceTable declares
                 // only the Misc category ('Trail' tab), so the sign MUST be Misc to
@@ -145,8 +187,15 @@ namespace SBPR.Trailborne.Features.Signs
             // post is baked into the registered prefab — no ZDO, syncs by construction.
             KitbashStandingPole(clone);
 
+            // Kitbash a thin two-tone BORDER element behind the board (§A2.6 re-lock
+            // 2026-06-05). The vanilla sign mesh is a single plank with no separable
+            // frame, so we add one: a copy of the board mesh, slightly larger in-plane
+            // and pushed back, with its own material — tinted independently of the board
+            // for the text/border two-tone. Baked into the prefab like the pole.
+            KitbashBorderElement(clone);
+
             // Tag the sign so the paint receiver + pin path can identify it and so
-            // its per-instance color (from ZDO) is re-applied on spawn.
+            // its per-instance colors (from ZDO) are re-applied on spawn.
             clone.AddComponent<SignTag>();
 
             Assets.RegisterPrefabInZNetScene(clone);
@@ -248,36 +297,162 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Tint the sign BOARD by cloning its shared materials and setting the lit
-        /// shader's _Color. No-op on a headless server (no renderers). Renderers under
-        /// the decorative pole (<see cref="PostChildName"/>) are SKIPPED so painting
-        /// colors the board only, not the post. Shared by SignTag's per-instance recolor.
+        /// Kitbash a thin two-tone BORDER element for the sign (§A2.6, re-lock
+        /// 2026-06-05). The vanilla sign mesh is a single wood plank with no separable
+        /// frame renderer, so we ADD one we can tint independently of the board:
+        ///
+        ///   • Find the BOARD mesh — the largest <see cref="MeshFilter"/> on the sign
+        ///     that is NOT part of the decorative pole (the pole runs first and is named
+        ///     <see cref="PostChildName"/>).
+        ///   • Create a child <c>SBPR_SignBorder</c> under the board's transform that
+        ///     REUSES the board's own <c>sharedMesh</c> (clean-room — no authored
+        ///     geometry) with its OWN material instance (a copy of the board material,
+        ///     so an unpainted sign reads as plain wood).
+        ///   • Scale it slightly LARGER in the board plane (the two big mesh axes) and
+        ///     slightly THINNER on the depth axis (the smallest mesh axis), kept
+        ///     concentric about the board mesh's bounds-center. The thinner depth keeps
+        ///     the whole border INSIDE the board's thickness envelope except where it
+        ///     pokes out sideways — so it reads as a recessed colored matte/frame around
+        ///     the board edges and can NEVER sit in front of the text (orientation-free,
+        ///     no front/back detection needed).
+        ///
+        /// Visual polish (exact inset, frame thickness) is a v0.2+ concern; the
+        /// load-bearing requirement here is a separately-tintable border element. If the
+        /// board mesh can't be found we log and skip — the sign still works single-tone
+        /// (TintBorder no-ops on the missing element). Public UnityEngine API only.
         /// </summary>
-        public static void TintRenderers(GameObject go, Color c)
+        private static void KitbashBorderElement(GameObject signRoot)
+        {
+            if (signRoot == null) return;
+
+            // Find the board: largest non-pole MeshFilter with a real mesh.
+            MeshFilter? boardMf = null;
+            float bestVol = -1f;
+            foreach (var mf in signRoot.GetComponentsInChildren<MeshFilter>(includeInactive: true))
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                if (IsUnderPost(mf.transform)) continue;     // skip the decorative pole
+                if (IsUnderBorder(mf.transform)) continue;    // never re-wrap our own border
+                var s = mf.sharedMesh.bounds.size;
+                float vol = Mathf.Max(s.x, 1e-4f) * Mathf.Max(s.y, 1e-4f) * Mathf.Max(s.z, 1e-4f);
+                if (vol > bestVol) { bestVol = vol; boardMf = mf; }
+            }
+
+            if (boardMf == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M1] {SignName}: no board mesh found to wrap; two-tone border skipped " +
+                    "(sign will paint single-tone — board tint only).");
+                return;
+            }
+
+            var boardRend = boardMf.GetComponent<MeshRenderer>();
+            var boardMat  = boardRend != null ? boardRend.sharedMaterial : null;
+
+            // Identify the depth axis = the smallest mesh extent; the other two are the
+            // in-plane (face) axes that the rim grows along.
+            Vector3 size = boardMf.sharedMesh.bounds.size;
+            Vector3 center = boardMf.sharedMesh.bounds.center;
+            int depthAxis = 0;
+            if (size.y < size.x && size.y <= size.z) depthAxis = 1;
+            else if (size.z < size.x && size.z < size.y) depthAxis = 2;
+
+            const float InPlaneGrow = 1.10f; // rim pokes out ~5% on each in-plane edge
+            const float DepthShrink  = 0.85f; // sit inside the board's thickness (no z-fight, text-safe)
+            Vector3 scale = new Vector3(InPlaneGrow, InPlaneGrow, InPlaneGrow);
+            scale[depthAxis] = DepthShrink;
+
+            var border = new GameObject(BorderChildName);
+            border.transform.SetParent(boardMf.transform, worldPositionStays: false);
+            border.transform.localRotation = Quaternion.identity;
+            border.transform.localScale    = scale;
+            // Keep the scaled copy concentric about the board mesh's bounds-center:
+            // localPos = C ⊙ (1 - scale) maps C→C while expanding/contracting around it.
+            border.transform.localPosition = new Vector3(
+                center.x * (1f - scale.x),
+                center.y * (1f - scale.y),
+                center.z * (1f - scale.z));
+
+            var bmf = border.AddComponent<MeshFilter>();
+            bmf.sharedMesh = boardMf.sharedMesh;
+            var brend = border.AddComponent<MeshRenderer>();
+            // Own material instance so tinting the border never bleeds into the board.
+            // Copy the board material so an UNPAINTED border reads as plain wood.
+            if (boardMat != null) brend.sharedMaterial = new Material(boardMat);
+
+            border.SetActive(true);
+            Plugin.Log.LogInfo(
+                $"[Trailborne/M1] Kitbashed two-tone border '{BorderChildName}' on {SignName} " +
+                $"(depthAxis={depthAxis}, grow={InPlaneGrow}, depth={DepthShrink}).");
+        }
+
+        /// <summary>
+        /// Tint the sign BOARD (the painted plank) to <paramref name="c"/> by cloning
+        /// its shared materials and setting the lit shader's _Color. No-op on a headless
+        /// server (no renderers). SKIPS renderers under the decorative pole
+        /// (<see cref="PostChildName"/>) AND under the two-tone border
+        /// (<see cref="BorderChildName"/>) so this colours the board only. Driven by
+        /// SignTag for the per-instance text/board tone.
+        /// </summary>
+        public static void TintBoard(GameObject go, Color c)
+        {
+            TintMatching(go, c, includeBorder: false);
+        }
+
+        /// <summary>
+        /// Tint ONLY the kitbashed border element (<see cref="BorderChildName"/>) to
+        /// <paramref name="c"/> — the second (border) tone of the two-tone sign (§A2.6).
+        /// No-op if the border element is absent (e.g. the board mesh couldn't be found
+        /// at kitbash time) or on a headless server. Driven by SignTag.
+        /// </summary>
+        public static void TintBorder(GameObject go, Color c)
         {
             var prop = Shader.PropertyToID("_Color");
             foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
             {
-                // Skip the decorative kitbash pole — board only (Daniel 2026-06-05).
                 if (rend == null) continue;
+                if (!IsUnderBorder(rend.transform)) continue; // border subtree only
+                TintRendererMaterials(rend, c, prop, go.name);
+            }
+        }
+
+        /// <summary>
+        /// Shared board-tint walk. Tints every renderer that is NOT under the pole and
+        /// (when <paramref name="includeBorder"/> is false) NOT under the border. The
+        /// border is tinted separately by <see cref="TintBorder"/>.
+        /// </summary>
+        private static void TintMatching(GameObject go, Color c, bool includeBorder)
+        {
+            var prop = Shader.PropertyToID("_Color");
+            foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
+            {
+                if (rend == null) continue;
+                // Skip the decorative kitbash pole — board only (Daniel 2026-06-05).
                 if (IsUnderPost(rend.transform)) continue;
-                try
+                // Skip the border subtree unless explicitly included (it has its own tone).
+                if (!includeBorder && IsUnderBorder(rend.transform)) continue;
+                TintRendererMaterials(rend, c, prop, go.name);
+            }
+        }
+
+        private static void TintRendererMaterials(Renderer rend, Color c, int prop, string ownerName)
+        {
+            try
+            {
+                var mats = rend.sharedMaterials;
+                var newMats = new Material[mats.Length];
+                for (int i = 0; i < mats.Length; i++)
                 {
-                    var mats = rend.sharedMaterials;
-                    var newMats = new Material[mats.Length];
-                    for (int i = 0; i < mats.Length; i++)
-                    {
-                        if (mats[i] == null) continue;
-                        var m = new Material(mats[i]);
-                        if (m.HasProperty(prop)) m.SetColor(prop, c);
-                        newMats[i] = m;
-                    }
-                    rend.sharedMaterials = newMats;
+                    if (mats[i] == null) continue;
+                    var m = new Material(mats[i]);
+                    if (m.HasProperty(prop)) m.SetColor(prop, c);
+                    newMats[i] = m;
                 }
-                catch (Exception e)
-                {
-                    Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint failed on {go.name}: {e.Message}");
-                }
+                rend.sharedMaterials = newMats;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint failed on {ownerName}: {e.Message}");
             }
         }
 
@@ -288,12 +463,23 @@ namespace SBPR.Trailborne.Features.Signs
 
         /// <summary>
         /// True if <paramref name="t"/> is the decorative pole child or anything nested
-        /// under it. Used by <see cref="TintRenderers"/> to keep the post un-painted.
+        /// under it. Used by the tint helpers to keep the post un-painted.
         /// </summary>
         private static bool IsUnderPost(Transform t)
         {
             for (var cur = t; cur != null; cur = cur.parent)
                 if (cur.name == PostChildName) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// True if <paramref name="t"/> is the kitbashed border child or anything nested
+        /// under it. Used by the tint helpers to colour the border independently.
+        /// </summary>
+        private static bool IsUnderBorder(Transform t)
+        {
+            for (var cur = t; cur != null; cur = cur.parent)
+                if (cur.name == BorderChildName) return true;
             return false;
         }
     }

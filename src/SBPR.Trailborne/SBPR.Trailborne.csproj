@@ -27,6 +27,14 @@
     <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(ValheimManaged)/UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(ValheimManaged)/UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(ValheimManaged)/UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- Runtime uGUI for the Painted Sign panel (§A2.6). These three assemblies ship
+         in the Valheim Managed folder; we build the panel clean-room from their public
+         primitives (Canvas / Image / Button / InputField / Text) — no copied vanilla UI
+         prefab. UIModule: Canvas/CanvasRenderer. UI: CanvasScaler/Graphic/Image/Button/
+         InputField/Text/Outline. TextRenderingModule: Font/TextAnchor for UI.Text. -->
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(ValheimManaged)/UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(ValheimManaged)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(ValheimManaged)/UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="netstandard"><HintPath>$(ValheimManaged)/netstandard.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="mscorlib"><HintPath>$(ValheimManaged)/mscorlib.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="System"><HintPath>$(ValheimManaged)/System.dll</HintPath><Private>false</Private></Reference>

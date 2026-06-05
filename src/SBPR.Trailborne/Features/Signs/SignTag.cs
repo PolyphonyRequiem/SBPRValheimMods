@@ -3,60 +3,110 @@ using UnityEngine;
 namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
-    /// Tag attached to the single Painted Sign clone. Carries the sign's painted
-    /// color as ZDO-backed runtime state (NOT baked into the prefab), and
-    /// re-applies the corresponding mesh tint on spawn so the color persists
-    /// across reloads + syncs to joined clients.
+    /// Tag attached to the single Painted Sign clone. Carries the sign's TWO-TONE
+    /// painted state as ZDO-backed runtime state (NOT baked into the prefab):
+    /// a board/text color (<see cref="Signs.ZdoTextColor"/>) and a separate border
+    /// color (<see cref="Signs.ZdoBorderColor"/>). Re-applies both tints on spawn so
+    /// they persist across reloads + sync to joined clients (mirrors CairnTag).
     ///
-    /// Color identity is one of Signs.Colors ("red"/"white"/"blue"/"black") or
-    /// the empty string for the default UNPAINTED state. Stored in ZDO field
-    /// Signs.ZdoColor. Owner-only writes via ZNetView (mirrors CairnTag.WriteTier).
+    /// Each color identity is one of Signs.Colors ("red"/"white"/"blue"/"black") or
+    /// the empty string for "that slot unset". Owner-only writes via ZNetView.
+    ///
+    /// Legacy migration: a sign painted under the retired single-color apply-ink
+    /// model stored its color in <see cref="Signs.ZdoColor"/> (SBPR_SignColor). On
+    /// first spawn we fold any such legacy value into the new text-color field (one
+    /// way, idempotent) so old saves keep their color under the two-tone model.
     /// </summary>
     public class SignTag : MonoBehaviour
     {
         private ZNetView? nview;
-        private string? lastAppliedColor = null; // sentinel: nothing applied yet
+
+        // Sentinels: nothing applied yet (force first tint even for the unpainted "").
+        private string? lastAppliedText   = null;
+        private string? lastAppliedBorder = null;
 
         private void Awake()
         {
             nview = GetComponent<ZNetView>();
-            ApplyColorFromZdo();
+            MigrateLegacyColor();
+            ApplyColorsFromZdo();
         }
 
-        /// <summary>Current painted color id, or "" if unpainted.</summary>
-        public string ReadColor()
+        /// <summary>Current board/text color id, or "" if unset.</summary>
+        public string ReadTextColor()
         {
             if (nview == null || nview.GetZDO() == null) return "";
-            return nview.GetZDO().GetString(Signs.ZdoColor, "");
+            return nview.GetZDO().GetString(Signs.ZdoTextColor, "");
+        }
+
+        /// <summary>Current border color id, or "" if unset.</summary>
+        public string ReadBorderColor()
+        {
+            if (nview == null || nview.GetZDO() == null) return "";
+            return nview.GetZDO().GetString(Signs.ZdoBorderColor, "");
         }
 
         /// <summary>
-        /// Owner-write the painted color and re-tint immediately. Pass one of
-        /// Signs.Colors. Returns false if the ZDO isn't ready.
+        /// Owner-write BOTH tones at once and re-tint immediately. Pass "" for a slot
+        /// to leave it unpainted (border is optional). Returns false if the ZDO isn't
+        /// ready (e.g. ghost/uninitialised) so the caller can avoid consuming pigments.
         /// </summary>
-        public bool WriteColor(string color)
+        public bool WriteColors(string textColor, string borderColor)
         {
             if (nview == null || nview.GetZDO() == null) return false;
             if (!nview.IsOwner()) nview.ClaimOwnership();
-            nview.GetZDO().Set(Signs.ZdoColor, color ?? "");
-            ApplyColorFromZdo();
+            nview.GetZDO().Set(Signs.ZdoTextColor,   textColor ?? "");
+            nview.GetZDO().Set(Signs.ZdoBorderColor, borderColor ?? "");
+            ApplyColorsFromZdo();
             return true;
         }
 
         /// <summary>
-        /// Read the ZDO color and tint the mesh to match. Empty/unknown color
-        /// leaves the sign in its vanilla (unpainted) material. Idempotent: skips
-        /// re-tinting when the color hasn't changed since the last apply.
+        /// Read both ZDO colors and tint board + border to match. Empty/unknown colors
+        /// leave that element in its vanilla (unpainted wood) material. Idempotent:
+        /// skips re-tinting an element whose color hasn't changed since the last apply.
         /// </summary>
-        public void ApplyColorFromZdo()
+        public void ApplyColorsFromZdo()
         {
-            string color = ReadColor();
-            if (color == lastAppliedColor) return;
-            lastAppliedColor = color;
+            string textColor = ReadTextColor();
+            if (textColor != lastAppliedText)
+            {
+                lastAppliedText = textColor;
+                if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var tcol))
+                    Signs.TintBoard(gameObject, tcol);
+                // else: unpainted board — keep the vanilla wood material.
+            }
 
-            if (!string.IsNullOrEmpty(color) && Signs.ColorValues.TryGetValue(color, out var col))
-                Signs.TintRenderers(gameObject, col);
-            // else: unpainted — keep the vanilla wood material as the base state.
+            string borderColor = ReadBorderColor();
+            if (borderColor != lastAppliedBorder)
+            {
+                lastAppliedBorder = borderColor;
+                if (!string.IsNullOrEmpty(borderColor) && Signs.ColorValues.TryGetValue(borderColor, out var bcol))
+                    Signs.TintBorder(gameObject, bcol);
+                // else: unpainted border — keep the vanilla wood material.
+            }
+        }
+
+        /// <summary>
+        /// One-way migration of a pre-two-tone save: if the legacy single-color field
+        /// (SBPR_SignColor) holds a value and the new text-color field is still empty,
+        /// copy it into the text-color field (owner-write) and clear the legacy field
+        /// so this runs at most once. No-op on clients (owner-gated) and on signs that
+        /// were never painted under the old model.
+        /// </summary>
+        private void MigrateLegacyColor()
+        {
+            if (nview == null || nview.GetZDO() == null) return;
+            var zdo = nview.GetZDO();
+            string legacy = zdo.GetString(Signs.ZdoColor, "");
+            if (string.IsNullOrEmpty(legacy)) return;
+            string current = zdo.GetString(Signs.ZdoTextColor, "");
+            if (!string.IsNullOrEmpty(current)) return; // already migrated / set
+            if (!nview.IsOwner()) return;               // only the owner mutates the ZDO
+
+            zdo.Set(Signs.ZdoTextColor, legacy);
+            zdo.Set(Signs.ZdoColor, ""); // consume the legacy field so we don't re-migrate
+            Plugin.Log.LogInfo($"[Trailborne/M1] Migrated legacy sign color '{legacy}' → SBPR_SignTextColor.");
         }
     }
 }
