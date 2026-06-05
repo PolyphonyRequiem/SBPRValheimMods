@@ -4,21 +4,21 @@ using System.Linq;
 using HarmonyLib;
 using UnityEngine;
 
-namespace SBPR.Trailborne
+namespace SBPR.Trailborne.Runtime
 {
     /// <summary>
     /// M0 helpers: PNG → Sprite loader, prefab cloning, hammer/objectdb wiring.
     /// </summary>
-    internal static class TrailborneAssets
+    internal static class Assets
     {
         public static Sprite LoadPngAsSprite(string filename)
         {
             try
             {
-                var p = Path.Combine(TrailbornePlugin.PluginFolder, filename);
+                var p = Path.Combine(Plugin.PluginFolder, filename);
                 if (!File.Exists(p))
                 {
-                    TrailbornePlugin.Log.LogWarning($"[Trailborne] Icon missing on disk: {p}");
+                    Plugin.Log.LogWarning($"[Trailborne] Icon missing on disk: {p}");
                     return null;
                 }
                 var bytes = File.ReadAllBytes(p);
@@ -34,21 +34,21 @@ namespace SBPR.Trailborne
             }
             catch (Exception e)
             {
-                TrailbornePlugin.Log.LogError($"[Trailborne] LoadPngAsSprite failed for {filename}: {e}");
+                Plugin.Log.LogError($"[Trailborne] LoadPngAsSprite failed for {filename}: {e}");
                 return null;
             }
         }
 
-        private static GameObject _holder;
+        private static GameObject holder;
         private static GameObject GetHolder()
         {
-            if (_holder == null)
+            if (holder == null)
             {
-                _holder = new GameObject("SBPR.Trailborne.PrefabHolder");
-                _holder.SetActive(false);
-                UnityEngine.Object.DontDestroyOnLoad(_holder);
+                holder = new GameObject("SBPR.Trailborne.PrefabHolder");
+                holder.SetActive(false);
+                UnityEngine.Object.DontDestroyOnLoad(holder);
             }
-            return _holder;
+            return holder;
         }
 
         /// <summary>
@@ -60,13 +60,13 @@ namespace SBPR.Trailborne
             var zns = ZNetScene.instance;
             if (zns == null)
             {
-                TrailbornePlugin.Log.LogError("[Trailborne] ClonePrefab called with no ZNetScene.");
+                Plugin.Log.LogError("[Trailborne] ClonePrefab called with no ZNetScene.");
                 return null;
             }
             var src = zns.GetPrefab(sourceName);
             if (src == null)
             {
-                TrailbornePlugin.Log.LogError($"[Trailborne] Source prefab '{sourceName}' not in ZNetScene.");
+                Plugin.Log.LogError($"[Trailborne] Source prefab '{sourceName}' not in ZNetScene.");
                 return null;
             }
             // Parent under inactive holder so Awake() does NOT fire on the clone
@@ -143,7 +143,7 @@ namespace SBPR.Trailborne
             var item = odb?.GetItemPrefab(resourcePrefabName)?.GetComponent<ItemDrop>();
             if (item == null)
             {
-                TrailbornePlugin.Log.LogWarning(
+                Plugin.Log.LogWarning(
                     $"[Trailborne/{tag}] BuildReq: resource prefab '{resourcePrefabName}' NOT FOUND in ObjectDB. " +
                     "Recipe ingredient will silently fail to require this resource. Check prefab name vs decomp.");
             }
