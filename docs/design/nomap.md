@@ -1,3 +1,9 @@
+---
+title: "Nomap design — idea ⇄ patch-surface cross reference"
+status: living
+purpose: Investigation: no-map navigation patch surface.
+---
+
 # Nomap design — idea ⇄ patch-surface cross reference
 
 Each idea below lists the exact decomp surface a SBPR.Niflheim Harmony patch / new

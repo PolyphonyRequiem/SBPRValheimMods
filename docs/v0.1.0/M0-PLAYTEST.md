@@ -1,3 +1,9 @@
+---
+title: "Trailborne M0 — Playtest Script"
+status: historical
+purpose: M0 playtest script/log — point-in-time.
+---
+
 # Trailborne M0 — Playtest Script
 
 **Build:** SBPR Trailborne 0.1.0

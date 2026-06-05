@@ -2,7 +2,8 @@
 spec_name: trailborne-v1
 shaped_at: 2026-06-03
 shaper: spec-shaper (Starbright, in-session with Daniel)
-status: IN PROGRESS — Round 3 closed, Round 4 (decomp/wiki scan) next
+status: current
+progress: IN PROGRESS — Round 3 closed, Round 4 (decomp/wiki scan) next
 correction_notes: |
   - Initial Round 2 questions posed mechanics as undefined; they weren't.
     design/PARKED-2026-06-03.md locked most v1 design on 2026-06-02.

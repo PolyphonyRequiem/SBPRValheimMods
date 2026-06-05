@@ -1,3 +1,9 @@
+---
+title: "Trailborne — vision and positioning"
+status: living
+purpose: North-star vision + canonical vocabulary anchor.
+---
+
 # Trailborne — vision and positioning
 
 > Brand-level framing for the Trailborne mod. This document answers *what is

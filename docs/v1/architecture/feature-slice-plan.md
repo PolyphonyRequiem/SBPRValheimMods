@@ -1,3 +1,9 @@
+---
+title: "PR C — Vertical-Slice `Features/` Structure Plan (Stage-1 Architecture)"
+status: current
+purpose: Vertical-slice Features/ architecture plan.
+---
+
 # PR C — Vertical-Slice `Features/` Structure Plan (Stage-1 Architecture)
 
 > **Status:** Design artifact. Stage 1 of PR C. The engineer executes this in Stage 2.
