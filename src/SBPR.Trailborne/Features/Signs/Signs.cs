@@ -166,7 +166,7 @@ namespace SBPR.Trailborne.Features.Signs
                     "Interact to open its panel: pick a text color and an optional border " +
                     "color (one pigment each), paint it, and write the text.";
                 // SPADE menu home (design pillar: Explorer-placed pieces live on the
-                // Trailblazer's Tools, not the Hammer). The spade's PieceTable declares
+                // Trailblazer's Spade, not the Hammer). The spade's PieceTable declares
                 // only the Misc category ('Trail' tab), so the sign MUST be Misc to
                 // render there — Furniture would bucket into a tab the table doesn't have.
                 piece.m_category    = Piece.PieceCategory.Misc;

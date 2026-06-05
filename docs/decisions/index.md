@@ -10,7 +10,7 @@ Machine-readable manifest of architecture decision records.
 | 0002-spec-first-drift-checked.md | accepted | Spec + code change together; SpecCheck enforces at boot |
 | 0003-explorers-bench-own-station.md | accepted | Explorer's Bench is its own CraftingStation, not the Workbench |
 | 0004-deterministic-publish-then-pr-releases.md | accepted | Deterministic packaging + publish-then-PR release ordering |
-| 0005-spec-kit-adoption-v2.md | proposed | GitHub Spec Kit adoption for v2 — brainstorm/proposal, awaiting Daniel's gate |
+| 0005-spec-kit-adoption-v2.md | accepted | GitHub Spec Kit adoption for v2 (Option C) — vocabulary + templates + constitution; CLI/specs-NNN deferred behind a spike |
 
 ## Conventions
 

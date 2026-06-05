@@ -54,4 +54,4 @@ Black Forest tier (Blue/Black pigment, Scrying Altar, embers, beacons, pocket po
 ## Renames + cleanup carried through v0.1.0
 
 - "Orienteering Table" (M0 codename) → **Explorer's Bench** (canonical per PLAYER_GUIDE). Either patch in-place or alias — TBD in M4 cleanup.
-- "Trailblazer's Tools" (PLAYER_GUIDE) vs "Trailblazer's Spade" (recent locked rename). v0.1.0 ships as **Trailblazer's Spade**.
+- "Trailblazer's Tools" vs "Trailblazer's Spade" — RESOLVED (Daniel, 2026-06-05): there is no tool *family*, only the single item. The umbrella "Trailblazer's Tools" name is retired; everything is **Trailblazer's Spade** (`SBPR_TrailblazersSpade`).

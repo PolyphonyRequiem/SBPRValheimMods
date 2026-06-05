@@ -66,15 +66,15 @@ Each entry has:
 | Type | `Piece` (Waypoint, comfort-emitting) |
 | Mod | Trailborne |
 | Biome tier | Meadows |
-| Craft station | Explorer's Bench (to ACCESS the build menu; placed in-world via Trailblazer's Tools) |
+| Craft station | Explorer's Bench (to ACCESS the build menu; placed in-world via the Trailblazer's Spade) |
 | Recipe (initial build, T1) | 3 Stone + 1 Resin + 1 Cairn Marker |
 | Recipe (upgrade T1→T2→T3→T4→T5) | 3 Stone + 1 Resin (flat per tier) |
 | Recipe (repair) | 3 Stone + 1 Resin (flat) |
 | Comfort floor | 3 / 4 / 5 / 6 / 7 (per tier; max() clamp via patch on `SE_Rested.CalculateComfortLevel`) |
 | Comfort radius | TBD (proposed: ~10m, matches vanilla Banner) |
-| HP states | ≥75% pristine (resin glows); <75% fizzled (glow off); <25% downgrade tier; 0% collapse |
+| HP states | ≥75% pristine (top ember lit); <75% fizzled (ember out); <25% downgrade tier; 0% collapse |
 | Function | Always-on comfort-emitting trail waypoint, color-bound to its Cairn Marker's pigment, mandatory decay. **A cairn is a non-burning stone marker — no light, no heat, no fuel, no fire SFX.** (Comfort floor is applied separately via the `SE_Rested` patch, not via fire.) |
-| Visual notes | Procedural stone pile — the piece is cloned from the vanilla `bonfire` prefab as a STRUCTURAL base only (WearNTear / Piece / ZNetView), then on the client the donor fire is NEUTRALIZED by component type (`Fireplace` destroyed; `Light`/`LightFlicker`/`LightLod`, `ParticleSystem`/`SmokeSpawner`, `EffectArea` heat, `AudioSource`/`ZSFX` crackle, and the donor mesh `Renderer`s all disabled) and a stack of N flattened `rock_low` clones (T1=4 → T5=12) is assembled at runtime, deterministically seeded from the ZDO id so it survives reload. No flames, glow, smoke, heat, or crackle at any tier. (Pigment-colored runic top / rune glow remain a backlog idea — NOT implemented in v0.1.0.) See `Features/Cairns/CairnTag.cs`. |
+| Visual notes | Rich procedural stone pile (LOCKED 2026-06-05 — see requirements.md §A2.1b). Cloned from vanilla `bonfire` as a STRUCTURAL base only (WearNTear / Piece / ZNetView), donor fire NEUTRALIZED on the client (Fireplace destroyed; Light/LightFlicker/LightLod, ParticleSystem/SmokeSpawner, EffectArea heat, AudioSource/ZSFX crackle, donor mesh Renderers disabled — PR #23 path, kept). On top: a **haphazard pile of `rock_low` clones, count = the stone ladder (T1=9 → T5=21)**, each **vertically squashed + horizontally flattened**, deterministically jittered (seed = ZDO id → identical across clients + reloads), pigment-tinted. Plus a **small HP-gated wear-state ember** at the top, lit only at ≥75% HP and fizzling out below it (decorative only — NOT light/heat/comfort, does NOT re-enable the donor Fireplace). See `Features/Cairns/CairnTag.cs`. |
 | Patch surface | `WearNTear.OnDamage`/`OnRepair` postfix for glow + tier transitions; `SE_Rested.CalculateComfortLevel` for comfort patch |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
@@ -133,12 +133,12 @@ Each entry has:
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
 
-#### Trailblazer's Tools
+#### Trailblazer's Spade
 
 | Field | Value |
 |---|---|
-| Display name | Trailblazer's Tools |
-| Prefab name | `SBPR_Item_TrailblazersTools` |
+| Display name | Trailblazer's Spade |
+| Prefab name | `SBPR_TrailblazersSpade` |
 | Type | `ItemDrop` (Tool, hoe/hammer-equivalent) |
 | Mod | Trailborne |
 | Biome tier | Meadows |

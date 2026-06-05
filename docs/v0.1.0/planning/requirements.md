@@ -41,7 +41,7 @@ overridden in a numbered round below.
 
 ### Round 1 — Scope & Purpose ✅ COMPLETE
 
-**Q1.1 — v1 piece roster:** Propose v1 ships exactly: Explorer's Bench, Cairns, Pigments, Painted Signs, Trailblazer's Tools (single tool item, hoe/hammer tier-equivalent), **Path Lamps**.
+**Q1.1 — v1 piece roster:** Propose v1 ships exactly: Explorer's Bench, Cairns, Pigments, Painted Signs, Trailblazer's Spade (single tool item, hoe/hammer tier-equivalent), **Path Lamps**.
 
 **A1.1:** ✅ Yes — INCLUDING Path Lamps. They're a philosophy-completing piece (night-time trail illumination), not scope creep. Without them, the trail-discipline loop is complete-by-day, broken-by-night, and players will misuse vanilla torches to fill the gap. Path Lamps belong in v1.
 
@@ -101,10 +101,30 @@ What we will NOT do (in v1):
 | **Repair** | Flat **3 stone + 1 resin** regardless of damage level |
 | **Pigment / banner persistence** | Persist across rebuilds — applied colors survive damage + repair cycles |
 | **Downgrade re-ignite of resin** | OPEN — Daniel: "lean deliberate-only" (i.e. requires explicit player action, not auto-re-ignite on repair) |
-| **Visual (playtest)** | Kitbash: procedural stack of vanilla `rock_low` prefabs assembled at runtime, capped with vanilla-rune-glow ParticleSystem instance, pigment-tinted via runtime material reflection. Per "leverage Unity indirectly" doctrine. |
-| **Build cost** | TBD — design/PARKED-2026-06-03.md doesn't explicitly list per-tier stone costs beyond the comfort floor numbers (3/4/5/6/7 stones may BE the build cost — needs Round 2.5 verification with Daniel) |
+| **Visual (LOCKED 2026-06-05, Daniel)** | Rich procedural stone pile — see **§A2.1b — Cairn visual** below. Per-tier haphazard stack of vertically-squashed / horizontally-flattened `rock_low` clones (count = the stone ladder), on a fire-neutralized `bonfire` structural base, with an HP-gated **wear-state ember** at the top that fizzles out below ~75% HP. |
+| **Build cost** | Per-tier stone ladder (cumulative): T1=9 / T2=12 / T3=15 / T4=18 / T5=21 Stone, +1 Resin, +1 Cairn Marker at T1 (see §A3.1). |
 
-#### A2.2 — Trailblazer's Tools (LOCKED — single item, NOT options)
+#### A2.1b — Cairn visual (LOCKED 2026-06-05, Daniel)
+
+> Supersedes the earlier "procedural `rock_low` stack capped with a rune-glow particle" sketch AND extends the 2026-06-05 bonfire-neutralization fix (PR #23 / card t_9f8341c9). PR #23 stripped ALL fire off the cairn (correct — a cairn is not a campfire); this spec keeps that neutralized base and adds back a **small, deliberate, HP-gated** ember as a *wear indicator*, not a light source. The two do not conflict: neutralization runs first and unconditionally; the ember is a separate opt-in element layered on top only at high HP.
+
+The cairn should read as a **real, hand-piled trail cairn** — not a tidy cone. Three parts:
+
+| Aspect | Locked value |
+|---|---|
+| **Structural base** | Clone of vanilla `bonfire` for its `WearNTear` / `Piece` / `ZNetView` only; the donor fire is fully neutralized on the client (Fireplace destroyed; Light/LightFlicker/LightLod, ParticleSystem/SmokeSpawner, EffectArea, AudioSource/ZSFX, donor mesh Renderers all disabled — the PR #23 path, kept as-is). |
+| **Stone pile** | A **haphazard** pile of vanilla `rock_low` clones assembled at runtime. **Count scales with tier and equals the stone ladder: T1=9, T2=12, T3=15, T4=18, T5=21 stones.** Each stone is **vertically scaled DOWN and horizontally scaled UP (squashed/flattened)** so they read as flattish piled rocks, not boulders. Placement is **deterministically randomized** (seed = ZDO id, so it survives reload + is identical on every client): jittered position, random yaw, slight random tilt, varied flatten ratios — a believable irregular pile, wider at the base, tapering up. |
+| **Pigment tint** | The cairn's bound pigment color tints the stones via runtime material reflection (existing `CairnTag` path), re-applied on spawn from ZDO. |
+| **Wear-state ember (NEW)** | A **small** flame/ember at the **top** of the pile, present **only while HP ≥ ~75%** (pristine). It **fizzles out below ~75%** and stays out until repaired back to pristine. This is the ONLY fire on the cairn — small and decorative, NOT the donor bonfire's blaze, NOT a light/heat source (no `EffectArea`, no comfort contribution — comfort is the `SE_Rested` patch). Implement as a **small dedicated particle/light element toggled by HP**, layered on the neutralized base — do NOT re-enable the donor `Fireplace`. |
+| **Wear states (visual ladder)** | ≥75% HP = pristine (ember lit). <75% = fizzled (ember out; per §A2.1 this is also the repair-eligible threshold). <25% = downgrade one tier (rebuild the pile at the lower stone count). 0% = collapse (piece destroyed, leaves a small rubble remnant). The ember tracks the pristine/fizzled line; the stone count tracks the tier. |
+| **Determinism** | Pile layout + ember presence must be a pure function of (ZDO id, tier, current HP bracket) so all clients and post-reload spawns agree. No per-frame RNG. |
+
+⚠️ **Open technical questions for the engineer (investigate, don't guess):**
+1. Best vanilla source for the **small ember** — a stripped-down particle from `fire_pit`/`bonfire` re-parented to the pile top, vs. a minimal custom `ParticleSystem`. Whichever, it must be cheap and not re-introduce heat/light/SFX.
+2. The HP→visual hook — postfix `WearNTear.OnDamage` / a health-bracket check on the `CairnTag` to toggle the ember and rebuild the pile on tier change. Confirm the bracket fires on repair *up* as well as damage *down*.
+3. Flatten ratios + jitter ranges that look "haphazard but stable" — tune against a joined client; bake the chosen constants into the spec on sign-off.
+
+#### A2.2 — Trailblazer's Spade (LOCKED — single item, NOT options)
 
 **Single tool item.** Hoe/hammer tier-equivalent. Its own slot in the player's inventory, its own keybind, its own selection wheel.
 
@@ -230,11 +250,11 @@ Daniel: "this isn't really a thing we discussed"
 
 Starbright-hallucinated mechanic, removed. v1 Path Lamps: manual ignition, no chain effect.
 
-#### A3.4 — Trailblazer's Tools recipe ✅ LOCKED
+#### A3.4 — Trailblazer's Spade recipe ✅ LOCKED
 
 Daniel: "Leather Hides not scraps. Flint, not stone. So 5w/2f/2h"
 
-**Trailblazer's Tools recipe (v1, locked):** 5 Wood + 2 Flint + 2 Leather Hides
+**Trailblazer's Spade recipe (v1, locked):** 5 Wood + 2 Flint + 2 Leather Hides
 **Crafted at:** Explorer's Bench
 
 #### A3.5 — Cairn resin re-ignite on repair ✅ LOCKED
@@ -280,7 +300,7 @@ Daniel (2026-06-04 playtest): "Pathing is supposed to only be 2 stamina with the
 | Aspect | Value |
 |---|---|
 | Name | **Explorer's Bench** |
-| Function | Crafting hub for all Trailborne pieces + Trailborne items (Trailblazer's Tools, Cairn Markers, Pigments, Painted Signs, Path Lamps) |
+| Function | Crafting hub for all Trailborne pieces + Trailborne items (Trailblazer's Spade, Cairn Markers, Pigments, Painted Signs, Path Lamps) |
 | Piece category | `PieceCategory.Crafting` |
 | v1 implementation | Kitbash vanilla Workbench. Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + **antlers from the Deer Trophy visually integrated into the bench art itself** (NOT mounted on top as a trophy decoration — the antler shapes are part of the bench's structure: carved cups, leg supports, pen-holders, etc.; final composition deferred to visual-design stage) + half-rolled hide-map and bone needle stuck in a stone disk (per `design/nomap.md` §1 prop hint) |
 | v1 recipe (LOCKED, Daniel 2026-06-03) | **10 Wood + 4 Stone + 1 Deer Trophy.** No raspberries. No resin. No bone fragments. No greydwarf eyes. No deer hide. (Earlier brainstorms in `design/nomap.md` §1 and prose in `PLAYER_GUIDE.md` lines 58-60 implied other ingredients; this recipe supersedes them and both docs have been updated to match.) |
@@ -335,7 +355,7 @@ Leveraging `design/nomap.md` line-references (Minimap, Hammer/Hoe, Sign, Firepla
 *(NOT YET PERFORMED — will execute after Round 3 answers + with the grep-wiki-first discipline)*
 
 Planned scans:
-- `Hoe` class in decomp → for Trailblazer's Tools implementation pattern
+- `Hoe` class in decomp → for Trailblazer's Spade implementation pattern
 - `Sign` class in decomp → for Painted Signs interaction extension
 - `SE_Rested.CalculateComfortLevel` in decomp → for cairn comfort patch surface
 - `Minimap.AddPin` + pin data structures in decomp → for two-tone pins
@@ -364,7 +384,7 @@ Planned scans:
 3. **Cairn Marker** (pre-crafted consumable, recipe = **2 Leather Scraps + 1 Finewood + 1 Pigment** of player's color, crafted at Explorer's Bench, pigment color binds cairn color at craft-time)
 4. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
 5. **Painted Signs** — ONE buildable sign (`piece_sbpr_sign`, 2 Wood), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), UNPAINTED. Interacting with a placed sign opens a **custom combined Paint+Text uGUI panel** (replaces the vanilla text dialog): set a **text/board color** AND an optional **border color** (two-tone), pay one pigment per filled slot via `{Paint this and consume}` (border optional; same color in both slots = 2 of that pigment; ≥1 required; re-paint re-consumes), edit the label via `{Update Text}` (free, locked until a color is chosen). Both tones + text persist via ZDO (`SBPR_SignTextColor` + `SBPR_SignBorderColor`). **Free-standing on a kitbashed 2m wood pole** (`wood_pole2`), board at readable height (Daniel 2026-06-05); two-tone via a kitbashed `SBPR_SignBorder` element. Pin path (Shift+E) deferred/unregistered (combined Paint+Text panel, two-tone, Daniel 2026-06-05; supersedes the 6/04 apply-ink model)
-6. **Trailblazer's Tools** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, **Replant Grass in 3 widths (1.5/3/5m)** mirroring the path widths (each restores grass over the stated footprint, still mirrors the Cultivator's "Grass" mode — NOT cultivate, NO terrain raise/level at any width; 3 widths per Daniel's 2026-06-05 playtest, scaling only the grass/paint radius), Clear Vegetation wide-radius (deferred to v0.2.0), recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
+6. **Trailblazer's Spade** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, **Replant Grass in 3 widths (1.5/3/5m)** mirroring the path widths (each restores grass over the stated footprint, still mirrors the Cultivator's "Grass" mode — NOT cultivate, NO terrain raise/level at any width; 3 widths per Daniel's 2026-06-05 playtest, scaling only the grass/paint radius), Clear Vegetation wide-radius (deferred to v0.2.0), recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
 7. **Path Lamps** — **3 Wood + 2 Resin** (Meadows-tier, Daniel 2026-06-04), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), dimmer than torch, longer fuel, manual ignition (no chain ignition). **Scaled 3× vertically** (foot-anchored — base on the ground, flame at the new top; Daniel 2026-06-05)
 8. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
 
@@ -405,10 +425,10 @@ Planned scans:
 - **Registration:** clone `piece_workbench` GameObject in `ZNetScene.Awake` postfix, swap `Piece.m_name = "$sbpr_piece_explorers_bench"`, set the SBPR recipe via `Piece.m_resources`, append the clone to the `_HammerPieceTable.m_pieces` list. **Pitfall:** `PieceTable.m_availablePieces` (`assembly_valheim.decompiled.cs` 59893–60202) caches lazily; register pieces in `ZNetScene.Awake` postfix BEFORE the first `Player.Awake` fires.
 - **Art swap (Tier 1 — vanilla mesh + custom material):** runtime material swap on the workbench mesh. Antler integration deferred to visual round.
 
-### Trailblazer's Tools (Hoe-class ground-modification tool — NOT a Hammer-class piece spawner)
+### Trailblazer's Spade (Hoe-class ground-modification tool — NOT a Hammer-class piece spawner)
 
 - **Per PARKED v1 scope:** "1.5/3/5m paths, replant, ClearVegetation". This is a **Hoe variant**, not a build-piece spawner. Three terrain-paint modes (path widths) plus replant and clear actions.
-- **🔴 NOT in scope:** **No Cultivate ability.** Cultivate is the vanilla Cultivator's job (turning ground into cultivated soil for crops). Trailblazer's Tools stays in its own lane — exploration/trail-discipline, not farming. Earlier draft said "Cultivate replant"; that was a misread of PARKED's shorthand. Removed.
+- **🔴 NOT in scope:** **No Cultivate ability.** Cultivate is the vanilla Cultivator's job (turning ground into cultivated soil for crops). The Trailblazer's Spade stays in its own lane — exploration/trail-discipline, not farming. Earlier draft said "Cultivate replant"; that was a misread of PARKED's shorthand. Removed.
 - **Vanilla anchors:** `TerrainComp` (`assembly_valheim.decompiled.cs` line 123154) owns ground modifications; `Heightmap` exposes `IsCleared` and the paint-mask enum (`PaintType.Path`, `PaintType.Reset` — line 123801 / 109565). The vanilla `Hoe` prefab + tool item is the closest peer (path-paint surface).
 - **Class:** clone the `Hoe` item prefab, replace its `m_buildPieces` PieceTable with a Trailborne-specific table that exposes three "path" entries (1.5m / 3m / 5m widths) plus **three replant entries** at the same 1.5m / 3m / 5m widths. The paint operations bottom out at `TerrainModifier.PaintType.Path` / `Reset` — vanilla already supports the brush widths via radius parameters; we wrap them at our widths. The replant entries clone the vanilla `replant` op and scale **only its grass/paint radius** (leaving level/smooth radii at vanilla stock — see replant mechanic below).
 - **Replant mechanic (3 widths — Daniel playtest 2026-06-05; supersedes the single-op form from 2026-06-04):** clone the vanilla **`replant` prefab** (the Cultivator's "Grass" mode — `Assets/GameElements/Pieces/replant.prefab`, display token `piece_replant` → "Grass") **three times** and register `piece_sbpr_replant_narrow/standard/wide` at **1.5m / 3m / 5m**, mirroring the three path widths. Each clone scales **ONLY `m_paintRadius`** (the grass/vegetation footprint) and leaves `m_levelRadius`/`m_smoothRadius` at the vanilla op's stock values, so every width behaves like the Cultivator's "Grass" mode — a grass-restore brush that regrows grass on dirt with **no terrain raise/level/cultivate at any width**. ⚠️ The original M3 build wrongly cloned the **`cultivate`** prefab (the soil-tiller that turns ground into farmland) at a forced **5m** radius, producing a wide terrain-modifying "UBER level" op (the PR #16 bug). The fix was to clone `replant` instead; this slice extends it to three grass-restore widths while **preserving that fix by construction** — because the level/smooth radii are never written, no replant width can reintroduce terrain modification. `cultivate` is the Cultivator's farming job and stays out of the spade's lane.
@@ -472,7 +492,7 @@ Planned scans:
 - ✅ `Sign` class signature current as of Bog Witch/Ashlands decomp; UGC gate at `Sign.Interact` confirmed.
 - ✅ `WearNTear.m_health` / `m_onDamaged` / `OnDamage` / `Repair` all current.
 - ✅ `SE_Rested.CalculateComfortLevel` exists at lines 25397/25402; both overloads present. `ComfortGroup` enum at 116068. PARKED rationale for patching `CalculateComfortLevel` directly (rather than extending the enum) is sound — confirmed cairns aren't in the vanilla enum.
-- ✅ `TerrainComp` + `Heightmap.IsCultivated`/`IsCleared` exist (lines 123154, 109613). `PaintType.Cultivate`, `Path`, `Reset` enum values present (line 123801). Trailblazer's Tools wraps these.
+- ✅ `TerrainComp` + `Heightmap.IsCultivated`/`IsCleared` exist (lines 123154, 109613). `PaintType.Cultivate`, `Path`, `Reset` enum values present (line 123801). Trailblazer's Spade wraps these.
 - ✅ `Pickable.m_picked` + `m_itemPrefab` + `m_amount` + `m_respawnTimeMinutes` exist — usable for replant and v4 Seer's Stone area-pop.
 - ✅ `Resin` is real, drops from all tree types + Greylings.
 - ✅ Vanilla `Cairns` (`Waymarker01`/`Waymarker02`) are inert Mountain-biome POI, NOT buildable. Our buildable + tiered + comfort-emitting Cairn is original.
@@ -493,14 +513,14 @@ Planned scans:
 
 ### Placeholder art lanes for v0.1
 
-- **Item icons** (Trailblazer's Tools, Cairn Marker, 4 Pigments, Path Lamp): runtime-loaded PNGs via `File.ReadAllBytes` → `Texture2D.LoadImage` → `Sprite.Create`. Generated as needed via FLUX local lane; quick + good-enough is the bar. Iterate freely in v0.1 → v0.2.
+- **Item icons** (Trailblazer's Spade, Cairn Marker, 4 Pigments, Path Lamp): runtime-loaded PNGs via `File.ReadAllBytes` → `Texture2D.LoadImage` → `Sprite.Create`. Generated as needed via FLUX local lane; quick + good-enough is the bar. Iterate freely in v0.1 → v0.2.
 - **Build icons** (Explorer's Bench, Painted Sign, Cairn × 5 tiers, Path Lamp build form): same runtime-PNG approach.
 - **In-world meshes:**
   - Explorer's Bench → vanilla Workbench mesh + color-tinted material (so it visually reads as "not-quite-Workbench" in the world; the dialog hover-name + icon disambiguate it).
   - Cairn (5 tiers) → procedurally-stacked vanilla Stone prefabs at runtime, scaled per tier. Pigment overlay = material tint on the stack. Banner attachment = vanilla Banner prefab parented to the cairn root at place-time.
   - Painted Sign → vanilla Sign mesh; built unpainted (plain wood material), runtime per-instance tint once painted (reads `SBPR_SignTextColor` + `SBPR_SignBorderColor` from ZDO, applies the two tones — board + border — at spawn). ⚠️ Needs a separable border renderer/material on the mesh (open technical question).
   - Path Lamp → vanilla `piece_groundtorch_wood` mesh, no swap. Lower light intensity is the visual differentiation.
-  - Trailblazer's Tools → vanilla Hoe item mesh; icon does the work of disambiguation in inventory.
+  - Trailblazer's Spade → vanilla Hoe item mesh; icon does the work of disambiguation in inventory.
 - **Custom UI panel** — **REQUIRED for v0.1.0** (re-locked Daniel 2026-06-05). The Painted Sign uses a **custom combined Paint+Text uGUI panel** (text color + border color swatches, crafting-style pigment cost, `{Paint this and consume}` + `{Update Text}` buttons) that replaces the vanilla single-line text dialog. This **reverses** the 6/04 "no UI, apply-ink" note. Panel is built clean-room (no copied vanilla UI prefab); no new *mesh* prefabs required, but the sign mesh needs a separable border renderer for the two-tone tint.
 
 ### Asset generation as needed
@@ -542,7 +562,7 @@ After spec finalization, the following doc updates are needed to keep repo consi
 - **PLAYER_GUIDE.md bench-recipe prose** — line 58-62 rewritten. Now explicitly states `10 Wood + 4 Stone + 1 Deer Trophy` and clarifies that antlers are part of the bench art (not mounted-on-top). The misread-inducing phrase "raspberries (for red pigment), and resin (for ink fixative and lamp oil)" has been removed from the recipe paragraph (raspberries/resin are still mentioned later in §Meadows as pigment inputs, which is correct — they're what the bench is *used to process*, not ingredients in the bench itself).
 
 ### ⏳ Remaining doc-PR work
-1. **Trailblazer's Tools recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
+1. **Trailblazer's Spade recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
 2. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 Map Station shape. v1 is DISABLED, not "rebalanced." Move that section to a future-v2 doc or annotate inline.
 3. **Painted Sign interaction model** — line 253 says "default keybind _TBD_" for the pin trigger. **Re-locked 2026-06-05 (Daniel, from UI mockup):** ONE buildable sign, placed UNPAINTED (2 Wood). Interacting with a placed sign opens a **custom combined Paint+Text panel** — set a **text color AND a border color** (two-tone), pay one pigment per filled slot via `{Paint this and consume}` (border optional, re-paint re-consumes), and edit the label via `{Update Text}` (free, locked until a color is chosen). This **supersedes** the 6/04 apply-ink/single-color/no-UI lock. Pin trigger (text color, no-op if nomap=ON) deferred + currently unregistered. PLAYER_GUIDE needs the build-unpainted-then-open-panel loop surfaced (and the "color baked at craft time" line corrected).
 4. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.

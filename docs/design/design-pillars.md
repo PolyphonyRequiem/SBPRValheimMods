@@ -13,25 +13,25 @@ purpose: The load-bearing design constraints — non-negotiable.
 
 ---
 
-## Pillar 1 — Trailblazer's Tools is a peer, not an extension
+## Pillar 1 — The Trailblazer's Spade is a peer, not an extension
 
 The vanilla Hammer raises walls. The vanilla Hoe levels foundations. The
-**Trailblazer's Tools paves the world between settlements.**
+**Trailblazer's Spade paves the world between settlements.**
 
-This is the design pillar that justifies the Tools being its own top-level
+This is the design pillar that justifies the Spade being its own top-level
 tool — its own build menu, its own categories, its own pieces — rather than a
 new tab on the Hoe or an upgrade path off the Hammer.
 
 The Hoe and Hammer are the **settler's tools**: they shape the place you live.
-The Trailblazer's Tools are the **wanderer's**: they shape the route between
+The Trailblazer's Spade is the **wanderer's**: it shapes the route between
 places.
 
 **Consequences:**
 
-- Anything an Explorer places in the world goes through the Trailblazer's Tools
+- Anything an Explorer places in the world goes through the Trailblazer's Spade
   build menu, not the Hammer's. Paths, signs, cairns, lamps, beacons (when they
-  ship), pocket portals (when they ship) — all live on the Tools.
-- The Tools graduates with the player as new pieces unlock per biome, but it is
+  ship), pocket portals (when they ship) — all live on the Spade.
+- The Spade graduates with the player as new pieces unlock per biome, but it is
   always *the same tool*, picked up fresh from each tier of crafting station.
 - The Hoe and Hammer remain unmodified and fully usable. We don't replace them.
   We add a peer.
