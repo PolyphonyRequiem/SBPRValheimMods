@@ -53,7 +53,7 @@ Each entry has:
 | Recipe | 10 Wood + 4 Stone + 1 Deer Trophy |
 | Function | Crafting hub for all Trailborne items and pieces; gates the entire Trailborne progression. |
 | Visual notes | Kitbash vanilla Workbench mesh; **antlers from the Deer Trophy visually integrated INTO the bench art** (not mounted on top — the antlers are part of the bench mesh itself, e.g. carved cups / leg-supports / pen-holders); plus half-rolled hide-map + bone-needle-in-stone-disk per design/nomap.md §1 |
-| Patch surface | Pure prefab work — clone `piece_workbench`, add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"` |
+| Patch surface | Pure prefab work — clone `piece_workbench`, add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`, set **`m_showBasicRecipies = false`** (the Workbench is the only vanilla station shipping this `true`; it surfaces the stationless basic hand-craft recipes — Club, Torch, Stone Axe, Hammer, Hoe — so a raw clone wrongly offers them; bugfix t_30f97042), and **strip the inherited `GuidePoint` component** (the Workbench's Hugin "you built a workbench" tutorial hook, which the clone wrongly inherits — bugfix t_53ab3232) |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` §Explorer's Bench |
 
@@ -144,7 +144,7 @@ Each entry has:
 | Biome tier | Meadows |
 | Craft station | Explorer's Bench |
 | Recipe | 5 Wood + 2 Flint + 2 Leather Hides |
-| Function | Single tool item — holds the Trailborne build menu (Cairns, Painted Signs, Path Lamps). 1.5/3/5m path widths (mirror Hoe). Replant Grass same radii. Clear Vegetation wide-radius. |
+| Function | Single tool item — holds the Trailborne build menu (Cairns, Painted Signs, Path Lamps). 1.5/3/5m path widths (mirror Hoe). Replant Grass mirrors the vanilla Cultivator's replant exactly (single op, vanilla radius — NOT scaled to path widths). Clear Vegetation deferred to v0.2.0. |
 | Patch surface | Likely a new `ItemDrop` with `Tool` ItemType + custom `Hoe`-derived component for path-laying |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |

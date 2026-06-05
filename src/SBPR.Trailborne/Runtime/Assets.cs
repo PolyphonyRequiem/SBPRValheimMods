@@ -169,5 +169,38 @@ namespace SBPR.Trailborne.Runtime
             var go = odb?.GetItemPrefab(prefabName);
             return go?.GetComponent<ItemDrop>();
         }
+
+        /// <summary>
+        /// Remove every <see cref="GuidePoint"/> component from a cloned prefab
+        /// (root + children). GuidePoint is the vanilla proximity hook that makes
+        /// Hugin/the raven pop a tutorial near certain structures (Workbench,
+        /// Bed, Portal, etc.). When we clone such a prefab for an SBPR station the
+        /// clone inherits the hook, so the raven wrongly treats our piece as the
+        /// vanilla one. Strip it so no tutorial fires.
+        ///
+        /// Uses DestroyImmediate because the clone lives parented under an inactive
+        /// holder (so Awake hasn't run) and we want it gone before the prefab is
+        /// ever instantiated in the world. Returns the number of components removed.
+        /// </summary>
+        public static int StripGuidePoints(GameObject prefab)
+        {
+            if (prefab == null) return 0;
+            var hooks = prefab.GetComponentsInChildren<GuidePoint>(includeInactive: true);
+            int removed = 0;
+            foreach (var gp in hooks)
+            {
+                if (gp == null) continue;
+                try
+                {
+                    UnityEngine.Object.DestroyImmediate(gp);
+                    removed++;
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning($"[Trailborne] StripGuidePoints: failed to remove a GuidePoint: {e.Message}");
+                }
+            }
+            return removed;
+        }
     }
 }

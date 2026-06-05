@@ -111,13 +111,14 @@ What we will NOT do (in v1):
 | Capability | Detail |
 |---|---|
 | **Path widths** | **1.5m / 3m / 5m** — three selectable widths (analogous to hoe's flatten radii) |
-| **Cultivate replant** | When laying a path through cultivated ground, replants underlying vegetation appropriately (i.e. doesn't permanently destroy cultivation) |
-| **ClearVegetation** | Removes existing vegetation along the laid path (small brush, grass, mushrooms — NOT trees) so the path is *visually a path*, not a stripe through bushes |
+| **Path stamina** | **Flat 2 stamina per path/replant op, INDEPENDENT of width** (1.5m / 3m / 5m all cost 2). See A3.9. |
+| **Replant Grass** | A single grass-restore op that mirrors the vanilla **Cultivator's replant ("Grass") mode exactly** — restores/seeds grass at the vanilla Cultivator radius, with **NO terrain raise/level/cultivate**. ⚠️ **Correction (Daniel, playtest 2026-06-04):** this is NOT scaled to the path widths and NOT a wide op. An earlier build cloned the `cultivate` (soil-tiller) op at a forced 5m radius — an "UBER level" that flattened/cultivated a huge area. Fixed: clone the vanilla `replant` op at its stock radius. |
+| **ClearVegetation** | Removes existing vegetation along the laid path (small brush, grass, mushrooms — NOT trees) so the path is *visually a path*, not a stripe through bushes. **Deferred to v0.2.0** (see playtest limitations). |
 | **Implementation surface** | Likely a new item class analogous to `Hoe`, with custom `m_operations` array entries for the three widths + cultivate-replant + clear-vegetation. May patch `Hoe` directly OR introduce a new `TrailblazerTool` MonoBehaviour. Decision for spec-writer. |
 
 #### A2.3 — Explorer's Bench (LOCKED — kitbash for playtest)
 
-**v1 approach:** kitbash the vanilla Workbench. Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + visual props (half-rolled hide-map + bone-needle-in-stone-disk per `design/nomap.md` §1 + antlers from Deer Trophy visually integrated into the bench mesh). Trailborne recipes register as new tabs on the Explorer's Bench (its own CraftingStation, NOT the vanilla Workbench).
+**v1 approach:** kitbash the vanilla Workbench. Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + visual props (half-rolled hide-map + bone-needle-in-stone-disk per `design/nomap.md` §1 + antlers from Deer Trophy visually integrated into the bench mesh). Trailborne recipes register as new tabs on the Explorer's Bench (its own CraftingStation, NOT the vanilla Workbench). **Its CraftingStation must set `m_showBasicRecipies = false`** — the vanilla Workbench is the only station that ships this `true`, and it's what surfaces the stationless "basic" hand-craft recipes (Club, Torch, Stone Axe, Hammer, Hoe, …); a raw clone inherits `true` and wrongly offers all of them (bugfix 2026-06-04, card t_30f97042).
 
 **v1.1+ path:** graduate to a visually-distinct mesh once mechanics validate. Retains thematic anchor (own recipe, own discovery moment).
 
@@ -242,6 +243,16 @@ Daniel: "No"
 
 **Decision:** Ember Lamps are NOT in v1. They move to v1.1 (or a later release). Keeps v1 scope tight on the Path Lamps tier; Ember Lamps + Beacons come together later.
 
+#### A3.9 — Spade path stamina is flat 2, radius-independent ✅ LOCKED
+
+Daniel (2026-06-04 playtest): "Pathing is supposed to only be 2 stamina with the spade regardless of size."
+
+**Spade path/replant stamina (v1, locked):** **Flat 2 stamina per op for ALL widths** — 1.5m, 3m, and 5m each drain exactly 2. Stamina does NOT scale with radius.
+
+- **Why the tool, not the op piece:** terrain-op / build stamina is driven by the *wielding tool*, not the placed op. `Player.GetBuildStamina()` returns the right-hand `ItemDrop`'s `m_shared.m_attack.m_attackStamina`. `Piece` / `TerrainModifier` carry no stamina field, so per-variant pinning is impossible; the only correct layer is the spade item itself. (Cross-ref `design/nomap.md` §2, which already recommended setting `m_attackStamina` on the tool.)
+- **Implementation:** `Trailblazing.RegisterSpadeItemPrefab` sets `m_shared.m_attack.m_attackStamina = 2f` (and `m_secondaryAttack` to match) on the cloned spade. Because the spade's `SharedData`/`Attack` are `[Serializable]` and deep-copied by `Instantiate`, this does not mutate the vanilla Hoe.
+- Radius-independence is structural: a single scalar on the tool cannot vary by op width.
+
 ---
 
 ### EXPLORER'S BENCH (LOCKED)
@@ -253,7 +264,7 @@ Daniel: "No"
 | Piece category | `PieceCategory.Crafting` |
 | v1 implementation | Kitbash vanilla Workbench. Tier 1 reuse — vanilla Workbench mesh + Trailborne material tint + **antlers from the Deer Trophy visually integrated into the bench art itself** (NOT mounted on top as a trophy decoration — the antler shapes are part of the bench's structure: carved cups, leg supports, pen-holders, etc.; final composition deferred to visual-design stage) + half-rolled hide-map and bone needle stuck in a stone disk (per `design/nomap.md` §1 prop hint) |
 | v1 recipe (LOCKED, Daniel 2026-06-03) | **10 Wood + 4 Stone + 1 Deer Trophy.** No raspberries. No resin. No bone fragments. No greydwarf eyes. No deer hide. (Earlier brainstorms in `design/nomap.md` §1 and prose in `PLAYER_GUIDE.md` lines 58-60 implied other ingredients; this recipe supersedes them and both docs have been updated to match.) |
-| Patch surface | Pure prefab work. Clone `piece_workbench` → name `SBPR_ExplorersBench`. Add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`. Visual integration of antler shapes into the bench mesh is a kitbash / material composition task — NOT attaching the vanilla `TrophyDeer` prefab as a child. The antlers should *be part of the bench*, not sit *on* the bench. |
+| Patch surface | Pure prefab work. Clone `piece_workbench` → name `SBPR_ExplorersBench`. Add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"` and **`m_showBasicRecipies = false`** (the Workbench is the only vanilla station that ships this `true`; it's what surfaces the stationless basic hand-craft recipes — Club, Torch, Stone Axe, Hammer, Hoe — so a raw clone wrongly offers them; bugfix t_30f97042). Visual integration of antler shapes into the bench mesh is a kitbash / material composition task — NOT attaching the vanilla `TrophyDeer` prefab as a child. The antlers should *be part of the bench*, not sit *on* the bench. **After cloning, also strip the inherited `GuidePoint` component** — the vanilla Workbench prefab carries one (the proximity hook that makes Hugin pop the "you built a workbench" tutorial); the clone inherits it and Hugin wrongly greets the Explorer's Bench as a Workbench. The bench is its own station, so it must carry no Workbench tutorial hook (bugfix 2026-06-04, card t_53ab3232). |
 | v1.1+ path | Graduate to visually-distinct mesh once mechanics validate. |
 
 ---
@@ -333,7 +344,7 @@ Planned scans:
 3. **Cairn Marker** (pre-crafted consumable, recipe = **2 Leather Scraps + 1 Finewood + 1 Pigment** of player's color, crafted at Explorer's Bench, pigment color binds cairn color at craft-time)
 4. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
 5. **Painted Signs** — ONE buildable sign (`piece_sbpr_sign`, 2 Wood), placed UNPAINTED; painted after placement by applying an ink item (red/white/blue/black), re-applying repaints; color persists via ZDO. Pin path (Shift+E, single color, no-op if nomap=ON) deferred/unregistered (single-sign + paint-via-ink model, Daniel 2026-06-04)
-6. **Trailblazer's Tools** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, Replant Grass same radii, Clear Vegetation wide-radius, recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
+6. **Trailblazer's Tools** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, **Replant Grass at the vanilla Cultivator radius** (single op — mirrors the Cultivator's replant exactly, NOT scaled to path widths; corrected per Daniel's 2026-06-04 playtest), Clear Vegetation wide-radius (deferred to v0.2.0), recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
 7. **Path Lamps** — **Corewood + Resin** (quantities TBD), dimmer than torch, longer fuel, manual ignition (no chain ignition)
 8. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
 
@@ -379,9 +390,9 @@ Planned scans:
 - **Per PARKED v1 scope:** "1.5/3/5m paths, replant, ClearVegetation". This is a **Hoe variant**, not a build-piece spawner. Three terrain-paint modes (path widths) plus replant and clear actions.
 - **🔴 NOT in scope:** **No Cultivate ability.** Cultivate is the vanilla Cultivator's job (turning ground into cultivated soil for crops). Trailblazer's Tools stays in its own lane — exploration/trail-discipline, not farming. Earlier draft said "Cultivate replant"; that was a misread of PARKED's shorthand. Removed.
 - **Vanilla anchors:** `TerrainComp` (`assembly_valheim.decompiled.cs` line 123154) owns ground modifications; `Heightmap` exposes `IsCleared` and the paint-mask enum (`PaintType.Path`, `PaintType.Reset` — line 123801 / 109565). The vanilla `Hoe` prefab + tool item is the closest peer (path-paint surface).
-- **Class:** clone the `Hoe` item prefab, replace its `m_buildPieces` PieceTable with a Trailborne-specific table that exposes three "path" entries (1.5m / 3m / 5m widths) plus replant + clear actions. The paint operations bottom out at `TerrainModifier.PaintType.Path` / `Reset` — vanilla already supports the brush widths via radius parameters; we wrap them at our widths.
-- **Replant mechanic:** when a `Pickable` was picked (`m_picked = true` on its ZDO), the replant action re-spawns the picked plant by reading `Pickable.m_itemPrefab` and placing it adjacent. Does NOT require cultivated ground (deliberately — the Cultivator already owns that gate). Implementation detail to revisit during build: whether replant directly resets `m_picked = false` on the original ZDO + re-arms `m_respawnTimeMinutes`, or spawns a fresh `Pickable` ZDO adjacent.
-- **ClearVegetation:** uses `TerrainModifier`'s clear paint mode on a radius; effectively a fast "remove bushes/grass/small rocks" pass. Vanilla operation; we wrap and surface as a third tool mode.
+- **Class:** clone the `Hoe` item prefab, replace its `m_buildPieces` PieceTable with a Trailborne-specific table that exposes three "path" entries (1.5m / 3m / 5m widths) plus **one replant entry**. The paint operations bottom out at `TerrainModifier.PaintType.Path` / `Reset` — vanilla already supports the brush widths via radius parameters; we wrap them at our widths. The replant entry clones the vanilla `replant` op as-is (no radius wrap).
+- **Replant mechanic (CORRECTED — Daniel playtest 2026-06-04):** clone the vanilla **`replant` prefab** (the Cultivator's "Grass" mode — `Assets/GameElements/Pieces/replant.prefab`, display token `piece_replant` → "Grass") and register it **at its stock vanilla radius with NO override**. This makes the spade's replant behave **identically to the Cultivator's replant**: a small grass-restore brush that regrows grass on dirt — no terrain raise/level/cultivate. ⚠️ The shipped M3 build wrongly cloned the **`cultivate`** prefab (the soil-tiller that turns ground into farmland) at a forced **5m** radius, producing a wide terrain-modifying "UBER level" op. That was the bug; the fix clones `replant`, leaves its radius untouched, and is a **single op** (not scaled to the three path widths). `cultivate` is the Cultivator's farming job and stays out of the spade's lane.
+- **ClearVegetation (deferred to v0.2.0):** would use a clear/`Reset` paint pass on a radius to remove bushes/grass/small rocks. NOT shipped in v0.1.0 — the spade ships only Path (×3) + Replant.
 
 ### Painted Signs (single buildable + paint-via-ink)
 
