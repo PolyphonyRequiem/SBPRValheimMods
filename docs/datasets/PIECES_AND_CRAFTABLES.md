@@ -90,10 +90,10 @@ Each entry has:
 | Biome tier | Meadows |
 | Craft station | Explorer's Bench (build menu) — Hammer Furniture tab |
 | Recipe | 2 Wood (placed UNPAINTED; ink is NOT a build ingredient) |
-| Function | One buildable signpost, placed unpainted. Painted AFTER placement by applying a pigment/ink item (red/white/blue/black) to the placed sign; re-applying a different ink repaints it. Color persists + syncs via the sign's ZDO. Text written via vanilla E dialog. |
-| Visual notes | Vanilla `sign` prefab as base, shown in its plain wood (unpainted) material until painted; on paint, the mesh is runtime-tinted to the applied color, re-applied on spawn from ZDO. |
-| Patch surface | `Sign.UseItem` prefix (apply-ink-to-paint, the ItemStand `Interactable.UseItem` pattern); per-instance ZDO color field `SBPR_SignColor` ("" = unpainted). Pin emission (Shift+E) piggybacks on the Minimap pin system from design/nomap.md §3 — currently unregistered (follow-up). |
-| Status | SPEC LOCKED (single-sign + paint-via-ink model, Daniel 2026-06-04) |
+| Function | One buildable signpost, placed unpainted. Painted AFTER placement via a **combined Paint+Text panel** (custom uGUI) that sets a **text color AND a border color** (two-tone): one pigment per filled color slot (border optional, ≥1 color required, re-paint re-consumes) committed via `{Paint this and consume}`. Text edited via `{Update Text}` (free, locked until a color is chosen). Both colors persist + sync via the sign's ZDO. |
+| Visual notes | Vanilla `sign` prefab as base, shown in its plain wood (unpainted) material until painted; on paint, the board mesh is runtime-tinted to the text color and a **separate border element** to the border color, re-applied on spawn from ZDO. ⚠️ Needs a separable border renderer/material on the mesh (open technical question). |
+| Patch surface | Intercept the placed sign's text-edit interaction (vanilla `TextReceiver`/`Sign.UseItem`) to open the **custom combined Paint+Text uGUI panel** instead of the vanilla dialog; per-instance ZDO fields `SBPR_SignTextColor` + `SBPR_SignBorderColor` ("" = unset). Existing `SignPaintPatch.cs` apply-ink seam retired as the entrypoint, its consume/ZDO-write/tint helpers reused as the panel backend. Pin emission piggybacks on the Minimap pin system (design/nomap.md §3) — currently unregistered (follow-up). |
+| Status | SPEC LOCKED (single combined Paint+Text panel, two-tone, Daniel 2026-06-05 — supersedes the 6/04 apply-ink model) |
 | Source spec | `docs/v0.1.0/planning/requirements.md` §A2.6 |
 
 #### Path Lamp
@@ -177,7 +177,7 @@ Each entry has:
 
 - **Cartography Table** — v1 disables build AND functionality on existing instances
 - **Minimap** — v1 nomap-config controls visibility (nomap=ON → no map; nomap=OFF → minimap only, no M-key, no north indicator)
-- **Vanilla Sign** — `Sign.UseItem` patched so applying one of our four inks to a placed Painted Sign paints/repaints it (single-sign + paint-via-ink model). Non-ink items and non-SBPR signs fall through to vanilla.
+- **Vanilla Sign** — the placed Painted Sign's text-edit interaction is intercepted to open a custom combined Paint+Text uGUI panel (two-tone: text color + border color, pigment cost per slot). Non-SBPR signs fall through to vanilla. (Combined-panel + two-tone model, Daniel 2026-06-05; supersedes the 6/04 apply-ink model.)
 
 ---
 
