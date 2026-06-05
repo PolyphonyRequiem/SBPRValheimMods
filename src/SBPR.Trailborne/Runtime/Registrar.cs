@@ -26,7 +26,6 @@ namespace SBPR.Trailborne.Runtime
     public static class Registrar
     {
         private static bool znetSceneDone;
-        private static bool objectDbDone;
 
         [HarmonyPatch(typeof(ZNetScene), "Awake")]
         [HarmonyPostfix]
@@ -81,22 +80,24 @@ namespace SBPR.Trailborne.Runtime
         {
             try
             {
-                if (ObjectDB.instance == null) return;
+                // GUARD: only wire when BOTH databases exist AND our prefabs have been
+                // registered into ZNetScene. At the MAIN MENU, ObjectDB exists (menu
+                // item icons) but ZNetScene does not and znetSceneDone is false — so the
+                // ObjectDB.Awake / CopyOtherDB hooks would otherwise call this with a
+                // null ZNetScene, no-op through every feature, yet still log "wiring
+                // complete", "Spade prefab missing", and "SpecCheck Skipped". Skip
+                // silently until the world scene is up. This preserves the 3-hook
+                // self-heal: whichever hook fires LAST once all conditions hold does the
+                // single real in-world wiring pass.
+                if (ObjectDB.instance == null || ZNetScene.instance == null || !znetSceneDone)
+                    return;
 
-                var zns = ZNetScene.instance;
+                Trailhead.DoObjectDBWiring(ZNetScene.instance);
+                Trailblazing.DoObjectDBWiring(ZNetScene.instance);
+                Pigments.DoObjectDBWiring(ZNetScene.instance);
+                Signs.DoObjectDBWiring(ZNetScene.instance);
+                Cairns.DoObjectDBWiring(ZNetScene.instance);
 
-                // Trailhead: rebuild bench/lamp resources now ODB is populated + hammer.
-                Trailhead.DoObjectDBWiring(zns);
-                // Trailblazing: spade item → ODB, spade recipe, spade-only PieceTable.
-                Trailblazing.DoObjectDBWiring(zns);
-                // Pigments: ink items → ODB + ink recipes (must precede Signs/Cairns).
-                Pigments.DoObjectDBWiring(zns);
-                // Signs: sign piece resource rebuild + hammer.
-                Signs.DoObjectDBWiring(zns);
-                // Cairns: marker items → ODB, marker recipes, cairn rebuild + hammer.
-                Cairns.DoObjectDBWiring(zns);
-
-                objectDbDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 
                 // Spec-drift watchdog — runs LAST after all wiring complete.

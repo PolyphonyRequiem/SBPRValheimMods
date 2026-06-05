@@ -150,7 +150,10 @@ namespace SBPR.Trailborne.Features.Cairns
                 {
                     BuildReq("Stone", StoneCostForTier(1)),
                     BuildReq("Resin", 1),
-                    BuildReq(MarkerName(color), 1),
+                    // Marker isn't in ObjectDB yet at prefab-build time; this requirement
+                    // is rebuilt in DoObjectDBWiring once the markers are registered.
+                    // Suppress the known-transient "NOT FOUND" warning for this phase.
+                    BuildReq(MarkerName(color), 1, warn: false),
                 };
                 var sprite = Assets.LoadPngAsSprite("cairn_marker_v0.1.png");
                 if (sprite != null) piece.m_icon = sprite;
@@ -255,9 +258,9 @@ namespace SBPR.Trailborne.Features.Cairns
             return floor;
         }
 
-        private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
+        private static Piece.Requirement BuildReq(string resourcePrefabName, int amount, bool warn = true)
         {
-            return Assets.BuildReq(resourcePrefabName, amount, "M2");
+            return Assets.BuildReq(resourcePrefabName, amount, "M2", warn);
         }
 
         private static string Capitalize(string s)
