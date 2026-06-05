@@ -66,7 +66,7 @@ Each entry has:
 | Type | `Piece` (Waypoint, comfort-emitting) |
 | Mod | Trailborne |
 | Biome tier | Meadows |
-| Craft station | Explorer's Bench (to ACCESS the build menu; placed in-world via Trailblazer's Tools) |
+| Craft station | Explorer's Bench (to ACCESS the build menu; placed in-world via the Trailblazer's Spade) |
 | Recipe (initial build, T1) | 3 Stone + 1 Resin + 1 Cairn Marker |
 | Recipe (upgrade T1→T2→T3→T4→T5) | 3 Stone + 1 Resin (flat per tier) |
 | Recipe (repair) | 3 Stone + 1 Resin (flat) |
@@ -133,12 +133,12 @@ Each entry has:
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
 
-#### Trailblazer's Tools
+#### Trailblazer's Spade
 
 | Field | Value |
 |---|---|
-| Display name | Trailblazer's Tools |
-| Prefab name | `SBPR_Item_TrailblazersTools` |
+| Display name | Trailblazer's Spade |
+| Prefab name | `SBPR_TrailblazersSpade` |
 | Type | `ItemDrop` (Tool, hoe/hammer-equivalent) |
 | Mod | Trailborne |
 | Biome tier | Meadows |

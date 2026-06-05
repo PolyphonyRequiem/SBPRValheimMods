@@ -124,7 +124,7 @@ namespace SBPR.Trailborne.Features.Signs
                     "A free-standing wooden signpost on a 2m pole, placed unpainted. Apply an ink " +
                     "(red / white / blue / black) to paint it; apply a different ink to repaint. Press E to write text.";
                 // SPADE menu home (design pillar: Explorer-placed pieces live on the
-                // Trailblazer's Tools, not the Hammer). The spade's PieceTable declares
+                // Trailblazer's Spade, not the Hammer). The spade's PieceTable declares
                 // only the Misc category ('Trail' tab), so the sign MUST be Misc to
                 // render there — Furniture would bucket into a tab the table doesn't have.
                 piece.m_category    = Piece.PieceCategory.Misc;
