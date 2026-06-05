@@ -136,12 +136,20 @@ namespace SBPR.Trailborne.Runtime
         /// against ObjectDB and LOUDLY logs if it's missing — previously a
         /// missing prefab silently produced a Requirement with null m_resItem,
         /// which the game accepts and then quietly skips the cost.
+        ///
+        /// <paramref name="warn"/> defaults true. Pass false ONLY for the
+        /// prefab-phase (ZNetScene.Awake) calls that reference an SBPR item which
+        /// is registered into ObjectDB LATER in DoObjectDBWiring — that null is
+        /// expected and transient (the ODB phase rebuilds the requirement with the
+        /// resolved item). The authoritative ODB-phase rebuild keeps warn=true, so
+        /// a genuinely-missing item after wiring still screams, and SpecCheck still
+        /// validates the final resource set on every boot.
         /// </summary>
-        public static Piece.Requirement BuildReq(string resourcePrefabName, int amount, string tag = "Trailborne")
+        public static Piece.Requirement BuildReq(string resourcePrefabName, int amount, string tag = "Trailborne", bool warn = true)
         {
             var odb = ObjectDB.instance;
             var item = odb?.GetItemPrefab(resourcePrefabName)?.GetComponent<ItemDrop>();
-            if (item == null)
+            if (item == null && warn)
             {
                 Plugin.Log.LogWarning(
                     $"[Trailborne/{tag}] BuildReq: resource prefab '{resourcePrefabName}' NOT FOUND in ObjectDB. " +

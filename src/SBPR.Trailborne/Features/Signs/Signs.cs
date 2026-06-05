@@ -91,7 +91,10 @@ namespace SBPR.Trailborne.Features.Signs
                 piece.m_resources   = new[]
                 {
                     BuildReq("Wood", 2),
-                    BuildReq(InkLookupForSign(name), 1),
+                    // Ink isn't in ObjectDB yet at prefab-build time; this requirement
+                    // is rebuilt in DoObjectDBWiring once Pigments registers the inks.
+                    // Suppress the known-transient "NOT FOUND" warning for this phase.
+                    BuildReq(InkLookupForSign(name), 1, warn: false),
                 };
                 if (icons.TryGetValue(name, out var iconFile))
                     piece.m_icon = Assets.LoadPngAsSprite(iconFile);
@@ -179,9 +182,9 @@ namespace SBPR.Trailborne.Features.Signs
             Plugin.Log.LogInfo("[Trailborne/M1] Signs ObjectDB wiring complete (sign recipes + hammer pieces).");
         }
 
-        private static Piece.Requirement BuildReq(string resourcePrefabName, int amount)
+        private static Piece.Requirement BuildReq(string resourcePrefabName, int amount, bool warn = true)
         {
-            return Assets.BuildReq(resourcePrefabName, amount, "M1");
+            return Assets.BuildReq(resourcePrefabName, amount, "M1", warn);
         }
     }
 }
