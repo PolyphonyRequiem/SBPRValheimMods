@@ -47,6 +47,9 @@ namespace SBPR.Trailborne
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
+            // Painted Sign paint-via-ink receiver: apply an ink item to a placed
+            // sign to set/repaint its color (single-sign model, Daniel 2026-06-04).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPaintPatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content
             // actually craftable/buildable on a joined client (task

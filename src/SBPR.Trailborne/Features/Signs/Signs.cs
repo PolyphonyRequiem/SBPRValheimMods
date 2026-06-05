@@ -14,50 +14,77 @@ namespace SBPR.Trailborne.Features.Signs
     using Pigments = SBPR.Trailborne.Features.Pigments.Pigments;
 
     /// <summary>
-    /// Painted Signs (4 buildable variants, color tinted from base material).
-    /// Player presses Shift+E on a placed sign to add a colored map pin matching
-    /// the sign's text + color. Split out of the old M1; depends DOWN on
-    /// Pigments for its ink ingredient.
+    /// Painted Sign — ONE buildable signpost (v0.1.0 model, locked by Daniel
+    /// 2026-06-04). The sign is built UNPAINTED (plain vanilla wood mesh, no
+    /// color baked in). Color is runtime state applied AFTER placement by
+    /// applying a pigment/ink item to the placed sign (the ItemStand pattern,
+    /// via the vanilla Interactable.UseItem contract). Re-applying a different
+    /// ink repaints it. The chosen color persists + syncs via the sign's ZDO
+    /// (string field SBPR_SignColor; empty = unpainted).
+    ///
+    /// This REPLACES the earlier four-tinted-buildables design
+    /// (piece_sbpr_sign_{red,white,blue,black}) — color no longer forks the
+    /// prefab; it is a per-instance ZDO field. (SignInteractPatch.cs still
+    /// defaults the pin/text label to "Painted Sign".)
     ///
     /// All gated behind ServerContext.OnSBServer.
     /// </summary>
     public static class Signs
     {
-        // Sign piece prefab names
-        public const string SignRedName   = "piece_sbpr_sign_red";
-        public const string SignWhiteName = "piece_sbpr_sign_white";
-        public const string SignBlueName  = "piece_sbpr_sign_blue";
-        public const string SignBlackName = "piece_sbpr_sign_black";
+        // Single sign piece prefab name.
+        public const string SignName = "piece_sbpr_sign";
 
-        // Source clones
-        private const string SourceSign     = "sign";
+        // Source clone (vanilla wood sign — its mesh is the unpainted base state).
+        private const string SourceSign = "sign";
 
-        // Icon file mapping
-        private static readonly Dictionary<string, string> icons = new Dictionary<string, string>
+        // Build cost (unpainted). Ink is NOT a build ingredient anymore — it is
+        // consumed at paint time, one ink per paint, on the PLACED sign.
+        public const int WoodCost = 2;
+
+        // ZDO field storing the applied color identity ("" = unpainted).
+        public const string ZdoColor = "SBPR_SignColor";
+
+        // Color identifiers — must match Pigments ink colors + Cairns.Colors.
+        public static readonly string[] Colors = { "red", "white", "blue", "black" };
+
+        // Color per identifier (used to tint the placed sign's mesh + as pin color).
+        public static readonly Dictionary<string, Color> ColorValues = new Dictionary<string, Color>
         {
-            { SignRedName,   "ink_red_v0.1.png"   },
-            { SignWhiteName, "ink_white_v0.1.png" },
-            { SignBlueName,  "ink_blue_v0.1.png"  },
-            { SignBlackName, "ink_black_v0.1.png" },
+            { "red",   new Color(0.85f, 0.18f, 0.18f, 1f) },
+            { "white", new Color(0.95f, 0.94f, 0.88f, 1f) },
+            { "blue",  new Color(0.20f, 0.40f, 0.85f, 1f) },
+            { "black", new Color(0.10f, 0.10f, 0.12f, 1f) },
         };
 
-        // Color per sign (used to tint the sign's mesh + as the pin color)
-        public static readonly Dictionary<string, Color> SignColors = new Dictionary<string, Color>
+        // Pin type per color — vanilla Minimap pin sprite reuse for color clarity.
+        // Consumed by the (still-unregistered) SignInteractPatch pin path.
+        public static readonly Dictionary<string, Minimap.PinType> PinTypes = new Dictionary<string, Minimap.PinType>
         {
-            { SignRedName,   new Color(0.85f, 0.18f, 0.18f, 1f) },
-            { SignWhiteName, new Color(0.95f, 0.94f, 0.88f, 1f) },
-            { SignBlueName,  new Color(0.20f, 0.40f, 0.85f, 1f) },
-            { SignBlackName, new Color(0.10f, 0.10f, 0.12f, 1f) },
+            { "red",   Minimap.PinType.Icon3 }, // red-ish vanilla pin
+            { "white", Minimap.PinType.Icon0 }, // generic / white
+            { "blue",  Minimap.PinType.Icon2 }, // blue-ish
+            { "black", Minimap.PinType.Icon4 }, // dark / generic
         };
 
-        // Pin type per sign — vanilla Minimap pin sprite reuse for color clarity
-        public static readonly Dictionary<string, Minimap.PinType> SignPinTypes = new Dictionary<string, Minimap.PinType>
+        /// <summary>
+        /// Map an ink ITEM prefab name to its color identity, or null if the
+        /// prefab is not one of our four inks. Used by SignPaintPatch to decide
+        /// whether a UseItem call is a paint action.
+        /// </summary>
+        public static string? ColorForInk(string inkPrefabName)
         {
-            { SignRedName,   Minimap.PinType.Icon3 }, // red-ish vanilla pin
-            { SignWhiteName, Minimap.PinType.Icon0 }, // generic / white
-            { SignBlueName,  Minimap.PinType.Icon2 }, // blue-ish
-            { SignBlackName, Minimap.PinType.Icon4 }, // dark / generic
-        };
+            if (inkPrefabName == Pigments.InkRedName)   return "red";
+            if (inkPrefabName == Pigments.InkWhiteName) return "white";
+            if (inkPrefabName == Pigments.InkBlueName)  return "blue";
+            if (inkPrefabName == Pigments.InkBlackName) return "black";
+            return null;
+        }
+
+        public static Minimap.PinType PinTypeForColor(string color)
+        {
+            if (color != null && PinTypes.TryGetValue(color, out var t)) return t;
+            return Minimap.PinType.Icon0;
+        }
 
         // ───────────────────────────────────────────────
         // PREFAB REGISTRATION (called from ZNetScene.Awake postfix)
@@ -65,69 +92,67 @@ namespace SBPR.Trailborne.Features.Signs
 
         public static void RegisterPrefabs(ZNetScene zns)
         {
-            // Sign pieces — clone vanilla sign + tint
-            RegisterSignPrefab(zns, SignRedName,   "Painted Sign (Red)",   "Painted Sign (red).");
-            RegisterSignPrefab(zns, SignWhiteName, "Painted Sign (White)", "Painted Sign (white).");
-            RegisterSignPrefab(zns, SignBlueName,  "Painted Sign (Blue)",  "Painted Sign (blue).");
-            RegisterSignPrefab(zns, SignBlackName, "Painted Sign (Black)", "Painted Sign (black).");
-        }
-
-        private static void RegisterSignPrefab(ZNetScene zns, string name, string displayName, string desc)
-        {
-            if (zns.GetPrefab(name) != null) return;
-            var clone = Assets.ClonePrefab(SourceSign, name);
+            // ONE sign piece — clone vanilla wood sign, no tint (placed unpainted).
+            if (zns.GetPrefab(SignName) != null) return;
+            var clone = Assets.ClonePrefab(SourceSign, SignName);
             if (clone == null)
             {
-                Plugin.Log.LogWarning($"[Trailborne/M1] Source sign prefab missing, skipping {name}");
+                Plugin.Log.LogWarning($"[Trailborne/M1] Source sign prefab missing, skipping {SignName}");
                 return;
             }
 
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
-                piece.m_name        = displayName;
-                piece.m_description = desc;
+                piece.m_name        = "Painted Sign";
+                piece.m_description =
+                    "A wooden signpost, placed unpainted. Apply an ink (red / white / blue / black) " +
+                    "to paint it; apply a different ink to repaint. Press E to write text.";
                 piece.m_category    = Piece.PieceCategory.Furniture;
-                piece.m_resources   = new[]
-                {
-                    BuildReq("Wood", 2),
-                    // Ink isn't in ObjectDB yet at prefab-build time; this requirement
-                    // is rebuilt in DoObjectDBWiring once Pigments registers the inks.
-                    // Suppress the known-transient "NOT FOUND" warning for this phase.
-                    BuildReq(InkLookupForSign(name), 1, warn: false),
-                };
-                if (icons.TryGetValue(name, out var iconFile))
-                    piece.m_icon = Assets.LoadPngAsSprite(iconFile);
+                piece.m_resources   = new[] { BuildReq("Wood", WoodCost) };
+                // Keep the vanilla sign's own build icon (the unpainted wood look).
+                // No per-color icon: color is no longer a prefab fork.
             }
 
-            // Tag the sign with our colored variant so Interact handler can color-pin later
-            var tag = clone.AddComponent<SignTag>();
-            tag.PrefabName = name;
-
-            // Tint the visible mesh
-            if (SignColors.TryGetValue(name, out var col))
-                TintMeshRenderers(clone, col);
+            // Tag the sign so the paint receiver + pin path can identify it and so
+            // its per-instance color (from ZDO) is re-applied on spawn.
+            clone.AddComponent<SignTag>();
 
             Assets.RegisterPrefabInZNetScene(clone);
-            Plugin.Log.LogInfo($"[Trailborne/M1] Registered sign piece: {name}");
+            Plugin.Log.LogInfo($"[Trailborne/M1] Registered sign piece: {SignName} (single, unpainted; paint via ink)");
         }
 
-        private static string InkLookupForSign(string signName)
+        // ───────────────────────────────────────────────
+        // OBJECTDB WIRING — single sign hammer piece + resource rebuild
+        // ───────────────────────────────────────────────
+
+        public static void DoObjectDBWiring(ZNetScene zns)
         {
-            switch (signName)
+            var odb = ObjectDB.instance;
+            if (odb == null) return;
+
+            var hammerTable = Assets.GetHammerPieceTable();
+            var p = zns?.GetPrefab(SignName);
+            if (p == null) return;
+
+            var piece = p.GetComponent<Piece>();
+            if (piece != null)
             {
-                case SignRedName:   return Pigments.InkRedName;
-                case SignWhiteName: return Pigments.InkWhiteName;
-                case SignBlueName:  return Pigments.InkBlueName;
-                case SignBlackName: return Pigments.InkBlackName;
-                default: return Pigments.InkRedName;
+                // Unpainted build cost: Wood only (ink is applied post-placement).
+                piece.m_resources = new[] { BuildReq("Wood", WoodCost) };
             }
+            if (hammerTable != null) Assets.AddPieceToTable(p, hammerTable);
+
+            Plugin.Log.LogInfo("[Trailborne/M1] Signs ObjectDB wiring complete (single Painted Sign piece; paint-via-ink).");
         }
 
-        private static void TintMeshRenderers(GameObject go, Color c)
+        /// <summary>
+        /// Tint every renderer on <paramref name="go"/> by cloning its shared
+        /// materials and setting the lit shader's _Color. No-op on a headless
+        /// server (no renderers). Shared by SignTag's per-instance recolor.
+        /// </summary>
+        public static void TintRenderers(GameObject go, Color c)
         {
-            // Material-instance tint via SetColor on _Color. Vanilla sign uses lit
-            // material with _Color — same shader prop ID used elsewhere in decomp.
             var prop = Shader.PropertyToID("_Color");
             foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
             {
@@ -146,40 +171,9 @@ namespace SBPR.Trailborne.Features.Signs
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogWarning($"[Trailborne/M1] Tint failed on {go.name}: {e.Message}");
+                    Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint failed on {go.name}: {e.Message}");
                 }
             }
-        }
-
-        // ───────────────────────────────────────────────
-        // OBJECTDB WIRING — sign hammer pieces + resource rebuild
-        // ───────────────────────────────────────────────
-
-        public static void DoObjectDBWiring(ZNetScene zns)
-        {
-            var odb = ObjectDB.instance;
-            if (odb == null) return;
-
-            // Sign pieces into Hammer build menu + REBUILD their resource lists
-            // now that ink items exist in ObjectDB.
-            var hammerTable = Assets.GetHammerPieceTable();
-            foreach (var n in new[] { SignRedName, SignWhiteName, SignBlueName, SignBlackName })
-            {
-                var p = zns?.GetPrefab(n);
-                if (p == null) continue;
-                var piece = p.GetComponent<Piece>();
-                if (piece != null)
-                {
-                    piece.m_resources = new[]
-                    {
-                        BuildReq("Wood", 2),
-                        BuildReq(InkLookupForSign(n), 1),
-                    };
-                }
-                if (hammerTable != null) Assets.AddPieceToTable(p, hammerTable);
-            }
-
-            Plugin.Log.LogInfo("[Trailborne/M1] Signs ObjectDB wiring complete (sign recipes + hammer pieces).");
         }
 
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount, bool warn = true)

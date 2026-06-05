@@ -6,9 +6,14 @@ namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
     /// Harmony hook on Sign.Interact: when the player holds Shift and presses E
-    /// on a SignTag-flagged sign, add a colored map pin matching the
-    /// sign's text + color INSTEAD of opening the text-edit dialog. Plain E
-    /// opens the dialog as vanilla.
+    /// on a SignTag-flagged sign, add a map pin matching the sign's text + its
+    /// painted color INSTEAD of opening the text-edit dialog. Plain E opens the
+    /// dialog as vanilla.
+    ///
+    /// Pin color now reads the sign's per-instance ZDO color (Signs.ZdoColor)
+    /// via SignTag.ReadColor() — there is a single Painted Sign prefab, so the
+    /// old per-prefab pin-type map is gone. An unpainted sign pins with the
+    /// generic Icon0.
     ///
     /// ⚠ NOTE: this patch class is currently NOT registered via Harmony
     /// (no Plugin.Awake PatchAll(typeof(...)) call references it), so the
@@ -42,8 +47,7 @@ namespace SBPR.Trailborne.Features.Signs
                 var text = __instance.GetText();
                 if (string.IsNullOrEmpty(text)) text = "Painted Sign";
 
-                Minimap.PinType pinType = Minimap.PinType.Icon0;
-                if (Signs.SignPinTypes.TryGetValue(tag.PrefabName, out var t)) pinType = t;
+                Minimap.PinType pinType = Signs.PinTypeForColor(tag.ReadColor());
 
                 minimap.AddPin(__instance.transform.position, pinType, text, save: true, isChecked: false, player.GetPlayerID());
                 MessageHud.instance?.ShowMessage(MessageHud.MessageType.TopLeft, $"Pinned: {text}");
