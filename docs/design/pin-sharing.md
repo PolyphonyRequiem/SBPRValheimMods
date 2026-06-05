@@ -1,3 +1,9 @@
+---
+title: "Pin-sharing investigation"
+status: living
+purpose: Investigation: multiplayer pin-sharing surface.
+---
+
 # Pin-sharing investigation
 
 > _Pre-design investigation for the Niflheim Modpack — how vanilla Valheim handles

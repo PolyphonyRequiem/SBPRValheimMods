@@ -1,3 +1,9 @@
+---
+title: "Client-usability registration fix — implementation notes"
+status: historical
+purpose: Implementation notes for the client-refresh fix (task fix-client-registration).
+---
+
 # Client-usability registration fix — implementation notes
 
 Implements the ranked FIX RECOMMENDATION from the T1 gap analysis

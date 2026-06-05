@@ -1,3 +1,9 @@
+---
+title: "Trailborne — design pillars"
+status: living
+purpose: The load-bearing design constraints — non-negotiable.
+---
+
 # Trailborne — design pillars
 
 > Load-bearing patterns that justify the mechanics. When a future spec asks

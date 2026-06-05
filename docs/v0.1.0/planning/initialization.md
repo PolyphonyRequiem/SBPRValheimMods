@@ -1,5 +1,6 @@
 ---
 spec_name: trailborne-v1
+status: historical
 created_at: 2026-06-03
 source: user
 project: SBPR Trailborne (first public SBPR Thunderstore release)

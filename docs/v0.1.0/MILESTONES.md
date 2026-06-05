@@ -1,3 +1,9 @@
+---
+title: "Trailborne v0.1.0 — Milestone Map"
+status: current
+purpose: v0.1.0 milestone map (M0–M4).
+---
+
 # Trailborne v0.1.0 — Milestone Map
 
 **North star:** ship a playtestable Meadows-tier Explorer loop end-to-end on Niflheim.
