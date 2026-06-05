@@ -29,11 +29,11 @@ namespace SBPR.Trailborne.Runtime
 
         private class RecipeSpec
         {
-            public string Item;           // ItemDrop prefab name; null = build piece (no recipe)
-            public string Piece;          // Piece prefab name; null = item recipe (no piece)
-            public string Station;        // "piece_sbpr_explorers_bench" or null
+            public string? Item;           // ItemDrop prefab name; null = build piece (no recipe)
+            public string? Piece;          // Piece prefab name; null = item recipe (no piece)
+            public string? Station;        // "piece_sbpr_explorers_bench" or null
             public int    Amount;         // recipe output amount (items only)
-            public Req[]  Resources;
+            public Req[]  Resources = null!;  // always set by each manifest initializer
         }
 
         // The complete v0.1.0 locked manifest.
@@ -98,7 +98,7 @@ namespace SBPR.Trailborne.Runtime
             foreach (var spec in Manifest.Where(s => s.Item != null))
             {
                 checks++;
-                Recipe found = null;
+                Recipe? found = null;
                 foreach (var r in odb.m_recipes)
                 {
                     if (r == null || r.m_item == null || r.m_item.gameObject == null) continue;
@@ -145,7 +145,7 @@ namespace SBPR.Trailborne.Runtime
 
                 // Cairn marker recipe
                 checks++;
-                Recipe markerRecipe = null;
+                Recipe? markerRecipe = null;
                 foreach (var r in odb.m_recipes)
                 {
                     if (r == null || r.m_item == null || r.m_item.gameObject == null) continue;
@@ -186,7 +186,7 @@ namespace SBPR.Trailborne.Runtime
                 Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} checks. See above.");
         }
 
-        private static void CompareResources(string itemName, Req[] expected, Piece.Requirement[] actual, ref int errors)
+        private static void CompareResources(string? itemName, Req[] expected, Piece.Requirement[] actual, ref int errors)
         {
             actual = actual ?? new Piece.Requirement[0];
             var actualNamed = actual
@@ -225,7 +225,7 @@ namespace SBPR.Trailborne.Runtime
             }
         }
 
-        private static void LogDrift(string item, string field, string expected, string actual, ref int errors)
+        private static void LogDrift(string? item, string field, string expected, string actual, ref int errors)
         {
             Plugin.Log.LogError(
                 $"[Trailborne/SpecCheck] DRIFT — {item}: {field} expected '{expected}', registered '{actual}'.");
