@@ -73,8 +73,8 @@ Each entry has:
 | Comfort floor | 3 / 4 / 5 / 6 / 7 (per tier; max() clamp via patch on `SE_Rested.CalculateComfortLevel`) |
 | Comfort radius | TBD (proposed: ~10m, matches vanilla Banner) |
 | HP states | ≥75% pristine (resin glows); <75% fizzled (glow off); <25% downgrade tier; 0% collapse |
-| Function | Always-on comfort-emitting trail waypoint, color-bound to its Cairn Marker's pigment, mandatory decay |
-| Visual notes | Tier 2 procedural — stack of N vanilla `rock_low` prefabs assembled at runtime via ZNetView; capped with Pigment-colored runic top (vanilla rune material tinted by Marker's pigment); rune glow via vanilla `ParticleSystem` runestone-glow instanced at runtime |
+| Function | Always-on comfort-emitting trail waypoint, color-bound to its Cairn Marker's pigment, mandatory decay. **A cairn is a non-burning stone marker — no light, no heat, no fuel, no fire SFX.** (Comfort floor is applied separately via the `SE_Rested` patch, not via fire.) |
+| Visual notes | Procedural stone pile — the piece is cloned from the vanilla `bonfire` prefab as a STRUCTURAL base only (WearNTear / Piece / ZNetView), then on the client the donor fire is NEUTRALIZED by component type (`Fireplace` destroyed; `Light`/`LightFlicker`/`LightLod`, `ParticleSystem`/`SmokeSpawner`, `EffectArea` heat, `AudioSource`/`ZSFX` crackle, and the donor mesh `Renderer`s all disabled) and a stack of N flattened `rock_low` clones (T1=4 → T5=12) is assembled at runtime, deterministically seeded from the ZDO id so it survives reload. No flames, glow, smoke, heat, or crackle at any tier. (Pigment-colored runic top / rune glow remain a backlog idea — NOT implemented in v0.1.0.) See `Features/Cairns/CairnTag.cs`. |
 | Patch surface | `WearNTear.OnDamage`/`OnRepair` postfix for glow + tier transitions; `SE_Rested.CalculateComfortLevel` for comfort patch |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
