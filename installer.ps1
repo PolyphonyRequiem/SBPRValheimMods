@@ -21,7 +21,8 @@
        GitHub Release, verifies its SHA256, and overlays it into the copy.
     4. Writes a launcher (Launch-Trailborne.cmd + a Desktop shortcut) that
        starts the MODDED copy with BepInEx, pointed at Steam so multiplayer
-       + ownership work normally.
+       + ownership work normally. The launcher adds -console (F5 dev console);
+       pass -NoConsole to omit it.
     5. Prints the server join info for tonight.
 
   WHAT IT DOES NOT DO:
@@ -46,7 +47,8 @@ param(
     [string]$StatusUrl     = 'https://gist.githubusercontent.com/PolyphonyRequiem/7b54a29aeefb3effee0393df79d0b03e/raw/niflheim-status.json',
     [string]$ModdedDirName = 'Valheim-Modded',
     [switch]$Force,          # skip the confirmation prompt
-    [switch]$NoShortcut      # don't drop a Desktop shortcut
+    [switch]$NoShortcut,     # don't drop a Desktop shortcut
+    [switch]$NoConsole       # launch WITHOUT -console (omit the F5 dev console). Default: -console IS added.
 )
 
 $ErrorActionPreference = 'Stop'
@@ -204,6 +206,9 @@ Ok "BepInEx doorstop + Trailborne DLL + icons in place."
 # folder auto-loads the BepInEx doorstop, and (b) steam_appid.txt (written above)
 # lets the exe init Steamworks for multiplayer/ownership as long as Steam runs.
 Step "Creating the launcher"
+# -console enables Valheim's F5 developer console (required for admin commands /
+# devcommands on the server). On by default; pass -NoConsole to omit it.
+$consoleArg = if ($NoConsole) { '' } else { ' -console' }
 $cmdExe = Join-Path $modded 'Launch-Trailborne.cmd'
 @"
 @echo off
@@ -211,9 +216,10 @@ rem  Launches the MODDED Valheim copy directly (BepInEx auto-loads via winhttp.d
 rem  Steam must be running so Steamworks (multiplayer/ownership) initializes.
 cd /d "%~dp0"
 echo Starting modded Valheim (Trailborne)...
-start "" "%~dp0valheim.exe"
+start "" "%~dp0valheim.exe"$consoleArg
 "@ | Set-Content -Path $cmdExe -Encoding ascii
 Ok "Wrote $cmdExe"
+if (-not $NoConsole) { Note "Launcher includes -console (press F5 in-game for the dev console)." }
 
 if (-not $NoShortcut) {
     try {
@@ -242,5 +248,6 @@ Say " Folder:  $modded" White
 Say " Server:  $(Format-JoinLine)" White
 Say ""
 Say " First launch shows a black BepInEx console window briefly — that's normal." DarkGray
+if (-not $NoConsole) { Say " In-game: press F5 to open the dev console (admin commands work once you're an admin)." DarkGray }
 Say " To uninstall: delete  $base  and the Desktop shortcut." DarkGray
 Say ""
