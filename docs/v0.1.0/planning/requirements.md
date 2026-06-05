@@ -101,8 +101,28 @@ What we will NOT do (in v1):
 | **Repair** | Flat **3 stone + 1 resin** regardless of damage level |
 | **Pigment / banner persistence** | Persist across rebuilds — applied colors survive damage + repair cycles |
 | **Downgrade re-ignite of resin** | OPEN — Daniel: "lean deliberate-only" (i.e. requires explicit player action, not auto-re-ignite on repair) |
-| **Visual (playtest)** | Kitbash: procedural stack of vanilla `rock_low` prefabs assembled at runtime, capped with vanilla-rune-glow ParticleSystem instance, pigment-tinted via runtime material reflection. Per "leverage Unity indirectly" doctrine. |
-| **Build cost** | TBD — design/PARKED-2026-06-03.md doesn't explicitly list per-tier stone costs beyond the comfort floor numbers (3/4/5/6/7 stones may BE the build cost — needs Round 2.5 verification with Daniel) |
+| **Visual (LOCKED 2026-06-05, Daniel)** | Rich procedural stone pile — see **§A2.1b — Cairn visual** below. Per-tier haphazard stack of vertically-squashed / horizontally-flattened `rock_low` clones (count = the stone ladder), on a fire-neutralized `bonfire` structural base, with an HP-gated **wear-state ember** at the top that fizzles out below ~75% HP. |
+| **Build cost** | Per-tier stone ladder (cumulative): T1=9 / T2=12 / T3=15 / T4=18 / T5=21 Stone, +1 Resin, +1 Cairn Marker at T1 (see §A3.1). |
+
+#### A2.1b — Cairn visual (LOCKED 2026-06-05, Daniel)
+
+> Supersedes the earlier "procedural `rock_low` stack capped with a rune-glow particle" sketch AND extends the 2026-06-05 bonfire-neutralization fix (PR #23 / card t_9f8341c9). PR #23 stripped ALL fire off the cairn (correct — a cairn is not a campfire); this spec keeps that neutralized base and adds back a **small, deliberate, HP-gated** ember as a *wear indicator*, not a light source. The two do not conflict: neutralization runs first and unconditionally; the ember is a separate opt-in element layered on top only at high HP.
+
+The cairn should read as a **real, hand-piled trail cairn** — not a tidy cone. Three parts:
+
+| Aspect | Locked value |
+|---|---|
+| **Structural base** | Clone of vanilla `bonfire` for its `WearNTear` / `Piece` / `ZNetView` only; the donor fire is fully neutralized on the client (Fireplace destroyed; Light/LightFlicker/LightLod, ParticleSystem/SmokeSpawner, EffectArea, AudioSource/ZSFX, donor mesh Renderers all disabled — the PR #23 path, kept as-is). |
+| **Stone pile** | A **haphazard** pile of vanilla `rock_low` clones assembled at runtime. **Count scales with tier and equals the stone ladder: T1=9, T2=12, T3=15, T4=18, T5=21 stones.** Each stone is **vertically scaled DOWN and horizontally scaled UP (squashed/flattened)** so they read as flattish piled rocks, not boulders. Placement is **deterministically randomized** (seed = ZDO id, so it survives reload + is identical on every client): jittered position, random yaw, slight random tilt, varied flatten ratios — a believable irregular pile, wider at the base, tapering up. |
+| **Pigment tint** | The cairn's bound pigment color tints the stones via runtime material reflection (existing `CairnTag` path), re-applied on spawn from ZDO. |
+| **Wear-state ember (NEW)** | A **small** flame/ember at the **top** of the pile, present **only while HP ≥ ~75%** (pristine). It **fizzles out below ~75%** and stays out until repaired back to pristine. This is the ONLY fire on the cairn — small and decorative, NOT the donor bonfire's blaze, NOT a light/heat source (no `EffectArea`, no comfort contribution — comfort is the `SE_Rested` patch). Implement as a **small dedicated particle/light element toggled by HP**, layered on the neutralized base — do NOT re-enable the donor `Fireplace`. |
+| **Wear states (visual ladder)** | ≥75% HP = pristine (ember lit). <75% = fizzled (ember out; per §A2.1 this is also the repair-eligible threshold). <25% = downgrade one tier (rebuild the pile at the lower stone count). 0% = collapse (piece destroyed, leaves a small rubble remnant). The ember tracks the pristine/fizzled line; the stone count tracks the tier. |
+| **Determinism** | Pile layout + ember presence must be a pure function of (ZDO id, tier, current HP bracket) so all clients and post-reload spawns agree. No per-frame RNG. |
+
+⚠️ **Open technical questions for the engineer (investigate, don't guess):**
+1. Best vanilla source for the **small ember** — a stripped-down particle from `fire_pit`/`bonfire` re-parented to the pile top, vs. a minimal custom `ParticleSystem`. Whichever, it must be cheap and not re-introduce heat/light/SFX.
+2. The HP→visual hook — postfix `WearNTear.OnDamage` / a health-bracket check on the `CairnTag` to toggle the ember and rebuild the pile on tier change. Confirm the bracket fires on repair *up* as well as damage *down*.
+3. Flatten ratios + jitter ranges that look "haphazard but stable" — tune against a joined client; bake the chosen constants into the spec on sign-off.
 
 #### A2.2 — Trailblazer's Tools (LOCKED — single item, NOT options)
 
