@@ -40,6 +40,17 @@ namespace SBPR.Trailborne.Features.Trailhead
             var clone = Assets.ClonePrefab(SourceWorkbench, ExplorersBenchName);
             if (clone == null) return;
 
+            // The vanilla Workbench prefab carries a GuidePoint component — the
+            // proximity hook that makes Hugin/the raven pop the "you built a
+            // workbench" tutorial. Our clone inherits it, so Hugin wrongly
+            // greets the Explorer's Bench as if it were a Workbench. The bench is
+            // its own station; strip the inherited tutorial hook so no raven fires
+            // on first placement. (Path Lamp's source, piece_groundtorch_wood,
+            // carries no GuidePoint, so only the bench needs this.)
+            int removed = Assets.StripGuidePoints(clone);
+            if (removed > 0)
+                Plugin.Log.LogInfo($"[Trailborne] Stripped {removed} inherited GuidePoint(s) (Hugin tutorial) from {ExplorersBenchName}.");
+
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
