@@ -67,7 +67,8 @@ Once your Explorer's Bench is built, you can craft:
 - **Red pigment** from raspberries — your first ink color
 - **Trailblazer's Tools** (wood, tin, flint) — your sign-and-marker hand tool
 - **Painted Signs** — wooden signposts you place in the world unpainted, then
-  color by applying an ink (red/white/blue/black); re-ink to repaint
+  color and label through a panel: pick a text color and an optional border
+  color (one pigment each), paint it, and write the text
 
 You take your tools and your first stack of red pigment and walk out into the woods.
 You find a copper vein. You place a red signpost: **"Copper here."** You walk back
@@ -250,16 +251,22 @@ does not assign meanings to colors. Red is not "danger." Blue is not "water."
 Whatever conventions your group settles on are conventions your group invented.
 
 Pigments are consumed when you paint: Cairn Markers bind their color at craft time,
-while Painted Signs are painted *after* you place them by applying an ink.
+while Painted Signs are painted *after* you place them, through the sign's panel
+(one pigment per color slot you fill).
 
 ### Painted Signs
 
-Painted Signs are wooden posts that carry text and a color. You build a single
-Painted Sign (2 Wood) and place it **unpainted** — plain wood. To color it, hold
-an ink (red, white, blue, or black) and apply it to the placed sign; the sign
-takes that color. Apply a different ink later to **repaint** it. The color sticks
-with the sign (it survives reloads and other players see it). The text is whatever
-you write on it with E (same UGC-filter as vanilla signs).
+Painted Signs are wooden posts that carry text and color. You build a single
+Painted Sign (2 Wood) and place it **unpainted** — plain wood. Interacting with
+the placed sign opens its panel. There you pick a **text color** for the board and,
+if you like, a separate **border color** (two-tone) from the swatches — Red, Blue,
+Black, White. Painting costs **one pigment per color you choose** (a text color and
+a border color = two pigments; the same color in both = two of it; border is
+optional). Press **Paint this and consume** to spend the pigments and color the sign;
+re-open it later and paint again to **repaint** (which spends pigment again). The
+text field unlocks once you've chosen a color, and **Update Text** writes the label
+for free. The colors and text stick with the sign — they survive reloads and other
+players see them.
 
 When you stand near a sign and press the pin button (default keybind _TBD_), the sign's
 location is pinned to your map. The pin's color matches the sign's color. The pin's
