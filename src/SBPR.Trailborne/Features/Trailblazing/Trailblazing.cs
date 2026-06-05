@@ -19,20 +19,25 @@ namespace SBPR.Trailborne.Features.Trailblazing
     /// Clones the vanilla `path` prefab three times and scales each clone's
     /// TerrainModifier radii to our 3 widths (narrow/standard/wide =
     /// 1.5m / 3m / 5m). ALSO clones the vanilla `replant` op — the
-    /// Cultivator's "Grass" mode that regrows grass on dirt — at its STOCK
-    /// vanilla radius with NO override, so the spade's replant mirrors the
-    /// Cultivator's replant exactly: a small grass-restore brush, not a wide
-    /// terrain modifier.
+    /// Cultivator's "Grass" mode that regrows grass on dirt — THREE times at the
+    /// SAME 1.5/3/5m widths, but scaling ONLY the grass/paint footprint
+    /// (m_paintRadius). The replant clones leave m_levelRadius / m_smoothRadius
+    /// at the vanilla op's values, so every replant width stays a pure
+    /// grass-restore brush — no terrain raise/level/smooth at ANY width. The
+    /// player scrolls through Path ×3 + Replant Grass ×3 (Daniel playtest call
+    /// 2026-06-05: 3 replant widths mirroring the 3 path widths).
     ///
     /// NB: `replant` is the grass-restore op; `cultivate` is the soil-tiller
     /// (turns ground into farmland for crops) and is deliberately NOT used —
     /// the spade stays in the trail/exploration lane, not farming (see
     /// requirements.md "No Cultivate ability"). Cloning `cultivate` at a forced
-    /// 5m radius was the "UBER level" bug this slice fixes.
+    /// 5m radius was the "UBER level" bug PR #16 fixed; the 3-width replant here
+    /// preserves that fix by never touching the level/smooth radii (see the
+    /// grassRestore branch in RegisterRadiusVariant).
     ///
     /// All ops register as Piece prefabs ADDED to the spade's PieceTable, so
-    /// the player sees our 3 path-widths + 1 replant. Spade-only piece table
-    /// is built in DoObjectDBWiring.
+    /// the player sees our 3 path-widths + 3 replant-widths. Spade-only piece
+    /// table is built in DoObjectDBWiring.
     ///
     /// ClearVegetation (Pickable.RemoveOne batch) is genuinely out-of-scope
     /// for v0.1.0. TWEAK ME: real ClearVegetation in v0.2.0.
@@ -45,7 +50,9 @@ namespace SBPR.Trailborne.Features.Trailblazing
         public const string PathNarrowName   = "piece_sbpr_path_narrow";
         public const string PathStandardName = "piece_sbpr_path_standard";
         public const string PathWideName     = "piece_sbpr_path_wide";
-        public const string ReplantName      = "piece_sbpr_replant";
+        public const string ReplantNarrowName   = "piece_sbpr_replant_narrow";
+        public const string ReplantStandardName = "piece_sbpr_replant_standard";
+        public const string ReplantWideName      = "piece_sbpr_replant_wide";
 
         private const string SourcePath      = "path";
         private const string SourceReplant   = "replant";
@@ -64,16 +71,25 @@ namespace SBPR.Trailborne.Features.Trailblazing
         private const float PathOpStamina    = 2f;
 
         // source = vanilla prefab to clone; radius = TerrainModifier radius
-        // OVERRIDE in metres, or null to keep the vanilla op's stock radius.
-        // Path widths get our 1.5/3/5m overrides; Replant keeps vanilla
-        // (mirrors the Cultivator's grass-replant exactly — NOT a wide op).
-        private static readonly Dictionary<string, (string source, float? radius)> variants =
-            new Dictionary<string, (string, float?)>
+        // OVERRIDE in metres; grassRestore = TRUE for the Cultivator-"Grass"
+        // replant ops, which must scale ONLY the grass/paint footprint
+        // (m_paintRadius) and leave m_levelRadius / m_smoothRadius at the vanilla
+        // clone's values so they NEVER raise/level/smooth terrain at any width
+        // (PR #16 regression guard). FALSE for path ops, which scale all three
+        // radii together (their job IS to paint + level the path tile to width).
+        //
+        // Path widths and Replant widths BOTH get our 1.5/3/5m UX, but the
+        // radius is applied to DIFFERENT fields depending on grassRestore — that
+        // branch is the whole safety story of this slice (see RegisterRadiusVariant).
+        private static readonly Dictionary<string, (string source, float radius, bool grassRestore)> variants =
+            new Dictionary<string, (string, float, bool)>
             {
-                { PathNarrowName,   (SourcePath,    1.5f) },
-                { PathStandardName, (SourcePath,    3.0f) },
-                { PathWideName,     (SourcePath,    5.0f) },
-                { ReplantName,      (SourceReplant, null) },
+                { PathNarrowName,      (SourcePath,    1.5f, false) },
+                { PathStandardName,    (SourcePath,    3.0f, false) },
+                { PathWideName,        (SourcePath,    5.0f, false) },
+                { ReplantNarrowName,   (SourceReplant, 1.5f, true)  },
+                { ReplantStandardName, (SourceReplant, 3.0f, true)  },
+                { ReplantWideName,     (SourceReplant, 5.0f, true)  },
             };
 
         // ───────────────────────────────────────────────
@@ -84,7 +100,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
         {
             RegisterSpadeItemPrefab(zns);
             foreach (var kv in variants)
-                RegisterRadiusVariant(zns, kv.Key, kv.Value.source, kv.Value.radius);
+                RegisterRadiusVariant(zns, kv.Key, kv.Value.source, kv.Value.radius, kv.Value.grassRestore);
         }
 
         private static void RegisterSpadeItemPrefab(ZNetScene zns)
@@ -128,15 +144,17 @@ namespace SBPR.Trailborne.Features.Trailblazing
         {
             switch (prefab)
             {
-                case PathNarrowName:   return "Spade: Path (1.5m)";
-                case PathStandardName: return "Spade: Path (3m)";
-                case PathWideName:     return "Spade: Path (5m)";
-                case ReplantName:      return "Spade: Replant Grass";
-                default:               return prefab;
+                case PathNarrowName:      return "Spade: Path (1.5m)";
+                case PathStandardName:    return "Spade: Path (3m)";
+                case PathWideName:        return "Spade: Path (5m)";
+                case ReplantNarrowName:   return "Spade: Replant Grass (1.5m)";
+                case ReplantStandardName: return "Spade: Replant Grass (3m)";
+                case ReplantWideName:     return "Spade: Replant Grass (5m)";
+                default:                  return prefab;
             }
         }
 
-        private static void RegisterRadiusVariant(ZNetScene zns, string name, string source, float? radius)
+        private static void RegisterRadiusVariant(ZNetScene zns, string name, string source, float radius, bool grassRestore)
         {
             if (zns.GetPrefab(name) != null) return;
             var clone = Assets.ClonePrefab(source, name);
@@ -145,33 +163,49 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 Plugin.Log.LogWarning($"[Trailborne/M3] Source '{source}' missing; skipping {name}");
                 return;
             }
-            // Scale terrain radii ONLY for the path widths. Replant passes
-            // radius=null so it keeps the vanilla op's stock radius untouched
-            // — matching the Cultivator's grass-replant exactly.
-            if (radius.HasValue)
+            // Radius application BRANCHES on op kind — this is the load-bearing
+            // safety boundary of the slice:
+            //
+            //  • PATH ops (grassRestore=false): scale ALL THREE radii together
+            //    (level + smooth + paint). A path tile is SUPPOSED to flatten and
+            //    paint to the chosen width, so widening all three is correct.
+            //
+            //  • REPLANT ops (grassRestore=true): scale ONLY m_paintRadius — the
+            //    grass/vegetation footprint. m_levelRadius and m_smoothRadius are
+            //    LEFT UNTOUCHED at the vanilla `replant` clone's values, so the op
+            //    NEVER raises, levels, or smooths terrain at ANY width. This is the
+            //    regression guard for PR #16 (the "UBER level" bug): widening the
+            //    grass brush cannot reintroduce terrain modification, because the
+            //    terrain-modifying radii are never written. Vanilla `replant`
+            //    (the Cultivator's "Grass" mode) is a pure grass-restore brush —
+            //    confirmed against the public Cultivator wiki — so leaving its
+            //    level/smooth behavior at stock keeps all three replant widths
+            //    pure grass-restore, just at our 1.5/3/5m footprints.
+            var mod = clone.GetComponentInChildren<TerrainModifier>(includeInactive: true);
+            if (mod != null)
             {
-                var mod = clone.GetComponentInChildren<TerrainModifier>(includeInactive: true);
-                if (mod != null)
+                mod.m_paintRadius = radius;
+                if (!grassRestore)
                 {
-                    mod.m_levelRadius  = radius.Value;
-                    mod.m_smoothRadius = radius.Value;
-                    mod.m_paintRadius  = radius.Value;
+                    // Path ops only: also widen the terrain-shaping radii.
+                    mod.m_levelRadius  = radius;
+                    mod.m_smoothRadius = radius;
                 }
             }
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
                 piece.m_name        = NicePieceName(name);
-                piece.m_description = radius.HasValue
-                    ? $"Trailblazer path/ground op — {radius.Value:F1}m radius."
-                    : "Trailblazer grass-replant — restores grass at the vanilla Cultivator radius.";
+                piece.m_description = grassRestore
+                    ? $"Trailblazer grass-restore — regrows grass over a {radius:F1}m footprint. No terrain raise/level."
+                    : $"Trailblazer path/ground op — {radius:F1}m radius.";
                 piece.m_category    = Piece.PieceCategory.Misc;
                 // Free placement like vanilla hoe ops — no resource cost
                 piece.m_resources   = Array.Empty<Piece.Requirement>();
             }
             Assets.RegisterPrefabInZNetScene(clone);
-            var radiusLabel = radius.HasValue ? $"{radius.Value:F1}m" : "vanilla radius";
-            Plugin.Log.LogInfo($"[Trailborne/M3] Registered spade op: {name} ({radiusLabel})");
+            var opKind = grassRestore ? "grass-restore" : "path";
+            Plugin.Log.LogInfo($"[Trailborne/M3] Registered spade op: {name} ({opKind}, {radius:F1}m)");
         }
 
         // ───────────────────────────────────────────────
