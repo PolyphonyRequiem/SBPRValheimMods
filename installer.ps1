@@ -1,0 +1,223 @@
+#Requires -Version 5.1
+<#
+  ___ ___ ___ ___   _____        _ _ _
+ / __| _ ) _ \ _ \ |_   _| _ __ _(_) | |__  ___ _ _ _ _  ___
+ \__ \ _ \  _/   /   | || '_/ _` | | | '_ \/ _ \ '_| ' \/ -_)
+ |___/___/_| |_|_\   |_||_| \__,_|_|_|_.__/\___/_| |_||_\___|
+
+  Trailborne playtest bootstrapper (Windows / Steam Valheim)
+  Repo:  https://github.com/PolyphonyRequiem/SBPRValheimMods   (MIT)
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS DOES — read it; it prints a summary at runtime and asks before
+  doing anything that writes to disk:
+
+    1. Locates your Steam Valheim install (vanilla).
+    2. COPIES it (never moves/modifies) to a separate modded folder:
+         %LOCALAPPDATA%\Trailborne\Valheim-Modded
+       Your vanilla install stays 100% pristine — unmodded Valheim still
+       launches normally from Steam.
+    3. Downloads the Trailborne modpack (BepInEx + the mod) from the repo's
+       GitHub Release, verifies its SHA256, and overlays it into the copy.
+    4. Writes a launcher (Launch-Trailborne.cmd + a Desktop shortcut) that
+       starts the MODDED copy with BepInEx, pointed at Steam so multiplayer
+       + ownership work normally.
+    5. Prints the server join info for tonight.
+
+  WHAT IT DOES NOT DO:
+    * Never edits, moves, or deletes your real Valheim install.
+    * No admin rights needed. No registry surgery. Fully removable: just
+      delete %LOCALAPPDATA%\Trailborne and the Desktop shortcut.
+
+  RUN IT:
+    iwr https://raw.githubusercontent.com/PolyphonyRequiem/SBPRValheimMods/main/installer.ps1 -UseBasicParsing | iex
+
+  ADVANCED (pass options): download then invoke as a scriptblock, e.g.
+    & ([scriptblock]::Create((iwr https://raw.githubusercontent.com/PolyphonyRequiem/SBPRValheimMods/main/installer.ps1 -UseBasicParsing))) -Force
+  ─────────────────────────────────────────────────────────────────────────
+#>
+[CmdletBinding()]
+param(
+    # GitHub release asset (the assembled modpack). Pinned to a tag for stability.
+    [string]$ModpackUrl    = 'https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.1.0-playtest/SBPR-Trailborne-Modpack-v0.1.0.zip',
+    [string]$ExpectedSha256= '001ec0bbbaa1bf88e2f132bd0e3f66361b9854f69da277b1fb5179dc298d0225',
+    [string]$ServerJoinCode= '078214',
+    [string]$ModdedDirName = 'Valheim-Modded',
+    [switch]$Force,          # skip the confirmation prompt
+    [switch]$NoShortcut      # don't drop a Desktop shortcut
+)
+
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Version = '0.1.0 (2026-06-04)'
+
+function Say  { param($m,$c='Gray')  Write-Host $m -ForegroundColor $c }
+function Step { param($m) Write-Host "`n==> $m" -ForegroundColor Cyan }
+function Ok   { param($m) Write-Host "  + $m" -ForegroundColor Green }
+function Note { param($m) Write-Host "  - $m" -ForegroundColor DarkGray }
+function Warn3{ param($m) Write-Host "  ! $m" -ForegroundColor Yellow }
+function Die  { param($m) Write-Host "`nXX $m" -ForegroundColor Red; exit 1 }
+
+Say ""
+Say "Trailborne playtest bootstrapper  v$Version" White
+Say "This copies Valheim to a modded folder (vanilla untouched), installs the mod, makes a launcher." DarkGray
+
+# ── 1. Locate Steam + Valheim ────────────────────────────────────────────
+Step "Locating Steam and Valheim"
+
+function Get-SteamRoot {
+    foreach ($p in @(
+        (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -EA SilentlyContinue).SteamPath,
+        (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam' -EA SilentlyContinue).InstallPath,
+        'C:\Program Files (x86)\Steam'
+    )) { if ($p -and (Test-Path $p)) { return (Resolve-Path $p).Path } }
+    return $null
+}
+
+# Parse all Steam library folders (game may live on another drive).
+function Get-SteamLibraries { param($steamRoot)
+    $libs = @($steamRoot)
+    $vdf = Join-Path $steamRoot 'steamapps\libraryfolders.vdf'
+    if (Test-Path $vdf) {
+        Select-String -Path $vdf -Pattern '"path"\s*"([^"]+)"' -AllMatches |
+          ForEach-Object { $_.Matches } |
+          ForEach-Object { $libs += ($_.Groups[1].Value -replace '\\\\','\') }
+    }
+    $libs | Select-Object -Unique
+}
+
+function Find-Valheim {
+    $steam = Get-SteamRoot
+    if ($steam) {
+        Note "Steam: $steam"
+        foreach ($lib in (Get-SteamLibraries $steam)) {
+            $cand = Join-Path $lib 'steamapps\common\Valheim'
+            if (Test-Path (Join-Path $cand 'valheim.exe')) { return (Resolve-Path $cand).Path }
+        }
+    }
+    # Last-ditch common paths
+    foreach ($p in @('C:\Program Files (x86)\Steam\steamapps\common\Valheim',
+                     'D:\SteamLibrary\steamapps\common\Valheim',
+                     'E:\SteamLibrary\steamapps\common\Valheim')) {
+        if (Test-Path (Join-Path $p 'valheim.exe')) { return $p }
+    }
+    return $null
+}
+
+$vanilla = Find-Valheim
+if (-not $vanilla) {
+    Die "Couldn't find a Steam Valheim install (valheim.exe). Make sure Valheim is installed via Steam, then re-run. If it's on an unusual path, you can pass it: the script looks for steamapps\common\Valheim."
+}
+Ok "Vanilla Valheim: $vanilla"
+
+# ── 2. Plan the modded copy ─────────────────────────────────────────────
+$base      = Join-Path $env:LOCALAPPDATA 'Trailborne'
+$modded    = Join-Path $base $ModdedDirName
+$downloads = Join-Path $base 'downloads'
+
+Step "Plan"
+Note "Modded copy  -> $modded"
+Note "Vanilla stays pristine at the path above (Steam still launches it normally)."
+Note "Server join code for tonight: $ServerJoinCode"
+
+if (-not $Force) {
+    $resp = Read-Host "`nProceed? This will copy Valheim (~1-2 GB) into the modded folder. [Y/n]"
+    if ($resp -and $resp -notmatch '^(y|yes)$') { Say "Aborted — nothing was changed." Yellow; exit 0 }
+}
+
+New-Item -ItemType Directory -Force -Path $base,$downloads | Out-Null
+
+# ── 3. Copy vanilla -> modded (robocopy mirror; vanilla never modified) ──
+Step "Copying Valheim into the modded folder (vanilla is only READ)"
+if (Test-Path (Join-Path $modded 'valheim.exe')) {
+    Warn3 "Modded copy already exists — refreshing game files (your BepInEx config is preserved by the overlay step)."
+}
+New-Item -ItemType Directory -Force -Path $modded | Out-Null
+
+# robocopy exit codes 0-7 are success; 8+ are real errors.
+$rc = Start-Process robocopy -ArgumentList @(
+        "`"$vanilla`"", "`"$modded`"", '/E', '/NFL','/NDL','/NJH','/NP',
+        '/R:1','/W:1','/XD','BepInEx','/XF','winhttp.dll','doorstop_config.ini'
+    ) -NoNewWindow -Wait -PassThru
+if ($rc.ExitCode -ge 8) { Die "robocopy failed (code $($rc.ExitCode)) copying the game files." }
+Ok "Game files copied (vanilla untouched)."
+
+# steam_appid.txt lets the modded copy talk to Steam (multiplayer/ownership).
+Set-Content -Path (Join-Path $modded 'steam_appid.txt') -Value '892970' -NoNewline -Encoding ascii
+Note "Wrote steam_appid.txt (892970) so the modded copy authenticates with Steam."
+
+# ── 4. Download + verify the modpack ────────────────────────────────────
+Step "Downloading the Trailborne modpack"
+$zip = Join-Path $downloads 'SBPR-Trailborne-Modpack.zip'
+try {
+    Invoke-WebRequest -Uri $ModpackUrl -OutFile $zip -UseBasicParsing
+} catch {
+    Die "Couldn't download the modpack from:`n    $ModpackUrl`n($($_.Exception.Message))`nIf the release isn't published yet, ping Daniel."
+}
+$got = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
+if ($ExpectedSha256 -and $got -ne $ExpectedSha256.ToLower()) {
+    Die "Checksum mismatch!`n  expected $ExpectedSha256`n  got      $got`nRefusing to install a tampered/corrupt modpack."
+}
+Ok "Downloaded + SHA256 verified."
+
+# ── 5. Overlay the modpack into the modded copy ─────────────────────────
+Step "Installing BepInEx + Trailborne into the modded copy"
+$extract = Join-Path $downloads 'extract'
+if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+Expand-Archive -Path $zip -DestinationPath $extract -Force
+# The zip contains a single top folder; find the one holding winhttp.dll.
+$payload = Get-ChildItem $extract -Recurse -Filter winhttp.dll | Select-Object -First 1 | ForEach-Object { $_.Directory.FullName }
+if (-not $payload) { Die "Modpack layout unexpected (no winhttp.dll inside)." }
+Copy-Item -Path (Join-Path $payload '*') -Destination $modded -Recurse -Force
+if (-not (Test-Path (Join-Path $modded 'BepInEx\plugins\SBPR.Trailborne\SBPR.Trailborne.dll'))) {
+    Die "Overlay finished but the Trailborne DLL isn't where expected. Aborting so you don't launch a half-install."
+}
+Ok "BepInEx doorstop + Trailborne DLL + icons in place."
+
+# ── 6. Launcher + shortcut ──────────────────────────────────────────────
+# IMPORTANT: this is a SEPARATE copy, so we launch valheim.exe DIRECTLY.
+# We do NOT use steam://run/892970 — that URI launches Steam's managed vanilla
+# install, not our modded copy. Direct-exe works because (a) winhttp.dll in the
+# folder auto-loads the BepInEx doorstop, and (b) steam_appid.txt (written above)
+# lets the exe init Steamworks for multiplayer/ownership as long as Steam runs.
+Step "Creating the launcher"
+$cmdExe = Join-Path $modded 'Launch-Trailborne.cmd'
+@"
+@echo off
+rem  Launches the MODDED Valheim copy directly (BepInEx auto-loads via winhttp.dll).
+rem  Steam must be running so Steamworks (multiplayer/ownership) initializes.
+cd /d "%~dp0"
+echo Starting modded Valheim (Trailborne)...
+start "" "%~dp0valheim.exe"
+"@ | Set-Content -Path $cmdExe -Encoding ascii
+Ok "Wrote $cmdExe"
+
+if (-not $NoShortcut) {
+    try {
+        $desktop = [Environment]::GetFolderPath('Desktop')
+        $lnk = Join-Path $desktop 'Play Trailborne (Modded).lnk'
+        $ws = New-Object -ComObject WScript.Shell
+        $sc = $ws.CreateShortcut($lnk)
+        $sc.TargetPath = $cmdExe
+        $sc.WorkingDirectory = $modded
+        $sc.IconLocation = (Join-Path $modded 'valheim.exe')
+        $sc.Description = 'Launch modded Valheim (Trailborne playtest)'
+        $sc.Save()
+        Ok "Desktop shortcut: $lnk"
+    } catch { Warn3 "Couldn't create Desktop shortcut ($($_.Exception.Message)); use $cmdExe directly." }
+}
+
+# ── 7. Done ─────────────────────────────────────────────────────────────
+Say ""
+Say "============================================================" Green
+Say " Trailborne is installed. Vanilla Valheim is untouched." Green
+Say "============================================================" Green
+Say ""
+Say " Play:    double-click 'Play Trailborne (Modded)' on your Desktop" White
+Say "          (or run Launch-Trailborne-Direct.cmd in the modded folder)" DarkGray
+Say " Folder:  $modded" White
+Say " Server:  join code  $ServerJoinCode" White
+Say ""
+Say " First launch shows a black BepInEx console window briefly — that's normal." DarkGray
+Say " To uninstall: delete  $base  and the Desktop shortcut." DarkGray
+Say ""
