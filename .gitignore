@@ -49,3 +49,6 @@ SCRATCH.md
 # C# build artifacts
 src/**/bin/
 src/**/obj/
+
+# Transient PR handoff artifacts (format-patch dumps, bundles, full-diffs)
+.pr-c-handoff/
