@@ -6,6 +6,10 @@
     <LangVersion>latest</LangVersion>
     <Version>0.1.0</Version>
     <Nullable>enable</Nullable>
+    <!-- Clean-build guard (chore t_eaca1997): all 29 baseline nullable warnings
+         were fixed, so every warning is now an error. This makes 0-warnings durable —
+         no future PR can silently reintroduce a nullable (or any) warning. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <DebugType>none</DebugType>

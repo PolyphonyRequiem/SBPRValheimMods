@@ -52,8 +52,9 @@ scripts/fetch-sdk.sh    # fetch pinned BepInEx pack into .sdk/
 dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release
 ```
 
-Clean build = 0 errors (~29 known nullable warnings — add none). No
-machine-specific paths are committed; see [`.env.example`](.env.example).
+Clean build = 0 errors, **0 warnings** (`<TreatWarningsAsErrors>` is ON — any
+new warning fails the build). No machine-specific paths are committed; see
+[`.env.example`](.env.example).
 
 ## Documentation
 
