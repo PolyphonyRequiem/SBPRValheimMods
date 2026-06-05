@@ -6,11 +6,13 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
+using SBPR.Trailborne.Features.Cairns;
 
 namespace SBPR.Trailborne
 {
     [BepInPlugin(ModId, ModName, ModVersion)]
-    public class TrailbornePlugin : BaseUnityPlugin
+    public class Plugin : BaseUnityPlugin
     {
         public const string ModId      = "net.danielgreen.sbpr.trailborne";
         public const string ModName    = "SBPR Trailborne";
@@ -18,7 +20,7 @@ namespace SBPR.Trailborne
 
         internal static ManualLogSource Log;
         internal static string PluginFolder;
-        private  Harmony _harmony;
+        private  Harmony harmony;
 
         // ── Config ──────────────────────────────────────────────────
         // Shift+E debug-damage flag. When true, Shift+E on a pristine cairn
@@ -32,7 +34,7 @@ namespace SBPR.Trailborne
         {
             Log = Logger;
             PluginFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            Log.LogInfo($"[Trailborne] Awake — {ModName} {ModVersion} booting (folder={PluginFolder}, OnSBServer={SBPRContext.OnSBServer})");
+            Log.LogInfo($"[Trailborne] Awake — {ModName} {ModVersion} booting (folder={PluginFolder}, OnSBServer={ServerContext.OnSBServer})");
 
             DebugCairnDamage = Config.Bind(
                 "Debug",
@@ -42,16 +44,16 @@ namespace SBPR.Trailborne
                 "gesture is exercisable without waiting for natural decay. v0.1.0 playtest aid. Flip false (or " +
                 "remove this section) once decay tuning lands.");
 
-            _harmony = new Harmony(ModId);
-            _harmony.PatchAll(typeof(TrailborneRegistrar));
-            _harmony.PatchAll(typeof(TrailborneCairnPatches));
+            harmony = new Harmony(ModId);
+            harmony.PatchAll(typeof(Registrar));
+            harmony.PatchAll(typeof(CairnPatches));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
         }
 
         private void OnDestroy()
         {
-            _harmony?.UnpatchSelf();
+            harmony?.UnpatchSelf();
         }
     }
 }

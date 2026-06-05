@@ -1,0 +1,83 @@
+<Project>
+
+  <!-- ==========================================================================
+       SBPR.Trailborne — local SDK / game-reference path resolution
+       ==========================================================================
+       Resolves the two machine-specific directories the build needs:
+
+         ValheimManaged  : the Valheim "Managed" folder (game + Unity assemblies)
+         BepInExCore     : the BepInEx "core" folder (BepInEx.dll, 0Harmony.dll)
+
+       NO absolute paths are committed to source control. Each developer supplies
+       their own paths via environment variables, with a gitignored repo-root
+       `.env` file as a convenient fallback. See `.env.example`, `scripts/setup.sh`
+       (or `scripts/setup.ps1`) and `scripts/fetch-sdk.sh`.
+
+       Resolution precedence (first match wins) for each directory:
+         1. Direct env var  (VALHEIM_MANAGED / BEPINEX_CORE)
+         2. `.env` file      (VALHEIM_MANAGED= / BEPINEX_CORE=)
+         3. Install-root env (VALHEIM_INSTALL / BEPINEX_PATH), probe sub-dirs
+         4. Install-root via `.env`
+       If nothing resolves, the build fails early with an actionable <Error>.
+       ========================================================================== -->
+
+  <!-- Locate and slurp the optional repo-root .env (this file lives at repo root). -->
+  <PropertyGroup>
+    <SbprDotEnvFile>$(MSBuildThisFileDirectory).env</SbprDotEnvFile>
+    <SbprDotEnvText Condition="Exists('$(SbprDotEnvFile)')">$([System.IO.File]::ReadAllText('$(SbprDotEnvFile)'))</SbprDotEnvText>
+  </PropertyGroup>
+
+  <!-- ============================ Valheim Managed dir ======================== -->
+  <PropertyGroup>
+    <!-- 1) Direct env var: VALHEIM_MANAGED = full path to the Managed folder. -->
+    <ValheimManaged Condition="'$(ValheimManaged)' == '' and '$(VALHEIM_MANAGED)' != ''">$(VALHEIM_MANAGED)</ValheimManaged>
+
+    <!-- 2) .env: VALHEIM_MANAGED= -->
+    <_SbprEnvValheimManaged Condition="'$(SbprDotEnvText)' != ''">$([System.Text.RegularExpressions.Regex]::Match($(SbprDotEnvText), '(?m)^\s*VALHEIM_MANAGED\s*=\s*([^\r\n]*?)\s*$').Groups[1].Value)</_SbprEnvValheimManaged>
+    <ValheimManaged Condition="'$(ValheimManaged)' == '' and '$(_SbprEnvValheimManaged)' != ''">$(_SbprEnvValheimManaged)</ValheimManaged>
+
+    <!-- 3/4) Convenience: VALHEIM_INSTALL (game install root) from env or .env,
+              then probe dedicated-server then client Managed layout. -->
+    <_SbprValheimInstall Condition="'$(VALHEIM_INSTALL)' != ''">$(VALHEIM_INSTALL)</_SbprValheimInstall>
+    <_SbprValheimInstall Condition="'$(_SbprValheimInstall)' == '' and '$(SbprDotEnvText)' != ''">$([System.Text.RegularExpressions.Regex]::Match($(SbprDotEnvText), '(?m)^\s*VALHEIM_INSTALL\s*=\s*([^\r\n]*?)\s*$').Groups[1].Value)</_SbprValheimInstall>
+    <ValheimManaged Condition="'$(ValheimManaged)' == '' and '$(_SbprValheimInstall)' != '' and Exists('$(_SbprValheimInstall)/valheim_server_Data/Managed')">$(_SbprValheimInstall)/valheim_server_Data/Managed</ValheimManaged>
+    <ValheimManaged Condition="'$(ValheimManaged)' == '' and '$(_SbprValheimInstall)' != '' and Exists('$(_SbprValheimInstall)/valheim_Data/Managed')">$(_SbprValheimInstall)/valheim_Data/Managed</ValheimManaged>
+  </PropertyGroup>
+
+  <!-- ============================== BepInEx core dir ========================= -->
+  <PropertyGroup>
+    <!-- 1) Direct env var: BEPINEX_CORE = full path to the BepInEx/core folder. -->
+    <BepInExCore Condition="'$(BepInExCore)' == '' and '$(BEPINEX_CORE)' != ''">$(BEPINEX_CORE)</BepInExCore>
+
+    <!-- 2) .env: BEPINEX_CORE= -->
+    <_SbprEnvBepInExCore Condition="'$(SbprDotEnvText)' != ''">$([System.Text.RegularExpressions.Regex]::Match($(SbprDotEnvText), '(?m)^\s*BEPINEX_CORE\s*=\s*([^\r\n]*?)\s*$').Groups[1].Value)</_SbprEnvBepInExCore>
+    <BepInExCore Condition="'$(BepInExCore)' == '' and '$(_SbprEnvBepInExCore)' != ''">$(_SbprEnvBepInExCore)</BepInExCore>
+
+    <!-- 3/4) Convenience: BEPINEX_PATH (BepInEx root) from env or .env, derive /core.
+              Also accept a BEPINEX_PATH that already points straight at core. -->
+    <_SbprBepInExPath Condition="'$(BEPINEX_PATH)' != ''">$(BEPINEX_PATH)</_SbprBepInExPath>
+    <_SbprBepInExPath Condition="'$(_SbprBepInExPath)' == '' and '$(SbprDotEnvText)' != ''">$([System.Text.RegularExpressions.Regex]::Match($(SbprDotEnvText), '(?m)^\s*BEPINEX_PATH\s*=\s*([^\r\n]*?)\s*$').Groups[1].Value)</_SbprBepInExPath>
+    <BepInExCore Condition="'$(BepInExCore)' == '' and '$(_SbprBepInExPath)' != '' and Exists('$(_SbprBepInExPath)/core/BepInEx.dll')">$(_SbprBepInExPath)/core</BepInExCore>
+    <BepInExCore Condition="'$(BepInExCore)' == '' and '$(_SbprBepInExPath)' != '' and Exists('$(_SbprBepInExPath)/BepInEx.dll')">$(_SbprBepInExPath)</BepInExCore>
+  </PropertyGroup>
+
+  <!-- ================================ Validation ============================= -->
+  <!-- Fail early and clearly, before reference resolution turns an empty path
+       into a baffling "could not resolve assembly_valheim" cascade. -->
+  <Target Name="SbprValidateSdkPaths" BeforeTargets="ResolveAssemblyReferences;BeforeBuild">
+
+    <Error Condition="'$(ValheimManaged)' == ''"
+           Text="SBPR build: the Valheim managed-assembly path is not configured. Set VALHEIM_MANAGED (full path to your '...&#47;valheim_server_Data&#47;Managed' or '...&#47;valheim_Data&#47;Managed' folder) or VALHEIM_INSTALL (the game install root) as an environment variable or in a repo-root .env file. See .env.example and run scripts&#47;setup.sh (or scripts&#47;setup.ps1)." />
+
+    <Error Condition="'$(ValheimManaged)' != '' and !Exists('$(ValheimManaged)')"
+           Text="SBPR build: VALHEIM_MANAGED resolved to '$(ValheimManaged)' but that directory does not exist. Fix your .env / environment variables or run scripts&#47;setup.sh." />
+
+    <Error Condition="'$(BepInExCore)' == ''"
+           Text="SBPR build: the BepInEx core path is not configured. Set BEPINEX_CORE (full path to your '...&#47;BepInEx&#47;core' folder) or BEPINEX_PATH (the BepInEx root) as an environment variable or in a repo-root .env file. See .env.example and run scripts&#47;fetch-sdk.sh." />
+
+    <Error Condition="'$(BepInExCore)' != '' and !Exists('$(BepInExCore)')"
+           Text="SBPR build: BEPINEX_CORE resolved to '$(BepInExCore)' but that directory does not exist. Fix your .env / environment variables or run scripts&#47;fetch-sdk.sh." />
+
+  </Target>
+
+</Project>

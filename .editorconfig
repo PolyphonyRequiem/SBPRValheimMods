@@ -1,0 +1,144 @@
+# ============================================================================
+# SBPR.Trailborne — EditorConfig
+# ----------------------------------------------------------------------------
+# Encodes the C# conventions the codebase targets. These rules are intentionally
+# declared here in the INFRA brick; the actual source renames (e.g. dropping the
+# `_` prefix on private fields) land in a later, dedicated style-cleanup PR.
+#
+# Reference: https://learn.microsoft.com/dotnet/fundamentals/code-analysis/code-style-rule-options
+# ============================================================================
+root = true
+
+# ---- All files -------------------------------------------------------------
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# ---- Markdown: don't trim trailing whitespace (hard line breaks) -----------
+[*.md]
+trim_trailing_whitespace = false
+
+# ---- Project / config files: 2-space ---------------------------------------
+[*.{csproj,props,targets,json,yml,yaml}]
+indent_size = 2
+
+# ---- Windows-centric scripts keep CRLF -------------------------------------
+[*.{ps1,psm1,cmd,bat}]
+end_of_line = crlf
+
+[*.sh]
+end_of_line = lf
+
+# ============================================================================
+# C# code style
+# ============================================================================
+[*.cs]
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+# ---- Namespaces: prefer file-scoped ----------------------------------------
+csharp_style_namespace_declarations = file_scoped:suggestion
+
+# ---- `var` usage: prefer var where the type is apparent / built-in ---------
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:silent
+
+# ---- using directives ------------------------------------------------------
+csharp_using_directive_placement = outside_namespace:suggestion
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# ---- `this.` qualification: not required -----------------------------------
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+
+# ---- Expression preferences ------------------------------------------------
+dotnet_style_predefined_type_for_locals_parameters_members = true:suggestion
+dotnet_style_predefined_type_for_member_access = true:suggestion
+csharp_prefer_braces = true:suggestion
+csharp_style_expression_bodied_methods = false:silent
+csharp_style_expression_bodied_properties = true:silent
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:silent
+dotnet_style_prefer_conditional_expression_over_return = true:silent
+
+# ============================================================================
+# .NET naming conventions
+# ----------------------------------------------------------------------------
+# Core rule for PR C: PRIVATE FIELDS use camelCase with NO leading underscore.
+# ============================================================================
+
+# ---- Symbol groups ----
+dotnet_naming_symbols.private_fields.applicable_kinds           = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private,private_protected
+dotnet_naming_symbols.private_fields.required_modifiers         =
+
+dotnet_naming_symbols.private_static_fields.applicable_kinds           = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private,private_protected
+dotnet_naming_symbols.private_static_fields.required_modifiers         = static
+
+dotnet_naming_symbols.constants.applicable_kinds           = field
+dotnet_naming_symbols.constants.applicable_accessibilities = *
+dotnet_naming_symbols.constants.required_modifiers         = const
+
+dotnet_naming_symbols.public_members.applicable_kinds           = property,method,field,event,delegate
+dotnet_naming_symbols.public_members.applicable_accessibilities = public,internal,protected,protected_internal
+
+dotnet_naming_symbols.types.applicable_kinds = class,struct,enum,delegate
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+
+dotnet_naming_symbols.parameters_locals.applicable_kinds = parameter,local
+
+# ---- Naming styles ----
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+dotnet_naming_style.camel_case_no_underscore.capitalization = camel_case
+dotnet_naming_style.camel_case_no_underscore.required_prefix =
+
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+dotnet_naming_style.interface_prefix.capitalization = pascal_case
+dotnet_naming_style.interface_prefix.required_prefix = I
+
+# ---- Rules ----
+# Private (and private static) fields: camelCase, explicitly NO `_` prefix.
+dotnet_naming_rule.private_fields_camel_case.symbols  = private_fields
+dotnet_naming_rule.private_fields_camel_case.style    = camel_case_no_underscore
+dotnet_naming_rule.private_fields_camel_case.severity = warning
+
+dotnet_naming_rule.private_static_fields_camel_case.symbols  = private_static_fields
+dotnet_naming_rule.private_static_fields_camel_case.style    = camel_case_no_underscore
+dotnet_naming_rule.private_static_fields_camel_case.severity = warning
+
+# Constants: PascalCase.
+dotnet_naming_rule.constants_pascal_case.symbols  = constants
+dotnet_naming_rule.constants_pascal_case.style    = pascal_case
+dotnet_naming_rule.constants_pascal_case.severity = suggestion
+
+# Public surface: PascalCase.
+dotnet_naming_rule.public_members_pascal_case.symbols  = public_members
+dotnet_naming_rule.public_members_pascal_case.style    = pascal_case
+dotnet_naming_rule.public_members_pascal_case.severity = suggestion
+
+# Types: PascalCase. Interfaces: I-prefixed PascalCase.
+dotnet_naming_rule.types_pascal_case.symbols  = types
+dotnet_naming_rule.types_pascal_case.style    = pascal_case
+dotnet_naming_rule.types_pascal_case.severity = suggestion
+
+dotnet_naming_rule.interfaces_i_prefix.symbols  = interfaces
+dotnet_naming_rule.interfaces_i_prefix.style    = interface_prefix
+dotnet_naming_rule.interfaces_i_prefix.severity = suggestion
+
+# Parameters & locals: camelCase.
+dotnet_naming_rule.parameters_locals_camel_case.symbols  = parameters_locals
+dotnet_naming_rule.parameters_locals_camel_case.style    = camel_case
+dotnet_naming_rule.parameters_locals_camel_case.severity = suggestion

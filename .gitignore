@@ -38,6 +38,17 @@ Thumbs.db
 .scratch/
 SCRATCH.md
 
+# Per-developer build config (machine-specific paths) — NEVER COMMIT
+.env
+
+# Fetched build SDK (BepInEx pack / managed reference assemblies) — NEVER COMMIT
+# Obtained locally via scripts/fetch-sdk.sh; contains third-party/redistributable
+# binaries that do not belong in source control.
+.sdk/
+
 # C# build artifacts
 src/**/bin/
 src/**/obj/
+
+# Transient PR handoff artifacts (format-patch dumps, bundles, full-diffs)
+.pr-c-handoff/

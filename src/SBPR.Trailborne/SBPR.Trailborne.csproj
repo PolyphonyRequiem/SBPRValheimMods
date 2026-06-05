@@ -5,17 +5,16 @@
     <RootNamespace>SBPR.Trailborne</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Version>0.1.0</Version>
-    <Nullable>disable</Nullable>
+    <Nullable>enable</Nullable>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <DebugType>none</DebugType>
     <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <ValheimManaged>/home/polyphonyrequiem/valheim/worldgen-spike/server/server/valheim_server_Data/Managed</ValheimManaged>
-    <BepInExCore>/tmp/bepinex_valheim/BepInExPack_Valheim/BepInEx/core</BepInExCore>
-  </PropertyGroup>
+  <!-- $(ValheimManaged) and $(BepInExCore) are resolved from environment variables
+       (or a gitignored repo-root .env) by Directory.Build.props at the repo root.
+       No machine-specific absolute paths live in this file. -->
 
   <ItemGroup>
     <Reference Include="assembly_valheim"><HintPath>$(ValheimManaged)/assembly_valheim.dll</HintPath><Private>false</Private></Reference>
