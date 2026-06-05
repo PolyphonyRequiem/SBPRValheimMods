@@ -47,9 +47,14 @@ namespace SBPR.Trailborne
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
-            // Painted Sign paint-via-ink receiver: apply an ink item to a placed
-            // sign to set/repaint its color (single-sign model, Daniel 2026-06-04).
-            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPaintPatch));
+            // Painted Sign entrypoint (§A2.6, re-lock 2026-06-05): interacting with a
+            // placed sign opens the custom combined Paint+Text uGUI panel instead of the
+            // vanilla text dialog. Replaces the retired apply-ink-item paint gesture.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignInteractPatch));
+            // Make the panel usable: block player input + release the mouse cursor while
+            // it is open (two nested patch classes — register the container type).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.TakeInputPatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MouseCapturePatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content
             // actually craftable/buildable on a joined client (task
