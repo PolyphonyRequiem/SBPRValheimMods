@@ -343,9 +343,9 @@ Planned scans:
 2. **Cairns** — 5-tier comfort floor 3/4/5/6/7, build cost **3 Stone + 1 Resin + 1 Cairn Marker**, upgrade cost flat **3 Stone + 1 Resin** per tier, repair cost flat **3 Stone + 1 Resin**, mandatory decay, ≥75% pristine (resin glows) / <75% fizzled / <25% downgrade / 0% collapse, pigment+banner persist, auto-re-ignite glow on repair-to-pristine
 3. **Cairn Marker** (pre-crafted consumable, recipe = **2 Leather Scraps + 1 Finewood + 1 Pigment** of player's color, crafted at Explorer's Bench, pigment color binds cairn color at craft-time)
 4. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
-5. **Painted Signs** — ONE buildable sign (`piece_sbpr_sign`, 2 Wood), placed UNPAINTED; painted after placement by applying an ink item (red/white/blue/black), re-applying repaints; color persists via ZDO. Pin path (Shift+E, single color, no-op if nomap=ON) deferred/unregistered (single-sign + paint-via-ink model, Daniel 2026-06-04)
+5. **Painted Signs** — ONE buildable sign (`piece_sbpr_sign`, 2 Wood), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), UNPAINTED; painted after placement by applying an ink item (red/white/blue/black), re-applying repaints; color persists via ZDO. **Free-standing on a kitbashed 2m wood pole** (`wood_pole2`), board at readable height (Daniel 2026-06-05). Pin path (Shift+E, single color, no-op if nomap=ON) deferred/unregistered (single-sign + paint-via-ink model, Daniel 2026-06-04)
 6. **Trailblazer's Tools** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, **Replant Grass in 3 widths (1.5/3/5m)** mirroring the path widths (each restores grass over the stated footprint, still mirrors the Cultivator's "Grass" mode — NOT cultivate, NO terrain raise/level at any width; 3 widths per Daniel's 2026-06-05 playtest, scaling only the grass/paint radius), Clear Vegetation wide-radius (deferred to v0.2.0), recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
-7. **Path Lamps** — **Corewood + Resin** (quantities TBD), dimmer than torch, longer fuel, manual ignition (no chain ignition)
+7. **Path Lamps** — **3 Wood + 2 Resin** (Meadows-tier, Daniel 2026-06-04), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), dimmer than torch, longer fuel, manual ignition (no chain ignition). **Scaled 3× vertically** (foot-anchored — base on the ground, flame at the new top; Daniel 2026-06-05)
 8. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
 
 **NOT in v1:** Ember Lamps, Beacons, Seer's Stone, Map Station, Pocket Portal, Twisted Portal, Iron Compass, Inert Guardian Stones, Yellow pigment (cloudberry).
@@ -397,7 +397,7 @@ Planned scans:
 ### Painted Signs (single buildable + paint-via-ink)
 
 - **Model (LOCKED 2026-06-04, Daniel):** ONE buildable sign, placed UNPAINTED, painted afterward by applying a pigment/ink item. This SUPERSEDES the earlier "subclass `Sign` + custom multi-field edit dialog + E text-color / Shift+E accent-color / two-tone pin" design. No custom edit dialog, no accent color, no two-tone pin for v0.1.0.
-  - **Build:** `piece_sbpr_sign` ("Painted Sign"), Hammer Furniture tab, **2 Wood**. Clone of the vanilla wood `sign` prefab; ships in its plain wood (unpainted) material. Ink is NOT a build ingredient.
+  - **Build:** `piece_sbpr_sign` ("Painted Sign"), **Trailblazer's Spade build menu** ('Trail' tab — NOT the Hammer; design pillar: Explorer-placed pieces live on the Tools), **2 Wood**, **no station-proximity required to place** (`Piece.m_craftingStation` cleared). Clone of the vanilla wood `sign` prefab **kitbashed onto a vanilla 2m wood pole (`wood_pole2`)** so it stands free on the ground like a trail signpost (Daniel 2026-06-05), board raised to readable height (~1.2m). The pole is a decorative child stripped of ZNetView/Piece/WearNTear/Collider (no own ZDO, not separately destructible, never intercepts the E raycast — board stays the sole interact/paint target). Ships in plain wood (unpainted); ink is NOT a build ingredient.
   - **Paint:** with an ink in hand, apply it to the placed sign → the sign takes that color. Apply a different ink → repaint. One ink consumed per paint. An already-applied color is a no-op (no ink consumed).
   - **Text:** vanilla `E` text dialog, unchanged. Default label "Painted Sign".
 - **Color state:** stored per-instance on the sign's ZDO as a string field `SBPR_SignColor` (one of `red`/`white`/`blue`/`black`, or `""` = unpainted). Owner-write via `ZNetView.ClaimOwnership()` + `ZDO.Set(string,string)` (mirrors the `CairnTag` tier pattern). Persists across reloads + syncs to clients; re-applied to the mesh on spawn via a `SignTag` component (`Renderer.sharedMaterials` `_Color` tint).
@@ -429,9 +429,10 @@ Planned scans:
 
 ### Path Lamps (kitbash vanilla `piece_groundtorch_wood`)
 
-- **Recipe (LOCKED Q3.11):** 3 Corewood + 2 Resin.
+- **Recipe (LOCKED, Daniel 2026-06-04 — see §A3.7):** **3 Wood + 2 Resin** (downshifted from the earlier 3 Corewood; Meadows-tier accessibility).
+- **Build menu (LOCKED, Daniel 2026-06-05):** placed via the **Trailblazer's Spade build menu** ('Trail' tab — NOT the Hammer; design pillar: Explorer-placed pieces live on the Tools), **no station-proximity required to place** (`Piece.m_craftingStation` cleared).
 - **Vanilla anchor:** `piece_groundtorch_wood` (Fireplace + Piece combo). Tune `Fireplace.m_fuelItem = Resin`, extend `m_secPerFuel` for "long burn" (vanilla torch ~600s/resin; ours ~1800s/resin so a 2-resin lamp = ~1hr burn), reduce child `Light.intensity` ~30% for "dimmer trail glow."
-- **Visual:** slim 3m corewood post topped with resin-fueled flame (per Q3.11 lock).
+- **Visual (kitbash, Daniel 2026-06-05):** **scaled 3× vertically** so it reads as a tall standing path lamp. Foot-anchored: the base stays flush with the ground and the flame/light rides up to the new top (geometry children scale on Y; the flame/Light children keep their size and only translate up — not a bonfire-on-a-stick). Root collider intentionally NOT rescaled (flag QA if the collision box should match the taller visual).
 
 ### v1 Cartography Table (DISABLED)
 
