@@ -144,7 +144,7 @@ Each entry has:
 | Biome tier | Meadows |
 | Craft station | Explorer's Bench |
 | Recipe | 5 Wood + 2 Flint + 2 Leather Hides |
-| Function | Single tool item — holds the Trailborne build menu (Cairns, Painted Signs, Path Lamps). 1.5/3/5m path widths (mirror Hoe). Replant Grass same radii. Clear Vegetation wide-radius. |
+| Function | Single tool item — holds the Trailborne build menu (Cairns, Painted Signs, Path Lamps). 1.5/3/5m path widths (mirror Hoe). Replant Grass mirrors the vanilla Cultivator's replant exactly (single op, vanilla radius — NOT scaled to path widths). Clear Vegetation deferred to v0.2.0. |
 | Patch surface | Likely a new `ItemDrop` with `Tool` ItemType + custom `Hoe`-derived component for path-laying |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
