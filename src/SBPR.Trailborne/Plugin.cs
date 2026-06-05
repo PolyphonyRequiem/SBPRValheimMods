@@ -18,9 +18,9 @@ namespace SBPR.Trailborne
         public const string ModName    = "SBPR Trailborne";
         public const string ModVersion = "0.1.0";
 
-        internal static ManualLogSource Log;
-        internal static string PluginFolder;
-        private  Harmony harmony;
+        internal static ManualLogSource Log = null!;   // set in Awake (BepInEx guarantees Awake before any patch fires)
+        internal static string PluginFolder = null!;    // set in Awake
+        private  Harmony harmony = null!;               // set in Awake
 
         // ── Config ──────────────────────────────────────────────────
         // Shift+E debug-damage flag. When true, Shift+E on a pristine cairn
@@ -28,7 +28,7 @@ namespace SBPR.Trailborne
         // repair/upgrade combo gesture without waiting for weather decay.
         // Default true for v0.1.0 — flip false (or delete in v0.2.0) once
         // real decay has been tuned.
-        internal static ConfigEntry<bool> DebugCairnDamage;
+        internal static ConfigEntry<bool> DebugCairnDamage = null!;   // set in Awake via Config.Bind
 
         private void Awake()
         {

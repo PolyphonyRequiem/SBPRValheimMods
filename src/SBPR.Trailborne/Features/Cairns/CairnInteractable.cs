@@ -14,9 +14,9 @@ namespace SBPR.Trailborne.Features.Cairns
     public class CairnInteractable : MonoBehaviour, Hoverable, Interactable
     {
         private const float UseDistance = 4.0f;
-        private CairnTag cairnTag;
-        private WearNTear wnt;
-        private Piece piece;
+        private CairnTag cairnTag = null!;   // Unity-injected in Awake via GetComponent
+        private WearNTear wnt = null!;        // Unity-injected in Awake via GetComponent
+        private Piece piece = null!;          // Unity-injected in Awake via GetComponent
 
         private void Awake()
         {

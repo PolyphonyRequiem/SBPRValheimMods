@@ -11,7 +11,7 @@ namespace SBPR.Trailborne.Runtime
     /// </summary>
     internal static class Assets
     {
-        public static Sprite LoadPngAsSprite(string filename)
+        public static Sprite? LoadPngAsSprite(string filename)
         {
             try
             {
@@ -39,7 +39,7 @@ namespace SBPR.Trailborne.Runtime
             }
         }
 
-        private static GameObject holder;
+        private static GameObject? holder;   // lazy static cache; genuinely null until first GetHolder()
         private static GameObject GetHolder()
         {
             if (holder == null)
@@ -55,7 +55,7 @@ namespace SBPR.Trailborne.Runtime
         /// Clone a registered prefab from ZNetScene under a new name.
         /// Caller is responsible for adding the clone back into ZNetScene + ObjectDB.
         /// </summary>
-        public static GameObject ClonePrefab(string sourceName, string newName)
+        public static GameObject? ClonePrefab(string sourceName, string newName)
         {
             var zns = ZNetScene.instance;
             if (zns == null)
@@ -114,7 +114,7 @@ namespace SBPR.Trailborne.Runtime
                 odb.m_recipes.Add(recipe);
         }
 
-        public static PieceTable GetHammerPieceTable()
+        public static PieceTable? GetHammerPieceTable()
         {
             var odb = ObjectDB.instance;
             if (odb == null) return null;
@@ -163,7 +163,7 @@ namespace SBPR.Trailborne.Runtime
             };
         }
 
-        public static ItemDrop FindItemDrop(string prefabName)
+        public static ItemDrop? FindItemDrop(string prefabName)
         {
             var odb = ObjectDB.instance;
             var go = odb?.GetItemPrefab(prefabName);

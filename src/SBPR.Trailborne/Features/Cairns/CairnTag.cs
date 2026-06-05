@@ -24,9 +24,9 @@ namespace SBPR.Trailborne.Features.Cairns
     /// </summary>
     public class CairnTag : MonoBehaviour
     {
-        public string Color;
-        private ZNetView nview;
-        private GameObject kitbashRoot;
+        public string Color = null!;          // set by registration immediately after AddComponent
+        private ZNetView nview = null!;        // Unity-injected in Awake via GetComponent
+        private GameObject? kitbashRoot;       // genuinely null until/unless a rock pile is built (fallback path leaves it null)
         private int lastBuiltTier = -1;
 
         private void Awake()
