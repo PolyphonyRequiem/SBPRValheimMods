@@ -8,6 +8,11 @@ build/
 *.suo
 *.zip
 
+# Exception: bundled third-party mods we ship in the modpack ARE committed.
+# Their DLLs are redistributable artifacts (known version, pinned, license-carried),
+# not build output — so they must escape the blanket *.dll ignore above.
+!assets/bundled-mods/**/*.dll
+
 # Unity sidecar (not committed)
 unity-project/Library/
 unity-project/Temp/
