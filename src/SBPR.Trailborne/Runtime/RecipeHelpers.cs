@@ -18,7 +18,7 @@ namespace SBPR.Trailborne.Runtime
         /// carries no CraftingStation — callers then register the recipe against a
         /// null station (no bench requirement), preserving prior behaviour.
         /// </summary>
-        public static CraftingStation FindStation(string piecePrefabName)
+        public static CraftingStation? FindStation(string piecePrefabName)
         {
             var zns = ZNetScene.instance;
             var p = zns?.GetPrefab(piecePrefabName);
