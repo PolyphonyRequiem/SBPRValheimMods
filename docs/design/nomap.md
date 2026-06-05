@@ -44,6 +44,8 @@ A new workbench-tier crafting station.
 - **Patch surface:** **none** — pure prefab work.
   - Clone `piece_workbench` → set new prefab name `SBPR_ExplorersBench`.
   - Add a new `CraftingStation` (line 56034) component with `m_name = "$sbpr_piece_explorers_bench"`.
+  - **Set `m_showBasicRecipies = false` on that CraftingStation.** The vanilla Workbench is the ONLY station that ships this flag `true` — it's the flag that surfaces the stationless "basic" recipes a player can otherwise craft by hand (Club, Torch, Stone Axe, Hammer, Hoe, rag armor, …). A raw clone inherits `true`, so the Explorer's Bench wrongly offered all of them. Every other vanilla station (forge, stonecutter, cauldron, …) ships it `false`; match them so ONLY Trailborne recipes appear here. (Bugfix 2026-06-04, card t_30f97042.)
+  - **Strip the inherited `GuidePoint` component** from the clone. The vanilla Workbench prefab carries a `GuidePoint` (the proximity hook that triggers Hugin's "you built a workbench" tutorial); a renamed clone still inherits it, so Hugin wrongly greets the Explorer's Bench as a Workbench. Remove all `GuidePoint` components (root + children) right after cloning so the station carries no Workbench tutorial. (Bugfix 2026-06-04, card t_53ab3232. Note: `Piece.m_firstTutorial` does NOT exist on this game version — the tutorial is driven entirely by the `GuidePoint` MonoBehaviour, verified against `assembly_valheim.dll` metadata.)
   - It becomes the `Piece.m_craftingStation` requirement for the explorer pieces below.
 - **Piece definition:** `Piece` (line 116052). Set `m_category = PieceCategory.Crafting`. `m_resources = Requirement[]` where each `Requirement.m_resItem` points to an existing `ItemDrop`.
 - **Locked recipe (Daniel, 2026-06-03):**
