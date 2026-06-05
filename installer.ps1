@@ -17,12 +17,14 @@
          %LOCALAPPDATA%\Trailborne\Valheim-Modded
        Your vanilla install stays 100% pristine — unmodded Valheim still
        launches normally from Steam.
-    3. Downloads the Trailborne modpack (BepInEx + the mod) from the repo's
-       GitHub Release, verifies its SHA256, and overlays it into the copy.
+    3. Downloads the Trailborne modpack (BepInEx + the SBPR.Trailborne mod
+       + ServerDevcommands for admins) from the repo's GitHub Release,
+       verifies its SHA256, and overlays it into the copy.
     4. Writes a launcher (Launch-Trailborne.cmd + a Desktop shortcut) that
        starts the MODDED copy with BepInEx, pointed at Steam so multiplayer
-       + ownership work normally. The launcher adds -console (F5 dev console);
-       pass -NoConsole to omit it.
+       + ownership work normally. The launcher adds -console (F5 dev console;
+       admins also get full devcommands incl. spawn/god/fly via the bundled
+       ServerDevcommands mod); pass -NoConsole to omit -console.
     5. Prints the server join info for tonight.
 
   WHAT IT DOES NOT DO:
@@ -40,8 +42,8 @@
 [CmdletBinding()]
 param(
     # GitHub release asset (the assembled modpack). Pinned to a tag for stability.
-    [string]$ModpackUrl    = 'https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.1.0-playtest/SBPR-Trailborne-Modpack-v0.1.0.zip',
-    [string]$ExpectedSha256= '0ab0ff8ca3fdb61f1a9e93713606e0aafcf1268e3fdc80b7db5b8e25aac950d4',
+    [string]$ModpackUrl    = 'https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.2.0-playtest/SBPR-Trailborne-Modpack-v0.2.0.zip',
+    [string]$ExpectedSha256= '578fbd28bc5862912fd0873451f83a1b8276ca54b49c79b465b5296a0bb19e60',
     # Live server status (join code drifts on every restart, so we FETCH it at
     # runtime instead of baking a stale code in). Falls back gracefully if down.
     [string]$StatusUrl     = 'https://gist.githubusercontent.com/PolyphonyRequiem/7b54a29aeefb3effee0393df79d0b03e/raw/niflheim-status.json',
