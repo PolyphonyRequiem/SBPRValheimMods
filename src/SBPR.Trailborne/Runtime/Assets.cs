@@ -202,5 +202,142 @@ namespace SBPR.Trailborne.Runtime
             }
             return removed;
         }
+
+        /// <summary>
+        /// Strip a cloned vanilla prefab down to pure DECORATION — remove the
+        /// gameplay/networking components (<see cref="ZNetView"/>, <see cref="Piece"/>,
+        /// <see cref="WearNTear"/>, every <see cref="Collider"/>) so the object can be
+        /// nested under another prefab purely as a visual kitbash child without
+        /// registering its own ZDO, becoming separately destructible, or intercepting
+        /// interaction raycasts. Renderers / mesh filters / LODGroup are left intact.
+        ///
+        /// Used by the Painted Sign kitbash to plant a vanilla wood pole under the sign
+        /// board. Like <see cref="StripGuidePoints"/> it relies on the clone living
+        /// parented under an INACTIVE holder (so no Awake has run and the ZNetView has
+        /// no live ZDO yet), and uses DestroyImmediate so the components are gone before
+        /// the prefab is ever instantiated in the world. Components are removed in
+        /// dependency order (consumers before the ZNetView they reference). Public
+        /// UnityEngine API only — clean-room safe (no decompiled IronGate source).
+        /// </summary>
+        public static void StripToDecorative(GameObject go)
+        {
+            if (go == null) return;
+
+            void Kill(Component c)
+            {
+                if (c == null) return;
+                try { UnityEngine.Object.DestroyImmediate(c); }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning($"[Trailborne] StripToDecorative: failed to remove {c.GetType().Name}: {e.Message}");
+                }
+            }
+
+            // Order matters: WearNTear / Piece reference the ZNetView, so drop them first.
+            foreach (var c in go.GetComponentsInChildren<WearNTear>(true)) Kill(c);
+            foreach (var c in go.GetComponentsInChildren<Piece>(true))      Kill(c);
+            foreach (var c in go.GetComponentsInChildren<Collider>(true))   Kill(c);
+            foreach (var c in go.GetComponentsInChildren<ZNetView>(true))   Kill(c);
+        }
+
+        /// <summary>
+        /// Measure the lowest point (the "foot") of every visual mesh under
+        /// <paramref name="root"/>, expressed in <paramref name="root"/>'s LOCAL
+        /// space. Walks each <see cref="MeshFilter"/>'s shared-mesh AABB, transforms
+        /// its 8 corners into root-local space, and returns the minimum Y.
+        ///
+        /// Reads <c>sharedMesh.bounds</c> (a serialized asset property) and pure
+        /// transform math, so it works on a clone still parented under the inactive
+        /// holder — no Awake, no live <see cref="Renderer.bounds"/> required. Returns
+        /// 0 when the root has no meshes (caller treats that as "pivot is the foot").
+        /// Public UnityEngine API only — clean-room safe.
+        /// </summary>
+        public static float MeasureLocalFootY(GameObject root)
+        {
+            if (root == null) return 0f;
+            var rootT = root.transform;
+            float minY = float.MaxValue;
+            bool any = false;
+
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf == null) continue;
+                var mesh = mf.sharedMesh;
+                if (mesh == null) continue;
+                var b = mesh.bounds;
+                var t = mf.transform;
+                for (int xi = -1; xi <= 1; xi += 2)
+                for (int yi = -1; yi <= 1; yi += 2)
+                for (int zi = -1; zi <= 1; zi += 2)
+                {
+                    var corner = b.center + Vector3.Scale(b.extents, new Vector3(xi, yi, zi));
+                    var local  = rootT.InverseTransformPoint(t.TransformPoint(corner));
+                    if (local.y < minY) minY = local.y;
+                    any = true;
+                }
+            }
+
+            return any ? minY : 0f;
+        }
+
+        /// <summary>
+        /// Scale the VISUAL of <paramref name="root"/> by <paramref name="factor"/>
+        /// on the Y axis, anchored at the foot plane so the base stays planted on the
+        /// ground and the top (e.g. a torch flame) rises to the new height. Operates
+        /// on each DIRECT child of the root (Valheim pieces keep their meshes / fx /
+        /// light in children; the root carries Piece / ZNetView / Fireplace).
+        ///
+        /// Two cases per child, both anchored at the measured foot (footY):
+        ///   • Child whose subtree contains a mesh (the post / pole geometry):
+        ///       localScale.y    *= factor                       (geometry grows tall)
+        ///       localPosition.y  = footY + (y - footY) * factor  (base stays planted)
+        ///   • Child with NO mesh (the fx_Torch flame, point Light, audio):
+        ///       localPosition.y  = footY + (y - footY) * factor  (rides up to the top)
+        ///       localScale        UNCHANGED                       (flame stays normal size)
+        /// So the post becomes 3× tall while the flame keeps its size and simply sits
+        /// at the new top instead of mid-pole — not a bonfire on a stick.
+        ///
+        /// Foot is MEASURED from the meshes (not assumed at the pivot), so the result
+        /// is correct regardless of where the prefab's pivot sits. The root transform
+        /// itself is left at identity scale so the placement system (which drives the
+        /// root) is unaffected, and root colliders are NOT rescaled (Daniel: "scale
+        /// the visual, not necessarily the root collider") — flag for QA if the
+        /// collision box should match the taller visual. Public UnityEngine API only.
+        /// </summary>
+        public static void ScaleVisualHeightAboutFoot(GameObject root, float factor)
+        {
+            if (root == null || factor <= 0f) return;
+            var rootT = root.transform;
+
+            // Warn (don't throw) if the visual lives on the root itself — then there is
+            // no child to scale and the caller's intent silently no-ops.
+            bool hasChildMesh = false;
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+                if (mf != null && mf.transform != rootT) { hasChildMesh = true; break; }
+            if (!hasChildMesh)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] ScaleVisualHeightAboutFoot: '{root.name}' has no child meshes to scale " +
+                    "(visual may be on the root); height scaling skipped. Verify the prefab hierarchy.");
+                return;
+            }
+
+            float footY = MeasureLocalFootY(root);
+            foreach (Transform child in rootT)
+            {
+                var lp = child.localPosition;
+                // Foot-anchored reposition applies to EVERY child so flame/light ride
+                // up with the post instead of floating mid-pole.
+                child.localPosition = new Vector3(lp.x, footY + (lp.y - footY) * factor, lp.z);
+
+                // Only geometry-bearing children grow taller; pure fx/light/audio
+                // children keep their original scale (normal-size flame at the top).
+                if (child.GetComponentInChildren<MeshFilter>(true) != null)
+                {
+                    var ls = child.localScale;
+                    child.localScale = new Vector3(ls.x, ls.y * factor, ls.z);
+                }
+            }
+        }
     }
 }

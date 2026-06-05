@@ -10,6 +10,9 @@ namespace SBPR.Trailborne.Features.Trailblazing
     // name `Trailhead` would bind to the sibling NAMESPACE, so alias it to the
     // type to keep the readable `Trailhead.ExplorersBenchName` station lookup.
     using Trailhead = SBPR.Trailborne.Features.Trailhead.Trailhead;
+    // Same aliasing rationale for Signs (sibling namespace vs. the Signs type we
+    // need for Signs.SignName when adding the sign to the spade build menu).
+    using Signs = SBPR.Trailborne.Features.Signs.Signs;
 
     /// <summary>
     /// M3 content: Trailblazer's Spade real path/replant behavior, plus the
@@ -254,8 +257,46 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 if (p != null) Assets.AddPieceToTable(p, table);
             }
 
+            // Explorer-placed signage + lighting belong on the Trailblazer's Tools
+            // (the Spade), NOT the Hammer — design pillar (design/design-pillars.md
+            // lines 31-33: "Paths, signs, cairns, lamps… all live on the Tools").
+            // Fixing code-vs-spec drift flagged by Daniel's 2026-06-05 playtest: the
+            // Painted Sign + Path Lamp were wrongly wired onto the Hammer. We add them
+            // to the SPADE table here instead.
+            //
+            // RACE-SAFETY: Registrar runs ALL features' RegisterPrefabs (which register
+            // the sign + lamp prefabs into ZNetScene) BEFORE any DoObjectDBWiring, and
+            // dispatches Trailblazing AFTER Trailhead + Signs, so both prefabs resolve
+            // by name here. Both pieces are PieceCategory.Misc (matching this table's
+            // single 'Trail' category) so they render in the one tab. (A separate
+            // 'Signage'/'Lights' tab is a possible v1.x usability tweak — flagged for
+            // Daniel; a single 'Trail' tab is acceptable for v1.)
+            AddSpadePieceByName(zns, table, Signs.SignName);
+            AddSpadePieceByName(zns, table, Trailhead.PathLampName);
+
             drop.m_itemData.m_shared.m_buildPieces = table;
-            Plugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} ops.");
+            Plugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} pieces (3 path widths + replant + sign + lamp).");
+        }
+
+        /// <summary>
+        /// Resolve a piece prefab by name from ZNetScene and add it to the spade's
+        /// PieceTable, logging a warning if the prefab is missing (a registration
+        /// ordering regression would surface here rather than silently dropping the
+        /// piece from the menu).
+        /// </summary>
+        private static void AddSpadePieceByName(ZNetScene? zns, PieceTable table, string prefabName)
+        {
+            var p = zns?.GetPrefab(prefabName);
+            if (p != null)
+            {
+                Assets.AddPieceToTable(p, table);
+            }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M3] Spade table: prefab '{prefabName}' not found in ZNetScene; " +
+                    "it will be missing from the spade build menu. Check feature registration order in Registrar.");
+            }
         }
 
         private static void AddSpadeRecipe()

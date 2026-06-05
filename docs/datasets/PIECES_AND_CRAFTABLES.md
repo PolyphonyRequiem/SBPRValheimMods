@@ -88,12 +88,12 @@ Each entry has:
 | Type | `Piece` (Sign variant) |
 | Mod | Trailborne |
 | Biome tier | Meadows |
-| Craft station | Explorer's Bench (build menu) — Hammer Furniture tab |
+| Craft station | Explorer's Bench (to craft the Trailblazer's Spade that opens the build menu) — placed in-world via the **Trailblazer's Spade build menu** ('Trail' tab). **No station-proximity required to PLACE** the sign. |
 | Recipe | 2 Wood (placed UNPAINTED; ink is NOT a build ingredient) |
-| Function | One buildable signpost, placed unpainted. Painted AFTER placement via a **combined Paint+Text panel** (custom uGUI) that sets a **text color AND a border color** (two-tone): one pigment per filled color slot (border optional, ≥1 color required, re-paint re-consumes) committed via `{Paint this and consume}`. Text edited via `{Update Text}` (free, locked until a color is chosen). Both colors persist + sync via the sign's ZDO. |
-| Visual notes | Vanilla `sign` prefab as base, shown in its plain wood (unpainted) material until painted; on paint, the board mesh is runtime-tinted to the text color and a **separate border element** to the border color, re-applied on spawn from ZDO. ⚠️ Needs a separable border renderer/material on the mesh (open technical question). |
-| Patch surface | Intercept the placed sign's text-edit interaction (vanilla `TextReceiver`/`Sign.UseItem`) to open the **custom combined Paint+Text uGUI panel** instead of the vanilla dialog; per-instance ZDO fields `SBPR_SignTextColor` + `SBPR_SignBorderColor` ("" = unset). Existing `SignPaintPatch.cs` apply-ink seam retired as the entrypoint, its consume/ZDO-write/tint helpers reused as the panel backend. Pin emission piggybacks on the Minimap pin system (design/nomap.md §3) — currently unregistered (follow-up). |
-| Status | SPEC LOCKED (single combined Paint+Text panel, two-tone, Daniel 2026-06-05 — supersedes the 6/04 apply-ink model) |
+| Function | One buildable free-standing signpost, placed unpainted. Painted AFTER placement by applying a pigment/ink item (red/white/blue/black) to the placed sign; re-applying a different ink repaints it. Color persists + syncs via the sign's ZDO. Text written via vanilla E dialog. |
+| Visual notes | Vanilla `sign` placard kitbashed onto a **vanilla 2m wood pole (`wood_pole2`)** so it stands free on the ground like a trail signpost (Daniel 2026-06-05), board raised to readable height (~1.2m) near the pole top. The pole is a decorative child stripped of ZNetView/Piece/WearNTear/Collider (no own ZDO, not separately destructible, never intercepts the E raycast). Shown in plain wood (unpainted) until painted; on paint the BOARD mesh is runtime-tinted (pole stays un-tinted), re-applied on spawn from ZDO. |
+| Patch surface | `Sign.UseItem` prefix (apply-ink-to-paint, the ItemStand `Interactable.UseItem` pattern); per-instance ZDO color field `SBPR_SignColor` ("" = unpainted). Build piece added to the **Spade PieceTable** (not the Hammer); `Piece.m_craftingStation` cleared so placement needs no bench proximity. Pin emission (Shift+E) piggybacks on the Minimap pin system from design/nomap.md §3 — currently unregistered (follow-up). |
+| Status | SPEC LOCKED (single-sign + paint-via-ink model, Daniel 2026-06-04; Spade-menu + 2m-pole kitbash, Daniel 2026-06-05) |
 | Source spec | `docs/v0.1.0/planning/requirements.md` §A2.6 |
 
 #### Path Lamp
@@ -101,17 +101,17 @@ Each entry has:
 | Field | Value |
 |---|---|
 | Display name | Path Lamp |
-| Prefab name | `SBPR_PathLamp` |
+| Prefab name | `piece_sbpr_path_lamp` |
 | Type | `Piece` (Light source, fueled) |
 | Mod | Trailborne |
-| Biome tier | Black Forest (corewood gate) |
-| Craft station | Explorer's Bench (build menu) |
-| Recipe | Corewood + Resin (quantities TBD) |
+| Biome tier | Meadows (downshifted from Black Forest/Corewood per Daniel 2026-06-04; see requirements.md §A3.7) |
+| Craft station | Explorer's Bench (to craft the Trailblazer's Spade that opens the build menu) — placed in-world via the **Trailblazer's Spade build menu** ('Trail' tab). **No station-proximity required to PLACE** the lamp. |
+| Recipe | 3 Wood + 2 Resin |
 | Function | Trail-illumination light source — dimmer than vanilla torch, longer fuel duration, manual ignition |
-| Visual notes | Tier 1 reuse — vanilla `piece_groundtorch` or `piece_groundtorch_wood` with material tint and slight scale reduction for dimmer feel |
-| Patch surface | None (pure prefab + Fireplace component config) |
-| Status | SPEC LOCKED (quantities TBD) |
-| Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
+| Visual notes | Tier 1 reuse — clone of vanilla `piece_groundtorch_wood`, **scaled 3× vertically** (Daniel 2026-06-05) so it reads as a tall standing path lamp. Scaling is foot-anchored: the base stays flush with the ground and the flame/light rides to the new top (geometry children scale, the flame/Light children keep their size and only translate up). Root collider intentionally NOT rescaled (flag QA if the collision box should match the taller visual). |
+| Patch surface | Pure prefab work (clone + 3× foot-anchored Y-scale + Fireplace component config). Build piece added to the **Spade PieceTable** (not the Hammer); `Piece.m_craftingStation` cleared so placement needs no bench proximity. |
+| Status | SPEC LOCKED (Meadows recipe 3 Wood + 2 Resin, Daniel 2026-06-04; Spade-menu + 3× tall, Daniel 2026-06-05) |
+| Source spec | `docs/v0.1.0/planning/requirements.md` §A2.4 / §A3.7 |
 
 ### Items
 
