@@ -113,8 +113,16 @@ namespace SBPR.Trailborne.Features.Cairns
             string action = "Repaired";
             if (tier < Cairns.MaxTier)
             {
+                // WriteTier rebuilds the pile at the new stone count AND re-evaluates
+                // the ember bracket, so the relight is handled there on an upgrade.
                 cairnTag.WriteTier(tier + 1);
                 action = $"Repaired + upgraded to T{tier + 1}";
+            }
+            else
+            {
+                // Max tier: no rebuild, so nudge the ember to reconcile to the now-
+                // pristine HP bracket immediately instead of waiting for the 1 s poll.
+                cairnTag.RefreshEmber();
             }
 
             MessageHud.instance?.ShowMessage(
