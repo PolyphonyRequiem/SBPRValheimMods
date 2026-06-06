@@ -148,15 +148,31 @@ namespace SBPR.Trailborne.Features.Cairns
 
             var zns = ZNetScene.instance;
             if (zns == null) return;
-            var rockSrc = zns.GetPrefab("rock_low");
+            // Donor source for the cairn pile: a vanilla small ground-stone prefab,
+            // stripped to pure decoration before stacking. Try real prefab names in
+            // priority order — different Valheim builds have shipped different small-
+            // stone props, and the v0.2.1 build referenced "rock_low" which doesn't
+            // exist (corpus + Item_IDs.md confirm). Pickable_Stone is the literal
+            // "stone on the ground" the player picks up — small, grey, irregular,
+            // perfect cairn substrate. Pickable_StoneRock is a fallback variant.
+            //   Daniel 2026-06-05: "this isn't a kit bashed cairn" — the bonfire
+            //   teepee logs were showing through because rock_low.GetPrefab() was
+            //   returning null and the fallback path leaves the donor visible.
+            GameObject? rockSrc = null;
+            string? rockSrcName = null;
+            foreach (var candidate in new[] { "Pickable_Stone", "Pickable_StoneRock", "rock_low" })
+            {
+                rockSrc = zns.GetPrefab(candidate);
+                if (rockSrc != null) { rockSrcName = candidate; break; }
+            }
             if (rockSrc == null)
             {
-                // Fallback — no rock pile available. The fire is ALREADY neutralized
-                // (step 1), so we leave the donor's base mesh visible as a plain
-                // non-burning stub. No pile means no ember to anchor.
+                // Fallback — no donor stone prefab available. The fire is ALREADY
+                // neutralized (step 1), so we leave the donor's base mesh visible as
+                // a plain non-burning stub. No pile means no ember to anchor.
                 Plugin.Log.LogWarning(
-                    "[Trailborne/M2] rock_low prefab missing; cairn shows a non-burning bonfire-base stub " +
-                    "(fire neutralized, no rock kitbash / ember this build).");
+                    "[Trailborne/M2] No donor stone prefab found (tried Pickable_Stone, Pickable_StoneRock, rock_low); " +
+                    "cairn shows a non-burning bonfire-base stub (fire neutralized, no rock kitbash / ember this build).");
                 return;
             }
 

@@ -213,10 +213,12 @@ namespace SBPR.Trailborne.Features.Cairns
                 }
             }
 
-            // Cairn pieces into Hammer build menu + REBUILD their resource list
-            // now that markers exist in ObjectDB. (Pieces built at ZNetScene.Awake
-            // had null marker requirements because ODB wasn't populated yet.)
-            var hammerTable = Assets.GetHammerPieceTable();
+            // Rebuild cairn resource lists now that markers exist in ObjectDB. (Pieces
+            // built at ZNetScene.Awake had null marker requirements because ODB wasn't
+            // populated yet.) Cairns are added to the SPADE PieceTable in Trailblazing's
+            // BuildSpadePieceTable — NOT the Hammer (design-pillars: paths/signs/cairns/
+            // lamps all live on the Spade; fixing 2026-06-05 playtest drift where cairns
+            // landed on the Hammer despite the design pillar).
             foreach (var color in Colors)
             {
                 var cairnPrefab = zns?.GetPrefab(CairnName(color));
@@ -231,7 +233,6 @@ namespace SBPR.Trailborne.Features.Cairns
                         BuildReq(MarkerName(color), 1),
                     };
                 }
-                if (hammerTable != null) Assets.AddPieceToTable(cairnPrefab, hammerTable);
             }
 
             Plugin.Log.LogInfo(
