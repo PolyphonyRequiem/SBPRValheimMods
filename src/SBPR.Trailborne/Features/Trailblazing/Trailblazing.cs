@@ -13,6 +13,9 @@ namespace SBPR.Trailborne.Features.Trailblazing
     // Same aliasing rationale for Signs (sibling namespace vs. the Signs type we
     // need for Signs.SignName when adding the sign to the spade build menu).
     using Signs = SBPR.Trailborne.Features.Signs.Signs;
+    // And for Cairns — the v0.2.2 hotfix moves the four cairn pieces onto the spade
+    // PieceTable instead of the hammer, so we need the Cairns TYPE for CairnName().
+    using Cairns = SBPR.Trailborne.Features.Cairns.Cairns;
 
     /// <summary>
     /// M3 content: Trailblazer's Spade real path/replant behavior, plus the
@@ -257,25 +260,30 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 if (p != null) Assets.AddPieceToTable(p, table);
             }
 
-            // Explorer-placed signage + lighting belong on the Trailblazer's Spade,
+            // Explorer-placed signage + lighting + cairns belong on the Trailblazer's Spade,
             // NOT the Hammer — design pillar (design/design-pillars.md
             // lines 31-33: "Paths, signs, cairns, lamps… all live on the Spade").
             // Fixing code-vs-spec drift flagged by Daniel's 2026-06-05 playtest: the
-            // Painted Sign + Path Lamp were wrongly wired onto the Hammer. We add them
-            // to the SPADE table here instead.
+            // Painted Sign + Path Lamp were wrongly wired onto the Hammer (already
+            // corrected); Cairns slipped past that fix because they're owned by a
+            // different feature module — corrected here in the v0.2.2 hotfix.
             //
             // RACE-SAFETY: Registrar runs ALL features' RegisterPrefabs (which register
-            // the sign + lamp prefabs into ZNetScene) BEFORE any DoObjectDBWiring, and
-            // dispatches Trailblazing AFTER Trailhead + Signs, so both prefabs resolve
-            // by name here. Both pieces are PieceCategory.Misc (matching this table's
-            // single 'Trail' category) so they render in the one tab. (A separate
-            // 'Signage'/'Lights' tab is a possible v1.x usability tweak — flagged for
-            // Daniel; a single 'Trail' tab is acceptable for v1.)
+            // the sign + lamp + cairn prefabs into ZNetScene) BEFORE any DoObjectDBWiring,
+            // and dispatches Trailblazing AFTER Trailhead + Signs + Cairns, so all
+            // prefabs resolve by name here. Every piece is PieceCategory.Misc (matching
+            // this table's single 'Trail' category) so they render in the one tab.
+            // (A separate 'Signage'/'Lights'/'Cairns' tab is a possible v1.x usability
+            // tweak — flagged for Daniel; a single 'Trail' tab is acceptable for v1.)
             AddSpadePieceByName(zns, table, Signs.SignName);
             AddSpadePieceByName(zns, table, Trailhead.PathLampName);
+            AddSpadePieceByName(zns, table, Cairns.CairnName("red"));
+            AddSpadePieceByName(zns, table, Cairns.CairnName("white"));
+            AddSpadePieceByName(zns, table, Cairns.CairnName("blue"));
+            AddSpadePieceByName(zns, table, Cairns.CairnName("black"));
 
             drop.m_itemData.m_shared.m_buildPieces = table;
-            Plugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} pieces (3 path widths + replant + sign + lamp).");
+            Plugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} pieces (3 path widths + replant + sign + lamp + 4 cairns).");
         }
 
         /// <summary>
