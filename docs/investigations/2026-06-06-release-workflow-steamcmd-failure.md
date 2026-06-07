@@ -1,3 +1,9 @@
+---
+title: "Investigation: Release workflow fails at SteamCMD; releases published by hand"
+status: historical
+last_updated: 2026-06-06
+---
+
 # Investigation: Release workflow fails at SteamCMD; releases published by hand
 
 - **Date:** 2026-06-06

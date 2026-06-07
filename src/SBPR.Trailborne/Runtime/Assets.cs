@@ -132,6 +132,40 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Add a piece to a PieceTable, deduping by NAME rather than object
+        /// reference. Use this for any piece added to a PERSISTENT (vanilla-shared)
+        /// PieceTable like the Hammer's, where a re-join re-clones our prefab into a
+        /// brand-new GameObject (a different reference, same name) and the plain
+        /// reference-based AddPieceToTable would happily append a SECOND copy.
+        ///
+        /// That's the "two Explorer's Benches" bug: each time the player backs out
+        /// to character-select and rejoins Niflheim, ZNetScene.Awake re-fires, the
+        /// bench is re-cloned, and the new clone got appended next to the stale one
+        /// because Contains() compared references. Deduping by name makes the add
+        /// idempotent across any number of re-joins: stale same-named entries are
+        /// stripped first, then the current clone is added, so the menu always shows
+        /// exactly one, pointing at the freshest registration.
+        ///
+        /// (Tables we rebuild from scratch each join — e.g. the spade's
+        /// SBPR_SpadePieceTable — don't need this; they start from a new empty list
+        /// every time. It's specifically the vanilla Hammer table, which we mutate
+        /// in place and which survives scene reloads, that accumulates.)
+        /// </summary>
+        public static void AddOrReplacePieceByName(GameObject piecePrefab, PieceTable table)
+        {
+            if (piecePrefab == null || table == null) return;
+            string name = piecePrefab.name;
+            int removed = table.m_pieces.RemoveAll(
+                p => p == null || p.name == name);
+            if (removed > 1)
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] AddOrReplacePieceByName: stripped {removed} stale/duplicate " +
+                    $"'{name}' entries from a PieceTable before re-adding (re-join accumulation). " +
+                    "If this climbs every join, a persistent table is leaking.");
+            table.m_pieces.Add(piecePrefab);
+        }
+
+        /// <summary>
         /// Centralized Piece.Requirement builder. Resolves the resource prefab
         /// against ObjectDB and LOUDLY logs if it's missing — previously a
         /// missing prefab silently produced a Requirement with null m_resItem,

@@ -165,7 +165,12 @@ namespace SBPR.Trailborne.Features.Trailhead
                         BuildReq("Stone", 4),
                         BuildReq("TrophyDeer", 1),
                     };
-                if (hammerTable != null) Assets.AddPieceToTable(table, hammerTable);
+                // Name-based dedup: a re-join re-clones the bench into a fresh
+                // GameObject, and the vanilla Hammer table persists across scene
+                // reloads, so reference-based add would stack a 2nd, 3rd… bench in the
+                // menu (the "two Explorer's Benches" playtest bug). AddOrReplaceByName
+                // strips any stale same-named entry first → always exactly one.
+                if (hammerTable != null) Assets.AddOrReplacePieceByName(table, hammerTable);
             }
             if (lamp != null)
             {
