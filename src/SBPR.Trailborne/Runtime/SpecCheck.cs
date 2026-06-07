@@ -64,19 +64,19 @@ namespace SBPR.Trailborne.Runtime
                 Resources = new[] { R("Wood", 5), R("Flint", 2), R("LeatherScraps", 2) }
             },
             new RecipeSpec {
-                Item = Pigments.InkRedName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.PigmentRedName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Raspberry", 1) }
             },
             new RecipeSpec {
-                Item = Pigments.InkWhiteName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.PigmentWhiteName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("BoneFragments", 1) }
             },
             new RecipeSpec {
-                Item = Pigments.InkBlueName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.PigmentBlueName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Blueberries", 1) }
             },
             new RecipeSpec {
-                Item = Pigments.InkBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
+                Item = Pigments.PigmentBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Coal", 1) }
             },
         };
@@ -141,7 +141,7 @@ namespace SBPR.Trailborne.Runtime
             {
                 var markerName = Cairns.MarkerName(color);
                 var cairnName  = Cairns.CairnName(color);
-                var ink        = Cairns.InkNameFor(color);
+                var pigment    = Cairns.PigmentNameFor(color);
 
                 // Cairn marker recipe
                 checks++;
@@ -158,7 +158,7 @@ namespace SBPR.Trailborne.Runtime
                 }
                 else
                 {
-                    var expected = new[] { R("LeatherScraps", 2), R("FineWood", 1), R(ink, 1) };
+                    var expected = new[] { R("LeatherScraps", 2), R("FineWood", 1), R(pigment, 1) };
                     CompareResources(markerName, expected, markerRecipe.m_resources, ref errors);
                 }
 

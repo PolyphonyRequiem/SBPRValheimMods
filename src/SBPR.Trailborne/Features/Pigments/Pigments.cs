@@ -12,10 +12,17 @@ namespace SBPR.Trailborne.Features.Pigments
     using Trailhead = SBPR.Trailborne.Features.Trailhead.Trailhead;
 
     /// <summary>
-    /// Pigment items (Red/White/Blue/Black inks) — the shared crafting
-    /// ingredient consumed by both Signs and Cairns. Split out of the old
-    /// M1 (which mixed inks + signs) so Signs and Cairns depend DOWN on a
-    /// foundational content feature rather than sideways on each other.
+    /// Pigment items (Red/White/Blue/Black) — the shared crafting ingredient
+    /// consumed by both Signs and Cairns. Split out of the old M1 (which mixed
+    /// pigments + signs) so Signs and Cairns depend DOWN on a foundational
+    /// content feature rather than sideways on each other.
+    ///
+    /// "Pigment" is the canonical player-facing AND code-facing term (spec §A2.5,
+    /// datasets/PIECES_AND_CRAFTABLES.md). The const VALUES below are the prefab
+    /// names — a save/wire contract — so they keep their historical "SBPR_Ink*"
+    /// spelling (renaming a prefab name would orphan every already-placed sign /
+    /// cairn that stored it). Only the identifiers, display names, and helper
+    /// names say "Pigment"; the on-the-wire prefab string is unchanged.
     ///
     /// Pigment ingredients per spec:
     ///   Red   ← Raspberry          (Meadows)
@@ -27,22 +34,26 @@ namespace SBPR.Trailborne.Features.Pigments
     /// </summary>
     public static class Pigments
     {
-        // Item prefab names
-        public const string InkRedName   = "SBPR_InkRed";
-        public const string InkWhiteName = "SBPR_InkWhite";
-        public const string InkBlueName  = "SBPR_InkBlue";
-        public const string InkBlackName = "SBPR_InkBlack";
+        // Item prefab names. The VALUES are wire/save contracts (ZDO + prefab
+        // registry keyed by these strings on every placed sign/cairn) and MUST
+        // NOT change; only the C# identifiers were unified to "Pigment".
+        public const string PigmentRedName   = "SBPR_InkRed";
+        public const string PigmentWhiteName = "SBPR_InkWhite";
+        public const string PigmentBlueName  = "SBPR_InkBlue";
+        public const string PigmentBlackName = "SBPR_InkBlack";
 
         // Source clones
         private const string SourceCoinItem = "Coins"; // safe clone for tiny consumable item
 
-        // Icon file mapping
+        // Icon file mapping. The PNG filenames are shipped build assets (modpack
+        // zip contents) and keep their historical names; only the dictionary keys
+        // are the renamed pigment-name consts.
         private static readonly Dictionary<string, string> icons = new Dictionary<string, string>
         {
-            { InkRedName,   "ink_red_v0.1.png"   },
-            { InkWhiteName, "ink_white_v0.1.png" },
-            { InkBlueName,  "ink_blue_v0.1.png"  },
-            { InkBlackName, "ink_black_v0.1.png" },
+            { PigmentRedName,   "ink_red_v0.1.png"   },
+            { PigmentWhiteName, "ink_white_v0.1.png" },
+            { PigmentBlueName,  "ink_blue_v0.1.png"  },
+            { PigmentBlackName, "ink_black_v0.1.png" },
         };
 
         // ───────────────────────────────────────────────
@@ -51,14 +62,14 @@ namespace SBPR.Trailborne.Features.Pigments
 
         public static void RegisterPrefabs(ZNetScene zns)
         {
-            // Ink items: clone Coins (tiny consumable, simplest ItemDrop)
-            RegisterInkPrefab(zns, InkRedName,   "Red Ink",   "Red Ink (raspberry).");
-            RegisterInkPrefab(zns, InkWhiteName, "White Ink", "White Ink (bone).");
-            RegisterInkPrefab(zns, InkBlueName,  "Blue Ink",  "Blue Ink (blueberry).");
-            RegisterInkPrefab(zns, InkBlackName, "Black Ink", "Black Ink (coal).");
+            // Pigment items: clone Coins (tiny consumable, simplest ItemDrop)
+            RegisterPigmentPrefab(zns, PigmentRedName,   "Red Pigment",   "Red Pigment (raspberry).");
+            RegisterPigmentPrefab(zns, PigmentWhiteName, "White Pigment", "White Pigment (bone).");
+            RegisterPigmentPrefab(zns, PigmentBlueName,  "Blue Pigment",  "Blue Pigment (blueberry).");
+            RegisterPigmentPrefab(zns, PigmentBlackName, "Black Pigment", "Black Pigment (coal).");
         }
 
-        private static void RegisterInkPrefab(ZNetScene zns, string name, string displayName, string desc)
+        private static void RegisterPigmentPrefab(ZNetScene zns, string name, string displayName, string desc)
         {
             if (zns.GetPrefab(name) != null) return;
             var clone = Assets.ClonePrefab(SourceCoinItem, name);
@@ -78,11 +89,11 @@ namespace SBPR.Trailborne.Features.Pigments
                 }
             }
             Assets.RegisterPrefabInZNetScene(clone);
-            Plugin.Log.LogInfo($"[Trailborne/M1] Registered ink item: {name}");
+            Plugin.Log.LogInfo($"[Trailborne/M1] Registered pigment item: {name}");
         }
 
         // ───────────────────────────────────────────────
-        // OBJECTDB WIRING — ink recipes
+        // OBJECTDB WIRING — pigment recipes
         // ───────────────────────────────────────────────
 
         public static void DoObjectDBWiring(ZNetScene zns)
@@ -91,42 +102,42 @@ namespace SBPR.Trailborne.Features.Pigments
             if (odb == null) return;
 
             // Items into ODB
-            foreach (var n in new[] { InkRedName, InkWhiteName, InkBlueName, InkBlackName })
+            foreach (var n in new[] { PigmentRedName, PigmentWhiteName, PigmentBlueName, PigmentBlackName })
             {
                 var p = zns?.GetPrefab(n);
                 if (p != null) Assets.RegisterItemInObjectDB(p);
             }
 
             // Recipes
-            AddInkRecipe(InkRedName,   "Raspberry",     amount: 2);
-            AddInkRecipe(InkWhiteName, "BoneFragments", amount: 2);
-            AddInkRecipe(InkBlueName,  "Blueberries",   amount: 2);
-            AddInkRecipe(InkBlackName, "Coal",          amount: 2);
+            AddPigmentRecipe(PigmentRedName,   "Raspberry",     amount: 2);
+            AddPigmentRecipe(PigmentWhiteName, "BoneFragments", amount: 2);
+            AddPigmentRecipe(PigmentBlueName,  "Blueberries",   amount: 2);
+            AddPigmentRecipe(PigmentBlackName, "Coal",          amount: 2);
 
-            Plugin.Log.LogInfo("[Trailborne/M1] Pigments ObjectDB wiring complete (4 ink items + recipes).");
+            Plugin.Log.LogInfo("[Trailborne/M1] Pigments ObjectDB wiring complete (4 pigment items + recipes).");
         }
 
-        private static void AddInkRecipe(string inkName, string ingredient, int amount)
+        private static void AddPigmentRecipe(string pigmentName, string ingredient, int amount)
         {
             var odb = ObjectDB.instance;
             if (odb == null) return;
             // Skip if already present
             foreach (var r in odb.m_recipes)
-                if (r != null && r.m_item != null && r.m_item.gameObject != null && r.m_item.gameObject.name == inkName)
+                if (r != null && r.m_item != null && r.m_item.gameObject != null && r.m_item.gameObject.name == pigmentName)
                     return;
 
-            var inkPrefab = odb.GetItemPrefab(inkName);
-            if (inkPrefab == null) return;
+            var pigmentPrefab = odb.GetItemPrefab(pigmentName);
+            if (pigmentPrefab == null) return;
             var ingredientItem = odb.GetItemPrefab(ingredient)?.GetComponent<ItemDrop>();
             if (ingredientItem == null)
             {
-                Plugin.Log.LogWarning($"[Trailborne/M1] Recipe ingredient '{ingredient}' not in ODB; skipping ink '{inkName}'.");
+                Plugin.Log.LogWarning($"[Trailborne/M1] Recipe ingredient '{ingredient}' not in ODB; skipping pigment '{pigmentName}'.");
                 return;
             }
 
             var recipe = ScriptableObject.CreateInstance<Recipe>();
-            recipe.name              = "Recipe_" + inkName;
-            recipe.m_item            = inkPrefab.GetComponent<ItemDrop>();
+            recipe.name              = "Recipe_" + pigmentName;
+            recipe.m_item            = pigmentPrefab.GetComponent<ItemDrop>();
             recipe.m_amount          = amount;
             recipe.m_minStationLevel = 1;
             recipe.m_craftingStation = RecipeHelpers.FindStation(Trailhead.ExplorersBenchName);

@@ -63,6 +63,11 @@ namespace SBPR.Trailborne { public partial class Plugin { public const string Ge
     <Reference Include="UnityEngine.UIModule"><HintPath>$(ValheimManaged)/UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.UI"><HintPath>$(ValheimManaged)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(ValheimManaged)/UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- TextMeshPro: vanilla Sign.m_textWidget is a TextMeshProUGUI (TMPro). The
+         Painted Sign text-color fix (§A2.6 / Issue 4b) drives m_textWidget.color +
+         .faceColor, so we need the TMP types at compile time. Ships in Managed;
+         referenced read-only (Private=false) like every other Valheim assembly. -->
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(ValheimManaged)/Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="netstandard"><HintPath>$(ValheimManaged)/netstandard.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="mscorlib"><HintPath>$(ValheimManaged)/mscorlib.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="System"><HintPath>$(ValheimManaged)/System.dll</HintPath><Private>false</Private></Reference>

@@ -69,7 +69,7 @@ namespace SBPR.Trailborne.Features.Cairns
         private const float SubTorchLightIntensity = 0.8f;
         private const float SubTorchLightRange     = 4.0f;
 
-        // Pigment values — mirror the canonical SBPR ink palette (Signs.ColorValues)
+        // Pigment values — mirror the canonical SBPR pigment palette (Signs.ColorValues)
         // so a cairn's stones read the same color as its marker/pennant. Kept local to
         // avoid a Cairns→Signs feature dependency.
         private static readonly Dictionary<string, Color> PigmentValues = new Dictionary<string, Color>
