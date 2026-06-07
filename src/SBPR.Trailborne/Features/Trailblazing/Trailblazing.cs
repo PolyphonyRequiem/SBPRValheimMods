@@ -283,7 +283,15 @@ namespace SBPR.Trailborne.Features.Trailblazing
             AddSpadePieceByName(zns, table, Cairns.CairnName("black"));
 
             drop.m_itemData.m_shared.m_buildPieces = table;
-            Plugin.Log.LogInfo($"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} pieces (3 path widths + replant + sign + lamp + 4 cairns).");
+            // Derive the count + name list from the live table rather than a hardcoded
+            // literal, so the log can't drift the moment a piece is added/removed/misrouted
+            // (the "log string lies about runtime state" trap — valheim-mod-development skill).
+            var pieceNames = new List<string>();
+            foreach (var pc in table.m_pieces)
+                if (pc != null) pieceNames.Add(pc.name);
+            Plugin.Log.LogInfo(
+                $"[Trailborne/M3] Spade-only PieceTable built with {table.m_pieces.Count} pieces: " +
+                string.Join(", ", pieceNames) + ".");
         }
 
         /// <summary>
