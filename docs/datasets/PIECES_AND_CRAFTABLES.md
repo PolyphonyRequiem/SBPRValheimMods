@@ -146,7 +146,7 @@ Each entry has:
 | Craft station | Explorer's Bench |
 | Recipe | 5 Wood + 2 Flint + 2 Leather Hides |
 | Function | Single tool item — holds the Trailborne build menu (Cairns, Painted Signs, Path Lamps). 1.5/3/5m path widths (mirror Hoe). Replant Grass in 3 widths (1.5/3/5m) mirroring the path widths — each restores grass over the stated footprint like the vanilla Cultivator's "Grass" mode (scales only the grass/paint radius, NOT cultivate, no terrain raise/level at any width). Clear Vegetation deferred to v0.2.0. |
-| Patch surface | Likely a new `ItemDrop` with `Tool` ItemType + custom `Hoe`-derived component for path-laying |
+| Patch surface | Clone of vanilla `Hoe` ItemDrop + a from-scratch spade-only PieceTable (`Trailblazing`). Six terrain-op pieces (`piece_sbpr_path_{narrow,standard,wide}` + `piece_sbpr_replant_{narrow,standard,wide}`) clone vanilla `path`/`replant` and scale TerrainModifier radii to 1.5/3/5 m. **Placement-ripple preview:** a `Player.UpdatePlacementGhost` postfix (`PlacementMarkerRadiusPatch`) sizes the aiming ripple to the active op's width (see Patched-vanilla entry below) — client-cosmetic, no effect on the op's real radius. |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
 
@@ -179,6 +179,7 @@ Each entry has:
 - **Cartography Table** — v1 disables build AND functionality on existing instances
 - **Minimap** — v1 nomap-config controls visibility (nomap=ON → no map; nomap=OFF → minimap only, no M-key, no north indicator)
 - **Vanilla Sign** — the placed Painted Sign's text-edit interaction is intercepted to open a custom combined Paint+Text uGUI panel (two-tone: text color + border color, pigment cost per slot). Non-SBPR signs fall through to vanilla. (Combined-panel + two-tone model, Daniel 2026-06-05; supersedes the 6/04 apply-ink model.)
+- **Placement marker ripple (`Player.UpdatePlacementGhost` → `CircleProjector`)** — client-cosmetic. Vanilla's aiming ripple (the animated ground ring) is a fixed-radius `CircleProjector` (~5 m); a `Player.UpdatePlacementGhost` postfix sizes it to the **active spade op's effect radius** (1.5 / 3 / 5 m) so the preview matches the real affected area, and restores the captured vanilla default whenever the ghost is **not** one of our six spade ops (so a vanilla Hoe/Cultivator placement is never resized). Gated on **piece identity** (our op prefab names via `Trailblazing.TryGetSpadeOpRadius`), not the server-sanity doctrine, because it is a local preview only. **No recipe/data change** — the op already applied at its true radius; this only fixes the misleading preview. (Request 1, spike `docs/investigations/2026-06-07-terrain-placement-ripple-magnitude-spike.md`; implemented 2026-06-07.)
 
 ---
 

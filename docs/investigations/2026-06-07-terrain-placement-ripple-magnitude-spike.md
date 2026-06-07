@@ -2,9 +2,34 @@
 title: "Spike: scale the placement ground-ripple with terrain-op magnitude"
 status: historical
 last_updated: 2026-06-07
+implemented_by: "src/SBPR.Trailborne/Features/Trailblazing/PlacementMarkerRadiusPatch.cs (Request 1, 2026-06-07)"
 ---
 
 # Spike: scale the placement ground-ripple with terrain-op magnitude (Request 1)
+
+> **IMPLEMENTED 2026-06-07** — `PlacementMarkerRadiusPatch` (postfix on
+> `Player.UpdatePlacementGhost`). Two deviations from the recommendation below, both
+> driven by a `MetadataLoadContext` probe of the shipped `assembly_valheim.dll`
+> (clean-room: member names/types only, no decompiled source read):
+>
+> 1. **Radius source = the op-registration table, not a runtime `TerrainModifier`
+>    max-of-enabled-radii mirror.** The probe confirmed `TerrainModifier.m_raise` /
+>    `m_raiseRadius` (referenced in "The magnitude source" below) **do NOT exist on
+>    this build** — the real radius fields are `m_levelRadius` / `m_smoothRadius` /
+>    `m_paintRadius` only. More importantly, a narrow replant op leaves
+>    `m_levelRadius`/`m_smoothRadius` at vanilla stock (~2 m) while its *intended*
+>    footprint is `m_paintRadius` = 1.5 m, so a "max of enabled radii" read would
+>    OVERSHOOT. The patch instead reads the intended width from
+>    `Trailblazing.TryGetSpadeOpRadius` — the same `variants` table that sets the
+>    radii at registration — which is exact and self-maintaining.
+> 2. **Gotcha 1 is moot for our ops:** Daniel observed the (wrongly-sized) ripple on
+>    these exact path/replant ops in-game, so the marker demonstrably renders for
+>    them; they do not set `m_groundOnly`. The patch still no-ops safely if the marker
+>    is hidden (it only acts on an active marker).
+>
+> Everything else (postfix surface, `m_placementMarkerInstance`/`m_placementGhost`
+> reflection, `CircleProjector.m_radius`/`m_nrOfSegments`, the shared-instance reset of
+> Gotcha 2) shipped as recommended. Original research preserved below.
 
 - **Date:** 2026-06-07
 - **Investigator:** Starbright (with Daniel)
