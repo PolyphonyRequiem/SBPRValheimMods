@@ -129,7 +129,7 @@ namespace SBPR.Trailborne.Features.Cairns
             {
                 // Max tier: no rebuild, so nudge the ember to reconcile to the now-
                 // pristine HP bracket immediately instead of waiting for the 1 s poll.
-                cairnTag.RefreshEmber();
+                cairnTag.RefreshFire();
             }
 
             MessageHud.instance?.ShowMessage(
