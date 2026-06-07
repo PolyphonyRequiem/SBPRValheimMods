@@ -10,8 +10,11 @@ last_updated: 2026-06-06
 - **Investigator:** Starbright (with Daniel)
 - **Trigger:** Preparing a v0.2.3 release; asked to understand how publishing
   actually works before pushing a tag.
-- **Status:** Root cause found. Fix proposed, NOT yet applied (needs Daniel's gate
-  — it's a CI workflow change).
+- **Status:** Root cause found. **FIX APPLIED 2026-06-07** (options 1 + 2 below):
+  hardened the SteamCMD fetch (retry ×3, artifact-based success gate, dropped
+  `validate`) and added a `restore-keys` prefix fallback so Release can reuse any
+  warm `valheim-managed-<appid>-*` cache. Pending: a throwaway test-tag run to
+  confirm green end-to-end (the last open follow-up).
 
 ## TL;DR
 
