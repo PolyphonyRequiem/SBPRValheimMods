@@ -1,0 +1,4 @@
+# Gitignored files Hermes copies into a worktree created via `hermes -w`.
+# NOTE: the Kanban dispatcher does NOT read this file — kanban worktrees get
+# .env copied by the orchestrator at worktree-creation time instead.
+.env
