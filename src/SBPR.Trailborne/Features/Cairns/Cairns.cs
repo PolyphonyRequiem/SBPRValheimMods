@@ -10,7 +10,7 @@ namespace SBPR.Trailborne.Features.Cairns
     // inside this sibling Features.* namespace the bare name `Pigments` would
     // otherwise bind to that sibling NAMESPACE (the enclosing `Features` scope is
     // searched before a compilation-unit alias), so we alias the name to the type
-    // INSIDE this namespace body to keep the readable `Pigments.InkRedName` syntax.
+    // INSIDE this namespace body to keep the readable `Pigments.PigmentRedName` syntax.
     using Pigments = SBPR.Trailborne.Features.Pigments.Pigments;
     using Trailhead = SBPR.Trailborne.Features.Trailhead.Trailhead;
 
@@ -48,20 +48,20 @@ namespace SBPR.Trailborne.Features.Cairns
     /// </summary>
     public static class Cairns
     {
-        // Color identifiers — must match Pigments ink names
+        // Color identifiers — must match Pigment names
         public static readonly string[] Colors = { "red", "white", "blue", "black" };
 
         public static string MarkerName(string color) => "SBPR_CairnMarker_" + color;
         public static string CairnName (string color) => "piece_sbpr_cairn_" + color;
-        public static string InkNameFor(string color)
+        public static string PigmentNameFor(string color)
         {
             switch (color)
             {
-                case "red":   return Pigments.InkRedName;
-                case "white": return Pigments.InkWhiteName;
-                case "blue":  return Pigments.InkBlueName;
-                case "black": return Pigments.InkBlackName;
-                default: return Pigments.InkWhiteName;
+                case "red":   return Pigments.PigmentRedName;
+                case "white": return Pigments.PigmentWhiteName;
+                case "blue":  return Pigments.PigmentBlueName;
+                case "black": return Pigments.PigmentBlackName;
+                default: return Pigments.PigmentWhiteName;
             }
         }
 
@@ -214,7 +214,7 @@ namespace SBPR.Trailborne.Features.Cairns
                         {
                             BuildReq("LeatherScraps", 2),
                             BuildReq("FineWood", 1),
-                            BuildReq(InkNameFor(color), 1),
+                            BuildReq(PigmentNameFor(color), 1),
                         };
                         odb.m_recipes.Add(recipe);
                     }

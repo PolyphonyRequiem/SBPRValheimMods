@@ -56,9 +56,12 @@ namespace SBPR.Trailborne
             // placed sign opens the custom combined Paint+Text uGUI panel instead of the
             // vanilla text dialog. Replaces the retired apply-ink-item paint gesture.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignInteractPatch));
-            // Make the panel usable: block player input + release the mouse cursor while
-            // it is open (two nested patch classes — register the container type).
+            // Make the panel usable while open: block player character input, freeze
+            // camera mouse-look (via PlayerController.TakeInput — the vanilla gate our
+            // panel bypasses by replacing the sign text dialog), and release the mouse
+            // cursor. Three nested patch classes — register each container type.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.TakeInputPatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.PlayerControllerTakeInputPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MouseCapturePatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content

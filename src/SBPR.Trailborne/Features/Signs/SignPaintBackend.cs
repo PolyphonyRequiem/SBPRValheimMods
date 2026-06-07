@@ -10,7 +10,7 @@ namespace SBPR.Trailborne.Features.Signs
     /// choice, check the player holds it, consume it atomically, and write both
     /// tones to the sign's ZDO via <see cref="SignTag"/>.
     ///
-    /// This is the reused guts of the retired apply-ink seam (SignPaintPatch):
+    /// This is the reused guts of the retired apply-pigment seam (SignPaintPatch):
     /// inventory-consume + owner-write ZDO, generalised from one color to two and
     /// from "apply an item" to "the panel committed N pigments". The cost rule
     /// (§A2.6): ONE pigment per FILLED color slot — text Red + border White = 1 Red
@@ -50,14 +50,14 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Count how many of the ink ITEM matching <paramref name="color"/> the player
-        /// holds, summed across stacks. Matches by drop-prefab name (robust against
-        /// localized display names). Returns 0 if no inventory / unknown color.
+        /// Count how many of the pigment ITEM matching <paramref name="color"/> the
+        /// player holds, summed across stacks. Matches by drop-prefab name (robust
+        /// against localized display names). Returns 0 if no inventory / unknown color.
         /// </summary>
         public static int CountPigment(Player player, string color)
         {
-            string? inkName = Signs.InkForColor(color);
-            if (player == null || inkName == null) return 0;
+            string? pigmentName = Signs.PigmentForColor(color);
+            if (player == null || pigmentName == null) return 0;
             var inv = player.GetInventory();
             if (inv == null) return 0;
 
@@ -65,7 +65,7 @@ namespace SBPR.Trailborne.Features.Signs
             foreach (var it in inv.GetAllItems())
             {
                 if (it == null) continue;
-                if (PrefabNameOf(it) == inkName) total += it.m_stack;
+                if (PrefabNameOf(it) == pigmentName) total += it.m_stack;
             }
             return total;
         }
@@ -77,6 +77,59 @@ namespace SBPR.Trailborne.Features.Signs
             foreach (var kv in cost)
                 if (CountPigment(player, kv.Key) < kv.Value) return false;
             return true;
+        }
+
+        /// <summary>
+        /// Is this pigment color "discovered" for the local player? (§A2.6 / Issue 4 —
+        /// only discovered pigments render as swatches; reserved future-pigment
+        /// placeholders no longer draw dead, unclickable boxes.)
+        ///
+        /// DEFAULT RULE (Daniel's open question, defaulted pending his answer): a pigment
+        /// is discovered if its recipe is KNOWN to the player (they have, at some point,
+        /// met the requirements to craft it — vanilla's <c>Player.IsRecipeKnown</c>) OR
+        /// they currently OWN at least one. "Known recipe OR owned." Flagged in the PR
+        /// for Daniel to confirm/narrow.
+        /// </summary>
+        public static bool IsPigmentDiscovered(Player player, string color)
+        {
+            if (player == null || string.IsNullOrEmpty(color)) return false;
+            if (CountPigment(player, color) > 0) return true; // owned
+            var name = PigmentDisplayName(color);
+            if (!string.IsNullOrEmpty(name) && player.IsRecipeKnown(name)) return true; // known recipe
+            return false;
+        }
+
+        /// <summary>
+        /// The pigment ITEM's localized display name for <paramref name="color"/>
+        /// (e.g. "Red Pigment"), read from its registered ItemDrop. Falls back to
+        /// <see cref="Signs.PigmentLabel"/> if the prefab isn't resolvable yet.
+        /// </summary>
+        public static string PigmentDisplayName(string color)
+        {
+            string? prefab = Signs.PigmentForColor(color);
+            if (prefab != null)
+            {
+                var odb = ObjectDB.instance;
+                var drop = odb != null ? odb.GetItemPrefab(prefab)?.GetComponent<ItemDrop>() : null;
+                var n = drop?.m_itemData?.m_shared?.m_name;
+                if (!string.IsNullOrEmpty(n)) return n!;
+            }
+            return Signs.PigmentLabel(color);
+        }
+
+        /// <summary>
+        /// The pigment ITEM's inventory icon sprite for <paramref name="color"/>, or
+        /// null if not resolvable (headless / not yet registered). Used by the panel's
+        /// crafting-style cost rows.
+        /// </summary>
+        public static Sprite? PigmentSprite(string color)
+        {
+            string? prefab = Signs.PigmentForColor(color);
+            if (prefab == null) return null;
+            var odb = ObjectDB.instance;
+            var drop = odb != null ? odb.GetItemPrefab(prefab)?.GetComponent<ItemDrop>() : null;
+            var icons = drop?.m_itemData?.m_shared?.m_icons;
+            return (icons != null && icons.Length > 0) ? icons[0] : null;
         }
 
         /// <summary>
@@ -108,13 +161,13 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Remove <paramref name="count"/> of the ink matching <paramref name="color"/>
+        /// Remove <paramref name="count"/> of the pigment matching <paramref name="color"/>
         /// from the player, draining across stacks. Assumes sufficiency was checked.
         /// </summary>
         private static void RemovePigment(Player player, string color, int count)
         {
-            string? inkName = Signs.InkForColor(color);
-            if (player == null || inkName == null || count <= 0) return;
+            string? pigmentName = Signs.PigmentForColor(color);
+            if (player == null || pigmentName == null || count <= 0) return;
             var inv = player.GetInventory();
             if (inv == null) return;
 
@@ -123,7 +176,7 @@ namespace SBPR.Trailborne.Features.Signs
             foreach (var it in new List<ItemDrop.ItemData>(inv.GetAllItems()))
             {
                 if (remaining <= 0) break;
-                if (it == null || PrefabNameOf(it) != inkName) continue;
+                if (it == null || PrefabNameOf(it) != pigmentName) continue;
                 int take = Mathf.Min(remaining, it.m_stack);
                 inv.RemoveItem(it, take);
                 remaining -= take;

@@ -25,6 +25,12 @@ namespace SBPR.Trailborne.Features.Signs
         private string? lastAppliedText   = null;
         private string? lastAppliedBorder = null;
 
+        // The TMP text widget's ORIGINAL (unpainted) face colour, captured once the
+        // first time we touch it, so clearing the text color ("remove text color")
+        // can revert the letters to vanilla instead of leaving them stuck on the last
+        // paint. Nullable: null = not yet captured.
+        private Color? originalTextColor = null;
+
         private void Awake()
         {
             nview = GetComponent<ZNetView>();
@@ -62,20 +68,46 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Read both ZDO colors and tint board + border to match. Empty/unknown colors
-        /// leave that element in its vanilla (unpainted wood) material. Idempotent:
-        /// skips re-tinting an element whose color hasn't changed since the last apply.
+        /// Read both ZDO colors and tint board + text + border to match. Empty/unknown
+        /// colors leave that element in its vanilla (unpainted wood / default text)
+        /// material. Idempotent: skips re-applying an element whose color hasn't changed
+        /// since the last apply.
+        ///
+        /// The TEXT tone drives BOTH the board mesh (<see cref="Signs.TintBoard"/>) AND
+        /// the TMP text widget (<see cref="Signs.TintText"/>): §A2.6 "Set Text Color"
+        /// colours the written letters, not just the plank (Issue 4b — previously the
+        /// text never changed). The text widget is re-tinted every apply (even when the
+        /// id is unchanged) because the vanilla <c>Sign.UpdateText</c> 2 Hz poll
+        /// reassigns <c>m_textWidget.text</c> and can construct/replace the widget after
+        /// our first apply; cheap idempotent re-set keeps the colour pinned.
         /// </summary>
         public void ApplyColorsFromZdo()
         {
+            // Capture the TMP text widget's ORIGINAL face colour once, before we ever
+            // paint it, so clearing the text color can revert the letters to vanilla.
+            if (originalTextColor == null)
+            {
+                var orig = Signs.TryReadTextColor(gameObject);
+                if (orig != null) originalTextColor = orig;
+            }
+
             string textColor = ReadTextColor();
             if (textColor != lastAppliedText)
             {
                 lastAppliedText = textColor;
                 if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var tcol))
                     Signs.TintBoard(gameObject, tcol);
-                // else: unpainted board — keep the vanilla wood material.
+                else
+                    Signs.RestoreBoard(gameObject); // "remove text color" → vanilla wood board
             }
+
+            // The text TONE drives the TMP letters too (Issue 4b). Re-pin every apply
+            // when set (survives the vanilla UpdateText repaint that only reassigns
+            // .text); when unset, revert to the captured original text colour.
+            if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var ttcol))
+                Signs.TintText(gameObject, ttcol);
+            else if (originalTextColor != null)
+                Signs.TintText(gameObject, originalTextColor.Value);
 
             string borderColor = ReadBorderColor();
             if (borderColor != lastAppliedBorder)
@@ -83,7 +115,8 @@ namespace SBPR.Trailborne.Features.Signs
                 lastAppliedBorder = borderColor;
                 if (!string.IsNullOrEmpty(borderColor) && Signs.ColorValues.TryGetValue(borderColor, out var bcol))
                     Signs.TintBorder(gameObject, bcol);
-                // else: unpainted border — keep the vanilla wood material.
+                else
+                    Signs.RestoreBorder(gameObject); // "remove border color" → vanilla wood border
             }
         }
 

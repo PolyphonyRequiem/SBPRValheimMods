@@ -10,7 +10,7 @@ namespace SBPR.Trailborne.Features.Signs
     // inside this sibling Features.* namespace the bare name `Pigments` would
     // otherwise bind to that sibling NAMESPACE (the enclosing `Features` scope is
     // searched before a compilation-unit alias), so we alias the name to the type
-    // INSIDE this namespace body to keep the readable `Pigments.InkRedName` syntax.
+    // INSIDE this namespace body to keep the readable `Pigments.PigmentRedName` syntax.
     using Pigments = SBPR.Trailborne.Features.Pigments.Pigments;
 
     /// <summary>
@@ -50,8 +50,8 @@ namespace SBPR.Trailborne.Features.Signs
         // sign's pivot (ground) at register time, pivot-robust (see KitbashStandingPole).
         private const float BoardBottomHeight = 1.2f;
 
-        // Build cost (unpainted). Ink is NOT a build ingredient anymore — it is
-        // consumed at paint time, one ink per paint, on the PLACED sign.
+        // Build cost (unpainted). Pigment is NOT a build ingredient — it is
+        // consumed at paint time, one pigment per filled color slot, on the PLACED sign.
         public const int WoodCost = 2;
 
         // ZDO field storing the LEGACY single applied color ("" = unpainted). Retained
@@ -74,7 +74,7 @@ namespace SBPR.Trailborne.Features.Signs
         // (clean-room: reuses the board's own mesh, scaled — no new authored geometry).
         public const string BorderChildName = "SBPR_SignBorder";
 
-        // Color identifiers — must match Pigments ink colors + Cairns.Colors.
+        // Color identifiers — must match Pigment colors + Cairns.Colors.
         public static readonly string[] Colors = { "red", "white", "blue", "black" };
 
         // Color per identifier (used to tint the placed sign's mesh + as pin color).
@@ -97,34 +97,34 @@ namespace SBPR.Trailborne.Features.Signs
         };
 
         /// <summary>
-        /// Map an ink ITEM prefab name to its color identity, or null if the prefab
-        /// is not one of our four inks. Inverse of <see cref="InkForColor"/>. Retained
-        /// as public API for ink-detection (e.g. the deferred pin path); the retired
-        /// apply-ink paint seam that originally drove it is gone.
+        /// Map a pigment ITEM prefab name to its color identity, or null if the prefab
+        /// is not one of our four pigments. Inverse of <see cref="PigmentForColor"/>.
+        /// Retained as public API for pigment-detection (e.g. the deferred pin path);
+        /// the retired apply-pigment paint seam that originally drove it is gone.
         /// </summary>
-        public static string? ColorForInk(string inkPrefabName)
+        public static string? ColorForPigment(string pigmentPrefabName)
         {
-            if (inkPrefabName == Pigments.InkRedName)   return "red";
-            if (inkPrefabName == Pigments.InkWhiteName) return "white";
-            if (inkPrefabName == Pigments.InkBlueName)  return "blue";
-            if (inkPrefabName == Pigments.InkBlackName) return "black";
+            if (pigmentPrefabName == Pigments.PigmentRedName)   return "red";
+            if (pigmentPrefabName == Pigments.PigmentWhiteName) return "white";
+            if (pigmentPrefabName == Pigments.PigmentBlueName)  return "blue";
+            if (pigmentPrefabName == Pigments.PigmentBlackName) return "black";
             return null;
         }
 
         /// <summary>
-        /// Map a color identity ("red"/"white"/"blue"/"black") to the matching ink
+        /// Map a color identity ("red"/"white"/"blue"/"black") to the matching pigment
         /// ITEM prefab name (the pigment the panel charges for that slot), or null if
-        /// the color isn't one of our four. Inverse of <see cref="ColorForInk"/>;
+        /// the color isn't one of our four. Inverse of <see cref="ColorForPigment"/>;
         /// used by the paint backend to compute + consume the crafting-style cost.
         /// </summary>
-        public static string? InkForColor(string color)
+        public static string? PigmentForColor(string color)
         {
             switch (color)
             {
-                case "red":   return Pigments.InkRedName;
-                case "white": return Pigments.InkWhiteName;
-                case "blue":  return Pigments.InkBlueName;
-                case "black": return Pigments.InkBlackName;
+                case "red":   return Pigments.PigmentRedName;
+                case "white": return Pigments.PigmentWhiteName;
+                case "blue":  return Pigments.PigmentBlueName;
+                case "black": return Pigments.PigmentBlackName;
                 default:      return null;
             }
         }
@@ -219,7 +219,7 @@ namespace SBPR.Trailborne.Features.Signs
             var piece = p.GetComponent<Piece>();
             if (piece != null)
             {
-                // Unpainted build cost: Wood only (ink is applied post-placement).
+                // Unpainted build cost: Wood only (pigment is applied post-placement).
                 piece.m_resources = new[] { BuildReq("Wood", WoodCost) };
                 // Re-assert: no station-proximity gate to place (Daniel 2026-06-05).
                 // The prefab-phase clear above is authoritative, but rebuilding here
@@ -400,6 +400,37 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
+        /// Drive the sign's TMP TEXT WIDGET (<c>Sign.m_textWidget</c>) to
+        /// <paramref name="c"/> — the text/board tone also colours the written letters
+        /// (§A2.6 / Issue 4b). The board mesh tint alone (<see cref="TintBoard"/>) never
+        /// touched the text, so painting "red" tinted the plank but left the letters
+        /// their original colour. We set BOTH <c>color</c> (vertex tint) AND
+        /// <c>faceColor</c> (the TMP face material colour) so the change is robust across
+        /// TMP's two colour paths and survives the vanilla <c>Sign.UpdateText</c> repaint
+        /// (which only ever reassigns <c>.text</c>, never the colour).
+        ///
+        /// No-op on a headless server (no widget) or before the Sign component's Awake
+        /// has wired <c>m_textWidget</c>. Public Valheim/TMP API only — clean-room
+        /// (reads the public <c>Sign.m_textWidget</c> field; no decompiled body copied).
+        /// </summary>
+        public static void TintText(GameObject go, Color c)
+        {
+            if (go == null) return;
+            var sign = go.GetComponent<Sign>();
+            var widget = sign != null ? sign.m_textWidget : null;
+            if (widget == null) return;
+            try
+            {
+                widget.color = c;       // vertex/tint colour
+                widget.faceColor = c;   // TMP face material colour (Color32 via implicit conv)
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/M1] Sign text tint failed on {go.name}: {e.Message}");
+            }
+        }
+
+        /// <summary>
         /// Tint ONLY the kitbashed border element (<see cref="BorderChildName"/>) to
         /// <paramref name="c"/> — the second (border) tone of the two-tone sign (§A2.6).
         /// No-op if the border element is absent (e.g. the board mesh couldn't be found
@@ -414,6 +445,54 @@ namespace SBPR.Trailborne.Features.Signs
                 if (!IsUnderBorder(rend.transform)) continue; // border subtree only
                 TintRendererMaterials(rend, c, prop, go.name);
             }
+        }
+
+        /// <summary>
+        /// Revert the BOARD (and text-tinted plank renderers) to their original
+        /// unpainted materials — the "remove text color" / None affordance (§A2.6,
+        /// Issue 4). Restores from the per-renderer backup captured on the first tint,
+        /// so the change is visible LIVE (not only after a reload). No-op for renderers
+        /// that were never tinted. Skips the pole + border subtrees, mirroring
+        /// <see cref="TintBoard"/>'s selection.
+        /// </summary>
+        public static void RestoreBoard(GameObject go)
+        {
+            foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
+            {
+                if (rend == null) continue;
+                if (IsUnderPost(rend.transform)) continue;
+                if (IsUnderBorder(rend.transform)) continue; // border reverts separately
+                RestoreRendererMaterials(rend);
+            }
+        }
+
+        /// <summary>
+        /// Revert ONLY the kitbashed border element to its original (unpainted) material
+        /// — the "remove border color" / None affordance (§A2.6, Issue 4). Restores from
+        /// the per-renderer backup so it's visible LIVE. No-op if never tinted.
+        /// </summary>
+        public static void RestoreBorder(GameObject go)
+        {
+            foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
+            {
+                if (rend == null) continue;
+                if (!IsUnderBorder(rend.transform)) continue;
+                RestoreRendererMaterials(rend);
+            }
+        }
+
+        /// <summary>
+        /// Read the TMP text widget's current face colour, or null if there's no widget
+        /// (headless / not yet wired). Used by SignTag to snapshot the original
+        /// (unpainted) text colour once, so "remove text color" can revert to it.
+        /// </summary>
+        public static Color? TryReadTextColor(GameObject go)
+        {
+            if (go == null) return null;
+            var sign = go.GetComponent<Sign>();
+            var widget = sign != null ? sign.m_textWidget : null;
+            if (widget == null) return null;
+            return widget.faceColor;
         }
 
         /// <summary>
@@ -439,6 +518,18 @@ namespace SBPR.Trailborne.Features.Signs
         {
             try
             {
+                // Snapshot the original materials ONCE, before the first tint, so the
+                // None affordance can revert (the tint replaces sharedMaterials with
+                // clones; without a backup the original reference is lost on this
+                // renderer until a fresh spawn). The backup component lives on the
+                // renderer's own GameObject — pure runtime state, no ZDO.
+                var backup = rend.GetComponent<SignTintBackup>();
+                if (backup == null)
+                {
+                    backup = rend.gameObject.AddComponent<SignTintBackup>();
+                    backup.Original = rend.sharedMaterials;
+                }
+
                 var mats = rend.sharedMaterials;
                 var newMats = new Material[mats.Length];
                 for (int i = 0; i < mats.Length; i++)
@@ -453,6 +544,20 @@ namespace SBPR.Trailborne.Features.Signs
             catch (Exception e)
             {
                 Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint failed on {ownerName}: {e.Message}");
+            }
+        }
+
+        private static void RestoreRendererMaterials(Renderer rend)
+        {
+            var backup = rend.GetComponent<SignTintBackup>();
+            if (backup == null || backup.Original == null) return; // never tinted
+            try
+            {
+                rend.sharedMaterials = backup.Original;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint restore failed on {rend.gameObject.name}: {e.Message}");
             }
         }
 

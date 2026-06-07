@@ -17,10 +17,10 @@ namespace SBPR.Trailborne.Runtime
     /// M0 strategy: clone vanilla prefabs at runtime (no asset bundles). All
     /// gated by ServerContext.OnSBServer.
     ///
-    /// Feature dispatch order is load-bearing: Pigments must register its ink
+    /// Feature dispatch order is load-bearing: Pigments must register its pigment
     /// items into ObjectDB before Signs and Cairns build recipes that consume
-    /// them (BuildReq resolves the ink prefab from ODB). The chosen order also
-    /// preserves the original recipe-registration order (spade, inks, markers)
+    /// them (BuildReq resolves the pigment prefab from ODB). The chosen order also
+    /// preserves the original recipe-registration order (spade, pigments, markers)
     /// and hammer build-menu order (bench, lamp, signs, cairns).
     /// </summary>
     public static class Registrar

@@ -166,10 +166,12 @@ The cairn should read as a **real, hand-piled trail cairn** — not a tidy cone.
 | Aspect | Locked value |
 |---|---|
 | **Colors** | Red, White, Black, Blue (4 basic pigments) |
+| **Display names** | `Red Pigment` / `White Pigment` / `Black Pigment` / `Blue Pigment` (canonical "Pigment" naming — unified 2026-06-07) |
+| **Prefab names** | `SBPR_InkRed` / `SBPR_InkWhite` / `SBPR_InkBlue` / `SBPR_InkBlack` — **unchanged save/wire contract** (placed signs/cairns store these); only display + code identifiers say "Pigment" |
 | **Output per craft** | 2 pigments per craft |
 | **Stack size** | 20 |
 | **Weight** | 0.1 |
-| **Recipe inputs** | TBD per color — needs Round 3 with Daniel (likely: berries/clay/coal/mushroom mapped to colors) |
+| **Recipe inputs** | Red ← 1 Raspberry, White ← 1 BoneFragments, Blue ← 1 Blueberries, Black ← 1 Coal |
 | **Craft station** | Explorer's Bench (v1 = vanilla Workbench kitbash) |
 
 #### A2.6 — Painted Signs (LOCKED — single combined Paint+Text panel, two-tone, Daniel 2026-06-05)
@@ -186,27 +188,48 @@ placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 
 ```
 --- PAINTING ---
- Set Text Color:  [Red][Blue][Black][White][·][·][·]   (extra slots disabled)
- Border Color:    [Red][Blue][Black][White][·][·][·]   (extra slots disabled)
- Cost:            <icon> 1 Red Pigment   <icon> 1 White Pigment
+ Set Text Color:  [∅ None][Red][Blue][Black][White]   (only DISCOVERED pigments render)
+ Border Color:    [∅ None][Red][Blue][Black][White]   (∅ None = explicit clear)
+ Cost:            <icon> Red Pigment    1/1
+                  <icon> White Pigment  0/1   (red while short)
  { Paint this and consume }
 --- TEXT ---
  [ text field ]   (enabled only once a paint color is chosen)
- { Update Text }
+ { Update Text }   { Close }
 ```
 
 | Aspect | Locked value |
 |---|---|
 | **Base** | ONE buildable piece (`piece_sbpr_sign`), variant of the vanilla wood sign. Placed **UNPAINTED** (plain wood). Build cost **2 Wood** (pigment is NOT a build ingredient) |
-| **Panel** | Interacting with a placed sign opens the **combined Painted Sign panel** (custom uGUI), NOT the vanilla text dialog. Two sections: PAINTING + TEXT |
-| **Set Text Color** | Swatch row — `Red / Blue / Black / White` active; extra slots rendered **disabled** (reserved for future pigments). Sets the **board/text** tint |
-| **Border Color** | Second swatch row, same 4 active + disabled extras. Sets a **separate border** tint (two-tone) |
-| **Cost** | Crafting-style display with **pigment icons** — **one pigment per filled color slot** (text Red + border White → 1 Red + 1 White Pigment). Same color in both slots = **2 of that pigment** (one per slot). Border is **optional** (text-only paint = 1 pigment); **at least one** color required |
-| **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed pigments from inventory, tints board=text color + border element=border color, writes both to ZDO. **Disabled** unless the player holds the required pigments. **Re-painting later re-consumes** |
+| **Panel** | Interacting with a placed sign opens the **combined Painted Sign panel** (custom uGUI built on Unity **layout groups**), NOT the vanilla text dialog. Two sections: PAINTING + TEXT. Rebuilt each open so swatch rows reflect current discovery |
+| **Set Text Color** | Swatch row — an explicit **`∅ None`** tile (clears the slot) followed by one swatch per **DISCOVERED** pigment (default discovery = *known recipe OR owned*; see open question). Undiscovered pigments are **NOT rendered** (no dead/unclickable reserved boxes). Sets the **board/text** tint — which colours BOTH the board mesh AND the written letters (`Sign.m_textWidget`) |
+| **Border Color** | Second swatch row, same `∅ None` + discovered-only swatches. Sets a **separate border** tint (two-tone). `None` removes the border color |
+| **Cost** | **Crafting-style requirement rows** (replicates `InventoryGui`'s recipe-requirement idiom): per pigment an **icon + pigment name + `have/need` count**, the count flashing **red while short**. One pigment per filled color slot (text Red + border White → 1 Red + 1 White Pigment). Same color in both slots = **2 of that pigment**. Border is **optional** (text-only paint = 1 pigment); **at least one** color required |
+| **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed pigments from inventory, tints board=text color + sign letters=text color + border element=border color, writes both to ZDO. **Disabled** unless the player holds the required pigments. **Re-painting later re-consumes** |
 | **`{ Update Text }`** | Commits the text. **Free** (no pigment cost — Cost applies to PAINTING only). Text field is **locked until ≥1 paint color is chosen** |
-| **Color persistence** | Per-instance ZDO: `SBPR_SignTextColor`, `SBPR_SignBorderColor` (`""` = unset) + vanilla text. Persists across reloads, syncs to clients, both tints re-applied on spawn (mirrors `CairnTag`) |
+| **Camera** | While the panel is open, **mouse-look is frozen** and the cursor is released, matching every vanilla full-screen GUI. Achieved by routing through vanilla's own suppression gate (`PlayerController.TakeInput` → false while open — the same gate the vanilla sign dialog used, which our panel bypasses by replacing that dialog), NOT by overriding `GameCamera.UpdateCamera` |
+| **Color persistence** | Per-instance ZDO: `SBPR_SignTextColor`, `SBPR_SignBorderColor` (`""` = unset) + vanilla text. Persists across reloads, syncs to clients, both tints (board + text widget + border) re-applied on spawn (mirrors `CairnTag`) |
+| **Naming** | The items are **Pigments** — display names `Red/White/Blue/Black Pigment`, code identifiers `Pigments.Pigment*Name` / `Signs.PigmentForColor`. The prefab-name VALUES stay `SBPR_Ink*` (save/wire contract — renaming would orphan placed signs/cairns); only player- and code-facing strings say "Pigment" |
 | **Pin (deferred)** | Minimap pin path stays **unregistered** for v0.1.0 (follow-up). If later registered, the pin reflects the **text** color when `nomap=OFF`; no-op if `nomap=ON` |
-| **Implementation surface** | NEW custom uGUI panel replacing the vanilla `Sign` text dialog (intercept the text-edit interaction). Existing `SignPaintPatch.cs` apply-ink seam is **retired as the paint entrypoint**; its ZDO-write + `Signs.TintRenderers` logic is **reused as the backend** the panel drives. ⚠️ `TintRenderers` currently tints **all** renderers one color — a **separate border renderer/material must be identified or added** to support two-tone (open technical question for the engineer). Owner-write via `ZNetView` (mirrors `CairnTag`) |
+| **Implementation surface** | Custom uGUI panel (`SignPaintPanel`) replacing the vanilla `Sign` text dialog (`SignInteractPatch` intercepts `Sign.Interact`). Backend `SignPaintBackend` drives economy + commit; `SignTag` owns ZDO + re-tint on spawn; `Signs.TintBoard`/`TintText`/`TintBorder` (+ `RestoreBoard`/`RestoreBorder` for the None affordances) do the visuals; `SignTintBackup` snapshots original materials so None reverts live. Two-tone border = kitbashed `SBPR_SignBorder` element (separate material). Owner-write via `ZNetView` (mirrors `CairnTag`). **CLIENT-SIDE surface — cannot be proven headless.** |
+
+> **Rebuild note (2026-06-07, Daniel playtest with screenshots):** the original
+> hand-built panel (raw `UnityEngine.UI` primitives + hand-computed `y -=` offsets)
+> shipped with defects — 6 dead reserved swatches that couldn't be clicked, an
+> invisible "remove border" affordance, no "remove text color", text color that
+> never reached the letters (`TintBoard` only tinted the plank, never
+> `Sign.m_textWidget`), a custom "icon ×N" cost row instead of the crafting idiom,
+> the camera not locking while the panel was open, and inconsistent alignment. This
+> revision rebuilds the panel on Unity **layout groups**, renders **only discovered
+> pigments** plus an **explicit `None`** on both rows, drives the **TMP text widget**
+> from the text color, replicates the **crafting-UI cost rows**, and **locks the
+> camera** through vanilla's own input gate. "Pigment" naming is unified across the
+> UI and code. ONE buildable sign piece, two-tone, unchanged.
+>
+> **OPEN QUESTION (Daniel) — "discovered" definition.** A pigment swatch renders only
+> when the pigment is discovered. Default implemented: **known recipe OR currently
+> owned** (`Player.IsRecipeKnown(displayName) || CountPigment > 0`). Confirm or narrow
+> (e.g. "crafted at least once", "owned only"). Code: `SignPaintBackend.IsPigmentDiscovered`.
 
 ---
 
