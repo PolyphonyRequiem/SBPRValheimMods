@@ -20,6 +20,29 @@
        (or a gitignored repo-root .env) by Directory.Build.props at the repo root.
        No machine-specific absolute paths live in this file. -->
 
+  <!-- ════════════════════════════════════════════════════════════════════════
+       Single source of truth for the version: the <Version> property above.
+       This target generates obj/GeneratedVersion.cs before compile, exposing
+       it as `Plugin.GeneratedModVersion`, which the [BepInPlugin] attribute
+       consumes. Keeps the BepInEx-advertised version, the assembly version, and
+       the modpack-zip filename all driven by ONE number — fixing the drift where
+       ModVersion was hand-pinned at "0.1.0" five releases after the csproj moved on.
+       (A const is required because [BepInPlugin] is an attribute — its args must
+       be compile-time constants — so we bake the literal in via codegen rather
+       than read Assembly metadata at runtime.) ════════════════════════════════ -->
+  <Target Name="GenerateVersionConstant" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <GeneratedVersionFile>$(IntermediateOutputPath)GeneratedVersion.cs</GeneratedVersionFile>
+      <GeneratedVersionContent>// &lt;auto-generated&gt; by the GenerateVersionConstant MSBuild target.
+// Source of truth: &lt;Version&gt; in SBPR.Trailborne.csproj. Do not edit by hand.
+namespace SBPR.Trailborne { public partial class Plugin { public const string GeneratedModVersion = "$(Version)"%3B } }</GeneratedVersionContent>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(GeneratedVersionFile)" Lines="$(GeneratedVersionContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(GeneratedVersionFile)" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <Reference Include="assembly_valheim"><HintPath>$(ValheimManaged)/assembly_valheim.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="assembly_utils"><HintPath>$(ValheimManaged)/assembly_utils.dll</HintPath><Private>false</Private></Reference>

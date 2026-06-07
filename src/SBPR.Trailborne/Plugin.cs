@@ -12,11 +12,16 @@ using SBPR.Trailborne.Features.Cairns;
 namespace SBPR.Trailborne
 {
     [BepInPlugin(ModId, ModName, ModVersion)]
-    public class Plugin : BaseUnityPlugin
+    public partial class Plugin : BaseUnityPlugin
     {
         public const string ModId      = "net.danielgreen.sbpr.trailborne";
         public const string ModName    = "SBPR Trailborne";
-        public const string ModVersion = "0.1.0";
+        // Single source of truth = <Version> in SBPR.Trailborne.csproj. The
+        // GenerateVersionConstant MSBuild target emits GeneratedModVersion from it
+        // before compile; this alias keeps the [BepInPlugin] attribute (which needs
+        // a compile-time const) in sync with the assembly + modpack-zip version.
+        // Fixes the drift where this was hand-pinned at "0.1.0" for five releases.
+        public const string ModVersion = GeneratedModVersion;
 
         internal static ManualLogSource Log = null!;   // set in Awake (BepInEx guarantees Awake before any patch fires)
         internal static string PluginFolder = null!;    // set in Awake
