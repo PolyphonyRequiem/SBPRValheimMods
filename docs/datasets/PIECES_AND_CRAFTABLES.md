@@ -67,6 +67,7 @@ Each entry has:
 | Mod | Trailborne |
 | Biome tier | Meadows |
 | Craft station | Explorer's Bench (to ACCESS the build menu; placed in-world via the Trailblazer's Spade) |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`). The spade's from-scratch PieceTable declares only the Misc-backed "Trail" category, so every spade piece (paths, sign, lamp, cairns) MUST be `m_category = Misc` or its tab never renders and the piece is invisible. **Regression history:** v0.2.2 shipped cairns as `PieceCategory.Crafting` → all four were added to the table but silently absent from the menu. Fixed 2026-06-07: cairn `m_category = Misc` + a boot-time `EnsureCategory` guard in `Trailblazing` that ERROR-logs + self-heals any future category drift. |
 | Recipe (initial build, T1) | 3 Stone + 1 Resin + 1 Cairn Marker |
 | Recipe (upgrade T1→T2→T3→T4→T5) | 3 Stone + 1 Resin (flat per tier) |
 | Recipe (repair) | 3 Stone + 1 Resin (flat) |

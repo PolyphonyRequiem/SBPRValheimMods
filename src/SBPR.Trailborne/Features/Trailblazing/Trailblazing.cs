@@ -271,8 +271,11 @@ namespace SBPR.Trailborne.Features.Trailblazing
             // RACE-SAFETY: Registrar runs ALL features' RegisterPrefabs (which register
             // the sign + lamp + cairn prefabs into ZNetScene) BEFORE any DoObjectDBWiring,
             // and dispatches Trailblazing AFTER Trailhead + Signs + Cairns, so all
-            // prefabs resolve by name here. Every piece is PieceCategory.Misc (matching
-            // this table's single 'Trail' category) so they render in the one tab.
+            // prefabs resolve by name here. Every spade piece is PieceCategory.Misc so
+            // it renders in this table's single 'Trail' tab — enforced by EnsureCategory
+            // in AddSpadePieceByName, which screams + self-heals if any piece drifts off
+            // Misc (cairns shipped as Crafting in v0.2.2 and silently vanished; fixed
+            // 2026-06-07 by setting Cairn m_category = Misc + adding the guard).
             // (A separate 'Signage'/'Lights'/'Cairns' tab is a possible v1.x usability
             // tweak — flagged for Daniel; a single 'Trail' tab is acceptable for v1.)
             AddSpadePieceByName(zns, table, Signs.SignName);
@@ -305,6 +308,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
             var p = zns?.GetPrefab(prefabName);
             if (p != null)
             {
+                EnsureCategory(table, p);   // category-routing guard — see below
                 Assets.AddPieceToTable(p, table);
             }
             else
@@ -313,6 +317,44 @@ namespace SBPR.Trailborne.Features.Trailblazing
                     $"[Trailborne/M3] Spade table: prefab '{prefabName}' not found in ZNetScene; " +
                     "it will be missing from the spade build menu. Check feature registration order in Registrar.");
             }
+        }
+
+        /// <summary>
+        /// Category-routing backstop. A from-scratch PieceTable only RENDERS the
+        /// piece categories it explicitly declares in m_categories — a piece whose
+        /// m_category isn't on that list is added to m_pieces yet its tab never
+        /// renders, so it's INVISIBLE in the build menu (no error, no warning).
+        /// This is exactly how v0.2.2's four cairns vanished: they were
+        /// PieceCategory.Crafting while the spade table declared only Misc.
+        ///
+        /// The locked design is a SINGLE "Trail" tab, so every spade piece SHOULD
+        /// be Misc and this method is normally a no-op. But rather than trust that
+        /// invariant silently (the trust that already failed once), we make the
+        /// drift LOUD and self-healing: if a piece arrives with an undeclared
+        /// category we log an ERROR (so SpecCheck-style boot logs surface it) AND
+        /// append the category + an index-aligned label, so the piece still renders
+        /// instead of disappearing. A screaming, visible piece beats a silent,
+        /// missing one.
+        /// </summary>
+        private static void EnsureCategory(PieceTable table, GameObject piecePrefab)
+        {
+            var piece = piecePrefab.GetComponent<Piece>();
+            if (piece == null) return;
+            var cat = piece.m_category;
+            if (table.m_categories.Contains(cat)) return;
+
+            Plugin.Log.LogError(
+                $"[Trailborne/M3] Spade-table category drift: piece '{piecePrefab.name}' has category " +
+                $"{cat} which the spade PieceTable does not declare. The locked design is a single " +
+                $"'Trail' (Misc) tab — this piece should be PieceCategory.Misc. Appending the category " +
+                $"as a self-heal so it still renders, but FIX THE PIECE'S m_category (see Cairns.cs " +
+                $"2026-06-07 fix) rather than relying on this backstop.");
+
+            table.m_categories.Add(cat);
+            // Keep m_categoryLabels index-aligned with m_categories or the tab header
+            // lookup throws / mislabels.
+            while (table.m_categoryLabels.Count < table.m_categories.Count)
+                table.m_categoryLabels.Add(cat.ToString());
         }
 
         private static void AddSpadeRecipe()

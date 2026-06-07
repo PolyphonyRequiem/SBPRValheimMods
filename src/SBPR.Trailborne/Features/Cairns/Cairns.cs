@@ -151,7 +151,15 @@ namespace SBPR.Trailborne.Features.Cairns
                 piece.m_description =
                     "A " + color + "-marked stone cairn. Stack stones to raise its tier and comfort floor. " +
                     "E to repair-and-upgrade when fizzled (<75% HP). Immune to combat damage — weathers over time.";
-                piece.m_category    = Piece.PieceCategory.Crafting;
+                // MUST be Misc: the spade's from-scratch PieceTable declares only the
+                // single Misc-backed "Trail" category (Trailblazing.BuildSpadePieceTable).
+                // A piece whose category isn't declared on that table is added to
+                // m_pieces but its tab never renders, so it's INVISIBLE in the build
+                // menu. v0.2.2 shipped these as Crafting → all four cairns silently
+                // vanished from the spade menu. Keep cairns in the one "Trail" tab,
+                // matching the locked single-tab design; a category-routing guard in
+                // BuildSpadePieceTable now screams at boot if this ever drifts again.
+                piece.m_category    = Piece.PieceCategory.Misc;
                 piece.m_resources   = new[]
                 {
                     BuildReq("Stone", StoneCostForTier(1)),
