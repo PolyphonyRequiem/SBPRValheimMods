@@ -202,7 +202,7 @@ placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 |---|---|
 | **Base** | ONE buildable piece (`piece_sbpr_sign`), variant of the vanilla wood sign. Placed **UNPAINTED** (plain wood). Build cost **2 Wood** (pigment is NOT a build ingredient) |
 | **Panel** | Interacting with a placed sign opens the **combined Painted Sign panel** (custom uGUI built on Unity **layout groups**), NOT the vanilla text dialog. Two sections: PAINTING + TEXT. Rebuilt each open so swatch rows reflect current discovery |
-| **Set Text Color** | Swatch row — an explicit **`∅ None`** tile (clears the slot) followed by one swatch per **DISCOVERED** pigment (default discovery = *known recipe OR owned*; see open question). Undiscovered pigments are **NOT rendered** (no dead/unclickable reserved boxes). Sets the **board/text** tint — which colours BOTH the board mesh AND the written letters (`Sign.m_textWidget`) |
+| **Set Text Color** | Swatch row — an explicit **`∅ None`** tile (clears the slot) followed by one swatch per **DISCOVERED** pigment (discovery = *ever-discovered material OR known recipe OR owned*; primary signal `IsKnownMaterial`, persistent so swatches don't flicker on last-unit spend). Undiscovered pigments are **NOT rendered** (no dead/unclickable reserved boxes). Sets the **board/text** tint — which colours BOTH the board mesh AND the written letters (`Sign.m_textWidget`) |
 | **Border Color** | Second swatch row, same `∅ None` + discovered-only swatches. Sets a **separate border** tint (two-tone). `None` removes the border color |
 | **Cost** | **Crafting-style requirement rows** (replicates `InventoryGui`'s recipe-requirement idiom): per pigment an **icon + pigment name + `have/need` count**, the count flashing **red while short**. One pigment per filled color slot (text Red + border White → 1 Red + 1 White Pigment). Same color in both slots = **2 of that pigment**. Border is **optional** (text-only paint = 1 pigment); **at least one** color required |
 | **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed pigments from inventory, tints board=text color + sign letters=text color + border element=border color, writes both to ZDO. **Disabled** unless the player holds the required pigments. **Re-painting later re-consumes** |
@@ -226,10 +226,15 @@ placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 > camera** through vanilla's own input gate. "Pigment" naming is unified across the
 > UI and code. ONE buildable sign piece, two-tone, unchanged.
 >
-> **OPEN QUESTION (Daniel) — "discovered" definition.** A pigment swatch renders only
-> when the pigment is discovered. Default implemented: **known recipe OR currently
-> owned** (`Player.IsRecipeKnown(displayName) || CountPigment > 0`). Confirm or narrow
-> (e.g. "crafted at least once", "owned only"). Code: `SignPaintBackend.IsPigmentDiscovered`.
+> **RESOLVED (Daniel 2026-06-07) — "discovered" definition.** A pigment swatch renders
+> only when the pigment is discovered, defined as: **ever-discovered material OR known
+> recipe OR currently owned** — `Player.IsKnownMaterial(name) || Player.IsRecipeKnown(name)
+> || CountPigment > 0`. The PRIMARY signal is `IsKnownMaterial` (vanilla's persistent
+> material-discovery set, populated by `AddKnownItem` on first pickup and never cleared),
+> so a swatch does NOT flicker away when the player spends their last unit. Recipe-known
+> and owned are belt-and-braces fallbacks. Note SBPR pigments set
+> `m_shared.m_name = displayName`, so the display name is the correct key for both
+> vanilla knowledge sets. Code: `SignPaintBackend.IsPigmentDiscovered`.
 
 ---
 

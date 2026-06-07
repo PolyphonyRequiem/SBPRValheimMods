@@ -84,18 +84,24 @@ namespace SBPR.Trailborne.Features.Signs
         /// only discovered pigments render as swatches; reserved future-pigment
         /// placeholders no longer draw dead, unclickable boxes.)
         ///
-        /// DEFAULT RULE (Daniel's open question, defaulted pending his answer): a pigment
-        /// is discovered if its recipe is KNOWN to the player (they have, at some point,
-        /// met the requirements to craft it — vanilla's <c>Player.IsRecipeKnown</c>) OR
-        /// they currently OWN at least one. "Known recipe OR owned." Flagged in the PR
-        /// for Daniel to confirm/narrow.
+        /// RULE (Daniel-confirmed 2026-06-07): a pigment is discovered if the player has
+        /// EVER discovered the material (vanilla <c>Player.IsKnownMaterial</c> — persistent;
+        /// set once you pick the pigment up and never cleared, so the swatch does NOT
+        /// flicker away when you spend your last unit), OR its recipe is known
+        /// (<c>IsRecipeKnown</c>), OR they currently own at least one. The persistent
+        /// material-discovery clause is the primary signal; recipe-known and owned are
+        /// belt-and-braces so a swatch can never be MISSING for a pigment the player can
+        /// clearly use.
         /// </summary>
         public static bool IsPigmentDiscovered(Player player, string color)
         {
             if (player == null || string.IsNullOrEmpty(color)) return false;
-            if (CountPigment(player, color) > 0) return true; // owned
             var name = PigmentDisplayName(color);
+            // Primary: persistent material discovery — survives spending your last unit.
+            if (!string.IsNullOrEmpty(name) && player.IsKnownMaterial(name)) return true;
+            // Fallbacks: recipe known, or currently holding at least one.
             if (!string.IsNullOrEmpty(name) && player.IsRecipeKnown(name)) return true; // known recipe
+            if (CountPigment(player, color) > 0) return true; // owned right now
             return false;
         }
 
