@@ -315,6 +315,45 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Measure the HIGHEST point (the "crown") of every visual mesh under
+        /// <paramref name="root"/>, expressed in <paramref name="root"/>'s LOCAL space.
+        /// Exact mirror of <see cref="MeasureLocalFootY"/> (max instead of min Y): walks
+        /// each <see cref="MeshFilter"/>'s shared-mesh AABB, transforms its 8 corners
+        /// through the full TRS (so non-identity child rotation/scale is honored) into
+        /// root-local space, and returns the maximum Y. Returns 0 when the root has no
+        /// meshes. Kept as a standalone twin of MeasureLocalFootY rather than refactoring
+        /// that validated method into a shared core — minimal blast radius on a path with
+        /// proven ground-truth behavior. Public UnityEngine API only — clean-room safe.
+        /// </summary>
+        public static float MeasureLocalTopY(GameObject root)
+        {
+            if (root == null) return 0f;
+            var rootT = root.transform;
+            float maxY = float.MinValue;
+            bool any = false;
+
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf == null) continue;
+                var mesh = mf.sharedMesh;
+                if (mesh == null) continue;
+                var b = mesh.bounds;
+                var t = mf.transform;
+                for (int xi = -1; xi <= 1; xi += 2)
+                for (int yi = -1; yi <= 1; yi += 2)
+                for (int zi = -1; zi <= 1; zi += 2)
+                {
+                    var corner = b.center + Vector3.Scale(b.extents, new Vector3(xi, yi, zi));
+                    var local  = rootT.InverseTransformPoint(t.TransformPoint(corner));
+                    if (local.y > maxY) maxY = local.y;
+                    any = true;
+                }
+            }
+
+            return any ? maxY : 0f;
+        }
+
+        /// <summary>
         /// Scale the VISUAL of <paramref name="root"/> by <paramref name="factor"/>
         /// on the Y axis, anchored at the foot plane so the base stays planted on the
         /// ground and the top (e.g. a torch flame) rises to the new height. Operates
