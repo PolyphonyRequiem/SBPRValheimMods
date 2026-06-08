@@ -146,32 +146,33 @@ namespace SBPR.Trailborne.Features.Cairns
 
             var zns = ZNetScene.instance;
             if (zns == null) return;
-            // Donor source for the cairn pile: a vanilla small ground-stone prefab,
-            // stripped to pure decoration before stacking. Try real prefab names in
-            // priority order — different Valheim builds have shipped different small-
-            // stone props, and the v0.2.1 build referenced "rock_low" which doesn't
-            // exist (corpus + Item_IDs.md confirm). Pickable_Stone is the literal
-            // "stone on the ground" the player picks up — small, grey, irregular,
-            // perfect cairn substrate. Pickable_StoneRock is a fallback variant.
-            //   Daniel 2026-06-05: "this isn't a kit bashed cairn" — the bonfire
-            //   teepee logs were showing through because rock_low.GetPrefab() was
-            //   returning null and the fallback path leaves the donor visible.
-            GameObject? rockSrc = null;
-            string? rockSrcName = null;
-            foreach (var candidate in new[] { "Pickable_Stone", "Pickable_StoneRock", "rock_low" })
+            // Donor for the cairn pile — DELIBERATE CONSTRUCTION, not prefab cloning.
+            //
+            //   🔴 v0.2.7 pivot (Daniel 2026-06-07): we no longer Instantiate a vanilla
+            //   prefab to build the pile. The old path cloned `Pickable_Stone` — which
+            //   carries a ZNetView — onto the ACTIVE cairn at runtime, then DestroyImmediate'd
+            //   that ZNetView. That nested-instantiate-inside-the-init-ZDO-window +
+            //   DestroyImmediate orphaned null-ZDO entries in ZNetScene.m_instances, and
+            //   vanilla ZNetScene.RemoveObjects dereferenced them every frame → client
+            //   soft-lock (×21 "Double ZNetView" warnings → repeating NRE). Proven via
+            //   offline prefab X-ray (`vprefab inspect Pickable_Stone`).
+            //
+            //   The fix: pull ONLY the bare mesh + material off the donor (no ZNetView ever
+            //   instantiated), then hand-build each pile stone as a plain GameObject carrying
+            //   only Transform + MeshFilter + MeshRenderer (see BuildPile). Nothing networked
+            //   ever wakes, so there is nothing to orphan. Donor parts are read from a prefab
+            //   that is NEVER itself instantiated — GetPrefab returns the inactive template,
+            //   and reading its shared mesh/material does not fire Awake.
+            var (stoneMesh, stoneMat, donorName) = ResolveStoneArt(zns);
+            if (stoneMesh == null)
             {
-                rockSrc = zns.GetPrefab(candidate);
-                if (rockSrc != null) { rockSrcName = candidate; break; }
-            }
-            if (rockSrc == null)
-            {
-                // Fallback — no donor stone prefab available. The fire is ALREADY
-                // configured (step 1); reconcile its lit-state to the current HP so a
-                // pristine stub still shows the flame.
+                // Fallback — no donor stone art available. The fire is ALREADY configured
+                // (step 1); reconcile its lit-state to the current HP so a pristine stub
+                // still shows the flame.
                 ReconcileFire();
                 Plugin.Log.LogWarning(
-                    "[Trailborne/M2] No donor stone prefab found (tried Pickable_Stone, Pickable_StoneRock, rock_low); " +
-                    "cairn shows the cosmetic-fire bonfire-base stub (no rock kitbash this build).");
+                    "[Trailborne/M2] No donor stone mesh found (tried Pickable_Stone, Pickable_StoneRock); " +
+                    "cairn shows the cosmetic-fire bonfire-base stub (no rock pile this build).");
                 return;
             }
 
@@ -181,7 +182,7 @@ namespace SBPR.Trailborne.Features.Cairns
             // §A2.1b: pile count = the stone ladder. T1=9, T2=12, T3=15, T4=18, T5=21.
             int stones = Cairns.StoneCostForTier(tier);
 
-            BuildPile(rockSrc, kitbashRoot.transform, tier, stones);
+            BuildPile(stoneMesh, stoneMat, kitbashRoot.transform, tier, stones);
 
             // STEP 3 — HP-gate the cosmetic fire (lit at pristine, off below).
             ReconcileFire();
@@ -207,7 +208,7 @@ namespace SBPR.Trailborne.Features.Cairns
         /// horizontal scale × a per-stone flatten ratio) so they read as flattish piled
         /// rocks, not boulders, with per-stone variation in both size and flatten.
         /// </summary>
-        private float BuildPile(GameObject rockSrc, Transform parent, int tier, int stones)
+        private float BuildPile(Mesh stoneMesh, Material? stoneMat, Transform parent, int tier, int stones)
         {
             int seed = 1337;
             if (nview != null && nview.GetZDO() != null)
@@ -218,12 +219,30 @@ namespace SBPR.Trailborne.Features.Cairns
             float pileHeight = PileHeightT1     + PileHeightStep     * (tier - 1);
             var pigment = ColorFor(Color);
 
+            // Build ONE pigment-tinted material for the whole pile (clone the donor's
+            // shared material so we never mutate the vanilla asset; multiply _Color).
+            // All stones share it — one material, not one-per-stone — so the pile is a
+            // handful of draw-call-cheap MeshRenderers with no networked components.
+            Material? tinted = MakeTintedStoneMaterial(stoneMat, pigment);
+
             float maxStoneTop = PileBaseY;
 
             for (int i = 0; i < stones; i++)
             {
-                var rockClone = GameObject.Instantiate(rockSrc, parent);
-                StripGameplayComponents(rockClone);
+                // DELIBERATE CONSTRUCTION: a plain GameObject with ONLY Transform +
+                // MeshFilter + MeshRenderer. No ZNetView, no Pickable, no collider, no
+                // Instantiate of a networked prefab — so nothing registers a ZDO and
+                // there is nothing for ZNetScene.RemoveObjects to choke on. This is the
+                // v0.2.7 pivot away from runtime prefab-cloning.
+                var stone = new GameObject("SBPR_CairnStone");
+                stone.transform.SetParent(parent, worldPositionStays: false);
+                var mf = stone.AddComponent<MeshFilter>();
+                mf.sharedMesh = stoneMesh;
+                var mr = stone.AddComponent<MeshRenderer>();
+                if (tinted != null) mr.sharedMaterial = tinted;
+                // Cosmetic-only: no shadows budget needed for pebble-scale art.
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                mr.receiveShadows = false;
 
                 // Height: base-weighted so more stones sit low (wider base, tapering up).
                 float k = stones <= 1 ? 0f : (float)i / (stones - 1); // 0 bottom .. 1 top
@@ -243,15 +262,12 @@ namespace SBPR.Trailborne.Features.Cairns
                 float sxz = size;
                 float sy  = size * flatten;
 
-                rockClone.transform.localPosition = new Vector3(ox, y, oz);
-                rockClone.transform.localRotation = Quaternion.Euler(
+                stone.transform.localPosition = new Vector3(ox, y, oz);
+                stone.transform.localRotation = Quaternion.Euler(
                     (float)(rng.NextDouble() * 2.0 - 1.0) * TiltDegrees,   // slight random tilt X
                     (float)(rng.NextDouble() * 360.0),                     // random yaw
                     (float)(rng.NextDouble() * 2.0 - 1.0) * TiltDegrees);  // slight random tilt Z
-                rockClone.transform.localScale = new Vector3(sxz, sy, sxz);
-
-                TintStone(rockClone, pigment);
-                rockClone.SetActive(true);
+                stone.transform.localScale = new Vector3(sxz, sy, sxz);
 
                 float stoneTop = y + sy * 0.5f;
                 if (stoneTop > maxStoneTop) maxStoneTop = stoneTop;
@@ -260,42 +276,60 @@ namespace SBPR.Trailborne.Features.Cairns
             return maxStoneTop + EmberHeightLift;
         }
 
+        /// <summary>
+        /// Resolve the donor stone ART (mesh + material) WITHOUT instantiating a networked
+        /// prefab. Reads the shared mesh off the donor's MeshFilter and the shared material
+        /// off its Renderer — both are asset references on the inactive prefab template, so
+        /// reading them fires no Awake and creates no ZDO. Returns (mesh, material, name) or
+        /// (null, null, null) if no suitable donor is registered.
+        ///
+        /// Donor priority: Pickable_Stone (the small grey ground pebble — mesh "Box02",
+        /// ~0.32×0.19×0.65 m, verified via offline prefab X-ray), then Pickable_StoneRock.
+        /// </summary>
+        private static (Mesh?, Material?, string?) ResolveStoneArt(ZNetScene zns)
+        {
+            foreach (var candidate in new[] { "Pickable_Stone", "Pickable_StoneRock" })
+            {
+                var src = zns.GetPrefab(candidate);
+                if (src == null) continue;
+                // The renderable mesh sits on a child (e.g. "model (1)"), not the root —
+                // GetComponentInChildren walks the inactive hierarchy without activating it.
+                var mf = src.GetComponentInChildren<MeshFilter>(includeInactive: true);
+                if (mf == null || mf.sharedMesh == null) continue;
+                var mr = src.GetComponentInChildren<MeshRenderer>(includeInactive: true);
+                var mat = mr != null ? mr.sharedMaterial : null;
+                return (mf.sharedMesh, mat, candidate);
+            }
+            return (null, null, null);
+        }
+
+        /// <summary>
+        /// Clone the donor stone material and multiply its lit-shader <c>_Color</c> by the
+        /// cairn pigment (clean-room tint, same approach as Signs.TintRendererMaterials —
+        /// texture detail survives because _Color multiplies the albedo). Returns null on a
+        /// headless server (no material) so the construction loop simply skips assigning one.
+        /// </summary>
+        private static Material? MakeTintedStoneMaterial(Material? donorMat, Color c)
+        {
+            if (donorMat == null) return null;
+            try
+            {
+                var m = new Material(donorMat);
+                int prop = Shader.PropertyToID("_Color");
+                if (m.HasProperty(prop)) m.SetColor(prop, c);
+                return m;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/M2] Cairn stone material tint failed: {e.Message}");
+                return null;
+            }
+        }
+
         private static Color ColorFor(string color)
         {
             if (!string.IsNullOrEmpty(color) && PigmentValues.TryGetValue(color, out var c)) return c;
             return PigmentValues["white"];
-        }
-
-        /// <summary>
-        /// Tint one rock clone's renderers to the pigment color, clean-room style:
-        /// clone the shared materials and multiply the lit shader's <c>_Color</c>.
-        /// (Same approach as Signs.TintRendererMaterials — texture detail survives
-        /// because _Color multiplies the albedo.) No-op on a headless server.
-        /// </summary>
-        private static void TintStone(GameObject go, Color c)
-        {
-            int prop = Shader.PropertyToID("_Color");
-            foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
-            {
-                if (rend == null) continue;
-                try
-                {
-                    var mats = rend.sharedMaterials;
-                    var newMats = new Material[mats.Length];
-                    for (int i = 0; i < mats.Length; i++)
-                    {
-                        if (mats[i] == null) continue;
-                        var m = new Material(mats[i]);
-                        if (m.HasProperty(prop)) m.SetColor(prop, c);
-                        newMats[i] = m;
-                    }
-                    rend.sharedMaterials = newMats;
-                }
-                catch (Exception e)
-                {
-                    Plugin.Log.LogWarning($"[Trailborne/M2] Cairn stone tint failed: {e.Message}");
-                }
-            }
         }
 
         // ── Cosmetic fire (HP-gated) ───────────────────────────────────────────────
@@ -418,25 +452,6 @@ namespace SBPR.Trailborne.Features.Cairns
         public void RefreshFire() => ReconcileFire();
 
         // ── Donor-fire neutralization (PR #23 path — UNCHANGED) ────────────────────
-
-        private static void StripGameplayComponents(GameObject go)
-        {
-            // Remove anything that would cause weird side effects (loot drops, terrain edits, sounds).
-            var bad = new List<Component>();
-            foreach (var c in go.GetComponentsInChildren<Component>(includeInactive: true))
-            {
-                if (c == null) continue;
-                if (c is Transform) continue;
-                if (c is MeshFilter) continue;
-                if (c is MeshRenderer) continue;
-                if (c is Renderer) continue;
-                bad.Add(c);
-            }
-            foreach (var c in bad)
-            {
-                try { UnityEngine.Object.DestroyImmediate(c); } catch { /* swallow — some components refuse mid-Awake destroy */ }
-            }
-        }
 
         /// <summary>
         /// True if <paramref name="t"/> belongs to our runtime rock kitbash (which now
