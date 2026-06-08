@@ -69,7 +69,6 @@ namespace SBPR.Trailborne.Features.Cairns
         public const string CairnMarkerItemName = "SBPR_CairnMarker_white";
 
         private const string SourceConsumable = "Coins";
-        private const string SourceBonfire    = "bonfire";
 
         // ── Cairn tier tables (LOCKED v0.1.0) ────────────────────────
         // Indexed 1..5; index 0 is sentinel.
@@ -136,14 +135,23 @@ namespace SBPR.Trailborne.Features.Cairns
         {
             var name = CairnName(color);
             if (zns.GetPrefab(name) != null) return;
-            // Bonfire is a chunky stone-y piece; use as a base and bury its visual
-            // children under a runtime-assembled kitbash stack (see BuildKitbashArt).
-            var clone = Assets.ClonePrefab(SourceBonfire, name);
+
+            // 🔴 v0.2.8 — ADDITIVE CONSTRUCTION (ADR-0006). No more cloning the bonfire
+            // (or any prefab) and stripping it. We build the networked piece skeleton
+            // from scratch — ZNetView + Piece + WearNTear + collider — and reference-copy
+            // the hit/destroy/place effects off a clean vanilla STONE donor (stone_floor)
+            // read as a blueprint (GetPrefab, never instantiated). This structurally
+            // eliminates BOTH past bug classes at once: no donor ZNetView to orphan (the
+            // v0.2.7 crash), and no donor fire to leak (the bonfire-cairn mess) — there
+            // simply is no donor on the object. The stone pile + small torch-tier flame
+            // are constructed at runtime in CairnTag.BuildKitbashArt.
+            var clone = Assets.ConstructPieceShell(name, "stone_floor");
             if (clone == null)
             {
-                Plugin.Log.LogWarning($"[Trailborne/M2] Source bonfire prefab missing, skipping cairn ({color}).");
+                Plugin.Log.LogWarning($"[Trailborne/M2] Could not construct cairn piece shell, skipping cairn ({color}).");
                 return;
             }
+
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {

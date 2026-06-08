@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
 
 namespace SBPR.Trailborne.Features.Cairns
 {
@@ -39,6 +40,7 @@ namespace SBPR.Trailborne.Features.Cairns
         private ZNetView nview = null!;        // Unity-injected in Awake via GetComponent
         private WearNTear? wnt;                // Unity-injected in Awake via GetComponent (null on the rare prefab w/o WNT)
         private GameObject? kitbashRoot;       // genuinely null until/unless a rock pile is built (fallback path leaves it null)
+        private GameObject? fireRoot;          // the grafted torch-tier flame (under kitbashRoot); null until BuildCosmeticFire runs
         private int lastBuiltTier = -1;
         private bool? lastFireLit;              // null until first poll, so the first tick always reconciles
 
@@ -115,19 +117,18 @@ namespace SBPR.Trailborne.Features.Cairns
         }
 
         /// <summary>
-        /// Build the §A2.1b stone pile + wear ember for the current tier.
+        /// Build the §A2.1b stone pile + grafted cosmetic flame for the current tier.
         ///
         /// Order matters and is deliberate:
-        ///   1. <see cref="NeutralizeDonorFire"/> ALWAYS runs first — even if
-        ///      rock_low can't be found — so a missing prefab can never early-return
-        ///      into a live, flaming bonfire (the PR #23 lesson).
+        ///   1. There is NO donor fire to deal with — the cairn piece is built additively
+        ///      from scratch (Assets.ConstructPieceShell), never cloned from bonfire, so
+        ///      no Fireplace/Aoe/CinderSpawner ever existed on it (ADR-0006).
         ///   2. Build the haphazard, squashed, ZDO-seeded rock pile (count = the
-        ///      stone ladder for this tier).
-        ///   3. Build the small HP-gated wear ember at the pile top (under kitbashRoot,
-        ///      so step 1's neutralization sweep — which skips kitbashRoot — never
-        ///      touches it, and a tier rebuild recycles it with the pile).
-        ///   4. <see cref="HideDonorMeshes"/> hides the bonfire's visible meshes, but
-        ///      only once we actually have a rock pile to show instead.
+        ///      stone ladder for this tier). BuildPile returns the pile-top Y.
+        ///   3. Graft a small torch-tier flame (+ dim glow + crackle, NO heat/burn) at the
+        ///      pile top via BuildCosmeticFire, parented under kitbashRoot so a tier
+        ///      rebuild recycles it with the pile.
+        ///   4. HP-gate the grafted flame via ReconcileFire (lit at pristine, out below).
         /// </summary>
         public void BuildKitbashArt()
         {
@@ -136,12 +137,16 @@ namespace SBPR.Trailborne.Features.Cairns
             if (tier == lastBuiltTier && kitbashRoot != null) return;
             lastBuiltTier = tier;
 
-            // STEP 1 — turn the donor bonfire into a COSMETIC fire (flame VFX + crackle
-            // + small sub-torch Light, NO heat, NO fuel). Runs unconditionally and
-            // before any early-return. Idempotent. (Daniel 2026-06-07 spec reversal.)
-            ConfigureCosmeticFire();
+            // 🔴 v0.2.8 — there is NO donor fire on this piece, ever. The cairn is built
+            // additively from scratch (Cairns.RegisterCairnPiecePrefab →
+            // Assets.ConstructPieceShell), not cloned from bonfire — so there is no
+            // Fireplace to muzzle, no Aoe burn, no CinderSpawner, no donor flame. We just
+            // build our stone pile and graft a SMALL torch-tier flame on top — see
+            // BuildCosmeticFire. (ADR-0006 additive construction; this whole class of
+            // donor-fire-suppression work is gone because the donor is gone.)
 
-            // Strip prior kitbash root (deferred destroy).
+            // Strip prior kitbash root (deferred destroy). This also drops the previous
+            // build's grafted flame, since it lives under kitbashRoot.
             if (kitbashRoot != null) UnityEngine.Object.Destroy(kitbashRoot);
 
             var zns = ZNetScene.instance;
@@ -166,13 +171,14 @@ namespace SBPR.Trailborne.Features.Cairns
             var (stoneMesh, stoneMat, donorName) = ResolveStoneArt(zns);
             if (stoneMesh == null)
             {
-                // Fallback — no donor stone art available. The fire is ALREADY configured
-                // (step 1); reconcile its lit-state to the current HP so a pristine stub
-                // still shows the flame.
+                // Fallback — no donor stone art available. With the donor fire stripped
+                // there is no flaming stub to worry about; the cairn simply shows nothing
+                // visual this build (still a valid, non-burning piece). Reconcile the
+                // grafted flame's lit-state in case a later rebuild succeeds.
                 ReconcileFire();
                 Plugin.Log.LogWarning(
                     "[Trailborne/M2] No donor stone mesh found (tried Pickable_Stone, Pickable_StoneRock); " +
-                    "cairn shows the cosmetic-fire bonfire-base stub (no rock pile this build).");
+                    "cairn shows no rock pile this build (donor fire already stripped — no flaming stub).");
                 return;
             }
 
@@ -182,15 +188,16 @@ namespace SBPR.Trailborne.Features.Cairns
             // §A2.1b: pile count = the stone ladder. T1=9, T2=12, T3=15, T4=18, T5=21.
             int stones = Cairns.StoneCostForTier(tier);
 
-            BuildPile(stoneMesh, stoneMat, kitbashRoot.transform, tier, stones);
+            // BuildPile returns the local-Y of the pile top — anchor the flame there.
+            float pileTopY = BuildPile(stoneMesh, stoneMat, kitbashRoot.transform, tier, stones);
 
-            // STEP 3 — HP-gate the cosmetic fire (lit at pristine, off below).
+            // Graft a SMALL torch-tier cosmetic flame (+ dim light + crackle) at the pile
+            // top, parented under kitbashRoot so a tier rebuild recycles it with the pile.
+            BuildCosmeticFire(kitbashRoot.transform, pileTopY);
+
+            // HP-gate the grafted flame (lit at pristine ≥75% HP, out below) — same wear
+            // signal the old ember used, now driving our own flame instead of the donor's.
             ReconcileFire();
-
-            // STEP 4 — hide the donor bonfire's visible MESH logs so only the rock
-            // pile + the cosmetic flame show (the flame is particles/light, not a
-            // mesh, so HideDonorMeshes leaves it visible).
-            HideDonorMeshes();
         }
 
         /// <summary>
@@ -368,40 +375,33 @@ namespace SBPR.Trailborne.Features.Cairns
             SetFireVisible(lit);
         }
 
-        /// <summary>Enable/disable the donor's cosmetic-fire components (flame, glow, crackle).</summary>
+        /// <summary>
+        /// Graft the small torch-tier cosmetic fire onto the pile top. Builds
+        /// <see cref="fireRoot"/> via <see cref="Assets.GraftTorchFire"/> (flame VFX +
+        /// dim glow + crackle, NO heat/burn/fuel — see that method for the clean-room /
+        /// no-orphan rationale). Parented under kitbashRoot so a tier rebuild recycles it
+        /// with the pile. No-op on a headless server (GraftTorchFire returns null — no
+        /// particles/lights exist there), which is correct: the fire is pure client art.
+        /// </summary>
+        private void BuildCosmeticFire(Transform parent, float pileTopY)
+        {
+            fireRoot = Assets.GraftTorchFire(
+                parent, pileTopY, SubTorchLightIntensity, SubTorchLightRange);
+            // fireRoot may be null (headless / missing donor) — every fire op below
+            // null-guards, so a null fireRoot simply means "no visible flame this build".
+        }
+
+        /// <summary>
+        /// Show/hide the grafted cosmetic fire by toggling <see cref="fireRoot"/> active.
+        /// Because the flame is now our OWN isolated subtree (built by BuildCosmeticFire,
+        /// not the donor bonfire spread across the prefab), a single SetActive is the
+        /// whole job — no per-component IsKitbash filtering, no fighting a live Fireplace.
+        /// No-op when fireRoot is null (headless server, or donor torch missing).
+        /// </summary>
         private void SetFireVisible(bool on)
         {
-            // Flame VFX — emission on/off (keeps the system alive, just stops emitting
-            // when fizzled so existing particles fade out naturally).
-            foreach (var ps in GetComponentsInChildren<ParticleSystem>(includeInactive: true))
-            {
-                if (ps == null || IsKitbash(ps.transform)) continue;
-                try
-                {
-                    var em = ps.emission; em.enabled = on;
-                    if (on) ps.Play(true);
-                    else ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
-                }
-                catch { /* swallow — headless/edge cases */ }
-            }
-            // Glow — the kept sub-torch Light (DimLightToSubTorch already set its level).
-            bool keptOne = false;
-            foreach (var l in GetComponentsInChildren<Light>(includeInactive: true))
-            {
-                if (l == null || IsKitbash(l.transform)) continue;
-                // Only the FIRST non-kitbash light is "the cairn glow"; extras stay off.
-                l.enabled = on && !keptOne;
-                keptOne = true;
-            }
-            // Crackle — the kept fire audio.
-            foreach (var a in GetComponentsInChildren<AudioSource>(includeInactive: true))
-            {
-                if (a == null || IsKitbash(a.transform)) continue;
-                try { a.enabled = on; a.mute = !on; if (on && !a.isPlaying) a.Play(); else if (!on) a.Stop(); }
-                catch { /* swallow */ }
-            }
-            foreach (var z in GetComponentsInChildren<ZSFX>(includeInactive: true))
-                if (z != null && !IsKitbash(z.transform)) z.enabled = on;
+            if (fireRoot == null) return;
+            if (fireRoot.activeSelf != on) fireRoot.SetActive(on);
         }
 
         /// <summary>
@@ -450,149 +450,5 @@ namespace SBPR.Trailborne.Features.Cairns
         /// rebuild already set the state.
         /// </summary>
         public void RefreshFire() => ReconcileFire();
-
-        // ── Donor-fire neutralization (PR #23 path — UNCHANGED) ────────────────────
-
-        /// <summary>
-        /// True if <paramref name="t"/> belongs to our runtime rock kitbash (which now
-        /// also contains the wear ember), so the fire-neutralization passes never touch
-        /// our own art (only the donor bonfire's components). kitbashRoot may be the
-        /// PREVIOUS build's root during a tier rebuild (deferred destroy) — still
-        /// correct to exclude it.
-        /// </summary>
-        private bool IsKitbash(Transform t)
-        {
-            if (t == null || kitbashRoot == null) return false;
-            var kr = kitbashRoot.transform;
-            return t == kr || t.IsChildOf(kr);
-        }
-
-        /// <summary>
-        /// <summary>
-        /// Configure the donor bonfire into a COSMETIC fire (Daniel 2026-06-07, spec
-        /// reversal — the old "non-burning marker, no light/SFX" design was wrong).
-        ///
-        /// The cairn at pristine SHOULD show a real flame: flame VFX + fire SFX + a
-        /// SMALL Light (dimmer than a vanilla torch). It must NOT grant heat and must
-        /// NOT consume fuel. So instead of destroying the donor fire wholesale (the
-        /// old NeutralizeDonorFire path) and hand-rolling an invisible 14-particle
-        /// "wear ember", we SELECTIVELY keep the donor's cosmetics and only neuter the
-        /// gameplay-bearing parts:
-        ///
-        ///   KEPT (cosmetic):
-        ///   • <see cref="ParticleSystem"/>s = the flame VFX (left emitting).
-        ///   • Fire <see cref="AudioSource"/> / <see cref="ZSFX"/> = the crackle.
-        ///   • One <see cref="Light"/> = the warm glow, but with intensity + range
-        ///     dialled BELOW a vanilla torch (see <see cref="DimLightToSubTorch"/>).
-        ///     LightFlicker is kept (it animates the kept light); LightLod kept too.
-        ///
-        ///   NEUTERED (gameplay):
-        ///   • <see cref="Fireplace"/> — KEPT as a component (so the flame state reads
-        ///     as "lit") but forced to <c>m_infiniteFuel = true</c> with fuel knobs
-        ///     zeroed, so it never consumes fuel, never burns out, and shows no
-        ///     'add fuel' interaction. CairnInteractable remains the gameplay hover.
-        ///   • <see cref="EffectArea"/> — DISABLED, so standing on/near a cairn never
-        ///     burns the player (no heat). Disable unregisters it via OnDisable.
-        ///   • <see cref="SmokeSpawner"/> — DISABLED (a marker cairn shouldn't billow
-        ///     bonfire smoke; the flame VFX alone reads as a small fire).
-        ///
-        /// HP-gating: the whole cosmetic fire is parented under the donor and toggled
-        /// as one object by <see cref="ReconcileFire"/> — lit at &gt;= pristine HP,
-        /// off below — reusing the same 1 Hz bracket poll the old ember used.
-        ///
-        /// Our own rock kitbash is excluded via <see cref="IsKitbash"/>. Visible donor
-        /// MESH renderers are still hidden by <see cref="HideDonorMeshes"/> so only the
-        /// rock pile + the flame show, not the bonfire's log teepee.
-        ///
-        /// All client-side: a headless server has no renderers/lights/particles, so
-        /// every step here is inert server-side (the cosmetic-fire visual cannot be
-        /// proven from a headless build — verified in-game only).
-        /// </summary>
-        private void ConfigureCosmeticFire()
-        {
-            // 1) Fireplace — KEEP but make it eternal + fuel-less + heat-less. Forcing
-            //    m_infiniteFuel true means it never drains/needs fuel and never shows
-            //    the 'add fuel' hover; zeroing the fuel knobs is belt-and-braces.
-            foreach (var fp in GetComponentsInChildren<Fireplace>(includeInactive: true))
-            {
-                if (fp == null || IsKitbash(fp.transform)) continue;
-                try
-                {
-                    fp.m_infiniteFuel = true;   // never consumes / never burns out
-                    fp.m_maxFuel      = 1f;     // no meaningful fuel capacity
-                    fp.m_secPerFuel   = float.MaxValue; // never ticks fuel down
-                    fp.m_fuelItem     = null;   // no fuel item → no 'add fuel' affordance
-                    fp.m_startFuel    = 1f;     // spawn already "lit"
-                }
-                catch { /* swallow — headless/edge cases */ }
-            }
-
-            // 2) Light — KEEP exactly one, dimmed below a torch (the warm cairn glow).
-            //    Keep LightFlicker/LightLod so the kept light still animates/LODs.
-            DimLightToSubTorch();
-
-            // 3) Particle systems (flame VFX) — KEEP emitting. (We intentionally do NOT
-            //    stop/clear them anymore; they ARE the cosmetic fire.) SmokeSpawner is
-            //    the one particle source we silence — a small marker fire, not a pyre.
-            foreach (var sm in GetComponentsInChildren<SmokeSpawner>(includeInactive: true))
-                if (sm != null && !IsKitbash(sm.transform)) sm.enabled = false;
-
-            // 4) Heat / burning EffectArea — DISABLE (no heat granted). Disabling
-            //    unregisters it from the static burning-area lists via OnDisable.
-            foreach (var ea in GetComponentsInChildren<EffectArea>(includeInactive: true))
-                if (ea != null && !IsKitbash(ea.transform)) ea.enabled = false;
-
-            // 5) Fire audio (crackle) — KEEP. (We intentionally do NOT stop/mute the
-            //    AudioSource/ZSFX anymore; the crackle is part of the cosmetic fire.)
-        }
-
-        /// <summary>
-        /// Find the donor fire's Light(s) and dial intensity + range BELOW a vanilla
-        /// torch so the cairn glows but reads as a small marker fire, not a bonfire or
-        /// a torch. We keep the FIRST non-kitbash Light and disable any extras (a
-        /// bonfire can carry more than one); the kept one is clamped to sub-torch.
-        ///
-        /// Vanilla torch light sits around intensity ~1.4 / range ~6–8 in the current
-        /// build; we target clearly under that. These are cosmetic tunables — eyeball
-        /// in-game and adjust if the glow reads too strong/weak.
-        /// </summary>
-        private void DimLightToSubTorch()
-        {
-            bool keptOne = false;
-            foreach (var l in GetComponentsInChildren<Light>(includeInactive: true))
-            {
-                if (l == null || IsKitbash(l.transform)) continue;
-                if (!keptOne)
-                {
-                    keptOne = true;
-                    l.enabled   = true;
-                    l.intensity = SubTorchLightIntensity; // < torch
-                    l.range     = SubTorchLightRange;      // < torch
-                }
-                else
-                {
-                    // Extra donor lights off — one warm glow is enough for a marker.
-                    l.enabled = false;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Hide the donor bonfire's visible meshes so only the rock kitbash shows.
-        /// Disables every Renderer that is NOT part of our kitbash. Called only after
-        /// a rock pile has been built; the fallback path skips this so a missing
-        /// rock_low leaves a plain (but non-burning) base instead of nothing.
-        /// Skips ParticleSystemRenderers (our ember) — they live under kitbashRoot and
-        /// IsKitbash already excludes them, but the explicit type-skip is belt-and-braces.
-        /// </summary>
-        private void HideDonorMeshes()
-        {
-            foreach (var r in GetComponentsInChildren<Renderer>(includeInactive: true))
-            {
-                if (r == null || IsKitbash(r.transform)) continue;
-                if (r is ParticleSystemRenderer) continue;
-                r.enabled = false;
-            }
-        }
     }
 }
