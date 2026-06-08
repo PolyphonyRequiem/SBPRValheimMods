@@ -45,10 +45,25 @@ namespace SBPR.Trailborne.Features.Signs
         // attaches to"). Vanilla prefab name only — clean-room safe.
         private const string SourcePole = "wood_pole2";
 
-        // Lift the sign BOARD's bottom edge to this height (metres) so the board sits
-        // at readable height near the top of the ~2m pole. Measured from the placed
-        // sign's pivot (ground) at register time, pivot-robust (see KitbashStandingPole).
+        // FALLBACK board-bottom height (metres), used ONLY when the pole clone is
+        // missing (error path). Without a pole crown to anchor to we lift the board to
+        // this fixed readable height. The NORMAL path anchors the board's TOP to the
+        // MEASURED pole crown (see KitbashStandingPole / BoardTopInset), so this constant
+        // no longer drives the common case — it used to, and a fixed 1.2 m landed the
+        // board bottom at 60 % of a 2 m post (dead centre), which is exactly the
+        // "board floats mid-post" regression this card fixes (t_05bb5168).
         private const float BoardBottomHeight = 1.2f;
+
+        // NORMAL-path board placement: lift the sign BOARD so its TOP edge sits this far
+        // (metres) BELOW the measured crown of the kitbashed pole, so the board reads as
+        // mounted at the TOP of the post (trail-signpost silhouette) instead of floating
+        // mid-post. Anchored to Assets.MeasureLocalTopY(pole) — robust to a pole swap or a
+        // different pivot (no magic height constant). A small reveal of post above the
+        // board is intentional. Exact inset is visual polish (v0.2+); the load-bearing
+        // requirement is board-at-top. With wood_pole2 (crown at root-local y=2.0) and the
+        // vanilla sign board (height 0.5 m) this lands the board at [1.40, 1.90] m, centre
+        // ~1.65 m (player eye height) — readable, post foot flush at y=0.
+        private const float BoardTopInset = 0.1f;
 
         // Build cost (unpainted). Pigment is NOT a build ingredient — it is
         // consumed at paint time, one pigment per filled color slot, on the PLACED sign.
@@ -255,11 +270,54 @@ namespace SBPR.Trailborne.Features.Signs
             if (signRoot == null) return;
             var rootT = signRoot.transform;
 
-            // Measure the board's current foot so we know how far to lift it. The sign
-            // mesh + collider live in children; raising every direct child by the same
-            // delta keeps the board, its BoxCollider, and the text canvas aligned.
+            // Measure the board's current foot AND top in sign-local space. The sign
+            // mesh + collider live in children; the pole is NOT yet parented here (it is
+            // cloned under the inactive holder below), so this sees the BOARD only.
             float boardFootY = Assets.MeasureLocalFootY(signRoot);
-            float lift = BoardBottomHeight - boardFootY;
+            float boardTopY  = Assets.MeasureLocalTopY(signRoot);
+
+            // Clone + strip the pole FIRST so we can measure its real crown and anchor
+            // the board to the TOP of the post (not a magic height). ClonePrefab parents
+            // the clone under the inactive holder, so it does NOT pollute the board
+            // measurement above and is NOT yet a child of signRoot (the board-lift loop
+            // below must touch board children only).
+            var pole = Assets.ClonePrefab(SourcePole, PostChildName);
+            if (pole == null)
+            {
+                // Error path: no post to anchor to. Fall back to the fixed readable
+                // height so the board is still legible (sign placed without a post).
+                float fallbackLift = BoardBottomHeight - boardFootY;
+                if (fallbackLift > 0f)
+                {
+                    foreach (Transform child in rootT)
+                    {
+                        var lp = child.localPosition;
+                        child.localPosition = new Vector3(lp.x, lp.y + fallbackLift, lp.z);
+                    }
+                }
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M1] Source pole '{SourcePole}' missing; sign placed without a post " +
+                    $"(board lifted {fallbackLift:F2}m to fallback height).");
+                return;
+            }
+            Assets.StripToDecorative(pole);
+            pole.name = PostChildName;
+
+            // Measure the pole's own foot + crown (pivot-robust: wood_pole2 is a CENTRE-
+            // pivot mesh, so its foot is at local y=-1 and crown at +1, NOT base-pivot).
+            // The pole is planted below at localPos.y = -poleFootY, so in the sign's root
+            // space its foot lands at 0 (flush) and its crown rises to (-poleFootY +
+            // poleTopY). For wood_pole2 that is -(-1) + 1 = 2.0m.
+            float poleFootY = Assets.MeasureLocalFootY(pole);
+            float poleTopY  = Assets.MeasureLocalTopY(pole);
+            float plantedPoleCrownY = -poleFootY + poleTopY;
+
+            // Anchor the board's TOP just under the planted crown so the board reads as
+            // mounted at the top of the post. lift = where the board top should go minus
+            // where it currently is. This is what fixes "board floats mid-post": the old
+            // code lifted the board FOOT to a fixed 1.2m (60% up a 2m post = dead centre).
+            float targetBoardTopY = plantedPoleCrownY - BoardTopInset;
+            float lift = targetBoardTopY - boardTopY;
             if (lift < 0f) lift = 0f; // never push the board below where it already sits
 
             if (lift > 0f)
@@ -271,29 +329,21 @@ namespace SBPR.Trailborne.Features.Signs
                 }
             }
 
-            // Plant the pole. Clone via ClonePrefab so it comes from ZNetScene, then
-            // strip it to decoration and parent under the sign root at ground level.
-            var pole = Assets.ClonePrefab(SourcePole, PostChildName);
-            if (pole == null)
-            {
-                Plugin.Log.LogWarning(
-                    $"[Trailborne/M1] Source pole '{SourcePole}' missing; sign placed without a post (board still lifted).");
-                return;
-            }
-            Assets.StripToDecorative(pole);
-            pole.name = PostChildName;
+            // Plant the pole under the sign root at ground level (foot → y=0).
             var poleT = pole.transform;
             poleT.SetParent(rootT, worldPositionStays: false);
             poleT.localRotation = Quaternion.identity;
             poleT.localScale    = Vector3.one;
-            // Plant the pole foot on the ground (sign pivot, local y=0). Measure the
-            // pole's own foot rather than ASSUMING wood_pole2's pivot is at its base —
-            // pivot-robust, same technique as the board lift. Offset so foot → y=0.
-            float poleFootY = Assets.MeasureLocalFootY(pole);
+            // Offset so the measured foot lands at the sign pivot (local y=0). Measuring
+            // the pole's own foot rather than ASSUMING its pivot is at its base keeps this
+            // correct for a centre-pivot pole (poleFootY=-1 → localPos.y=+1 → foot at 0)
+            // OR a base-pivot pole (poleFootY=0 → localPos.y=0 → foot at 0) — pivot-robust.
             poleT.localPosition = new Vector3(0f, -poleFootY, 0f);
             pole.SetActive(true);
 
-            Plugin.Log.LogInfo($"[Trailborne/M1] Kitbashed 2m pole under {SignName}; board lifted {lift:F2}m to standing height.");
+            Plugin.Log.LogInfo(
+                $"[Trailborne/M1] Kitbashed pole under {SignName}: post foot→y=0, crown→{plantedPoleCrownY:F2}m, " +
+                $"board top anchored to {targetBoardTopY:F2}m (lifted {lift:F2}m).");
         }
 
         /// <summary>
