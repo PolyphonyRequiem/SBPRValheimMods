@@ -99,6 +99,55 @@ namespace SBPR.Trailborne.Features.Trailblazing
             };
 
         // ───────────────────────────────────────────────
+        // OP IDENTITY + EFFECT RADIUS (single source of truth for the placement-ripple patch)
+        // ───────────────────────────────────────────────
+
+        /// <summary>
+        /// If <paramref name="prefabName"/> is one of our six registered spade terrain
+        /// ops (the 3 path + 3 replant width variants), returns <c>true</c> and sets
+        /// <paramref name="radius"/> to that op's effect radius in metres
+        /// (1.5 / 3 / 5). Otherwise returns <c>false</c>.
+        ///
+        /// This is the gate AND the magnitude for the client-cosmetic placement-marker
+        /// patch (<see cref="PlacementMarkerRadiusPatch"/>): the bool keeps the ripple
+        /// scaling to OUR pieces (never a vanilla Hoe/Cultivator), and the radius is the
+        /// value the ripple should preview.
+        ///
+        /// Why the radius is sourced from <see cref="variants"/> and NOT re-derived from
+        /// the ghost's <c>TerrainModifier</c> at runtime (which the original spike
+        /// suggested via a "max of enabled op radii" mirror):
+        ///   • <see cref="variants"/> is the SAME table that drives registration — each
+        ///     op's <c>radius</c> here is applied to its TerrainModifier's paint (and,
+        ///     for paths, level/smooth) radius in <see cref="RegisterRadiusVariant"/>.
+        ///     So this IS the op's effect radius, read one step closer to the source.
+        ///   • A hand-mirrored "max of enabled radii" formula depends on the vanilla op
+        ///     flags (m_level / m_smooth / m_paintCleared) AND on fields that differ by
+        ///     game build — the metadata probe against this build's assembly_valheim.dll
+        ///     confirmed m_raise / m_raiseRadius (listed in the spike) do NOT exist here,
+        ///     and for a narrow replant op the vanilla level/smooth radii (~2 m) would
+        ///     overshoot our 1.5 m paint footprint. Sourcing the intended width from the
+        ///     registration table sidesteps all of that and matches the acceptance test
+        ///     exactly (1.5 m op → ~1.5 m ripple, 5 m op → ~5 m ripple).
+        ///
+        /// Robust to Unity's instantiation suffix: a placement ghost GameObject is a
+        /// clone, so its <c>.name</c> is e.g. "piece_sbpr_path_wide(Clone)". We strip
+        /// from "(Clone" onward before matching the registered prefab name.
+        /// </summary>
+        public static bool TryGetSpadeOpRadius(string? prefabName, out float radius)
+        {
+            radius = 0f;
+            if (string.IsNullOrEmpty(prefabName)) return false;
+            int idx = prefabName!.IndexOf("(Clone", StringComparison.Ordinal);
+            string name = (idx >= 0 ? prefabName.Substring(0, idx) : prefabName).Trim();
+            if (variants.TryGetValue(name, out var v))
+            {
+                radius = v.radius;
+                return true;
+            }
+            return false;
+        }
+
+        // ───────────────────────────────────────────────
         // PREFAB REGISTRATION (called from ZNetScene.Awake postfix)
         // ───────────────────────────────────────────────
 

@@ -70,6 +70,14 @@ namespace SBPR.Trailborne
             // menu, so these hooks are inert on the dedicated server.
             harmony.PatchAll(typeof(ClientRefreshPatches));
 
+            // Placement-ripple magnitude (Request 1): Player.UpdatePlacementGhost
+            // postfix sizes the placement marker's CircleProjector to OUR spade op's
+            // effect radius (1.5/3/5m) so the aiming ripple previews the real affected
+            // area instead of a fixed 5m ring. Client-cosmetic, gated on piece identity
+            // (our op names only — never a vanilla Hoe/Cultivator). Inert on the
+            // dedicated server (no local Player / placement marker).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Trailblazing.PlacementMarkerRadiusPatch));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
         }
 
