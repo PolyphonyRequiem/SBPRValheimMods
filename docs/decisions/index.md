@@ -11,6 +11,7 @@ Machine-readable manifest of architecture decision records.
 | 0003-explorers-bench-own-station.md | accepted | Explorer's Bench is its own CraftingStation, not the Workbench |
 | 0004-deterministic-publish-then-pr-releases.md | accepted | Deterministic packaging + publish-then-PR release ordering |
 | 0005-spec-kit-adoption-v2.md | accepted | GitHub Spec Kit adoption for v2 (Option C) — vocabulary + templates + constitution; CLI/specs-NNN deferred behind a spike |
+| 0006-additive-prefab-construction.md | accepted | No runtime prefab cloning; build pieces additively (new GameObject + AddComponent), read vanilla only as blueprints |
 
 ## Conventions
 

@@ -31,6 +31,15 @@ If spec and code disagree, **the spec wins** unless Daniel explicitly overrides.
 - **Clean-room.** Do NOT copy Jotunn or any other mod-loader's code. Vanilla
   public API names only (verify against `assembly_valheim.dll` metadata). Nothing
   copyrighted is committed.
+- **Additive construction — NO runtime prefab cloning (ADR-0006).** Build content
+  prefabs from `new GameObject()` + `AddComponent` of only the components you
+  intend. Do NOT `Instantiate` a vanilla/ZNetView-bearing prefab as a mutable base
+  and then strip the parts you don't want — that subtractive pattern caused every
+  major bug to date (the v0.2.7 ZDO-orphan crash, the cairn-as-bonfire fire leak).
+  You MAY read vanilla prefabs as *blueprints* (shared mesh/material/EffectList/
+  field values via `ZNetScene.GetPrefab`, which fires no Awake) — reading an asset
+  is not cloning. Use `vprefab inspect <name>` to read the blueprint first. See
+  `docs/decisions/0006-additive-prefab-construction.md`.
 - **net48 / BepInEx / HarmonyX.** Build:
   `dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release` →
   0 errors, **0 warnings (clean build)**. `<TreatWarningsAsErrors>` is ON, so

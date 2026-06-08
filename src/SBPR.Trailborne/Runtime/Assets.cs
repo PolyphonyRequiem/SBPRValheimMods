@@ -412,5 +412,228 @@ namespace SBPR.Trailborne.Runtime
                 }
             }
         }
+
+        /// <summary>
+        /// Graft a SMALL, torch-tier cosmetic fire under <paramref name="parent"/> by
+        /// instantiating just the flame VFX + glow light + crackle SFX subtrees off the
+        /// vanilla <c>piece_groundtorch_wood</c> donor — NOT the whole torch prefab.
+        ///
+        /// 🔴 v0.2.8 (Daniel: "replace it with the torch vfx and sfx (and light) … we
+        /// don't need the whole prefab, just the components"). Why the torch and not the
+        /// bonfire: the torch flame is already marker-scale, so we inherit "small fire"
+        /// for free instead of fighting bonfire-scale particles.
+        ///
+        /// CLEAN-ROOM / no-orphan: the three grafted children
+        /// (<c>fx_Torch_Basic</c>, <c>Point light</c>, <c>sfx_fire_loop</c>) live under the
+        /// torch's INACTIVE <c>_enabled</c> node and carry NO ZNetView — only the torch
+        /// ROOT does. Instantiating a ZNetView-free child subtree wakes no ZDO, so there
+        /// is nothing for ZNetScene.RemoveObjects to orphan (the opposite of the PR #23
+        /// trap). We read the donor via GetPrefab (never instantiate the torch itself).
+        ///
+        /// Two donor traps neutralized on the grafted copy:
+        ///   • <c>sfx_fire_loop</c> carries <see cref="TimedDestruction"/>, which would
+        ///     self-destroy our audio node a second after spawn → strip it.
+        ///   • The torch's <c>FireWarmth</c> child is an <see cref="EffectArea"/> that
+        ///     grants heat — we deliberately do NOT copy it, and defensively strip any
+        ///     EffectArea that rides along, so the cairn grants no heat/burn.
+        ///
+        /// Returns the assembled fire-root GameObject (parented, at local Y =
+        /// <paramref name="localY"/>), or null if the donor torch isn't registered or
+        /// we're on a headless server (no renderers/particles exist there).
+        /// </summary>
+        public static GameObject? GraftTorchFire(
+            Transform parent, float localY, float lightIntensity, float lightRange)
+        {
+            if (parent == null) return null;
+            var zns = ZNetScene.instance;
+            if (zns == null) return null;
+
+            var torch = zns.GetPrefab("piece_groundtorch_wood")
+                        ?? zns.GetPrefab("piece_groundtorch");
+            if (torch == null)
+            {
+                Plugin.Log.LogWarning(
+                    "[Trailborne/M2] GraftTorchFire: no torch donor (piece_groundtorch_wood/piece_groundtorch) " +
+                    "registered; cairn shows no flame this build.");
+                return null;
+            }
+
+            // The cosmetics live under the torch's inactive "_enabled" node.
+            var enabled = torch.transform.Find("_enabled");
+            if (enabled == null)
+            {
+                Plugin.Log.LogWarning(
+                    "[Trailborne/M2] GraftTorchFire: torch donor has no '_enabled' child " +
+                    "(vanilla structure changed?); cairn shows no flame this build.");
+                return null;
+            }
+
+            var fireRoot = new GameObject("SBPR_CairnFire");
+            fireRoot.transform.SetParent(parent, worldPositionStays: false);
+            fireRoot.transform.localPosition = new Vector3(0f, localY, 0f);
+
+            // Copy ONLY these three cosmetic subtrees (NOT FireWarmth / EffectArea).
+            int grafted = 0;
+            foreach (var childName in new[] { "fx_Torch_Basic", "Point light", "sfx_fire_loop" })
+            {
+                var src = enabled.Find(childName);
+                if (src == null) continue;
+                var copy = UnityEngine.Object.Instantiate(src.gameObject, fireRoot.transform);
+                copy.name = childName;
+                copy.SetActive(true);
+                grafted++;
+            }
+
+            if (grafted == 0)
+            {
+                Plugin.Log.LogWarning(
+                    "[Trailborne/M2] GraftTorchFire: none of the expected torch cosmetic children found; " +
+                    "removing empty fire root.");
+                UnityEngine.Object.Destroy(fireRoot);
+                return null;
+            }
+
+            // Trap 1: the sfx node's TimedDestruction would self-destroy our audio.
+            foreach (var td in fireRoot.GetComponentsInChildren<TimedDestruction>(true))
+                if (td != null) UnityEngine.Object.DestroyImmediate(td);
+
+            // Trap 2: defensively strip any heat/burn area that rode along (none expected
+            // from the three children we copy, but belt-and-braces — a marker grants none).
+            foreach (var ea in fireRoot.GetComponentsInChildren<EffectArea>(true))
+                if (ea != null) UnityEngine.Object.DestroyImmediate(ea);
+
+            // Dim the grafted light below a vanilla torch so it reads as a small marker
+            // glow. Keep the FIRST light, drop any extras.
+            bool keptLight = false;
+            foreach (var l in fireRoot.GetComponentsInChildren<Light>(true))
+            {
+                if (l == null) continue;
+                if (!keptLight)
+                {
+                    keptLight = true;
+                    l.intensity = lightIntensity;
+                    l.range = lightRange;
+                }
+                else
+                {
+                    UnityEngine.Object.DestroyImmediate(l);
+                }
+            }
+
+            return fireRoot;
+        }
+
+        /// <summary>
+        /// Construct a networked build-piece SHELL from scratch — ADR-0006 additive
+        /// construction, the replacement for clone-then-strip. Returns a fresh
+        /// GameObject parented under the inactive holder (so its Awake has NOT fired),
+        /// carrying ONLY the skeleton every placeable/damageable/persistent SBPR piece
+        /// needs: <see cref="ZNetView"/> + <see cref="Piece"/> + <see cref="WearNTear"/>
+        /// + a root <see cref="BoxCollider"/>. The caller adds visuals + feature
+        /// components, sets piece/wear fields, and registers it in ZNetScene.
+        ///
+        /// 🔴 Why this exists (ADR-0006): we no longer Instantiate a vanilla prefab and
+        /// strip it. A ZNetView needs only (a) ZDOMan up and (b) a registered prefab
+        /// name — it reads three PUBLIC fields (m_persistent/m_type/m_distant) and makes
+        /// its own ZDO. So we AddComponent a working one; the donor never gave us
+        /// anything we can't set ourselves. This structurally eliminates the
+        /// runtime-clone ZDO-orphan crash class (the clone never happens).
+        ///
+        /// REFERENCE (not clone): the three WearNTear EffectLists (destroyed / hit /
+        /// switch) and the Piece placement/removal effects are deep VALUE-copied off a
+        /// clean vanilla stone donor read via GetPrefab (fires no Awake). Copying an
+        /// EffectList's value is reference, not inheritance — we own the component, we
+        /// just point its effect tables at the same vanilla VFX/SFX a stone piece uses.
+        ///
+        /// Networking fields are set to vanilla build-piece norms (verified against the
+        /// decompiled WearNTear/ZNetView): persistent ZDO, Default object type, stone
+        /// material, supports-bearing, non-burnable. m_health is left at the WearNTear
+        /// default here; the caller overrides per-tier.
+        /// </summary>
+        public static GameObject? ConstructPieceShell(string name, string referenceDonorName)
+        {
+            var zns = ZNetScene.instance;
+            if (zns == null)
+            {
+                Plugin.Log.LogError("[Trailborne] ConstructPieceShell called with no ZNetScene.");
+                return null;
+            }
+
+            // Parent under the inactive holder BEFORE adding components, so no Awake
+            // fires during construction (same discipline as ClonePrefab). The ZNetView
+            // we add will wake — correctly, down the CreateNewZDO path — only once this
+            // shell is instantiated into the world by the placement system.
+            var holder = GetHolder();
+            var go = new GameObject(name);
+            go.transform.SetParent(holder.transform, worldPositionStays: false);
+
+            // Root collider — a build piece needs one for placement raycasts + hits.
+            // Caller may resize; a unit box is a safe default.
+            var box = go.AddComponent<BoxCollider>();
+            box.size = Vector3.one;
+
+            // ZNetView — the networked identity. Public fields the decompiled
+            // ZNetView.Awake reads to build its ZDO: persistent piece, Default type,
+            // not distant (cairns are normal-range objects).
+            var nview = go.AddComponent<ZNetView>();
+            nview.m_persistent = true;
+            nview.m_type = ZDO.ObjectType.Default;
+            nview.m_distant = false;
+
+            // Piece — placement identity. Reference-copy placement/removal effects off
+            // the stone donor so it sounds/looks like a real stone build on place.
+            var piece = go.AddComponent<Piece>();
+            piece.m_groundPiece = false;
+            piece.m_groundOnly = false;
+            piece.m_cultivatedGroundOnly = false;
+            piece.m_waterPiece = false;
+            piece.m_noInWater = false;
+            piece.m_allowedInDungeons = false;
+            piece.m_canBeRemoved = true;
+            piece.m_targetNonPlayerBuilt = false;
+
+            // WearNTear — health / decay / material. Vanilla stone-build norms; the
+            // cairn's damage IMMUNITY + decay are layered by CairnPatches Harmony hooks
+            // (they key off CairnTag, so they apply equally to an additive piece).
+            var wnt = go.AddComponent<WearNTear>();
+            wnt.m_materialType = WearNTear.MaterialType.Stone;
+            wnt.m_health = 100f;                 // caller overrides per-tier
+            wnt.m_noRoofWear = true;             // weather decay handled by our backfill, not roof rules
+            wnt.m_noSupportWear = true;          // a cairn never structurally collapses from lack of support
+            wnt.m_supports = true;
+            wnt.m_burnable = false;              // stone marker — never catches fire
+            wnt.m_ashDamageImmune = true;
+            wnt.m_triggerPrivateArea = true;
+            wnt.m_autoCreateFragments = true;
+
+            // REFERENCE-COPY the effect tables off a clean stone donor (value copy; the
+            // donor is read via GetPrefab and never instantiated). If the donor is
+            // missing we leave empty EffectLists — the piece still works, just silent
+            // on hit/destroy (acceptable degradation, logged once).
+            var donor = zns.GetPrefab(referenceDonorName);
+            if (donor != null)
+            {
+                var dWnt = donor.GetComponent<WearNTear>();
+                if (dWnt != null)
+                {
+                    wnt.m_destroyedEffect = dWnt.m_destroyedEffect;
+                    wnt.m_hitEffect = dWnt.m_hitEffect;
+                    wnt.m_switchEffect = dWnt.m_switchEffect;
+                }
+                var dPiece = donor.GetComponent<Piece>();
+                if (dPiece != null)
+                {
+                    piece.m_placeEffect = dPiece.m_placeEffect;
+                }
+            }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] ConstructPieceShell: reference donor '{referenceDonorName}' not found; " +
+                    "piece will have no hit/destroy/place effects (still functional, just silent).");
+            }
+
+            return go;
+        }
     }
 }
