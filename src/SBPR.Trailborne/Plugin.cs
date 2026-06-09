@@ -73,6 +73,11 @@ namespace SBPR.Trailborne
             // placed sign opens the custom combined Paint+Text uGUI panel instead of the
             // vanilla text dialog. Replaces the retired apply-ink-item paint gesture.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignInteractPatch));
+            // Re-pin OUR sign's letter colour after the vanilla Sign.UpdateText ~2 Hz poll
+            // (bug t_f8eff6d0): the poll reconstructs m_textWidget after our paint-time apply
+            // and drops the letter tint, so a colour-only repaint left the letters on their
+            // old colour. The postfix re-applies SignTag.ReapplyTextTint() on the poll cadence.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignTextRetintPatch));
             // Make the panel usable while open: block player character input, freeze
             // camera mouse-look (via PlayerController.TakeInput — the vanilla gate our
             // panel bypasses by replacing the sign text dialog), and release the mouse
