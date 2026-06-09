@@ -354,6 +354,64 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Measure the extent of every visual mesh under <paramref name="root"/> along
+        /// ONE axis (0 = X, 1 = Y, 2 = Z), expressed in <paramref name="root"/>'s LOCAL
+        /// space, returning the min and max coordinate on that axis via
+        /// <paramref name="min"/> / <paramref name="max"/>. A generalization of
+        /// <see cref="MeasureLocalFootY"/> / <see cref="MeasureLocalTopY"/> (which are the
+        /// axis = 1 min / max special cases) to an arbitrary axis, so callers can measure
+        /// a board's or post's THICKNESS along its facing normal, not just height.
+        ///
+        /// Walks each <see cref="MeshFilter"/>'s shared-mesh AABB and transforms its 8
+        /// corners through the full TRS into root-local space — so a child mesh that
+        /// reuses a unit-cube mesh scaled by its transform (e.g. the vanilla sign plank /
+        /// <c>wood_pole2</c>, both a 1×1×1 <c>Cube_Cube_Material</c>) reports its REAL
+        /// transformed size, where raw <c>sharedMesh.bounds.size</c> ≈ (1,1,1) would lie.
+        /// Reads only the serialized <c>sharedMesh.bounds</c> + transform math, so it works
+        /// on a clone still parented under an inactive holder (no Awake, no live
+        /// <see cref="Renderer.bounds"/> required). Returns min = max = 0 when the root has
+        /// no meshes. Public UnityEngine API only — clean-room safe.
+        /// </summary>
+        public static void MeasureLocalExtent(GameObject root, int axis, out float min, out float max)
+        {
+            min = 0f;
+            max = 0f;
+            if (root == null) return;
+            if (axis < 0 || axis > 2) return;
+
+            var rootT = root.transform;
+            float lo = float.MaxValue;
+            float hi = float.MinValue;
+            bool any = false;
+
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf == null) continue;
+                var mesh = mf.sharedMesh;
+                if (mesh == null) continue;
+                var b = mesh.bounds;
+                var t = mf.transform;
+                for (int xi = -1; xi <= 1; xi += 2)
+                for (int yi = -1; yi <= 1; yi += 2)
+                for (int zi = -1; zi <= 1; zi += 2)
+                {
+                    var corner = b.center + Vector3.Scale(b.extents, new Vector3(xi, yi, zi));
+                    var local  = rootT.InverseTransformPoint(t.TransformPoint(corner));
+                    float v = local[axis];
+                    if (v < lo) lo = v;
+                    if (v > hi) hi = v;
+                    any = true;
+                }
+            }
+
+            if (any)
+            {
+                min = lo;
+                max = hi;
+            }
+        }
+
+        /// <summary>
         /// Scale the VISUAL of <paramref name="root"/> by <paramref name="factor"/>
         /// on the Y axis, anchored at the foot plane so the base stays planted on the
         /// ground and the top (e.g. a torch flame) rises to the new height. Operates
