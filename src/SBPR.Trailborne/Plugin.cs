@@ -41,6 +41,25 @@ namespace SBPR.Trailborne
         // out of the backfill's old local literal so v0.2.0 can tune decay without a recompile.
         internal static ConfigEntry<float> CairnDecayHpPerDay = null!;   // set in Awake via Config.Bind
 
+        // ── Cairn BANNER windsock tunables (card t_4a4a9706) ──────────────────────────
+        // The banner's wind look is a pure CLIENT visual that CANNOT be verified headless
+        // or in CI — it has shipped wrong in-world twice while building 0/0. So every knob
+        // that shapes the windsock feel is LIVE config: Daniel tunes them on a joined client
+        // (BepInEx ConfigurationManager / edit-the-.cfg-and-reload) in ONE session, then we
+        // bake the chosen metres into §A2.1b. Defaults live as CairnTag.Default* consts
+        // (single source of truth) so a no-Plugin unit context still resolves a sane value.
+        internal static ConfigEntry<float> BannerDropY            = null!;  // tail length, m
+        internal static ConfigEntry<float> BannerWidthZ           = null!;  // ribbon width, m
+        internal static ConfigEntry<float> BannerMountHeight      = null!;  // pinned mount height above the pile crown, m
+        internal static ConfigEntry<float> BannerOffsetXZ         = null!;  // lateral nudge off the pile centre, m
+        internal static ConfigEntry<float> BannerWindMult         = null!;  // directional wind multiplier
+        internal static ConfigEntry<float> BannerWindRandomFactor = null!;  // omnidirectional jitter factor
+        internal static ConfigEntry<float> BannerClothDamping     = null!;  // Cloth.damping
+        internal static ConfigEntry<float> BannerClothFreeDistance= null!;  // max tail travel (cloth units)
+        internal static ConfigEntry<float> BannerFreeRampExp      = null!;  // freedom ramp exponent (mount→tail)
+        internal static ConfigEntry<float> BannerPinBandFrac      = null!;  // mount pin band, fraction of Y-span
+        internal static ConfigEntry<bool>  BannerUseGravity       = null!;  // free-fall slack on build
+
         private void Awake()
         {
             Log = Logger;
@@ -65,6 +84,72 @@ namespace SBPR.Trailborne
                 "whether the cairn was loaded. Against the 100 HP cairn, the default 10 = a ~10 in-game-day life if " +
                 "never repaired. Vanilla wet weather stacks on top as an accelerant (but can't push below 50% alone). " +
                 "Set 0 to disable time decay entirely (weather-only).");
+
+            // ── Banner windsock knobs (card t_4a4a9706) ──────────────────────────────
+            // ALL banner-look constants are live config because the windsock visual cannot
+            // be verified outside a joined client (it shipped wrong in-world twice while CI
+            // was green). Range-clamped so a fat-finger in the .cfg can't blow the banner up.
+            BannerDropY = Config.Bind(
+                "CairnBanner", "SBPR_BannerTailLength", CairnTag.DefaultBannerDropY,
+                new ConfigDescription(
+                    "WINDSOCK tail length in metres (the vertical drop of the ribbon below its mount). " +
+                    "Longer = more of a streaming tail; shorter = a stubby flag. Tune in-game, then we bake §A2.1b.",
+                    new AcceptableValueRange<float>(0.2f, 6f)));
+            BannerWidthZ = Config.Bind(
+                "CairnBanner", "SBPR_BannerWidth", CairnTag.DefaultBannerWidthZ,
+                new ConfigDescription(
+                    "Banner ribbon WIDTH in metres. Narrower reads as a windsock/pennant tail; wider as a square drape.",
+                    new AcceptableValueRange<float>(0.05f, 2f)));
+            BannerMountHeight = Config.Bind(
+                "CairnBanner", "SBPR_BannerMountHeight", CairnTag.DefaultBannerMountHeight,
+                new ConfigDescription(
+                    "Height in metres ABOVE the pile crown at which the banner's mount (pinned end) sits. The tail " +
+                    "hangs DOWN from here past the cairn (Daniel: 'mount above the cairn, tail free-falls below').",
+                    new AcceptableValueRange<float>(0f, 3f)));
+            BannerOffsetXZ = Config.Bind(
+                "CairnBanner", "SBPR_BannerOffsetXZ", CairnTag.DefaultBannerOffsetXZ,
+                new ConfigDescription(
+                    "Lateral nudge in metres off the pile centre so the tail clears the cosmetic flame.",
+                    new AcceptableValueRange<float>(0f, 1.5f)));
+            BannerWindMult = Config.Bind(
+                "CairnBanner", "SBPR_BannerWindMult", CairnTag.DefaultBannerWindMult,
+                new ConfigDescription(
+                    "Directional wind MULTIPLIER on the Cloth's externalAcceleration. Vanilla GlobalWind uses 1.0 on " +
+                    "BIG cloth; our small ribbon may need >1 to visibly STREAM downwind. Raise until the tail lifts toward horizontal in a storm.",
+                    new AcceptableValueRange<float>(0.1f, 20f)));
+            BannerWindRandomFactor = Config.Bind(
+                "CairnBanner", "SBPR_BannerWindRandomFactor", CairnTag.DefaultBannerWindRandomFactor,
+                new ConfigDescription(
+                    "Omnidirectional jitter factor (randomAcceleration = wind × mult × this). Vanilla 0.5. LOWER it " +
+                    "if the tail 'zigs and zags on the spot' instead of pointing downwind — random flutter competes with directional streaming.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            BannerClothDamping = Config.Bind(
+                "CairnBanner", "SBPR_BannerClothDamping", CairnTag.DefaultBannerClothDamping,
+                new ConfigDescription(
+                    "Cloth.damping (0 = floppy/lively, 1 = stiff/dead). Lower = the tail responds more loosely to wind.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            BannerClothFreeDistance = Config.Bind(
+                "CairnBanner", "SBPR_BannerTailFreedom", CairnTag.DefaultBannerClothFreeDistance,
+                new ConfigDescription(
+                    "Max travel (in cloth units) of the FREE tail end. Larger = the tail genuinely FLOPS/streams instead " +
+                    "of vibrating in place. This is the headline windsock knob — the mount end stays hard-pinned regardless.",
+                    new AcceptableValueRange<float>(0.1f, 10f)));
+            BannerFreeRampExp = Config.Bind(
+                "CairnBanner", "SBPR_BannerFreedomRampExp", CairnTag.DefaultBannerFreeRampExp,
+                new ConfigDescription(
+                    "Exponent of the freedom ramp from mount (≈0 freedom) to tail (full freedom). >1 keeps the upper band " +
+                    "near the mount stiff and concentrates the flapping at the far tail (more windsock-like). 1 = linear.",
+                    new AcceptableValueRange<float>(0.5f, 6f)));
+            BannerPinBandFrac = Config.Bind(
+                "CairnBanner", "SBPR_BannerMountPinBandFrac", CairnTag.DefaultBannerPinBandFrac,
+                new ConfigDescription(
+                    "Fraction of the Y-span (measured from the mount end) that is HARD-pinned (a small mount cluster). " +
+                    "Keep small so only the mount is fixed and the rest is free to stream.",
+                    new AcceptableValueRange<float>(0.005f, 0.5f)));
+            BannerUseGravity = Config.Bind(
+                "CairnBanner", "SBPR_BannerUseGravity", CairnTag.DefaultBannerUseGravity,
+                "When true the Cloth free-falls under gravity on build (the tail hangs slack), then wind drives it to " +
+                "stream — Daniel's 'free fall when built, then flop in the wind like a windsock'. False = no gravity (wind only).");
 
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
