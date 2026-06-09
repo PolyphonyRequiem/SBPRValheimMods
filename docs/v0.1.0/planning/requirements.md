@@ -236,6 +236,80 @@ placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 > and owned are belt-and-braces fallbacks. Note SBPR pigments set
 > `m_shared.m_name = displayName`, so the display name is the correct key for both
 > vanilla knowledge sets. Code: `SignPaintBackend.IsPigmentDiscovered`.
+>
+> **§A2.6 — Border visual form: TRUE THIN FRAME (Option A, ratified Daniel 2026-06-09).**
+> Reverses the original `KitbashBorderElement` mesh-reuse construction. The original built
+> the rim by REUSING the board's full plank `sharedMesh` scaled ~1.10× in-plane / 0.85× on
+> depth, kept concentric. **A solid plank mesh scaled near 1.0 is still a solid plank —
+> never a frame** — so it rendered as a full second board poking ~5% past every edge (the
+> "multiple board elements" seen in playtest). The ratified form is REAL frame geometry: a
+> **rim WITH A HOLE**, not a scaled board copy.
+>
+> **Construction (engineer's choice of two; implemented as A1):**
+> - **(A1, recommended — IMPLEMENTED)** FOUR thin bars (top / bottom / left / right) laid
+>   around the board's face silhouette, all parented under one `SBPR_SignBorder` GameObject.
+> - **(A2)** ONE procedural picture-frame mesh — outer rectangle MINUS inner rectangle (a
+>   flat rectangular ring) — as a single `SBPR_SignBorder` renderer.
+>
+> Either way the geometry MUST be a rim-with-a-hole so it can **never regress to a second
+> board**: the board shows through the central cutout; the frame occupies only the edge band.
+>
+> **Geometry rules (parametric — exact dims are v0.2+ polish, tunable in playtest):**
+> - Built in the board's **LOCAL face plane, parented under the board transform** → inherits
+>   board orientation automatically (orientation-robust; no front/back detection needed for
+>   correctness).
+> - Board face dimensions measured from **TRANSFORMED extents** (`Runtime/Assets.MeasureLocalExtent`
+>   over all 3 axes; two largest = face plane, smallest = depth). **MUST NOT use raw
+>   `sharedMesh.bounds`** — the plank is a scaled 1×1×1 unit cube, so raw bounds ≈ (1,1,1)
+>   carry no real dimensions (this raw-bounds read is the original root cause — see below).
+> - Inner cutout ≥ the board's text/face area, so the frame **RINGS the text and never covers
+>   it**.
+> - Frame rim width (visible band): default ~10% of the smaller face dimension (auto-scales to
+>   the real board); clamp to a min so it's visible at readable distance but stays thin, and a
+>   max half-fraction so a central hole always remains. Exact value tunable.
+> - Frame depth: thin slab ≈ board thickness, flush to / within the board's depth envelope;
+>   **MUST NOT protrude forward past the text plane**.
+> - Frame outer edge ≈ flush with the board silhouette (a hair proud is fine; a large overhang
+>   is the "second board" failure and is forbidden).
+>
+> **Tint path (UNCHANGED — two-tone preserved):** the frame lives under a GameObject named
+> `SBPR_SignBorder` (`Signs.BorderChildName`). `Signs.TintBorder` tints only renderers under
+> that subtree (`IsUnderBorder` name-match); `Signs.TintBoard` skips it. Text=Red + border=White
+> → red board + red letters + white frame. Unpainted frame = plain wood (own material instance
+> copied from the board).
+>
+> **Clean-room:** procedural `new Mesh()` / `new GameObject()` + scaled primitive children only
+> (ADR-0006 additive). Reading the vanilla `sign` plank as a blueprint (mesh/material/extents
+> via `vprefab inspect` / `GetPrefab`) is permitted; copying IronGate source is not. (The
+> implementation reuses the board's own unit-cube `sharedMesh` scaled into edge bands — no
+> authored geometry, headless-safe, no collider.)
+>
+> **Root-cause note (why the original drifted):** the old border read its depth-axis from raw
+> `sharedMesh.bounds` (≈ unit cube → meaningless), so the "depth shrink" landed on an arbitrary
+> axis and the copy grew in a FACE direction → second board. The procedural frame eliminates this
+> failure class **structurally**: a rim-with-a-hole has no solid center to become a second board
+> even if axis detection were imperfect. (The sibling standoff feature already learned to use
+> transformed extents; the frame builder reuses the same `MeasureLocalExtent` path.)
+>
+> **SpecCheck:** border geometry is NOT in the drift manifest (`SpecCheck.cs` tracks
+> `piece_sbpr_sign` = Wood×2 only) → zero manifest impact.
+>
+> **Coupling with `sbpr-sign-repaint-color` (t_b7808fc1):** the oversized border is the suspected
+> PERCEPTUAL cause of "repaint doesn't recolor" — the second board masks the real plank, so a new
+> text/board color re-tints the (occluded) plank while the player keeps seeing the unchanged
+> border. The tint code paths are independent (no shared defect); the coupling is visual masking.
+> **Sequencing: land the frame fix FIRST; QA t_6e3cf19c observes whether the recolor perception
+> resolves for free. Do NOT couple them in code.** Treated as likely-one-fix but closed empirically
+> by QA.
+>
+> **Acceptance criteria (AC1–AC7) — reviewer-read invariants + in-game QA (no test project in repo):**
+> - **AC1 — One board + one thin frame.** Exactly one plank + a thin distinct rim; no oversized/overlapping second-board surface.
+> - **AC2 — Two-tone preserved.** Border independently tintable from the board; text=Red + border=White → red board + red letters + white frame.
+> - **AC3 — Unpainted = plain wood.** Frame reads as plain wood before any paint (own material copied from board); no stray colored element pre-paint.
+> - **AC4 — Never occludes board face or text.** Frame rings the text, never sits in front of the plank face or the TMP letters, at any sign orientation.
+> - **AC5 — Visible as a frame at readable distance.** Not a hairline, not a second board.
+> - **AC6 — Clean build.** `dotnet build -c Release` → 0 errors, **0 warnings** (`TreatWarningsAsErrors`, net48, Nullable=enable).
+> - **AC7 — Logs-green ≠ playable.** Real close is Daniel seeing one-board-plus-thin-frame in-game (QA t_6e3cf19c).
 
 ---
 

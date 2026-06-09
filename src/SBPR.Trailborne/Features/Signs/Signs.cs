@@ -79,6 +79,34 @@ namespace SBPR.Trailborne.Features.Signs
         // consumed at paint time, one pigment per filled color slot, on the PLACED sign.
         public const int WoodCost = 2;
 
+        // ── Thin-frame border geometry (§A2.6 Option A, ratified Daniel 2026-06-09) ──
+        // The border is REAL frame geometry (a rim with a hole), built from four thin
+        // bars around the board's face silhouette — NOT a scaled copy of the board mesh
+        // (which rendered a second board). All three are PARAMETRIC and auto-scale to the
+        // measured board; exact values are v0.2+ visual polish, tunable in playtest.
+
+        // Visible rim band width as a fraction of the board's SMALLER face dimension
+        // (height ~0.55 m → ~5.5 cm rim). Auto-scales if the board art changes.
+        private const float FrameRimWidthFrac = 0.10f;
+
+        // Absolute floor (metres) on the rim band so it stays visible as a frame at
+        // readable distance even on a small board (AC5 — not a hairline).
+        private const float FrameRimWidthMin = 0.03f;
+
+        // Cap on the rim band as a fraction of the smaller face dimension. Guarantees a
+        // central HOLE always remains (2·rim < smaller face) so the rim can structurally
+        // NEVER become a second board (AC1) and never rings inward over the text (AC4).
+        private const float FrameRimMaxHalfFrac = 0.40f;
+
+        // Bar depth (thickness on the board's depth axis) as a multiple of the board's
+        // own thickness. Slightly >1 so the rim sits a hair PROUD of both plank faces —
+        // enough to depth-sort cleanly IN FRONT of the board face in the edge band (no
+        // z-fight), but small enough to stay hugging the board's depth envelope and NOT
+        // reach the text plane (AC4). On the ~0.089 m plank, 1.06 ≈ 2.7 mm proud per face.
+        // Frame visibility at distance (AC5) comes from the rim WIDTH + distinct color, not
+        // this depth, so it stays subtle. Tunable v0.2+ polish.
+        private const float FrameDepthFactor = 1.06f;
+
         // ZDO field storing the LEGACY single applied color ("" = unpainted). Retained
         // for one-way migration only: a sign painted under the old single-color model
         // (SBPR_SignColor) is read once on spawn and folded into SBPR_SignTextColor.
@@ -93,10 +121,11 @@ namespace SBPR.Trailborne.Features.Signs
         // under this subtree so painting tints the BOARD only, not the post.
         private const string PostChildName = "SBPR_SignPost";
 
-        // Name of the kitbashed two-tone BORDER child (§A2.6). A thin colored matte/frame
-        // around the board, tinted independently of the board so the sign reads two-tone.
-        // The vanilla sign mesh has no separable frame renderer, so we add this element
-        // (clean-room: reuses the board's own mesh, scaled — no new authored geometry).
+        // Name of the kitbashed two-tone BORDER child (§A2.6). A thin frame (rim with a
+        // hole) around the board, tinted independently of the board so the sign reads
+        // two-tone. The vanilla sign mesh has no separable frame renderer, so we add this
+        // element — four thin bars built from the board's own mesh scaled into edge bands
+        // (clean-room: no new authored geometry). See KitbashBorderElement.
         public const string BorderChildName = "SBPR_SignBorder";
 
         // Color identifiers — must match Pigment colors + Cairns.Colors.
@@ -212,11 +241,12 @@ namespace SBPR.Trailborne.Features.Signs
             // post is baked into the registered prefab — no ZDO, syncs by construction.
             KitbashStandingPole(clone);
 
-            // Kitbash a thin two-tone BORDER element behind the board (§A2.6 re-lock
-            // 2026-06-05). The vanilla sign mesh is a single plank with no separable
-            // frame, so we add one: a copy of the board mesh, slightly larger in-plane
-            // and pushed back, with its own material — tinted independently of the board
-            // for the text/border two-tone. Baked into the prefab like the pole.
+            // Kitbash a thin two-tone FRAME element around the board (§A2.6 Option A,
+            // ratified Daniel 2026-06-09). The vanilla sign mesh is a single plank with no
+            // separable frame, so we add one: a real frame (a rim WITH A HOLE) built from
+            // four thin bars around the board's face silhouette — NOT a scaled board copy
+            // (which rendered a second board). Tinted independently of the board for the
+            // text/border two-tone. Baked into the prefab like the pole.
             KitbashBorderElement(clone);
 
             // Tag the sign so the paint receiver + pin path can identify it and so
@@ -453,29 +483,49 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Kitbash a thin two-tone BORDER element for the sign (§A2.6, re-lock
-        /// 2026-06-05). The vanilla sign mesh is a single wood plank with no separable
-        /// frame renderer, so we ADD one we can tint independently of the board:
+        /// Kitbash a TRUE THIN FRAME border element for the sign (§A2.6, Option A,
+        /// ratified Daniel 2026-06-09). The vanilla sign mesh is a single wood plank with
+        /// no separable frame renderer, so we ADD one we can tint independently of the
+        /// board. The frame is REAL frame geometry — a rim WITH A HOLE — not a scaled
+        /// copy of the board plank (the discarded mesh-reuse construction rendered a full
+        /// SECOND BOARD poking ~5% past every edge; see the root-cause note below):
         ///
         ///   • Find the BOARD mesh — the largest <see cref="MeshFilter"/> on the sign
-        ///     that is NOT part of the decorative pole (the pole runs first and is named
-        ///     <see cref="PostChildName"/>).
-        ///   • Create a child <c>SBPR_SignBorder</c> under the board's transform that
-        ///     REUSES the board's own <c>sharedMesh</c> (clean-room — no authored
-        ///     geometry) with its OWN material instance (a copy of the board material,
-        ///     so an unpainted sign reads as plain wood).
-        ///   • Scale it slightly LARGER in the board plane (the two big mesh axes) and
-        ///     slightly THINNER on the depth axis (the smallest mesh axis), kept
-        ///     concentric about the board mesh's bounds-center. The thinner depth keeps
-        ///     the whole border INSIDE the board's thickness envelope except where it
-        ///     pokes out sideways — so it reads as a recessed colored matte/frame around
-        ///     the board edges and can NEVER sit in front of the text (orientation-free,
-        ///     no front/back detection needed).
+        ///     that is NOT part of the decorative pole (named <see cref="PostChildName"/>)
+        ///     and not part of an existing border.
+        ///   • Measure the plank's REAL face dimensions from its TRANSFORMED extents
+        ///     (<see cref="Assets.MeasureLocalExtent(GameObject,Transform,int,out float,out float)"/>
+        ///     in the sign-root frame), NOT raw <c>sharedMesh.bounds</c>. The vanilla sign
+        ///     plank reuses a 1×1×1 unit-cube <c>Cube_Cube_Material</c> mesh scaled by its
+        ///     transform (vprefab-verified), so raw bounds ≈ (1,1,1) carry no real size —
+        ///     only the transformed corners reveal the true ~1.0 × 0.55 × 0.089 m plank.
+        ///     The smallest transformed axis is the depth (thickness); the other two span
+        ///     the face plane the rim rings.
+        ///   • Build a <c>SBPR_SignBorder</c> root parented under the board transform (so
+        ///     it inherits the board's orientation + placement automatically — no
+        ///     front/back detection needed) and lay FOUR thin bars (top / bottom / left /
+        ///     right) around the board's face silhouette. Each bar REUSES the board's own
+        ///     unit-cube <c>sharedMesh</c> scaled into a thin edge band (clean-room — no
+        ///     authored geometry, headless-safe, no collider). The bars ring the central
+        ///     text area and leave it open — the board shows through the middle, so the
+        ///     frame can NEVER regress to a second board.
+        ///   • Each bar gets its OWN material instance copied from the board material, so
+        ///     an unpainted sign reads as plain wood, and the frame is tinted
+        ///     independently of the board via the <see cref="BorderChildName"/> subtree
+        ///     name-match (<see cref="IsUnderBorder"/> → <see cref="TintBorder"/>).
         ///
-        /// Visual polish (exact inset, frame thickness) is a v0.2+ concern; the
-        /// load-bearing requirement here is a separately-tintable border element. If the
-        /// board mesh can't be found we log and skip — the sign still works single-tone
-        /// (TintBorder no-ops on the missing element). Public UnityEngine API only.
+        /// Outer silhouette is flush with the plank (no overhang); the rim is slightly
+        /// proud on the depth axis so it reads as a raised frame at distance. Exact rim
+        /// width / depth are v0.2+ polish (parametric, auto-scaling to the real board). If
+        /// the board mesh can't be found we log and skip — the sign still works
+        /// single-tone (TintBorder no-ops on the missing element).
+        ///
+        /// Root-cause note (why the old construction drifted): it read the depth axis from
+        /// raw <c>sharedMesh.bounds</c> of the unit-cube plank (≈ (1,1,1), meaningless), so
+        /// the "depth shrink" landed on an arbitrary FACE axis and the scaled board copy
+        /// grew forward past the text plane → second board. The procedural rim eliminates
+        /// this failure class structurally: a hollow ring has no solid center to become a
+        /// second board even if axis detection slipped. Public UnityEngine API only.
         /// </summary>
         private static void KitbashBorderElement(GameObject signRoot)
         {
@@ -504,42 +554,141 @@ namespace SBPR.Trailborne.Features.Signs
 
             var boardRend = boardMf.GetComponent<MeshRenderer>();
             var boardMat  = boardRend != null ? boardRend.sharedMaterial : null;
+            var boardT    = boardMf.transform;
+            var boardMesh = boardMf.sharedMesh;
 
-            // Identify the depth axis = the smallest mesh extent; the other two are the
-            // in-plane (face) axes that the rim grows along.
-            Vector3 size = boardMf.sharedMesh.bounds.size;
-            Vector3 center = boardMf.sharedMesh.bounds.center;
+            // REAL board dimensions (metres) from TRANSFORMED extents in the sign-root
+            // frame — NEVER raw sharedMesh.bounds. The plank reuses a 1×1×1 unit-cube
+            // mesh scaled by its transform (vprefab: Cube_Cube_Material), so raw bounds
+            // ≈ (1,1,1) carry no real size; only the transformed corners reveal the true
+            // ~1.0 × 0.55 × 0.089 m plank. The board is axis-aligned with the sign root at
+            // register time (unrotated template — the standoff feature relies on the same
+            // 1:1 board-local↔root axis mapping), so a root-frame extent along axis i is
+            // also the board-LOCAL length of axis i, which is what the bars (built in
+            // board-local space below) need.
+            Assets.MeasureLocalExtent(boardMf.gameObject, signRoot.transform, 0, out float rMinX, out float rMaxX);
+            Assets.MeasureLocalExtent(boardMf.gameObject, signRoot.transform, 1, out float rMinY, out float rMaxY);
+            Assets.MeasureLocalExtent(boardMf.gameObject, signRoot.transform, 2, out float rMinZ, out float rMaxZ);
+            float[] worldDim = { rMaxX - rMinX, rMaxY - rMinY, rMaxZ - rMinZ };
+
+            // Cheap sanity guard: the per-board-local-axis world length is |lossyScale|×
+            // meshSize. If it disagrees with the root-frame extent the board is rotated
+            // relative to the root and the axis mapping below would be off — log, don't
+            // abort (the frame still renders; a 90° rim swap is a cosmetic playtest catch).
+            Vector3 ls = boardT.lossyScale;
+            Vector3 mSizeV = boardMesh.bounds.size;
+            float[] localWorld = { Mathf.Abs(ls.x) * mSizeV.x, Mathf.Abs(ls.y) * mSizeV.y, Mathf.Abs(ls.z) * mSizeV.z };
+            for (int i = 0; i < 3; i++)
+            {
+                float a = worldDim[i], b = localWorld[i];
+                if (Mathf.Abs(a - b) > 0.05f * Mathf.Max(a, b, 1e-4f))
+                {
+                    Plugin.Log.LogWarning(
+                        $"[Trailborne/M1] {SignName}: board axis {i} root-extent {a:F3}m vs " +
+                        $"local-extent {b:F3}m disagree — board may be rotated vs root; frame rim " +
+                        "may land on the wrong axis (cosmetic, caught in playtest).");
+                    break;
+                }
+            }
+
+            // Depth axis = the smallest real extent (the plank's thickness); the two
+            // largest span the face plane the rim rings.
             int depthAxis = 0;
-            if (size.y < size.x && size.y <= size.z) depthAxis = 1;
-            else if (size.z < size.x && size.z < size.y) depthAxis = 2;
+            for (int i = 1; i < 3; i++) if (worldDim[i] < worldDim[depthAxis]) depthAxis = i;
+            int faceA = (depthAxis + 1) % 3;
+            int faceB = (depthAxis + 2) % 3;
 
-            const float InPlaneGrow = 1.10f; // rim pokes out ~5% on each in-plane edge
-            const float DepthShrink  = 0.85f; // sit inside the board's thickness (no z-fight, text-safe)
-            Vector3 scale = new Vector3(InPlaneGrow, InPlaneGrow, InPlaneGrow);
-            scale[depthAxis] = DepthShrink;
+            // Board mesh LOCAL geometry (the build frame). For the unit-cube plank this is
+            // center (0,0,0), size (1,1,1) → the plank occupies [-0.5, 0.5] on each axis in
+            // board-local space. Read from the mesh so it generalizes if the art changes.
+            Vector3 mc = boardMesh.bounds.center;
+            Vector3 ms = boardMesh.bounds.size;
+            float[] meshCtr  = { mc.x, mc.y, mc.z };
+            float[] meshSize = { ms.x, ms.y, ms.z };
 
+            // Local→world scale of each board-local axis = worldDim / meshSize (so a local
+            // length L on axis i is L·scale[i] metres in world). Used to make the rim band
+            // the SAME world width on all four sides despite the board's anisotropic scale.
+            float scaleA = Mathf.Max(worldDim[faceA] / Mathf.Max(meshSize[faceA], 1e-6f), 1e-6f);
+            float scaleB = Mathf.Max(worldDim[faceB] / Mathf.Max(meshSize[faceB], 1e-6f), 1e-6f);
+
+            // Rim band width (WORLD, uniform on all four sides): ~10% of the smaller face
+            // dimension so it auto-scales to the real board; floored so it stays visible at
+            // distance (AC5) and capped so a central HOLE always remains (AC1/AC4) — a
+            // hollow ring can structurally never become a second board.
+            float smallerFace = Mathf.Min(worldDim[faceA], worldDim[faceB]);
+            float rimWorld = Mathf.Clamp(
+                FrameRimWidthFrac * smallerFace,
+                FrameRimWidthMin,
+                FrameRimMaxHalfFrac * smallerFace);
+
+            float rimLocalA = rimWorld / scaleA; // left/right bar thickness (board-local, faceA)
+            float rimLocalB = rimWorld / scaleB; // top/bottom bar thickness (board-local, faceB)
+
+            float halfA = meshSize[faceA] * 0.5f, cA = meshCtr[faceA];
+            float halfB = meshSize[faceB] * 0.5f, cB = meshCtr[faceB];
+            float depthLocal = meshSize[depthAxis] * FrameDepthFactor; // thin slab, proud both faces
+            float cD = meshCtr[depthAxis];
+
+            // One border ROOT parented under the board transform → inherits the board's
+            // orientation + placement automatically (no front/back detection needed). The
+            // four bars live UNDER it, so the BorderChildName name-match routes TintBorder
+            // to all of them and TintBoard skips them (two-tone preserved unchanged).
             var border = new GameObject(BorderChildName);
-            border.transform.SetParent(boardMf.transform, worldPositionStays: false);
+            border.transform.SetParent(boardT, worldPositionStays: false);
             border.transform.localRotation = Quaternion.identity;
-            border.transform.localScale    = scale;
-            // Keep the scaled copy concentric about the board mesh's bounds-center:
-            // localPos = C ⊙ (1 - scale) maps C→C while expanding/contracting around it.
-            border.transform.localPosition = new Vector3(
-                center.x * (1f - scale.x),
-                center.y * (1f - scale.y),
-                center.z * (1f - scale.z));
+            border.transform.localPosition = Vector3.zero;
+            border.transform.localScale    = Vector3.one;
 
-            var bmf = border.AddComponent<MeshFilter>();
-            bmf.sharedMesh = boardMf.sharedMesh;
-            var brend = border.AddComponent<MeshRenderer>();
-            // Own material instance so tinting the border never bleeds into the board.
-            // Copy the board material so an UNPAINTED border reads as plain wood.
-            if (boardMat != null) brend.sharedMaterial = new Material(boardMat);
+            int barCount = 0;
+
+            // Local helper: a thin wood bar = the board's OWN unit-cube mesh scaled into an
+            // edge band (clean-room — no authored geometry, headless-safe, and no collider
+            // to strip), with its OWN material instance copied from the board (so an
+            // unpainted frame reads as plain wood and tints independently of the board).
+            void AddBar(string suffix, float sFaceA, float sFaceB, float pFaceA, float pFaceB)
+            {
+                var bar = new GameObject($"{BorderChildName}_{suffix}");
+                bar.transform.SetParent(border.transform, worldPositionStays: false);
+                bar.transform.localRotation = Quaternion.identity;
+
+                var sc = new Vector3();
+                sc[faceA]     = sFaceA;
+                sc[faceB]     = sFaceB;
+                sc[depthAxis] = depthLocal;
+                bar.transform.localScale = sc;
+
+                var po = new Vector3();
+                po[faceA]     = pFaceA;
+                po[faceB]     = pFaceB;
+                po[depthAxis] = cD;
+                bar.transform.localPosition = po;
+
+                var bmf = bar.AddComponent<MeshFilter>();
+                bmf.sharedMesh = boardMesh;
+                var brend = bar.AddComponent<MeshRenderer>();
+                if (boardMat != null) brend.sharedMaterial = new Material(boardMat);
+
+                bar.SetActive(true);
+                barCount++;
+            }
+
+            // Top + bottom bars span the FULL face width, flush with the plank silhouette.
+            AddBar("T", meshSize[faceA], rimLocalB, cA, cB + halfB - rimLocalB * 0.5f);
+            AddBar("B", meshSize[faceA], rimLocalB, cA, cB - halfB + rimLocalB * 0.5f);
+
+            // Left + right bars span only the INNER height (between the top/bottom bars) so
+            // corners butt cleanly instead of double-stacking. innerB > 0 (rim is capped so
+            // a central hole always remains).
+            float innerB = meshSize[faceB] - 2f * rimLocalB;
+            AddBar("L", rimLocalA, innerB, cA - halfA + rimLocalA * 0.5f, cB);
+            AddBar("R", rimLocalA, innerB, cA + halfA - rimLocalA * 0.5f, cB);
 
             border.SetActive(true);
             Plugin.Log.LogInfo(
-                $"[Trailborne/M1] Kitbashed two-tone border '{BorderChildName}' on {SignName} " +
-                $"(depthAxis={depthAxis}, grow={InPlaneGrow}, depth={DepthShrink}).");
+                $"[Trailborne/M1] Kitbashed thin-frame border '{BorderChildName}' on {SignName} " +
+                $"({barCount} bars, depthAxis={depthAxis}, face={worldDim[faceA]:F3}×{worldDim[faceB]:F3}m, " +
+                $"rim={rimWorld * 100f:F1}cm, depth×{FrameDepthFactor:F2}).");
         }
 
         /// <summary>
