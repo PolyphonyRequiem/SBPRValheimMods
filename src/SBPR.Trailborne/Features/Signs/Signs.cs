@@ -119,13 +119,30 @@ namespace SBPR.Trailborne.Features.Signs
         private const float FrameRimMaxHalfFrac = 0.40f;
 
         // Bar depth (thickness on the board's depth axis) as a multiple of the board's
-        // own thickness. Slightly >1 so the rim sits a hair PROUD of both plank faces —
-        // enough to depth-sort cleanly IN FRONT of the board face in the edge band (no
-        // z-fight), but small enough to stay hugging the board's depth envelope and NOT
-        // reach the text plane (AC4). On the ~0.089 m plank, 1.06 ≈ 2.7 mm proud per face.
-        // Frame visibility at distance (AC5) comes from the rim WIDTH + distinct color, not
-        // this depth, so it stays subtle. Tunable v0.2+ polish.
-        private const float FrameDepthFactor = 1.06f;
+        // own thickness. >1 so the rim sits PROUD of both plank faces — enough to depth-sort
+        // cleanly IN FRONT of the board face in the edge band (no front/back z-fight), but
+        // small enough to stay hugging the board's depth envelope and NOT reach the text
+        // plane (AC4). RAISED 1.06→1.12 (card t_153ca109, Daniel playtest v0.2.10): at 1.06
+        // the bars stood only ~2.7 mm proud per face on the ~0.089 m plank — too shallow to
+        // depth-sort against the board face at distance/grazing angles, so the front/back
+        // shimmered. 1.12 ≈ 5.3 mm proud per face: clearly proud, still well short of the
+        // text plane. (The DOMINANT outer-edge fight is the coplanar OUTER SILHOUETTE, fixed
+        // separately by FrameOuterInset below — depth alone never cured that.) Frame
+        // visibility at distance (AC5) comes from the rim WIDTH + distinct color, not this
+        // depth, so it stays subtle. Tunable v0.2+ polish.
+        private const float FrameDepthFactor = 1.12f;
+
+        // Outer-edge inset (WORLD metres): pull the frame's outer silhouette this far
+        // INSIDE the board's silhouette so the four bars' OUTER faces are NOT coplanar with
+        // the plank's perimeter side faces. Coplanar outer faces are the root cause of the
+        // "borders z-fight on the outer edges" symptom (Daniel playtest v0.2.10, card
+        // t_153ca109): two surfaces sharing a plane shimmer at distance/grazing angles, and
+        // FrameDepthFactor (a depth-axis change) can NEVER separate two faces that are
+        // coplanar in the FACE plane. A few mm of inset removes the shared plane outright,
+        // leaving only a hair of bare-board lip — spec §A2.6: "outer edge ≈ flush; a hair is
+        // fine." Being strictly INSIDE the silhouette also hardens AC1 (a hollow ring inset
+        // from the edge can never read as a second board). Tunable v0.2+ polish.
+        private const float FrameOuterInset = 0.004f;
 
         // ZDO field storing the LEGACY single applied color ("" = unpainted). Retained
         // for one-way migration only: a sign painted under the old single-color model
@@ -482,6 +499,57 @@ namespace SBPR.Trailborne.Features.Signs
                 }
             }
 
+            // ── Board 180° facing flip (card t_153ca109, Daniel playtest v0.2.10) ──────
+            // Daniel, in-game: "sign board is facing the wrong way (needs a 180 flip)."
+            //
+            // Root cause. The standoff block above only TRANSLATES the board onto the post's
+            // side face — it never ROTATES it — and it DERIVES that side from faceT.forward,
+            // trusting faceT.forward == the board's readable outward normal. The shipped log
+            // (axis=Z dir=- → board centre 0.000→-0.251m) shows the board placed at Z=-0.251
+            // with the post at Z=0. The defect is that the donor's readable normal is the
+            // OPPOSITE of faceT.forward, so the text face actually reads +Z — straight INTO
+            // the post — and a player at the natural front sees the BACK. (#58 verified LIVE
+            // that the board kisses the side and is not embedded, so position/side is right;
+            // only facing is wrong. This is the card's case (b).)
+            //
+            // Why (b) and not (a) "wrong side": the post is a free-standing, symmetric pole
+            // (wood_pole2 at X/Z=0). "Board on the other side, still reading outward" is the
+            // mirror image of the correct sign and is visually identical — it would NOT read
+            // as "facing wrong way." The only visible defect is the readable face pointing
+            // TOWARD the post, i.e. (b).
+            //
+            // Fix = rotate the board GROUP 180° about its OWN vertical centroid (NOT the post
+            // axis). Both rotations flip the readable normal, but the pivot decides which side
+            // the board lands on: rotating about the post axis would shuttle the board to the
+            // far side where the corrected normal STILL points at the post (post occludes the
+            // read); rotating about the board's own centroid keeps it on the side the standoff
+            // already chose and flips the normal to point AWAY from the post — clean read,
+            // post behind the board. The board's normal-axis extent is symmetric about its
+            // centroid, so the post-kiss face lands in exactly the same place (#58 preserved);
+            // a Y-axis rotation never touches Y, so crown height is preserved (t_05bb5168).
+            // Placement yaw spins board+post rigidly together, so this register-time flip
+            // holds at every placement yaw. The pole is parented at X/Z=0 AFTER this loop and
+            // the border is built AFTER this method, so both are untouched here and the border
+            // inherits the corrected facing automatically.
+            //
+            // Centroid: normalAxis component = the post-translation board centre
+            // (targetBoardCenter_n); otherAxis component = the measured board midpoint on the
+            // other horizontal axis (the lateral translation never moved that axis, so the
+            // pre-translation extent midpoint is still valid). Rotating about this line maps
+            // the board centroid onto itself → facing flips, position is preserved.
+            int flipOtherAxis = (normalAxis == 0) ? 2 : 0;
+            float boardMin_o = (flipOtherAxis == 0) ? boardMinX : boardMinZ;
+            float boardMax_o = (flipOtherAxis == 0) ? boardMaxX : boardMaxZ;
+            float boardCenter_o = 0.5f * (boardMin_o + boardMax_o);
+            foreach (Transform child in rootT)
+            {
+                var lp = child.localPosition;
+                lp[normalAxis]      = 2f * targetBoardCenter_n - lp[normalAxis];
+                lp[flipOtherAxis]   = 2f * boardCenter_o       - lp[flipOtherAxis];
+                child.localPosition = lp; // Y unchanged → crown height preserved
+                child.localRotation = Quaternion.AngleAxis(180f, Vector3.up) * child.localRotation;
+            }
+
             // Plant the pole under the sign root at ground level (foot → y=0).
             var poleT = pole.transform;
             poleT.SetParent(rootT, worldPositionStays: false);
@@ -766,6 +834,17 @@ namespace SBPR.Trailborne.Features.Signs
             float depthLocal = meshSize[depthAxis] * FrameDepthFactor; // thin slab, proud both faces
             float cD = meshCtr[depthAxis];
 
+            // Frame OUTER half-extents = board half-extents pulled IN by FrameOuterInset, so
+            // no bar face is coplanar with the board's perimeter side faces (the "outer
+            // edges z-fight", card t_153ca109). Convert the world inset to board-local via
+            // each axis' scale. Clamp the inset to a quarter of the half-extent so a
+            // degenerate (tiny) board can never invert the frame — the outer silhouette
+            // stays a positive majority of the board silhouette.
+            float insetLocalA = Mathf.Min(FrameOuterInset / scaleA, halfA * 0.25f);
+            float insetLocalB = Mathf.Min(FrameOuterInset / scaleB, halfB * 0.25f);
+            float frameHalfA = halfA - insetLocalA;
+            float frameHalfB = halfB - insetLocalB;
+
             // One border ROOT parented under the board transform → inherits the board's
             // orientation + placement automatically (no front/back detection needed). The
             // four bars live UNDER it, so the BorderChildName name-match routes TintBorder
@@ -809,22 +888,26 @@ namespace SBPR.Trailborne.Features.Signs
                 barCount++;
             }
 
-            // Top + bottom bars span the FULL face width, flush with the plank silhouette.
-            AddBar("T", meshSize[faceA], rimLocalB, cA, cB + halfB - rimLocalB * 0.5f);
-            AddBar("B", meshSize[faceA], rimLocalB, cA, cB - halfB + rimLocalB * 0.5f);
+            // Top + bottom bars span the FULL (inset) face width; their OUTER edge is pulled
+            // in to cB ± frameHalfB (FrameOuterInset inside the board silhouette) so the bar
+            // faces are NOT coplanar with the plank perimeter — kills the outer-edge z-fight.
+            AddBar("T", 2f * frameHalfA, rimLocalB, cA, cB + frameHalfB - rimLocalB * 0.5f);
+            AddBar("B", 2f * frameHalfA, rimLocalB, cA, cB - frameHalfB + rimLocalB * 0.5f);
 
-            // Left + right bars span only the INNER height (between the top/bottom bars) so
-            // corners butt cleanly instead of double-stacking. innerB > 0 (rim is capped so
-            // a central hole always remains).
-            float innerB = meshSize[faceB] - 2f * rimLocalB;
-            AddBar("L", rimLocalA, innerB, cA - halfA + rimLocalA * 0.5f, cB);
-            AddBar("R", rimLocalA, innerB, cA + halfA - rimLocalA * 0.5f, cB);
+            // Left + right bars span only the INNER height (between the inset top/bottom bars)
+            // so corners butt cleanly instead of double-stacking, and their outer edge is the
+            // same inset cA ± frameHalfA. innerB = 2·frameHalfB − 2·rimLocalB, floored at 0 so
+            // a degenerate (tiny) board can't invert it (the rim cap already keeps a real
+            // board's hole open).
+            float innerB = Mathf.Max(2f * frameHalfB - 2f * rimLocalB, 0f);
+            AddBar("L", rimLocalA, innerB, cA - frameHalfA + rimLocalA * 0.5f, cB);
+            AddBar("R", rimLocalA, innerB, cA + frameHalfA - rimLocalA * 0.5f, cB);
 
             border.SetActive(true);
             Plugin.Log.LogInfo(
                 $"[Trailborne/M1] Kitbashed thin-frame border '{BorderChildName}' on {SignName} " +
                 $"({barCount} bars, depthAxis={depthAxis}, face={worldDim[faceA]:F3}×{worldDim[faceB]:F3}m, " +
-                $"rim={rimWorld * 100f:F1}cm, depth×{FrameDepthFactor:F2}).");
+                $"rim={rimWorld * 100f:F1}cm, depth×{FrameDepthFactor:F2}, outerInset={FrameOuterInset * 100f:F2}cm).");
         }
 
         /// <summary>
