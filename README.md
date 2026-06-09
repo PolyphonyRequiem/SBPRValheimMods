@@ -4,8 +4,12 @@ Server-gated Valheim mods built under the SBPR namespace (Starbright + Polyphony
 
 > **Doctrine.** These mods enrich gameplay on private SBPR servers only.
 > Distribution plumbing (BepInEx, Thunderstore) is third-party and used as-is.
-> All gameplay behavior is a **clean-room** reimplementation — no IronGate code,
-> no other mod-loader's code (incl. Jotunn), is reproduced here.
+> Gameplay behavior is the authors' own work — vanilla Valheim source may be
+> read and adapted (it's the game we mod). **Other mods' code is not copied
+> directly**; where we reproduce another mod's functionality we use a clean-room
+> RE process (separate reviewer + implementer / Chinese wall). No copyrighted
+> source (game binaries, decompiled IronGate source, other mods' source) is
+> committed here.
 
 ## Status
 

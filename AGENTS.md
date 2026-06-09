@@ -28,9 +28,20 @@ If spec and code disagree, **the spec wins** unless Daniel explicitly overrides.
 
 ## Hard constraints
 
-- **Clean-room.** Do NOT copy Jotunn or any other mod-loader's code. Vanilla
-  public API names only (verify against `assembly_valheim.dll` metadata). Nothing
-  copyrighted is committed.
+- **Clean-room = a firewall around OTHER developers' mod code, NOT around the base
+  game.** **Vanilla Valheim is fair game: you MAY read AND adapt its decompiled
+  source** to write our implementation — reading/adapting the game we're modding is
+  normal and allowed, not a clean-room violation. **Other mods (Jotunn, etc.) are
+  different:** do NOT copy their code directly, but you MAY still *reproduce* their
+  functionality through a proper **clean-room RE process** — a `reviewer-cleanroom`
+  reads the original and writes a behavioral *description*, then a separate
+  implementer who never saw that source reproduces it from the description (a
+  Chinese wall). You may also just *ask questions* about another mod to learn
+  *where* to investigate vanilla yourself. The hard limits: (a) no direct copying
+  of other mods' code (use the RE wall instead), and (b) don't *commit* copyrighted
+  files (game binaries, decompiled IronGate source, other mods' source) into this
+  MIT repo. Verify vanilla names against `assembly_valheim.dll` metadata when in
+  doubt. See ADR-0001.
 - **Additive construction — NO runtime prefab cloning (ADR-0006).** Build content
   prefabs from `new GameObject()` + `AddComponent` of only the components you
   intend. Do NOT `Instantiate` a vanilla/ZNetView-bearing prefab as a mutable base

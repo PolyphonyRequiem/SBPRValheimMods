@@ -48,11 +48,33 @@ together — or the server logs a drift ERROR on next boot.
 
 ## Clean-room rule (non-negotiable)
 
-Trailborne is a clean-room reimplementation. **Do not copy code from Jotunn or
-any other mod loader.** You may reference *vanilla* public API names
-(confirmed against `assembly_valheim.dll` metadata), and you may read Jotunn/etc.
-only to understand *vanilla* behavior — never to copy their implementation.
-Nothing copyrighted (game binaries, other mods' source) is ever committed.
+The clean-room firewall is around **other developers' mod code** — Jotunn and any
+other mod loader / third-party mod. **It is NOT a firewall around vanilla Valheim.**
+
+- ✅ **Vanilla disassembly is fair game.** You MAY read *and adapt* Valheim's own
+  decompiled source to write our implementation (e.g. lifting `GlobalWind`'s
+  wind-driver logic). Reading and replicating the behavior of the game we're
+  modding is normal engineering, not a violation. Verify names against
+  `assembly_valheim.dll` metadata when uncertain.
+- ❌ **Do not copy code from Jotunn or any other mod loader / third-party mod
+  directly.** Those authors never consented to be our line-by-line reference.
+- ✅ **You MAY reproduce another mod's *functionality* via a clean-room RE process
+  (a Chinese wall).** The mechanism, using our standing profiles:
+  1. A **`reviewer-cleanroom`** (or `re-analyst`) reads the other mod's source and
+     writes a *behavioral description* — what it does, the observable
+     inputs/outputs/algorithm — **in its own words, copying no code**.
+  2. A **separate implementer** who has **never seen** the original source
+     reproduces the behavior *from that description only*.
+  This separation is what makes the reproduction legally clean. Never let one
+  agent both read the original source and write our implementation of it.
+- ✅ **You may also just *ask questions*** about another mod ("how does X
+  approach Y?") to learn *where* to investigate the *vanilla* internals ourselves —
+  often the cheapest path, and it keeps us on vanilla (which is fair game anyway).
+- ❌ **Do not *commit* copyrighted files** (game binaries, decompiled IronGate
+  source, other mods' source) into this MIT repo. Reading them locally is fine;
+  checking them in is not.
+
+In short: take what you need from the base game; keep other developers' code out.
 
 ## Building
 
