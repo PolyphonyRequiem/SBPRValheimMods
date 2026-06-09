@@ -36,8 +36,17 @@ existing SDD roles. Use these words in cards, PRs, and discussion:
    Spec Kit equivalent — it caught the 4-recipe drift + a null-resource bug. Keep its count in sync.
 3. **Corpus-first.** Grep `~/valheim/sbpr-corpus/wiki/fandom/` before asserting any vanilla
    Valheim fact, name, or prefab. Never guess a vanilla identifier.
-4. **Clean-room.** Vanilla public API names only (verify against `assembly_valheim.dll` metadata).
-   No Jotunn or decompiled IronGate source copied. ([ADR-0001](../decisions/0001-clean-room-no-jotunn.md).)
+4. **Clean-room = a firewall around OTHER developers' mod code, not vanilla.**
+   Reading *and adapting* Valheim's own decompiled source to write our impl is fair
+   game (it's the game we're modding). For **other mods** (Jotunn, etc.): no direct
+   copying, but you MAY *reproduce* their functionality through a clean-room RE
+   process — a `reviewer-cleanroom` reads the original and writes a behavioral
+   description, a separate implementer reproduces it from that description without
+   ever seeing the source (Chinese wall); or simply ask questions to learn where to
+   investigate vanilla ourselves. Never *commit* copyrighted files (game binaries,
+   decompiled IronGate source, other mods' source) into the MIT repo. Verify vanilla
+   names against `assembly_valheim.dll` metadata when uncertain.
+   ([ADR-0001](../decisions/0001-clean-room-no-jotunn.md).)
 5. **Writer ≠ verifier.** The agent that verifies a spec or an implementation is a **different
    agent** (often a stronger model) from the one that wrote it. Spec Kit's same-agent `analyze`
    does not satisfy this.
