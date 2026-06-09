@@ -711,8 +711,11 @@ namespace SBPR.Trailborne.Features.Signs
         /// touched the text, so painting "red" tinted the plank but left the letters
         /// their original colour. We set BOTH <c>color</c> (vertex tint) AND
         /// <c>faceColor</c> (the TMP face material colour) so the change is robust across
-        /// TMP's two colour paths and survives the vanilla <c>Sign.UpdateText</c> repaint
-        /// (which only ever reassigns <c>.text</c>, never the colour).
+        /// TMP's two colour paths. NOTE: setting these here is NOT enough on its own — the
+        /// vanilla <c>Sign.UpdateText</c> ~2 Hz poll reconstructs/rewrites <c>m_textWidget</c>
+        /// AFTER our paint-time apply and CAN drop the letter colour (observed in-game,
+        /// bug t_f8eff6d0). The <c>SignTextRetintPatch</c> postfix re-pins via
+        /// <c>SignTag.ReapplyTextTint</c> on the poll's cadence to keep the letters coloured.
         ///
         /// No-op on a headless server (no widget) or before the Sign component's Awake
         /// has wired <c>m_textWidget</c>. Public Valheim/TMP API only — clean-room

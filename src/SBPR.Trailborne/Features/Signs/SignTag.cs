@@ -76,21 +76,17 @@ namespace SBPR.Trailborne.Features.Signs
         /// The TEXT tone drives BOTH the board mesh (<see cref="Signs.TintBoard"/>) AND
         /// the TMP text widget (<see cref="Signs.TintText"/>): §A2.6 "Set Text Color"
         /// colours the written letters, not just the plank (Issue 4b — previously the
-        /// text never changed). The text widget is re-tinted every apply (even when the
-        /// id is unchanged) because the vanilla <c>Sign.UpdateText</c> 2 Hz poll
-        /// reassigns <c>m_textWidget.text</c> and can construct/replace the widget after
-        /// our first apply; cheap idempotent re-set keeps the colour pinned.
+        /// text never changed). The text-letter re-pin is delegated to
+        /// <see cref="ReapplyTextTint"/> (the single source of truth for the letter
+        /// colour). NOTE: this per-APPLY re-pin alone does NOT survive the vanilla
+        /// <c>Sign.UpdateText</c> ~2 Hz poll — apply only fires on spawn (Awake) and
+        /// paint (WriteColors), and the poll reconstructs/rewrites <c>m_textWidget</c>
+        /// AFTER our apply, dropping the colour. The <see cref="SignTextRetintPatch"/>
+        /// postfix is what keeps the letters pinned across polls (it calls
+        /// <see cref="ReapplyTextTint"/> on the poll's cadence).
         /// </summary>
         public void ApplyColorsFromZdo()
         {
-            // Capture the TMP text widget's ORIGINAL face colour once, before we ever
-            // paint it, so clearing the text color can revert the letters to vanilla.
-            if (originalTextColor == null)
-            {
-                var orig = Signs.TryReadTextColor(gameObject);
-                if (orig != null) originalTextColor = orig;
-            }
-
             string textColor = ReadTextColor();
             if (textColor != lastAppliedText)
             {
@@ -101,13 +97,10 @@ namespace SBPR.Trailborne.Features.Signs
                     Signs.RestoreBoard(gameObject); // "remove text color" → vanilla wood board
             }
 
-            // The text TONE drives the TMP letters too (Issue 4b). Re-pin every apply
-            // when set (survives the vanilla UpdateText repaint that only reassigns
-            // .text); when unset, revert to the captured original text colour.
-            if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var ttcol))
-                Signs.TintText(gameObject, ttcol);
-            else if (originalTextColor != null)
-                Signs.TintText(gameObject, originalTextColor.Value);
+            // The text TONE drives the TMP letters too (Issue 4b). Delegated to
+            // ReapplyTextTint() — the SINGLE source of truth for the letter colour — so
+            // the spawn/paint apply and the Sign.UpdateText-poll postfix can never drift.
+            ReapplyTextTint();
 
             string borderColor = ReadBorderColor();
             if (borderColor != lastAppliedBorder)
@@ -118,6 +111,35 @@ namespace SBPR.Trailborne.Features.Signs
                 else
                     Signs.RestoreBorder(gameObject); // "remove border color" → vanilla wood border
             }
+        }
+
+        /// <summary>
+        /// Re-pin ONLY the TMP letter tint from ZDO. Called from
+        /// <see cref="ApplyColorsFromZdo"/> (spawn/paint) AND from the
+        /// <see cref="SignTextRetintPatch"/> postfix on <c>Sign.UpdateText</c>, so the
+        /// letters' colour survives the vanilla text poll that reconstructs/rewrites
+        /// <c>m_textWidget</c> after our paint-time apply. Deliberately does NOT re-walk
+        /// the board/border renderers (only the cheap TMP widget set) — keeping it safe
+        /// to call on the poll's ~2 Hz cadence. Cheap: TintText's faceColor set early-outs
+        /// when the colour is unchanged. Reverts to the captured original colour when the
+        /// text slot is unset ("remove text color"). The original (unpainted) face colour
+        /// is captured once here, lazily, before we ever paint it.
+        /// </summary>
+        public void ReapplyTextTint()
+        {
+            // Capture the TMP text widget's ORIGINAL face colour once, before we ever
+            // paint it, so clearing the text color can revert the letters to vanilla.
+            if (originalTextColor == null)
+            {
+                var orig = Signs.TryReadTextColor(gameObject);
+                if (orig != null) originalTextColor = orig;
+            }
+
+            string textColor = ReadTextColor();
+            if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var c))
+                Signs.TintText(gameObject, c);
+            else if (originalTextColor != null)
+                Signs.TintText(gameObject, originalTextColor.Value);
         }
 
         /// <summary>
