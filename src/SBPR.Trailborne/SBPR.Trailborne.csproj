@@ -50,6 +50,11 @@ namespace SBPR.Trailborne { public partial class Plugin { public const string Ge
     <Reference Include="UnityEngine"><HintPath>$(ValheimManaged)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ValheimManaged)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ValheimManaged)/UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- UnityEngine.Cloth (cairn-banner wind-responsive cloth, A-prime t_e95949c2) lives in
+         its OWN module assembly in Unity 6 — NOT PhysicsModule. Ships in the Valheim Managed
+         folder (and in the CI dedicated-server payload, Steam app 896660) like every other
+         Unity assembly — verified present alongside PhysicsModule.dll. -->
+    <Reference Include="UnityEngine.ClothModule"><HintPath>$(ValheimManaged)/UnityEngine.ClothModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.ParticleSystemModule"><HintPath>$(ValheimManaged)/UnityEngine.ParticleSystemModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.AudioModule"><HintPath>$(ValheimManaged)/UnityEngine.AudioModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(ValheimManaged)/UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>

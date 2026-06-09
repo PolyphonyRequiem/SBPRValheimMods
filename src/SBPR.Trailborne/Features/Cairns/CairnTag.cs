@@ -198,8 +198,11 @@ namespace SBPR.Trailborne.Features.Cairns
             // Color identity: plant a wind-responsive BANNER at the pile, its cloth
             // material chosen by the cairn's bound color. Replaces the old stone tint
             // (Daniel 2026-06-08). Additive: we read only the banner's cloth mesh +
-            // material off the vanilla donor and hand-build a bare MeshFilter+MeshRenderer
-            // GameObject — no ZNetView, no Piece, no pole (ADR-0006).
+            // material off the vanilla donor and hand-build a SkinnedMeshRenderer + Cloth +
+            // ClothWindDriver GameObject that STREAMS with world wind (A-prime, t_e95949c2)
+            // — no ZNetView, no Piece, no pole (ADR-0006). Cloth/SMR/driver are all cosmetic
+            // Unity components; the measured #61 dimensions are baked into a per-instance
+            // mesh so the Cloth simulates under a UNIFORM transform (no skew).
             BuildBanner(kitbashRoot.transform, pileTopY);
 
             // Graft a SMALL torch-tier cosmetic flame (+ dim light + crackle) at the pile
@@ -325,12 +328,16 @@ namespace SBPR.Trailborne.Features.Cairns
 
         // ── Banner (color identity, wind-responsive) ───────────────────────────────
 
-        // Color → vanilla banner donor prefab. The cloth carries color identity; the
-        // wave is driven by the banner cloth material's vertex shader (reads the global
-        // wind vector), so attaching just the cloth mesh+material gives waving for free —
-        // no Cloth component, no SkinnedMeshRenderer, no physics (verified via offline
-        // X-ray: the cloth child carries zero scripts). Mapping LOCKED with Daniel
-        // 2026-06-08. (Secondary tones are the donor's — 02 is blue/yellow, 11 is
+        // Color → vanilla banner donor prefab. The cloth carries color identity, and its
+        // motion is REAL wind-responsive cloth physics (A-prime, t_e95949c2): we graft a
+        // UnityEngine.Cloth onto a SkinnedMeshRenderer built from a per-instance copy of the
+        // donor cloth mesh, pin its top edge, and drive externalAcceleration/randomAcceleration
+        // from the world wind via the reusable ClothWindDriver (see BuildBanner). The donor
+        // cloth child itself carries zero scripts (offline X-ray) — vanilla DECORATIVE banners
+        // only shader-waggle in place — so directional streaming is something we ADD, the same
+        // Cloth mechanism vanilla SAILS/CAPES/tents use via GlobalWind. The bare material's
+        // vertex-shader waggle still runs underneath as ambient surface ripple. Mapping LOCKED
+        // with Daniel 2026-06-08. (Secondary tones are the donor's — 02 is blue/yellow, 11 is
         // black/white-inverted — flagged for in-game eyeball.)
         private static readonly Dictionary<string, string> BannerDonorFor = new Dictionary<string, string>
         {
@@ -346,9 +353,16 @@ namespace SBPR.Trailborne.Features.Cairns
         // via vprefab on piece_banner01/02/04/11 — all four identical), with its pivot at
         // the cloth TOP so it HANGS DOWN. We measure-and-normalize each in-plane axis to a
         // target metre size — Z carries the horizontal WIDTH, Y the vertical DROP; X is
-        // zero-thickness and inert (left at scale 1 to preserve the shader wind-wave). A
-        // single uniform scalar (the retired BannerScale=0.6) could not fix the anisotropic
-        // ~3×-wide / ~2×-long error; per-axis normalization does (card t_5756cd21).
+        // zero-thickness and inert. A single uniform scalar (the retired BannerScale=0.6)
+        // could not fix the anisotropic ~3×-wide / ~2×-long error; per-axis normalization
+        // does (card t_5756cd21).
+        //
+        // 🔴 A-prime (t_e95949c2): the normalization is now BAKED INTO A PER-INSTANCE MESH
+        // (scale the VERTICES, not the transform) so the Cloth simulates under a UNIFORM
+        // transform — UnityEngine.Cloth's constraint solver SHEARS under a skewed lossyScale,
+        // so a non-uniform transform.localScale would render the wind sim wrong. The two
+        // TargetBanner* constants are STILL the source of truth for the proportions; they
+        // now feed the vertex bake in BuildBanner instead of transform.localScale (AC10).
         private const float TargetBannerWidthZ = 0.236f; // horizontal span, m (Z axis)
         private const float TargetBannerDropY  = 0.892f; // vertical drop,   m (Y axis)
         // Seat the cloth pivot (its top) this fraction of the drop ABOVE the pile top, so
@@ -359,17 +373,52 @@ namespace SBPR.Trailborne.Features.Cairns
         private const float BannerSeatDropFrac = 0.5f;
         private const float BannerOffsetXZ     = 0.30f;  // nudge off the pile centre (clears the flame)
 
+        // Cloth wind tunables (A-prime, t_e95949c2 — FLAGGED for in-game eyeball, Daniel's
+        // AC9 gate). Multiplier / RandomFactor mirror vanilla GlobalWind defaults (1f / 0.5f).
+        // The TOP edge is hard-pinned (maxDistance 0, anchored to the mount) and each lower
+        // vertex may travel up to FreeDistance × (its normalized depth below the top), so the
+        // banner streams from a fixed top instead of ballooning or blowing away (AC5).
+        //
+        // BannerClothTopPinBandFrac is a FRACTION OF THE Y-SPAN, not absolute metres — this is
+        // load-bearing: the donor cloth's top anchor row sits at fromTop/span ≈ 0 and the next
+        // row at ≈ 0.059 (X-ray: 8 verts at Y 0.048, next 8 at Y −0.127, span 2.974). An
+        // ABSOLUTE-metre band would catch a DIFFERENT vertex count before vs after the Y-bake
+        // (the bake shrinks span ~3.3×, moving row-1 to ~0.018 m from the top) — over-pinning
+        // and stiffening the banner. A span-fraction band catches the SAME 8-vertex top row at
+        // any bake scale. 0.03 sits cleanly between row-0 (0.0) and row-1 (0.059).
+        private const float BannerWindMult          = 1.0f;  // ClothWindDriver.Multiplier
+        private const float BannerWindRandomFactor  = 0.5f;  // ClothWindDriver.RandomFactor
+        private const float BannerClothFreeDistance = 1.0f;  // max travel at the free (bottom) edge, in cloth units
+        private const float BannerClothTopPinBandFrac = 0.03f; // verts within this FRACTION of the Y-span from yMax are hard-pinned
+
         /// <summary>
-        /// Attach the wind-responsive color BANNER to the pile. Reads ONLY the cloth
-        /// child's mesh + material off the vanilla banner donor (the color-bearing
-        /// <c>default</c> child — NOT the <c>woodbeam</c> pole) and hand-builds a bare
-        /// Transform + MeshFilter + MeshRenderer GameObject. Nothing networked is ever
-        /// instantiated (ADR-0006), and the cloth shader's wind animation runs on the
-        /// shared material with no extra components. No-op on a headless server (donor
-        /// renderers don't exist there) and on an unknown color.
+        /// Attach the wind-responsive color BANNER to the pile. Reads ONLY the cloth child's
+        /// mesh + material off the vanilla banner donor (the color-bearing <c>default</c>
+        /// child — NOT the <c>woodbeam</c> pole) and hand-builds an additive GameObject
+        /// carrying a <see cref="SkinnedMeshRenderer"/> + <see cref="Cloth"/> +
+        /// <see cref="ClothWindDriver"/> (A-prime, t_e95949c2). The Cloth's TOP edge is pinned
+        /// (maxDistance 0) and its body is free, so the banner STREAMS with world wind
+        /// direction + force from a fixed mount instead of waggling in place — the same
+        /// mechanism vanilla sails/capes/tents use via GlobalWind.
+        ///
+        /// 🔴 Sizing (AC10): the #61 measured proportions (≈0.236 m wide × 0.892 m drop) are
+        /// BAKED INTO A PER-INSTANCE MESH (the donor mesh's VERTICES are scaled), NOT applied
+        /// as a non-uniform transform.localScale. UnityEngine.Cloth's solver shears under a
+        /// skewed lossyScale, so the transform must stay UNIFORM; the rest-shape carries the
+        /// dimensions instead. We never mutate the shared donor mesh — we Instantiate a copy,
+        /// scale that, and a <see cref="DestroyMeshOnDestroy"/> janitor frees it on rebuild.
+        ///
+        /// Nothing networked is ever instantiated (ADR-0006): Cloth + SkinnedMeshRenderer +
+        /// driver + the baked mesh are all cosmetic client assets, no ZNetView / Piece / pole.
+        /// No-op on a headless server (no graphics device → no Cloth) and on an unknown color.
         /// </summary>
         private void BuildBanner(Transform parent, float pileTopY)
         {
+            // Cloth is client-side cosmetic physics — a headless dedicated server has no
+            // graphics device and the donor renderers/meshes are stripped there, so there is
+            // nothing to drive. Bail before spinning up a SkinnedMeshRenderer + Cloth.
+            if (IsHeadless()) return;
+
             var zns = ZNetScene.instance;
             if (zns == null) return;
 
@@ -380,49 +429,198 @@ namespace SBPR.Trailborne.Features.Cairns
                 return;
             }
 
-            var (clothMesh, clothMat) = ResolveBannerCloth(zns, donorName);
-            if (clothMesh == null)
+            var (donorMesh, clothMat) = ResolveBannerCloth(zns, donorName);
+            if (donorMesh == null)
             {
-                // Headless server or donor missing/changed — skip silently on server,
-                // warn on a client where we expected cloth art.
-                if (clothMat == null && !IsHeadless())
+                // Donor missing/changed — warn (we're on a client; headless already bailed).
+                if (clothMat == null)
                     Plugin.Log.LogWarning(
                         $"[Trailborne/M2] Cairn banner: donor '{donorName}' cloth mesh not found; " +
                         "cairn shows no banner this build (color identity falls back to none).");
                 return;
             }
 
-            var banner = new GameObject("SBPR_CairnBanner");
-            banner.transform.SetParent(parent, worldPositionStays: false);
-            var mf = banner.AddComponent<MeshFilter>();
-            mf.sharedMesh = clothMesh;
-            var mr = banner.AddComponent<MeshRenderer>();
-            if (clothMat != null) mr.sharedMaterial = clothMat;
-            // Cosmetic art — keep the shadow/render budget down like the stones.
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.TwoSided;
-            mr.receiveShadows = false;
-
-            // Seat the cloth just above the pile top, nudged off-centre so it doesn't
-            // bury the flame. Deterministic side per ZDO so it's stable across reloads.
-            int seed = (nview != null && nview.GetZDO() != null) ? nview.GetZDO().m_uid.GetHashCode() : 1337;
-            float side = ((seed & 1) == 0) ? 1f : -1f;
-
-            // Measure-and-normalize: this donor cloth has HONEST mesh bounds (real metres),
-            // so clothMesh.bounds.size is directly usable — no transformed-extent measure
-            // needed (unlike the signs' unit-cube meshes). Width→Z, drop→Y, X guarded/inert.
-            Vector3 native = clothMesh.bounds.size;                 // ≈ (0, 2.974, 1.1802)
+            // ── Bake the #61 dimensions into a PER-INSTANCE mesh (AC10) ────────────────
+            // Measure-and-normalize off the DONOR's honest bounds (real metres): Z→width,
+            // Y→drop, X≈0 inert. Same sy/sz v1 computed for transform.localScale — but we
+            // apply them to the VERTICES of a private copy so the Cloth can run under a
+            // uniform transform (no shear). Never touch the shared donor mesh.
+            Vector3 native = donorMesh.bounds.size;                 // ≈ (0, 2.974, 1.1802)
             float sy = native.y > 1e-3f ? TargetBannerDropY  / native.y : 1f;
             float sz = native.z > 1e-3f ? TargetBannerWidthZ / native.z : 1f;
-            float sx = 1f;  // X ≈ 0 thickness → scaling it is a no-op; leave at 1 to keep the wave.
 
-            // Pivot sits at the cloth TOP and the cloth hangs DOWN; seat the pivot a half-
-            // drop above the pile top so the resized ribbon clears the ground plane and
-            // drapes the upper pile (the old seat buried ~0.12 m of cloth underground at T1).
+            Mesh bakedMesh = Instantiate(donorMesh);               // private, mutable copy
+            bakedMesh.name = donorMesh.name + "_SBPRbaked";
+            if (!bakedMesh.isReadable)
+            {
+                // Can't read/rewrite verts → can't bake dims OR pin the cloth top. Rather than
+                // ship a wrong-sized blow-away banner, drop the banner this build and shout —
+                // the donor's readability changed in a game patch and the spec needs re-grounding.
+                Plugin.Log.LogError(
+                    $"[Trailborne/M2] Cairn banner: donor cloth mesh '{donorMesh.name}' is NON-READABLE; " +
+                    "cannot bake dimensions or pin the cloth top. Skipping banner — re-ground the A-prime spec " +
+                    "(donor mesh readability likely changed in a game patch).");
+                Destroy(bakedMesh);
+                return;
+            }
+            Vector3[] verts = bakedMesh.vertices;                  // copy-out; readable confirmed above
+            for (int i = 0; i < verts.Length; i++)
+                verts[i] = new Vector3(verts[i].x, verts[i].y * sy, verts[i].z * sz);
+            bakedMesh.vertices = verts;
+            bakedMesh.RecalculateBounds();                         // bounds now ≈ 0.236(Z) × 0.892(Y)
+
+            // ── Build the graft GameObject ────────────────────────────────────────────
+            var banner = new GameObject("SBPR_CairnBanner");
+            banner.transform.SetParent(parent, worldPositionStays: false);
+
+            // Free the baked per-instance mesh on EVERY teardown (tier rebuild destroys the
+            // kitbash root, cairn removal, scene unload) — a runtime Mesh is not GC'd with its
+            // GameObject, so without this we'd leak one mesh per rebuild.
+            banner.AddComponent<DestroyMeshOnDestroy>().Owned = bakedMesh;
+
+            // Seat the cloth pivot (its top) a half-drop above the pile top so the baked
+            // ribbon clears the terrain plane and drapes the upper pile; nudge off-centre so
+            // it doesn't bury the flame. Deterministic side per ZDO → stable across reloads.
+            int seed = (nview != null && nview.GetZDO() != null) ? nview.GetZDO().m_uid.GetHashCode() : 1337;
+            float side = ((seed & 1) == 0) ? 1f : -1f;
             banner.transform.localPosition = new Vector3(
                 BannerOffsetXZ * side,
                 pileTopY + TargetBannerDropY * BannerSeatDropFrac,
                 0f);
-            banner.transform.localScale = new Vector3(sx, sy, sz);
+            // UNIFORM scale only — Cloth simulates correctly under uniform lossyScale, not
+            // skewed. The dimensions live in the baked mesh, not here.
+            banner.transform.localScale = Vector3.one;
+
+            // Cloth REQUIRES a SkinnedMeshRenderer (it simulates that renderer's vertices).
+            // The baked mesh has no bones/skin; the SMR renders it with identity skinning and
+            // Cloth then drives the vertices.
+            var smr = banner.AddComponent<SkinnedMeshRenderer>();
+            smr.sharedMesh = bakedMesh;
+            if (clothMat != null) smr.sharedMaterial = clothMat;
+            smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.TwoSided;
+            smr.receiveShadows = false;
+            smr.updateWhenOffscreen = false;   // perf (AC4); explicit roomy bounds below avoid edge-cull pop
+            // The cloth swings beyond the rest-mesh AABB; give it a generous local box (mesh-
+            // local, pre-transform) so a streaming banner isn't culled at the screen edge.
+            // Sized off the baked drop/width with slack for the streamed swing.
+            smr.localBounds = new Bounds(
+                new Vector3(0f, -TargetBannerDropY * 0.5f, 0f),
+                new Vector3(TargetBannerDropY * 1.5f, TargetBannerDropY * 2f, TargetBannerDropY * 1.5f));
+
+            // Now the physics: add Cloth and pin its top edge so it streams from a fixed mount
+            // rather than ballooning, collapsing, or blowing away (AC5). Pin AFTER the bake so
+            // the coefficients are computed against the BAKED vertex positions.
+            var cloth = banner.AddComponent<Cloth>();
+            PinTopEdgeCloth(cloth, bakedMesh, BannerClothTopPinBandFrac, BannerClothFreeDistance);
+
+            // Drive it from world wind (direction × force) on a ~2 s cadence (AC1/AC2/AC4).
+            var driver = banner.AddComponent<ClothWindDriver>();
+            driver.Multiplier = BannerWindMult;
+            driver.RandomFactor = BannerWindRandomFactor;
+            driver.CheckPlayerShelter = false; // cairns are open-air trail markers
+        }
+
+        /// <summary>
+        /// Build the <see cref="Cloth"/> skinning coefficients for the banner: hard-pin the
+        /// TOP edge row (maxDistance 0, anchored to the mount) and let each lower vertex
+        /// travel up to <paramref name="freeDistance"/> × its normalized depth below the top.
+        /// This is what makes the banner STREAM from a fixed top instead of blowing away (AC5).
+        ///
+        /// 🔴 Mapping correctness (the trap this method exists to avoid): UnityEngine.Cloth
+        /// WELDS coincident vertices, so <c>cloth.coefficients.Length</c> can be SMALLER than
+        /// <c>mesh.vertexCount</c> (verified: the donor cloth is 78 mesh verts but only 71
+        /// unique positions — 7 coincident pairs). Indexing coefficients 1:1 against
+        /// <c>mesh.vertices</c> would mis-map every coefficient past the first weld → wrong
+        /// pins → blow-away or stuck banner that COMPILES CLEAN. We therefore map against the
+        /// authoritative <see cref="Cloth.vertices"/> array (always == coefficients.Length),
+        /// falling back to mesh.vertices only if Unity returns a 1:1 length. If neither array
+        /// matches the coefficient count we log loudly and leave the cloth unpinned rather
+        /// than guess.
+        ///
+        /// <paramref name="topPinBandFrac"/> is a FRACTION of the Y-span (not metres) so the
+        /// SAME top row is caught regardless of the per-instance Y-bake scale.
+        /// </summary>
+        private static void PinTopEdgeCloth(Cloth cloth, Mesh bakedMesh, float topPinBandFrac, float freeDistance)
+        {
+            var coeffs = cloth.coefficients;
+            if (coeffs == null || coeffs.Length == 0)
+            {
+                Plugin.Log.LogError(
+                    "[Trailborne/M2] Cairn banner: Cloth produced 0 skinning coefficients; " +
+                    "top edge NOT pinned (banner may blow away). Cloth setup likely rejected the mesh.");
+                return;
+            }
+            int n = coeffs.Length;
+
+            // Pick the vertex source whose length matches the coefficient count. Cloth.vertices
+            // is the welded particle set (authoritative); mesh.vertices only matches when Unity
+            // did no welding. Mismatch on both → bail loudly (don't pin against the wrong array).
+            Vector3[] clothVerts = cloth.vertices;
+            Vector3[] verts;
+            if (clothVerts != null && clothVerts.Length == n)
+            {
+                verts = clothVerts;
+            }
+            else
+            {
+                Vector3[] meshVerts;
+                try { meshVerts = bakedMesh.vertices; }
+                catch (System.Exception e)
+                {
+                    Plugin.Log.LogError(
+                        $"[Trailborne/M2] Cairn banner: cloth mesh '{bakedMesh.name}' vertices unreadable " +
+                        $"({e.GetType().Name}) and Cloth.vertices length {(clothVerts?.Length ?? -1)} != " +
+                        $"coefficients {n}; top edge NOT pinned. Banner may not anchor correctly.");
+                    return;
+                }
+                if (meshVerts.Length == n)
+                {
+                    verts = meshVerts;
+                }
+                else
+                {
+                    Plugin.Log.LogError(
+                        $"[Trailborne/M2] Cairn banner: cannot map cloth coefficients — coeff count {n} " +
+                        $"matches neither Cloth.vertices ({(clothVerts?.Length ?? -1)}) nor mesh.vertices " +
+                        $"({meshVerts.Length}). Top edge NOT pinned (banner may blow away). Donor cloth " +
+                        "topology likely changed in a game patch; re-ground the A-prime spec.");
+                    return;
+                }
+            }
+
+            float yMax = float.NegativeInfinity, yMin = float.PositiveInfinity;
+            for (int i = 0; i < n; i++)
+            {
+                float y = verts[i].y;
+                if (y > yMax) yMax = y;
+                if (y < yMin) yMin = y;
+            }
+            float span = yMax - yMin;
+            if (span <= 1e-5f) span = 1f;
+            float pinBand = topPinBandFrac * span;   // fraction → absolute, in the baked space
+
+            int pinned = 0;
+            for (int i = 0; i < n; i++)
+            {
+                float fromTop = yMax - verts[i].y;          // 0 at the top edge, grows downward
+                if (fromTop <= pinBand)
+                {
+                    coeffs[i].maxDistance = 0f;              // pinned to the mount
+                    pinned++;
+                }
+                else
+                {
+                    coeffs[i].maxDistance = freeDistance * (fromTop / span); // free, scaled by depth
+                }
+                coeffs[i].collisionSphereDistance = 0f;      // no self-collision constraint
+            }
+            cloth.coefficients = coeffs;
+
+            if (pinned == 0)
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M2] Cairn banner: top-pin band {topPinBandFrac:0.###}×span matched NO " +
+                    $"vertices on '{bakedMesh.name}' (yMax {yMax:0.###}); banner is unanchored and may blow " +
+                    "away. Widen BannerClothTopPinBandFrac.");
         }
 
         /// <summary>
