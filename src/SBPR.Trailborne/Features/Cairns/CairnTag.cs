@@ -56,10 +56,10 @@ namespace SBPR.Trailborne.Features.Cairns
         private const float PileBaseY          = 0.05f;  // lift the whole pile off the ground plane a touch
         private const float HeightExponent     = 1.6f;   // >1 clusters more stones toward the base (wider base, tapering up)
         private const float TopTaperFrac       = 0.78f;  // radius at the very top = base*(1-this); higher = pointier
-        private const float StoneSizeMin       = 0.55f;  // overall stone scale (horizontal footprint) lower bound
-        private const float StoneSizeMax       = 0.95f;  // overall stone scale upper bound
-        private const float FlattenRatioMin    = 0.16f;  // vertical/horizontal ratio lower bound (smaller = flatter/squashier)
-        private const float FlattenRatioMax    = 0.30f;  // vertical/horizontal ratio upper bound
+        // Donor stones now render at NATIVE scale (Daniel 2026-06-08 — no per-stone
+        // size/squash). Box02 AABB ≈ 0.32×0.19×0.65 m; half-height ≈ 0.10 m. Used only
+        // to anchor the pile-top cosmetic flame now that stones aren't scaled.
+        private const float StoneNativeHalfHeight = 0.12f;  // ~half the Box02 height + tilt slack
         private const float TiltDegrees        = 12f;    // ± random tilt on X/Z so stones don't sit perfectly level
         private const float PosJitterXZ        = 0.06f;  // ± extra lateral jitter on top of the disk sample
         private const float PosJitterY         = 0.04f;  // ± vertical jitter per stone
@@ -70,17 +70,6 @@ namespace SBPR.Trailborne.Features.Cairns
         // as a small marker fire, not a torch or bonfire. Eyeball in-game + adjust.
         private const float SubTorchLightIntensity = 0.8f;
         private const float SubTorchLightRange     = 4.0f;
-
-        // Pigment values — mirror the canonical SBPR pigment palette (Signs.ColorValues)
-        // so a cairn's stones read the same color as its marker/pennant. Kept local to
-        // avoid a Cairns→Signs feature dependency.
-        private static readonly Dictionary<string, Color> PigmentValues = new Dictionary<string, Color>
-        {
-            { "red",   new Color(0.85f, 0.18f, 0.18f, 1f) },
-            { "white", new Color(0.95f, 0.94f, 0.88f, 1f) },
-            { "blue",  new Color(0.20f, 0.40f, 0.85f, 1f) },
-            { "black", new Color(0.10f, 0.10f, 0.12f, 1f) },
-        };
 
         private void Awake()
         {
@@ -191,6 +180,13 @@ namespace SBPR.Trailborne.Features.Cairns
             // BuildPile returns the local-Y of the pile top — anchor the flame there.
             float pileTopY = BuildPile(stoneMesh, stoneMat, kitbashRoot.transform, tier, stones);
 
+            // Color identity: plant a wind-responsive BANNER at the pile, its cloth
+            // material chosen by the cairn's bound color. Replaces the old stone tint
+            // (Daniel 2026-06-08). Additive: we read only the banner's cloth mesh +
+            // material off the vanilla donor and hand-build a bare MeshFilter+MeshRenderer
+            // GameObject — no ZNetView, no Piece, no pole (ADR-0006).
+            BuildBanner(kitbashRoot.transform, pileTopY);
+
             // Graft a SMALL torch-tier cosmetic flame (+ dim light + crackle) at the pile
             // top, parented under kitbashRoot so a tier rebuild recycles it with the pile.
             BuildCosmeticFire(kitbashRoot.transform, pileTopY);
@@ -224,13 +220,13 @@ namespace SBPR.Trailborne.Features.Cairns
 
             float baseRadius = PileBaseRadiusT1 + PileBaseRadiusStep * (tier - 1);
             float pileHeight = PileHeightT1     + PileHeightStep     * (tier - 1);
-            var pigment = ColorFor(Color);
 
-            // Build ONE pigment-tinted material for the whole pile (clone the donor's
-            // shared material so we never mutate the vanilla asset; multiply _Color).
-            // All stones share it — one material, not one-per-stone — so the pile is a
-            // handful of draw-call-cheap MeshRenderers with no networked components.
-            Material? tinted = MakeTintedStoneMaterial(stoneMat, pigment);
+            // NO TINT (Daniel 2026-06-08): cairn stones render in their NATURAL grey —
+            // color identity now lives on the wind-responsive BANNER (BuildBanner), not
+            // a pigment multiply on the rock. We share the donor's own material across
+            // every stone (one material, draw-call-cheap, never mutated — reading a
+            // shared asset is not cloning, ADR-0006).
+            Material? stoneSharedMat = stoneMat;
 
             float maxStoneTop = PileBaseY;
 
@@ -246,7 +242,7 @@ namespace SBPR.Trailborne.Features.Cairns
                 var mf = stone.AddComponent<MeshFilter>();
                 mf.sharedMesh = stoneMesh;
                 var mr = stone.AddComponent<MeshRenderer>();
-                if (tinted != null) mr.sharedMaterial = tinted;
+                if (stoneSharedMat != null) mr.sharedMaterial = stoneSharedMat;
                 // Cosmetic-only: no shadows budget needed for pebble-scale art.
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 mr.receiveShadows = false;
@@ -263,20 +259,22 @@ namespace SBPR.Trailborne.Features.Cairns
                 float ox = Mathf.Cos(ang) * r + (float)(rng.NextDouble() * 2.0 - 1.0) * PosJitterXZ;
                 float oz = Mathf.Sin(ang) * r + (float)(rng.NextDouble() * 2.0 - 1.0) * PosJitterXZ;
 
-                // Squash: horizontal footprint = overall size; vertical = size × flatten.
-                float size    = Mathf.Lerp(StoneSizeMin, StoneSizeMax, (float)rng.NextDouble());
-                float flatten = Mathf.Lerp(FlattenRatioMin, FlattenRatioMax, (float)rng.NextDouble());
-                float sxz = size;
-                float sy  = size * flatten;
-
+                // NO SCALING (Daniel 2026-06-08): the donor rock mesh is rendered at its
+                // NATIVE proportions. The previous build scaled each stone by a per-stone
+                // size (0.55–0.95×) and squashed it vertically by a flatten ratio, which
+                // read as tiny flat discs. We now keep the donor `Box02` mesh at scale 1
+                // and rely on haphazard POSITION + ROTATION alone for the piled look.
                 stone.transform.localPosition = new Vector3(ox, y, oz);
                 stone.transform.localRotation = Quaternion.Euler(
                     (float)(rng.NextDouble() * 2.0 - 1.0) * TiltDegrees,   // slight random tilt X
                     (float)(rng.NextDouble() * 360.0),                     // random yaw
                     (float)(rng.NextDouble() * 2.0 - 1.0) * TiltDegrees);  // slight random tilt Z
-                stone.transform.localScale = new Vector3(sxz, sy, sxz);
+                stone.transform.localScale = Vector3.one;                  // native mesh size
 
-                float stoneTop = y + sy * 0.5f;
+                // Pile-top anchor (for the cosmetic flame): the stone's centre Y plus its
+                // native half-height. StoneNativeHalfHeight is a FLAGGED eyeball constant —
+                // the Box02 AABB is ~0.19 m tall (half ≈ 0.10 m), nudged for tilt slack.
+                float stoneTop = y + StoneNativeHalfHeight;
                 if (stoneTop > maxStoneTop) maxStoneTop = stoneTop;
             }
 
@@ -310,34 +308,114 @@ namespace SBPR.Trailborne.Features.Cairns
             return (null, null, null);
         }
 
-        /// <summary>
-        /// Clone the donor stone material and multiply its lit-shader <c>_Color</c> by the
-        /// cairn pigment (clean-room tint, same approach as Signs.TintRendererMaterials —
-        /// texture detail survives because _Color multiplies the albedo). Returns null on a
-        /// headless server (no material) so the construction loop simply skips assigning one.
-        /// </summary>
-        private static Material? MakeTintedStoneMaterial(Material? donorMat, Color c)
+        // ── Banner (color identity, wind-responsive) ───────────────────────────────
+
+        // Color → vanilla banner donor prefab. The cloth carries color identity; the
+        // wave is driven by the banner cloth material's vertex shader (reads the global
+        // wind vector), so attaching just the cloth mesh+material gives waving for free —
+        // no Cloth component, no SkinnedMeshRenderer, no physics (verified via offline
+        // X-ray: the cloth child carries zero scripts). Mapping LOCKED with Daniel
+        // 2026-06-08. (Secondary tones are the donor's — 02 is blue/yellow, 11 is
+        // black/white-inverted — flagged for in-game eyeball.)
+        private static readonly Dictionary<string, string> BannerDonorFor = new Dictionary<string, string>
         {
-            if (donorMat == null) return null;
-            try
+            { "black", "piece_banner01" },   // Banner_Border_BlackWhite_mat
+            { "blue",  "piece_banner02" },   // Banner_Border_BlueYellow_1_mat
+            { "red",   "piece_banner04" },   // Banner_Border_RedWhite_1_mat
+            { "white", "piece_banner11" },   // Banner_Border_BlackWhiteInverted_mat
+        };
+
+        // Banner placement tunables (FLAGGED — eyeball on a joined client, Daniel
+        // 2026-06-08). The donor cloth's own mesh sits ~3 m tall on a pole; we drop just
+        // the cloth and seat it so its bottom rides a little above the pile top, off to
+        // one side so it doesn't bury the flame.
+        private const float BannerScale     = 0.6f;   // shrink the ~3 m cloth to marker scale
+        private const float BannerLiftY     = 0.15f;  // local-Y above the pile top
+        private const float BannerOffsetXZ  = 0.30f;  // nudge off the pile centre (clears the flame)
+
+        /// <summary>
+        /// Attach the wind-responsive color BANNER to the pile. Reads ONLY the cloth
+        /// child's mesh + material off the vanilla banner donor (the color-bearing
+        /// <c>default</c> child — NOT the <c>woodbeam</c> pole) and hand-builds a bare
+        /// Transform + MeshFilter + MeshRenderer GameObject. Nothing networked is ever
+        /// instantiated (ADR-0006), and the cloth shader's wind animation runs on the
+        /// shared material with no extra components. No-op on a headless server (donor
+        /// renderers don't exist there) and on an unknown color.
+        /// </summary>
+        private void BuildBanner(Transform parent, float pileTopY)
+        {
+            var zns = ZNetScene.instance;
+            if (zns == null) return;
+
+            string color = (Color ?? "").ToLowerInvariant();
+            if (!BannerDonorFor.TryGetValue(color, out var donorName))
             {
-                var m = new Material(donorMat);
-                int prop = Shader.PropertyToID("_Color");
-                if (m.HasProperty(prop)) m.SetColor(prop, c);
-                return m;
+                // Unknown color → no banner this build (still a valid, non-tinted cairn).
+                return;
             }
-            catch (Exception e)
+
+            var (clothMesh, clothMat) = ResolveBannerCloth(zns, donorName);
+            if (clothMesh == null)
             {
-                Plugin.Log.LogWarning($"[Trailborne/M2] Cairn stone material tint failed: {e.Message}");
-                return null;
+                // Headless server or donor missing/changed — skip silently on server,
+                // warn on a client where we expected cloth art.
+                if (clothMat == null && !IsHeadless())
+                    Plugin.Log.LogWarning(
+                        $"[Trailborne/M2] Cairn banner: donor '{donorName}' cloth mesh not found; " +
+                        "cairn shows no banner this build (color identity falls back to none).");
+                return;
             }
+
+            var banner = new GameObject("SBPR_CairnBanner");
+            banner.transform.SetParent(parent, worldPositionStays: false);
+            var mf = banner.AddComponent<MeshFilter>();
+            mf.sharedMesh = clothMesh;
+            var mr = banner.AddComponent<MeshRenderer>();
+            if (clothMat != null) mr.sharedMaterial = clothMat;
+            // Cosmetic art — keep the shadow/render budget down like the stones.
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.TwoSided;
+            mr.receiveShadows = false;
+
+            // Seat the cloth just above the pile top, nudged off-centre so it doesn't
+            // bury the flame. Deterministic side per ZDO so it's stable across reloads.
+            int seed = (nview != null && nview.GetZDO() != null) ? nview.GetZDO().m_uid.GetHashCode() : 1337;
+            float side = ((seed & 1) == 0) ? 1f : -1f;
+            banner.transform.localPosition = new Vector3(BannerOffsetXZ * side, pileTopY + BannerLiftY, 0f);
+            banner.transform.localScale = Vector3.one * BannerScale;
         }
 
-        private static Color ColorFor(string color)
+        /// <summary>
+        /// Resolve the banner CLOTH art (mesh + material) off a vanilla banner donor
+        /// WITHOUT instantiating it. The renderable banner is split across two children:
+        /// <c>woodbeam</c> (the pole — material <c>woodwall</c>) and <c>default</c> (the
+        /// color cloth — material <c>Banner_Border_*_mat</c>). We want ONLY the cloth, so
+        /// we pick the child whose material is NOT the shared <c>woodwall</c> pole
+        /// material. Reading shared mesh/material on the inactive template fires no Awake.
+        /// Returns (mesh, material) or (null, null) when unavailable (e.g. headless).
+        /// </summary>
+        private static (Mesh?, Material?) ResolveBannerCloth(ZNetScene zns, string donorName)
         {
-            if (!string.IsNullOrEmpty(color) && PigmentValues.TryGetValue(color, out var c)) return c;
-            return PigmentValues["white"];
+            var src = zns.GetPrefab(donorName);
+            if (src == null) return (null, null);
+
+            MeshFilter[] filters = src.GetComponentsInChildren<MeshFilter>(includeInactive: true);
+            foreach (var mf in filters)
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                var mr = mf.GetComponent<MeshRenderer>();
+                var mat = mr != null ? mr.sharedMaterial : null;
+                // The cloth is the child whose material is NOT the wooden pole.
+                string matName = mat != null ? mat.name : "";
+                if (matName.IndexOf("woodwall", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                if (mf.sharedMesh.name.IndexOf("Cube", StringComparison.OrdinalIgnoreCase) >= 0) continue; // pole beam mesh
+                return (mf.sharedMesh, mat);
+            }
+            return (null, null);
         }
+
+        /// <summary>True on a headless dedicated server (no graphics device).</summary>
+        private static bool IsHeadless() =>
+            UnityEngine.SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null;
 
         // ── Cosmetic fire (HP-gated) ───────────────────────────────────────────────
 
