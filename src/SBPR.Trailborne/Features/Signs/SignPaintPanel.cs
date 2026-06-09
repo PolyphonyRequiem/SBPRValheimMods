@@ -700,9 +700,15 @@ namespace SBPR.Trailborne.Features.Signs
                 if (loc != null)
                 {
                     var s = loc.Localize(token);
-                    // Localize returns the token (minus '$') unchanged when unregistered;
-                    // detect that and use our readable fallback instead.
-                    if (!string.IsNullOrEmpty(s) && s != token && s != token.TrimStart('$'))
+                    var bare = token.TrimStart('$');
+                    // Vanilla Localize() returns an UNREGISTERED $token wrapped in brackets
+                    // with the '$' stripped, e.g. Localize("$sbpr_sign_title") -> "[sbpr_sign_title]".
+                    // Treat token / bare-token / "[bare-token]" all as "unresolved" and fall back.
+                    // A genuine translation matches none of these and passes through unchanged.
+                    if (!string.IsNullOrEmpty(s)
+                        && s != token
+                        && s != bare
+                        && s != "[" + bare + "]")
                         return s;
                 }
             }
