@@ -374,17 +374,43 @@ namespace SBPR.Trailborne.Runtime
         /// </summary>
         public static void MeasureLocalExtent(GameObject root, int axis, out float min, out float max)
         {
+            // Measure root's own mesh subtree expressed in root's OWN local space (the
+            // common case). Delegates to the reference-frame overload with frame = root.
+            MeasureLocalExtent(root, root != null ? root.transform : null, axis, out min, out max);
+        }
+
+        /// <summary>
+        /// Reference-frame variant of <see cref="MeasureLocalExtent(GameObject,int,out float,out float)"/>:
+        /// measure the extent of every visual mesh under <paramref name="meshRoot"/> along
+        /// <paramref name="axis"/>, but expressed in <paramref name="referenceFrame"/>'s
+        /// LOCAL space rather than <paramref name="meshRoot"/>'s. This decouples WHICH meshes
+        /// are measured (the <paramref name="meshRoot"/> subtree) from the FRAME the result
+        /// is reported in.
+        ///
+        /// Needed when <paramref name="meshRoot"/> IS the scaled mesh holder: a child that
+        /// reuses a 1×1×1 unit-cube mesh scaled by its own transform (the vanilla sign plank /
+        /// <c>wood_pole2</c>) reports raw <c>sharedMesh.bounds.size</c> ≈ (1,1,1) when measured
+        /// in its own frame (an identity round-trip), carrying no real dimensions. Passing a
+        /// referenceFrame ABOVE the mesh's own transform (e.g. the sign root) bakes the mesh
+        /// transform's scale into the corners, revealing the REAL transformed size — while
+        /// still measuring ONLY the meshRoot subtree, so a sibling pole/board parented under
+        /// that same root does not pollute the result. (This is the standoff feature's
+        /// signRoot-space measurement generalized to a chosen mesh subtree.) Reads only
+        /// serialized <c>sharedMesh.bounds</c> + transform math, so it works on a clone
+        /// parented under an inactive holder. Public UnityEngine API only — clean-room safe.
+        /// </summary>
+        public static void MeasureLocalExtent(GameObject meshRoot, Transform? referenceFrame, int axis, out float min, out float max)
+        {
             min = 0f;
             max = 0f;
-            if (root == null) return;
+            if (meshRoot == null || referenceFrame == null) return;
             if (axis < 0 || axis > 2) return;
 
-            var rootT = root.transform;
             float lo = float.MaxValue;
             float hi = float.MinValue;
             bool any = false;
 
-            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+            foreach (var mf in meshRoot.GetComponentsInChildren<MeshFilter>(true))
             {
                 if (mf == null) continue;
                 var mesh = mf.sharedMesh;
@@ -396,7 +422,7 @@ namespace SBPR.Trailborne.Runtime
                 for (int zi = -1; zi <= 1; zi += 2)
                 {
                     var corner = b.center + Vector3.Scale(b.extents, new Vector3(xi, yi, zi));
-                    var local  = rootT.InverseTransformPoint(t.TransformPoint(corner));
+                    var local  = referenceFrame.InverseTransformPoint(t.TransformPoint(corner));
                     float v = local[axis];
                     if (v < lo) lo = v;
                     if (v > hi) hi = v;
