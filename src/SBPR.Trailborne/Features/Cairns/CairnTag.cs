@@ -340,13 +340,24 @@ namespace SBPR.Trailborne.Features.Cairns
             { "white", "piece_banner11" },   // Banner_Border_BlackWhiteInverted_mat
         };
 
-        // Banner placement tunables (FLAGGED — eyeball on a joined client, Daniel
-        // 2026-06-08). The donor cloth's own mesh sits ~3 m tall on a pole; we drop just
-        // the cloth and seat it so its bottom rides a little above the pile top, off to
-        // one side so it doesn't bury the flame.
-        private const float BannerScale     = 0.6f;   // shrink the ~3 m cloth to marker scale
-        private const float BannerLiftY     = 0.15f;  // local-Y above the pile top
-        private const float BannerOffsetXZ  = 0.30f;  // nudge off the pile centre (clears the flame)
+        // Banner placement tunables (FLAGGED — eyeball on a joined client; bake the final
+        // metres into requirements.md §A2.1b on sign-off). The donor `default` cloth is a
+        // flat sheet in the Y-Z plane (native bounds ≈ (X 0, Y 2.974, Z 1.1802), verified
+        // via vprefab on piece_banner01/02/04/11 — all four identical), with its pivot at
+        // the cloth TOP so it HANGS DOWN. We measure-and-normalize each in-plane axis to a
+        // target metre size — Z carries the horizontal WIDTH, Y the vertical DROP; X is
+        // zero-thickness and inert (left at scale 1 to preserve the shader wind-wave). A
+        // single uniform scalar (the retired BannerScale=0.6) could not fix the anisotropic
+        // ~3×-wide / ~2×-long error; per-axis normalization does (card t_5756cd21).
+        private const float TargetBannerWidthZ = 0.236f; // horizontal span, m (Z axis)
+        private const float TargetBannerDropY  = 0.892f; // vertical drop,   m (Y axis)
+        // Seat the cloth pivot (its top) this fraction of the drop ABOVE the pile top, so
+        // the cloth — which hangs down from its pivot — clears the terrain plane and drapes
+        // the pile's upper stones instead of sinking ~0.12 m underground (the retired
+        // BannerLiftY=0.15 seat did exactly that with the resized ~0.892 m cloth). This
+        // self-scales if the drop target is rebaked and rides up with the pile at higher tiers.
+        private const float BannerSeatDropFrac = 0.5f;
+        private const float BannerOffsetXZ     = 0.30f;  // nudge off the pile centre (clears the flame)
 
         /// <summary>
         /// Attach the wind-responsive color BANNER to the pile. Reads ONLY the cloth
@@ -395,8 +406,23 @@ namespace SBPR.Trailborne.Features.Cairns
             // bury the flame. Deterministic side per ZDO so it's stable across reloads.
             int seed = (nview != null && nview.GetZDO() != null) ? nview.GetZDO().m_uid.GetHashCode() : 1337;
             float side = ((seed & 1) == 0) ? 1f : -1f;
-            banner.transform.localPosition = new Vector3(BannerOffsetXZ * side, pileTopY + BannerLiftY, 0f);
-            banner.transform.localScale = Vector3.one * BannerScale;
+
+            // Measure-and-normalize: this donor cloth has HONEST mesh bounds (real metres),
+            // so clothMesh.bounds.size is directly usable — no transformed-extent measure
+            // needed (unlike the signs' unit-cube meshes). Width→Z, drop→Y, X guarded/inert.
+            Vector3 native = clothMesh.bounds.size;                 // ≈ (0, 2.974, 1.1802)
+            float sy = native.y > 1e-3f ? TargetBannerDropY  / native.y : 1f;
+            float sz = native.z > 1e-3f ? TargetBannerWidthZ / native.z : 1f;
+            float sx = 1f;  // X ≈ 0 thickness → scaling it is a no-op; leave at 1 to keep the wave.
+
+            // Pivot sits at the cloth TOP and the cloth hangs DOWN; seat the pivot a half-
+            // drop above the pile top so the resized ribbon clears the ground plane and
+            // drapes the upper pile (the old seat buried ~0.12 m of cloth underground at T1).
+            banner.transform.localPosition = new Vector3(
+                BannerOffsetXZ * side,
+                pileTopY + TargetBannerDropY * BannerSeatDropFrac,
+                0f);
+            banner.transform.localScale = new Vector3(sx, sy, sz);
         }
 
         /// <summary>
