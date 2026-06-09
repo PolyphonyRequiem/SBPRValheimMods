@@ -34,8 +34,45 @@ namespace SBPR.Trailborne.Features.Signs
         private void Awake()
         {
             nview = GetComponent<ZNetView>();
+            NeutralizePostFootColliderIfPlaced();
             MigrateLegacyColor();
             ApplyColorsFromZdo();
+        }
+
+        /// <summary>
+        /// Disable the kitbashed post-foot ground-contact collider
+        /// (<see cref="SignPostFootCollider"/>) on a PLACED sign so it can never steal the
+        /// Sign's E-to-write / paint raycast — the BOARD stays the sole interact/paint
+        /// target (regression guard AT-4, parent spec t_1dc88742).
+        ///
+        /// That collider exists ONLY to make the placement ghost seat the post FLUSH: the
+        /// vanilla build seat drives the lowest enabled, non-trigger collider's AABB to the
+        /// ground, and without a foot-level collider the board's crown-lifted interact
+        /// collider was the lowest one, burying the 2m post ~3/4 (the bug this fixes). The
+        /// seated transform is baked in at placement time, so once we're on a placed
+        /// instance the collider has already done its job and is pure liability — disable it.
+        ///
+        /// CRITICAL — placed-only gate. This MUST NOT run on the placement GHOST: the ghost
+        /// has no ZDO (vanilla sets <c>ZNetView.m_forceDisableInit</c> while instantiating
+        /// it) and still needs the collider ENABLED to compute the flush seat. We detect
+        /// "real placed instance" exactly as the rest of this class does — a live ZDO
+        /// (<c>nview.GetZDO() != null</c>); the ghost fails that check and keeps its collider,
+        /// so seating is preserved. Idempotent + headless-safe (no-op without a ZNetView).
+        /// </summary>
+        private void NeutralizePostFootColliderIfPlaced()
+        {
+            // Ghost (no ZDO) → leave the collider enabled so the post seats flush. Only a
+            // truly placed sign reaches the disable path.
+            if (nview == null || nview.GetZDO() == null) return;
+
+            foreach (var marker in GetComponentsInChildren<SignPostFootCollider>(includeInactive: true))
+            {
+                if (marker == null) continue;
+                foreach (var col in marker.GetComponents<Collider>())
+                {
+                    if (col != null) col.enabled = false;
+                }
+            }
         }
 
         /// <summary>Current board/text color id, or "" if unset.</summary>

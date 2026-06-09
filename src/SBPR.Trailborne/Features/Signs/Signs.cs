@@ -75,6 +75,26 @@ namespace SBPR.Trailborne.Features.Signs
         // under a millimetre (no perceptible gap, no interpenetration).
         private const float KissEpsilon = 0.001f;
 
+        // Vertical THICKNESS (metres) of the thin ground-contact collider kitbashed at the
+        // decorative post's FOOT so the placed sign seats flush instead of ~3/4 buried
+        // (t_4ad60d6f / parent t_1dc88742). This is a SHAPE parameter, NOT a placement
+        // height — the collider's BOTTOM plane is DERIVED from the measured planted post
+        // foot (see AddPostFootGroundCollider), so no magic Y drives where it sits; this
+        // only sets how thin the pad is. Kept tiny so it never pokes visibly above the
+        // foot. Analogous to KissEpsilon: the one permissible literal in this geometry.
+        private const float PostFootColliderThickness = 0.05f;
+
+        // Floor for the foot collider's horizontal footprint (metres), guarding the
+        // degenerate case where the post extent measures ~0 (e.g. a donor swap that breaks
+        // MeasureLocalExtent). The footprint X/Z do NOT affect the seat (which keys on the
+        // collider's lowest point), so a small believable pad is sufficient.
+        private const float PostFootColliderMinFootprint = 0.1f;
+
+        // Name of the kitbashed ground-contact collider child at the post foot. SignTag
+        // finds it by its SignPostFootCollider marker (not this name); the name is for
+        // log/debug legibility only.
+        private const string PostFootColliderName = "SBPR_SignPostFoot";
+
         // Build cost (unpainted). Pigment is NOT a build ingredient — it is
         // consumed at paint time, one pigment per filled color slot, on the PLACED sign.
         public const int WoodCost = 2;
@@ -444,12 +464,128 @@ namespace SBPR.Trailborne.Features.Signs
             poleT.localPosition = new Vector3(0f, -poleFootY, 0f);
             pole.SetActive(true);
 
+            // Restore a thin ground-contact collider at the planted post FOOT so the sign
+            // seats flush instead of ~3/4 buried (t_4ad60d6f / parent t_1dc88742).
+            // StripToDecorative removed the pole's own collider (so it never intercepts the
+            // E-to-write raycast), which left the board's interact collider — lifted ~1.5m
+            // to the crown — as the lowest/only collider; the placement seat drove THAT to
+            // the ground and buried the 2m post. This adds the foot back as the lowest
+            // collider plane. It is NEUTRALISED on the placed instance by SignTag.Awake so
+            // the BOARD stays the sole interact/paint target (regression guard AT-4).
+            AddPostFootGroundCollider(rootT, pole);
+
             Plugin.Log.LogInfo(
                 $"[Trailborne/M1] Kitbashed pole under {SignName}: post foot→y=0, crown→{plantedPoleCrownY:F2}m, " +
                 $"board top anchored to {targetBoardTopY:F2}m (lifted {lift:F2}m). " +
                 $"Lateral standoff: axis={(normalAxis == 0 ? "X" : "Z")} dir={(dir < 0 ? "-" : "+")}, " +
                 $"post={postThickness:F3}m board={boardThickness:F3}m → board centre {boardCenter_n:F3}→{targetBoardCenter_n:F3}m " +
                 $"(Δ{lateralDelta_n:F3}m, kiss ε={KissEpsilon:F3}m).");
+        }
+
+        /// <summary>
+        /// Add a thin, non-trigger ground-contact <see cref="BoxCollider"/> at the planted
+        /// decorative post's FOOT so the placed sign seats FLUSH at ground level instead of
+        /// burying the 2m post ~3/4 underground (t_4ad60d6f / parent spec t_1dc88742).
+        ///
+        /// WHY THIS IS NEEDED. Valheim seats a placed piece by driving the AABB of its
+        /// LOWEST enabled, non-trigger collider down onto the ground (the build placement
+        /// ghost computes the seat from <c>GetComponentsInChildren&lt;Collider&gt;()</c>,
+        /// skipping triggers and disabled colliders). <see cref="Assets.StripToDecorative"/>
+        /// removed the pole's own collider on purpose — so the post never intercepts the
+        /// Sign's E-to-write raycast — which left the BOARD's interact collider, lifted
+        /// ~1.5m up to the crown, as the only collider. The seat drove that lifted collider
+        /// to the ground, sinking the post foot ~1.5m. Restoring a collider whose bottom is
+        /// at the post foot returns the lowest-collider plane to y≈0, so the post seats
+        /// flush. Robust across all three plausible seat models (lowest-collider / pivot /
+        /// renderer-bounds): it can only ever LOWER the seat reference back to the foot.
+        ///
+        /// PLACEMENT-vs-PLACED (the load-bearing two-phase detail, verified against the
+        /// vanilla build path):
+        ///   • In the placement GHOST the collider must be NON-TRIGGER and on a layer the
+        ///     build placement ray-mask includes (we use "piece"), or the ghost disables it
+        ///     / the seat skips it and the bury persists. So we set it up exactly like a
+        ///     normal piece collider here.
+        ///   • The seated transform is baked in at placement, so on the PLACED instance the
+        ///     collider has already done its job. <see cref="SignTag"/> DISABLES it in Awake
+        ///     so it can never steal the Sign's E-to-write / paint raycast — the BOARD stays
+        ///     the sole interact/paint target (regression guard AT-4). It also carries no
+        ///     WearNTear, so the post is not separately destructible.
+        ///
+        /// Placement is DERIVED, not magic: the collider's bottom plane is the MEASURED
+        /// planted-post foot in sign-root-local space (same 8-corner transformed-bounds
+        /// method the pole anchoring uses), and its horizontal footprint is the measured
+        /// post thickness. Public UnityEngine API only — clean-room safe.
+        /// </summary>
+        /// <param name="rootT">The sign-root transform (the collider parents here, so its
+        /// extents share the same local frame the pole foot was measured in).</param>
+        /// <param name="pole">The planted decorative post, used to measure the foot Y and
+        /// the horizontal footprint.</param>
+        private static void AddPostFootGroundCollider(Transform rootT, GameObject pole)
+        {
+            if (rootT == null || pole == null) return;
+
+            // Measure the PLANTED post's foot in SIGN-ROOT-local space. MeasureLocalFootY
+            // returns the foot in the pole's OWN local frame (≈ -1 for the centre-pivot
+            // wood_pole2), so we transform that foot plane through the planted pole's actual
+            // transform into root-local space. Because the pole was planted at
+            // localPosition.y = -poleFootY (identity rotation, unit scale), this lands at
+            // root-local y ≈ 0 — but it is DERIVED from the measured foot through the real
+            // transform (robust to the pole's pivot / rotation / scale), never a magic 0.
+            float poleLocalFoot = Assets.MeasureLocalFootY(pole);
+            Vector3 footWorld = pole.transform.TransformPoint(new Vector3(0f, poleLocalFoot, 0f));
+            float footY = rootT.InverseTransformPoint(footWorld).y;
+
+            // Horizontal footprint = the post's thickness. The pole is planted at X/Z=0 with
+            // identity rotation + unit scale, so its pole-local X/Z extents map 1:1 onto
+            // root-local X/Z (the same frame assumption the lateral standoff above relies
+            // on). Footprint does NOT affect the seat (which keys on the lowest Y only).
+            Assets.MeasureLocalExtent(pole, 0, out float postMinX, out float postMaxX);
+            Assets.MeasureLocalExtent(pole, 2, out float postMinZ, out float postMaxZ);
+
+            float footprintX = Mathf.Max(postMaxX - postMinX, PostFootColliderMinFootprint);
+            float footprintZ = Mathf.Max(postMaxZ - postMinZ, PostFootColliderMinFootprint);
+            float centerX = 0.5f * (postMinX + postMaxX); // ≈0 (post planted at X/Z=0), but measured
+            float centerZ = 0.5f * (postMinZ + postMaxZ);
+
+            // A child of the sign ROOT (not the pole) so it is unaffected by the pole's own
+            // transform and shares the root-local frame the foot was measured in. Identity
+            // local rotation/scale so the BoxCollider size maps 1:1 to metres.
+            var footObj = new GameObject(PostFootColliderName);
+            var footT = footObj.transform;
+            footT.SetParent(rootT, worldPositionStays: false);
+            footT.localRotation = Quaternion.identity;
+            footT.localScale    = Vector3.one;
+
+            // Center the box so its BOTTOM face sits at the measured post foot: the box
+            // spans [footY, footY + thickness], i.e. center y = footY + thickness/2. This
+            // makes the collider's lowest point exactly the post foot — the value the
+            // placement seat keys on — with no magic height.
+            footT.localPosition = new Vector3(
+                centerX,
+                footY + 0.5f * PostFootColliderThickness,
+                centerZ);
+
+            var box = footObj.AddComponent<BoxCollider>();
+            box.size      = new Vector3(footprintX, PostFootColliderThickness, footprintZ);
+            box.center    = Vector3.zero;
+            box.isTrigger = false; // MUST be solid: the placement seat skips trigger colliders.
+
+            // Put it on the "piece" layer so the build placement ghost keeps it ENABLED
+            // (the ghost disables colliders whose layer is outside the placement ray-mask;
+            // "piece" is inside it) and the seat counts it. On the PLACED sign SignTag
+            // disables this collider, so the layer no longer matters there.
+            int pieceLayer = LayerMask.NameToLayer("piece");
+            if (pieceLayer >= 0) footObj.layer = pieceLayer;
+
+            // Marker so SignTag can find + disable exactly this collider on the placed sign.
+            footObj.AddComponent<SignPostFootCollider>();
+
+            footObj.SetActive(true);
+
+            Plugin.Log.LogInfo(
+                $"[Trailborne/M1] {SignName}: post-foot ground collider added at root-local " +
+                $"y={footY:F3}m (box {footprintX:F2}×{PostFootColliderThickness:F2}×{footprintZ:F2}m, " +
+                $"layer=piece, non-trigger) — seats the post flush; disabled on the placed sign by SignTag.");
         }
 
         /// <summary>
