@@ -25,9 +25,16 @@ namespace SBPR.Trailborne.Features.Cairns
     ///   • Upgrade / Repair gesture: E-press, gated by HP &lt; 75%,
     ///     always repairs to max AND upgrades if tier &lt; 5. Cost = 3 Stone + 1 Resin
     ///     (per design/PARKED-2026-06-03.md; flat per gesture).
-    ///   • Cairn is IMMUNE to player + monster damage. Only weather/time decay ticks.
-    ///   • Out-of-zone decay: ZDO-persisted SBPR_LastWearTick (long, in-game day-time);
-    ///     Harmony postfix on WearNTear.Awake backfills missed wear at vanilla rate.
+    ///   • Cairn is IMMUNE to player + monster damage (Damage(HitData) prefix). Only
+    ///     TIME/abandonment decay drives HP — vanilla wet weather merely stacks on top
+    ///     as an optional accelerant (and can't push below 50% on its own).
+    ///   • TIME decay (the primary, deterministic source): a resident 1 Hz owner ticker
+    ///     in CairnTag.HpBracketTick + a WearNTear.Awake backfill for missed out-of-zone
+    ///     time, BOTH at SBPR_CairnDecayHpPerDay (default 10 HP/in-game-day) and BOTH
+    ///     sharing the ZDO-persisted SBPR_LastWearTick in-game-day clock so the two
+    ///     never double-count. Decay routes through vanilla WearNTear.ApplyDamage(float)
+    ///     so the cached health % refreshes and a tier-1 cairn at 0% collapses via the
+    ///     vanilla destroy path.
     ///   • Shift+E debug flag (SBPR_DebugCairnDamage, default true v0.1.0) drops a
     ///     pristine cairn to 70% so the combo gesture is exercisable without waiting
     ///     on weather.
@@ -37,7 +44,8 @@ namespace SBPR.Trailborne.Features.Cairns
     ///   &lt;75% HP   → fizzled (ember out; also the repair-eligible threshold)
     ///   &lt;25% HP   → downgrade one tier, HP reset to 100% of new tier; pile
     ///                rebuilds at the lower stone count  (CairnTag.HpBracketTick)
-    ///    0% HP    → collapse (at tier 1 only; vanilla WearNTear destroy path)
+    ///    0% HP    → collapse (at tier 1 only; reached live by the resident ticker —
+    ///                which has NO floor — and torn down via vanilla ApplyDamage→Destroy)
     ///
     /// The pile visual + ember live in CairnTag (§A2.1b): a per-tier haphazard,
     /// deterministic (ZDO-seeded) stack of squashed rock_low clones whose count
@@ -81,6 +89,46 @@ namespace SBPR.Trailborne.Features.Cairns
         public  const float PristineHpFraction = 0.75f;
         public  const float DowngradeHpFraction = 0.25f;
         public  const float DebugDamageTargetFraction = 0.70f;
+
+        // ── Time-decay rate (shared by the resident ticker + the out-of-zone backfill) ─
+        // HP lost per IN-GAME DAY of elapsed time. The thesis-in-a-piece: a cairn is
+        // evidence of a trail still walked, so it rots over time and an abandoned one
+        // eventually collapses. Default 10 HP/day against the 100 HP cairn = a 10-day
+        // life if never repaired. Overridable at runtime via the SBPR_CairnDecayHpPerDay
+        // BepInEx config (Plugin.CairnDecayHpPerDay) for v0.2.0 tuning; this const is the
+        // fallback when config isn't bound (e.g. a unit context with no Plugin.Awake).
+        public  const float DefaultDecayHpPerDay = 10f;
+
+        /// <summary>
+        /// The configured time-decay rate (HP per in-game day), or
+        /// <see cref="DefaultDecayHpPerDay"/> when the BepInEx config isn't bound.
+        /// Both the resident ticker (CairnTag) and the out-of-zone backfill (CairnPatches)
+        /// read this single source so they always agree.
+        /// </summary>
+        public static float DecayHpPerDay =>
+            Plugin.CairnDecayHpPerDay != null ? Plugin.CairnDecayHpPerDay.Value : DefaultDecayHpPerDay;
+
+        /// <summary>
+        /// The shared decay clock, in IN-GAME DAYS. Both decay paths stamp/read
+        /// <see cref="ZdoLastWearTick"/> with this value so resident + out-of-zone wear
+        /// share one timeline and never double-count the same elapsed time.
+        ///
+        /// One in-game day = <c>EnvMan.m_dayLengthSec</c> (vanilla default 1200 real
+        /// seconds), NOT 86400 — the old backfill divided netTime by 86400, which made
+        /// it decay ~72× too slowly (≈0.14 HP/day instead of 10). We delegate to
+        /// <c>EnvMan.GetDay(time)</c>'s exact unit (time / m_dayLengthSec) but keep the
+        /// fractional part so sub-day ticks accrue smoothly. Returns -1 when the world
+        /// clock isn't up yet (callers treat &lt;0 as "seed, don't decay").
+        /// </summary>
+        public static float CurrentWearDay()
+        {
+            if (ZNet.instance == null) return -1f;
+            double netTime = ZNet.instance.GetTimeSeconds();
+            long dayLen = (EnvMan.instance != null && EnvMan.instance.m_dayLengthSec > 0)
+                ? EnvMan.instance.m_dayLengthSec
+                : 1200L; // vanilla default, used only in the rare window before EnvMan wakes
+            return (float)(netTime / dayLen);
+        }
 
         // ZDO keys
         public  const string ZdoTier         = "SBPR_CairnTier";

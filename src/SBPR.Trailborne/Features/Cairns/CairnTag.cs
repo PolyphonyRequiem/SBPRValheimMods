@@ -71,17 +71,32 @@ namespace SBPR.Trailborne.Features.Cairns
         private const float SubTorchLightIntensity = 0.8f;
         private const float SubTorchLightRange     = 4.0f;
 
+        // Resident time-decay throttle: don't fire WearNTear.ApplyDamage (and its
+        // RPC_HealthChanged fanout) until at least this much decay has accrued on the
+        // shared clock. At the default 10 HP/in-game-day this is roughly one network
+        // write every ~2 real minutes instead of one per 1 Hz poll — the sub-step
+        // remainder stays banked on SBPR_LastWearTick and rolls into the next tick.
+        private const float MinDecayHpStep = 1.0f;
+
         private void Awake()
         {
             nview = GetComponent<ZNetView>();
             wnt = GetComponent<WearNTear>();
             BuildKitbashArt(); // tier from ZDO or default 1
-            // Health-bracket poll: path-independent ember toggle + auto-downgrade.
-            // Catches repair-UP (50%→100%), debug-damage-down, out-of-zone backfill,
-            // and natural weather decay alike — a single WearNTear.OnDamage postfix
-            // would miss repair-up. 1 s cadence is imperceptible for a fizzle/relight
-            // wear indicator and an abandonment-decay downgrade, and costs ~nothing
-            // (one float read + a bracket compare).
+            // Health-bracket poll (1 Hz). THREE owner-authoritative responsibilities,
+            // all keyed off the current HP so they fire path-independently:
+            //   • RESIDENT TIME DECAY (the primary decay source) — accrue + apply wear
+            //     while the cairn is loaded, so HP visibly falls in-zone in ANY weather
+            //     (not just wet). This is the fix for "100% HP in a storm": vanilla wet
+            //     UpdateWear is only an optional accelerant and can't even reach below
+            //     50%, so the mod must drive its own time decay.
+            //   • EMBER toggle — relights on repair-UP, fizzles on decay-DOWN.
+            //   • AUTO-DOWNGRADE — drop a tier at <25%.
+            // A single WearNTear.OnDamage postfix would miss repair-up and the resident
+            // decay accrual. 1 s cadence is imperceptible for a fizzle/relight indicator
+            // and an abandonment-decay tick, and costs ~nothing (a float read + compare;
+            // the ApplyDamage write is throttled to ≥1 HP of accrued decay — see
+            // ResidentTimeDecay — so it is NOT one RPC per second).
             InvokeRepeating(nameof(HpBracketTick), 1.0f, 1.0f);
         }
 
@@ -483,27 +498,47 @@ namespace SBPR.Trailborne.Features.Cairns
         }
 
         /// <summary>
-        /// Health-bracket poll (1 Hz via InvokeRepeating). Two responsibilities, both
-        /// keyed off the current HP fraction so they fire path-independently (repair-UP,
-        /// damage-DOWN, backfill, decay):
+        /// Health-bracket poll (1 Hz via InvokeRepeating). THREE responsibilities, all
+        /// keyed off the current HP so they fire path-independently (repair-UP, decay-DOWN,
+        /// backfill):
         ///
-        ///   1. EMBER — toggle the wear ember only when the pristine/fizzled bracket
-        ///      (≥75% HP) actually flips, so it's a cheap no-op most ticks.
-        ///   2. AUTO-DOWNGRADE (§A2.1b wear ladder / §A3.5) — when HP falls below 25%
-        ///      and tier &gt; 1, drop one tier and reset HP to 100% of the new tier
-        ///      (per requirements.md §A3.5: "reduces comfort floor by 1, resets health
-        ///      to 100% of new tier"). WriteTier rebuilds the pile at the lower stone
-        ///      count; the subsequent Repair lands HP at full so the ember relights and
-        ///      the piece doesn't immediately collapse. Owner-only (ZDO writes + Repair
-        ///      route through the network owner). At tier 1, no downgrade — the cairn is
-        ///      left to fall to 0% and collapse via the vanilla WearNTear destroy path.
+        ///   0. RESIDENT TIME DECAY (owner-only) — the PRIMARY decay source. Accrue the
+        ///      in-game-days elapsed since the last wear tick (shared SBPR_LastWearTick
+        ///      clock, also stamped by the out-of-zone backfill) and, once ≥1 HP of decay
+        ///      has built up, subtract it via vanilla WearNTear.ApplyDamage(float). That
+        ///      one call sets s_health AND fires the real RPC_HealthChanged so the cached
+        ///      health% refreshes (the ember/downgrade/hover all read GetHealthPercentage,
+        ///      which returns the cache — a raw ZDO poke would leave it stale). At tier 1,
+        ///      ApplyDamage hitting 0 HP collapses the cairn through vanilla's own
+        ///      ApplyDamage→Destroy path (DropResources + fragments) — NO 5% floor here,
+        ///      so live abandonment can actually reach collapse. This is the fix for the
+        ///      "100% HP in a storm" bug: vanilla wet UpdateWear is only an accelerant
+        ///      (and caps at >50% HP), so without our own ticker a non-wet storm — or any
+        ///      resident cairn — never lost HP.
+        ///   1. AUTO-DOWNGRADE (§A2.1b wear ladder / §A3.5) — when HP is below 25% and
+        ///      tier &gt; 1, drop one tier and reset HP to 100% of the new tier (per
+        ///      requirements.md §A3.5). Runs AFTER decay so the same tick that crosses 25%
+        ///      downgrades. WriteTier rebuilds the pile at the lower stone count; the
+        ///      subsequent Repair lands HP at full. At tier 1 there is no downgrade — the
+        ///      decay in step 0 carries it to 0% and collapse.
+        ///   2. EMBER — toggle the wear ember only when the pristine/fizzled bracket (≥75%
+        ///      HP) actually flips, so it's a cheap no-op most ticks.
+        ///
+        /// All ZDO/HP writes are owner-gated (same IsOwner guard the downgrade used).
         /// </summary>
         private void HpBracketTick()
         {
             if (wnt == null) return;
 
-            // 2. Auto-downgrade first (it mutates HP, then the ember reconciles below).
-            //    Only the ZDO owner performs the authoritative tier+HP write.
+            // 0. Resident time decay first — it mutates HP (and may collapse a tier-1
+            //    cairn outright), then downgrade + ember reconcile against the new HP.
+            //    Owner-only: the authoritative HP write routes through the network owner.
+            if (nview != null && nview.IsOwner())
+            {
+                ResidentTimeDecay();
+            }
+
+            // 1. Auto-downgrade (owner-only). Reads the HP that step 0 just wrote.
             if (nview != null && nview.IsOwner())
             {
                 float hp = wnt.GetHealthPercentage();
@@ -517,8 +552,91 @@ namespace SBPR.Trailborne.Features.Cairns
                 }
             }
 
-            // 1. Cosmetic-fire reconcile (also covers no-owner clients + post-downgrade).
+            // 2. Cosmetic-fire reconcile (also covers no-owner clients + post-downgrade).
             ReconcileFire();
+        }
+
+        /// <summary>
+        /// Apply resident (in-zone) TIME decay for the elapsed in-game time, owner-only.
+        ///
+        /// Reads the shared SBPR_LastWearTick clock (in in-game days — the SAME clock the
+        /// out-of-zone backfill stamps, so resident + out-of-zone wear never double-count),
+        /// computes the in-game-days elapsed, and subtracts <c>Cairns.DecayHpPerDay ×
+        /// deltaDays</c> HP. The subtraction goes through vanilla
+        /// <see cref="WearNTear.ApplyDamage(float, HitData)"/>, which:
+        ///   • writes s_health and fires the registered RPC_HealthChanged (refreshing the
+        ///     cached health% the ember/downgrade/hover all read — a bare ZDO Set would not), and
+        ///   • at 0 HP runs vanilla's own ApplyDamage→Destroy (DropResources + fragments +
+        ///     ZNetScene.Destroy), so a tier-1 cairn COLLAPSES live with no manual teardown.
+        ///
+        /// Throttle: we only call ApplyDamage (and advance the clock) once at least
+        /// <c>MinDecayHpStep</c> (1 HP) has accrued. Below that, we leave the clock alone
+        /// so the elapsed in-game time banks on SBPR_LastWearTick and rolls into the next
+        /// tick — we skip the network write, never the time. So this is NOT one RPC per
+        /// second; at the default 10 HP/in-game-day (1200 s/day) it's roughly one
+        /// ApplyDamage every ~2 real minutes, and the billed total still equals the exact
+        /// rate. There is intentionally NO 5% floor (unlike the reload-safety backfill):
+        /// live abandonment must be able to reach 0%.
+        ///
+        /// No-ops cleanly before the world clock is up (CurrentWearDay() &lt; 0), on first
+        /// sighting (seeds the clock, no decay), if decay is disabled (rate ≤ 0), or once
+        /// HP is already 0 (collapse is mid-flight).
+        /// </summary>
+        private void ResidentTimeDecay()
+        {
+            if (wnt == null) return;                      // no WearNTear → nothing to decay
+            if (nview == null || nview.GetZDO() == null) return;
+
+            float rate = Cairns.DecayHpPerDay;
+            if (rate <= 0f) return;                       // time decay disabled (weather-only)
+
+            float nowDay = Cairns.CurrentWearDay();
+            if (nowDay < 0f) return;                      // world clock not up yet
+
+            var zdo = nview.GetZDO();
+            float lastWearDay = zdo.GetFloat(Cairns.ZdoLastWearTick, -1f);
+            if (lastWearDay < 0f)
+            {
+                // First sighting — seed the clock, decay nothing this tick.
+                zdo.Set(Cairns.ZdoLastWearTick, nowDay);
+                return;
+            }
+
+            float deltaDays = nowDay - lastWearDay;
+            if (deltaDays <= 0f)
+            {
+                // Clock didn't advance (or went backwards on a re-sync) — re-stamp, no decay.
+                if (deltaDays < 0f) zdo.Set(Cairns.ZdoLastWearTick, nowDay);
+                return;
+            }
+
+            float curHp = zdo.GetFloat(ZDOVars.s_health, wnt.m_health);
+            if (curHp <= 0f) return;                      // already collapsing
+
+            float decayHp = rate * deltaDays;
+            // Throttle: until at least 1 HP has accrued, DON'T advance the clock — the
+            // elapsed time banks on SBPR_LastWearTick and rolls into the next tick. This
+            // is what keeps us from firing one RPC per 1 Hz poll while still billing the
+            // exact total rate (we only skip the network write, never the time).
+            if (decayHp < MinDecayHpStep) return;
+
+            // Enough accrued — advance the clock to now (we're billing the whole delta).
+            zdo.Set(Cairns.ZdoLastWearTick, nowDay);
+
+            // Route through vanilla ApplyDamage: refreshes the cached health% AND, at 0 HP,
+            // triggers vanilla's destroy path (collapse) for a tier-1 cairn. Clamp so we
+            // never over-subtract past 0 in a single call (ApplyDamage destroys at ≤0).
+            float applied = Mathf.Min(decayHp, curHp);
+            try
+            {
+                wnt.ApplyDamage(applied);
+                Plugin.Log.LogInfo(
+                    $"[Trailborne/M2] Cairn resident decay: {deltaDays:F3}d × {rate:F1} → -{applied:F1} HP ({curHp:F0} → {Mathf.Max(0f, curHp - applied):F0}).");
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/M2] Resident decay ApplyDamage threw: {e.Message}");
+            }
         }
 
         /// <summary>

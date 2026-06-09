@@ -35,6 +35,12 @@ namespace SBPR.Trailborne
         // real decay has been tuned.
         internal static ConfigEntry<bool> DebugCairnDamage = null!;   // set in Awake via Config.Bind
 
+        // Cairn TIME-decay rate, HP lost per in-game day, shared by the resident ticker
+        // (CairnTag) and the out-of-zone backfill (CairnPatches) via Cairns.DecayHpPerDay.
+        // Default 10 HP/day vs the 100 HP cairn ⇒ a ~10-day life if never repaired. Lifted
+        // out of the backfill's old local literal so v0.2.0 can tune decay without a recompile.
+        internal static ConfigEntry<float> CairnDecayHpPerDay = null!;   // set in Awake via Config.Bind
+
         private void Awake()
         {
             Log = Logger;
@@ -48,6 +54,17 @@ namespace SBPR.Trailborne
                 "When true, Shift+E on a pristine cairn (≥75% HP) drops it to 70% HP so the repair/upgrade combo " +
                 "gesture is exercisable without waiting for natural decay. v0.1.0 playtest aid. Flip false (or " +
                 "remove this section) once decay tuning lands.");
+
+            CairnDecayHpPerDay = Config.Bind(
+                "Cairns",
+                "SBPR_CairnDecayHpPerDay",
+                Cairns.DefaultDecayHpPerDay,
+                "TIME-decay rate for cairns, in HP lost per IN-GAME DAY (one in-game day ≈ 20 real minutes at the " +
+                "vanilla 1200s day length). Drives both the resident 1 Hz owner ticker and the out-of-zone " +
+                "WearNTear.Awake backfill — they share one timeline so total decay equals this rate regardless of " +
+                "whether the cairn was loaded. Against the 100 HP cairn, the default 10 = a ~10 in-game-day life if " +
+                "never repaired. Vanilla wet weather stacks on top as an accelerant (but can't push below 50% alone). " +
+                "Set 0 to disable time decay entirely (weather-only).");
 
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
