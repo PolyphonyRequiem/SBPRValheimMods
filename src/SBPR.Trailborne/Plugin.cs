@@ -100,6 +100,13 @@ namespace SBPR.Trailborne
             // dedicated server (no local Player / placement marker).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Trailblazing.PlacementMarkerRadiusPatch));
 
+            // Cairn placement-elevation gate (§A2.1, LOCKED 2026-06-08; card t_aceacef6/PR #64).
+            // SECOND postfix on the SAME vanilla Player.UpdatePlacementGhost as the radius patch
+            // above — order-independent (radius sizes the preview ripple; this forces a too-low
+            // cairn ghost to Invalid). Was authored + shipped in v0.2.10 but never registered here,
+            // so the gate was dead on arrival (cairns still placed underwater). This line wires it.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cairns.CairnPlacementGatePatch));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
         }
 
