@@ -65,6 +65,16 @@ namespace SBPR.Trailborne.Features.Signs
         // ~1.65 m (player eye height) — readable, post foot flush at y=0.
         private const float BoardTopInset = 0.1f;
 
+        // Sub-millimetre OUTWARD nudge added to the lateral standoff so the board's back
+        // face and the post's near side face don't render on the exact same plane (which
+        // would z-fight). This is the ONLY permissible literal in the standoff math — the
+        // axis, the direction, and the ½post+½board magnitude are all derived/measured at
+        // runtime. It is VISUAL POLISH (v0.2+) per the Painted Sign build spec
+        // (docs/v0.1.0/planning/requirements.md, "Painted Signs" build bullet ~:473): the
+        // exact kiss tolerance is Daniel's in-game call; this default keeps a gap well
+        // under a millimetre (no perceptible gap, no interpenetration).
+        private const float KissEpsilon = 0.001f;
+
         // Build cost (unpainted). Pigment is NOT a build ingredient — it is
         // consumed at paint time, one pigment per filled color slot, on the PLACED sign.
         public const int WoodCost = 2;
@@ -320,12 +330,105 @@ namespace SBPR.Trailborne.Features.Signs
             float lift = targetBoardTopY - boardTopY;
             if (lift < 0f) lift = 0f; // never push the board below where it already sits
 
-            if (lift > 0f)
+            // ── Lateral standoff (spec t_9c4a776b §5) ───────────────────────────────
+            // Slide the board GROUP sideways onto the post's SIDE face so the board
+            // mounts against the post instead of sitting embedded in its centreline.
+            // Everything here is DERIVED/MEASURED at runtime — no hardcoded axis, no
+            // magic thickness (only the sub-mm kiss nudge KissEpsilon is a literal).
+            //
+            // Frames: the board children are already parented under rootT, so their
+            // extents come out directly in rootT-local space. The pole is planted just
+            // below with localRotation=identity, localScale=one and X/Z=0 (see the
+            // poleT.localPosition assignment), so its lateral (X/Z) extent in pole-local
+            // space maps 1:1 onto rootT-local space — the same frame assumption the
+            // foot/crown anchoring above already relies on. Thicknesses use the 8-corner
+            // transformed-bounds method (Assets.MeasureLocalExtent): the plank AND
+            // wood_pole2 both reuse a 1×1×1 unit-cube Cube_Cube_Material mesh, so raw
+            // sharedMesh.bounds.size ≈ (1,1,1) is useless — only the TRS-transformed
+            // corners reveal the real thickness.
+
+            // (1) Normal axis = the board's THINNEST horizontal extent (X vs Z). The
+            //     plank is the only MeshFilter under the board (collider + Canvas carry
+            //     none, and the pole is not parented yet), so this measures the plank.
+            Assets.MeasureLocalExtent(signRoot, 0, out float boardMinX, out float boardMaxX);
+            Assets.MeasureLocalExtent(signRoot, 2, out float boardMinZ, out float boardMaxZ);
+            float boardExtentX = boardMaxX - boardMinX;
+            float boardExtentZ = boardMaxZ - boardMinZ;
+            int normalAxis = (boardExtentX <= boardExtentZ) ? 0 : 2;
+            float boardMin_n = (normalAxis == 0) ? boardMinX : boardMinZ;
+            float boardMax_n = (normalAxis == 0) ? boardMaxX : boardMaxZ;
+            float boardThickness = boardMax_n - boardMin_n;
+            float boardCenter_n  = 0.5f * (boardMin_n + boardMax_n);
+
+            // (2) Outward direction along that axis = sign of the board face's forward
+            //     (the text reads outward). Use the serialized Canvas/Text child
+            //     transform — NOT Sign.m_textWidget, which is null until Sign.Awake runs
+            //     (not on the prefab template at register time). Convert the world-space
+            //     forward into rootT-local space and read its component on normalAxis.
+            Transform? faceT = null;
+            foreach (var tmp in rootT.GetComponentsInChildren<TMPro.TMP_Text>(true))
+            {
+                if (tmp != null) { faceT = tmp.transform; break; }
+            }
+            if (faceT == null)
+            {
+                foreach (var cv in rootT.GetComponentsInChildren<Canvas>(true))
+                {
+                    if (cv != null) { faceT = cv.transform; break; }
+                }
+            }
+
+            int dir = 1; // default: +normalAxis (a 180° flip is cosmetic, caught in playtest)
+            if (faceT != null)
+            {
+                Vector3 fLocal = rootT.InverseTransformDirection(faceT.forward);
+                float facing_n = fLocal[normalAxis];
+                int otherAxis  = (normalAxis == 0) ? 2 : 0;
+                // Cross-check (spec OPEN-2): the face SHOULD point dominantly along the
+                // thinnest-extent axis. If it instead points more along the OTHER
+                // horizontal axis (or is ~0 on our axis), trust the extent for the AXIS
+                // but the face for the SIGN, and warn.
+                if (Mathf.Abs(facing_n) < Mathf.Abs(fLocal[otherAxis]) || Mathf.Abs(facing_n) < 1e-4f)
+                {
+                    Plugin.Log.LogWarning(
+                        $"[Trailborne/M1] {SignName}: board face normal {fLocal} not dominant on the " +
+                        $"thinnest-extent axis {normalAxis}; trusting extent for axis, face for sign.");
+                }
+                if (facing_n < 0f) dir = -1;
+            }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M1] {SignName}: no Canvas/TMP face to derive outward direction; " +
+                    $"defaulting board to +axis {normalAxis} (a 180° flip is cosmetic, caught in playtest).");
+            }
+
+            // (3) Post thickness along the SAME axis, from the planted pole geometry.
+            Assets.MeasureLocalExtent(pole, normalAxis, out float postMin_n, out float postMax_n);
+            float postThickness = postMax_n - postMin_n;
+            float postCenter_n  = 0.5f * (postMin_n + postMax_n); // ≈0 (pole at X/Z=0), but measured
+
+            // (4) Move the board centre out to the post's near side face + a sub-mm kiss
+            //     gap so the back face and the post side face don't z-fight. Centroid
+            //     difference (not a bare offset) handles a non-centred donor board/post.
+            float standoff = 0.5f * postThickness + 0.5f * boardThickness + KissEpsilon;
+            float targetBoardCenter_n = postCenter_n + dir * standoff;
+            float lateralDelta_n = targetBoardCenter_n - boardCenter_n;
+            Vector3 lateralDelta = Vector3.zero;
+            lateralDelta[normalAxis] = lateralDelta_n;
+
+            // Apply the Y-lift (crown anchoring) AND the lateral standoff to the board
+            // GROUP in ONE pass, so {collider, Canvas, New(plank)} move together as a
+            // single group (no split) and the existing crown-height behaviour is
+            // preserved (no regress of t_05bb5168). Do NOT gate the lateral offset on
+            // lift>0 — it must run even when the board is already at crown height. The
+            // pole is parented + planted at X/Z=0 AFTER this loop, so it is never moved.
+            if (lift > 0f || lateralDelta != Vector3.zero)
             {
                 foreach (Transform child in rootT)
                 {
                     var lp = child.localPosition;
-                    child.localPosition = new Vector3(lp.x, lp.y + lift, lp.z);
+                    child.localPosition = lp + lateralDelta + new Vector3(0f, lift, 0f);
                 }
             }
 
@@ -343,7 +446,10 @@ namespace SBPR.Trailborne.Features.Signs
 
             Plugin.Log.LogInfo(
                 $"[Trailborne/M1] Kitbashed pole under {SignName}: post foot→y=0, crown→{plantedPoleCrownY:F2}m, " +
-                $"board top anchored to {targetBoardTopY:F2}m (lifted {lift:F2}m).");
+                $"board top anchored to {targetBoardTopY:F2}m (lifted {lift:F2}m). " +
+                $"Lateral standoff: axis={(normalAxis == 0 ? "X" : "Z")} dir={(dir < 0 ? "-" : "+")}, " +
+                $"post={postThickness:F3}m board={boardThickness:F3}m → board centre {boardCenter_n:F3}→{targetBoardCenter_n:F3}m " +
+                $"(Δ{lateralDelta_n:F3}m, kiss ε={KissEpsilon:F3}m).");
         }
 
         /// <summary>
