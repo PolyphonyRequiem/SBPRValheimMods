@@ -71,12 +71,29 @@ jobs:
           echo steam steam/question select "I AGREE" | sudo debconf-set-selections
           echo steam steam/license note '' | sudo debconf-set-selections
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y steamcmd
-          # Anonymous download of the dedicated server (no account, no game key).
-          steamcmd +force_install_dir "$HOME/valheim-server" \
-                   +login anonymous \
-                   +app_update "$VALHEIM_SERVER_APPID" validate \
-                   +quit
-          ls "$HOME/valheim-server/valheim_server_Data/Managed/assembly_valheim.dll"
+          # The Steam fetch is the flaky step (transient apt mirror / Steam
+          # rate-limit-timeout / runner disk pressure / "Missing configuration"
+          # on a multi-hundred-MB pull). Harden identically to release.yml per the
+          # 2026-06-06 investigation: (1) retry up to 3× with linear backoff,
+          # (2) loop on the ARTIFACT existing — not steamcmd's exit code, which it
+          # lies about — and (3) drop `validate` (it re-hashes every file: slower +
+          # more timeout-prone; the anonymous download is already Steam-integrity-checked).
+          MANAGED="$HOME/valheim-server/valheim_server_Data/Managed"
+          n=0
+          until [ -f "$MANAGED/assembly_valheim.dll" ] || [ "$n" -ge 3 ]; do
+            n=$((n+1))
+            echo "::group::steamcmd attempt $n/3"
+            steamcmd +force_install_dir "$HOME/valheim-server" \
+                     +login anonymous \
+                     +app_update "$VALHEIM_SERVER_APPID" \
+                     +quit || true
+            echo "::endgroup::"
+            [ -f "$MANAGED/assembly_valheim.dll" ] && break
+            echo "attempt $n did not produce the Managed assemblies; sleeping $((n*15))s before retry"
+            sleep $((n*15))
+          done
+          # Real success gate — the DLL is present or the step fails loudly.
+          ls "$MANAGED/assembly_valheim.dll"
 
       - name: Point the build at the server assemblies
         run: |
