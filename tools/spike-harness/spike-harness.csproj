@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ======================================================================
+       SPIKE harness (throwaway — card t_e8bbbe48). Branch spike/v2-map-ui-fork
+       ONLY; never merged to v1.
+
+       Executes the IDENTICAL BoundedMapMath.cs source the in-game viewer
+       compiles (via <Compile Include> of the mod's file — one source of truth,
+       no copy) so the windowing / disc-clip / edge-clamp arithmetic is PROVEN
+       by running assertions, not just by compiling. This is what lets the spike
+       claim AT-SPIKE-RENDER's math half with executed evidence even though the
+       pixel half needs a joined client.
+
+       net8.0 because this is a console app on the dev box (dotnet 8). The shared
+       BoundedMapMath.cs is Unity-free and language-version-agnostic, so it
+       compiles cleanly under both net48 (the mod) and net8.0 (here).
+       ====================================================================== -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>spike-harness</AssemblyName>
+    <RootNamespace>SBPR.Trailborne.SpikeHarness</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The one source of truth: the SAME file the mod ships. No duplication. -->
+    <Compile Include="../../src/SBPR.Trailborne/Features/CartographySpike/BoundedMapMath.cs" />
+  </ItemGroup>
+
+</Project>

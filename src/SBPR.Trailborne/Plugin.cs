@@ -260,6 +260,13 @@ namespace SBPR.Trailborne
             // client (LoadWorld only runs under ServerLoadWorld's m_isServer gate).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Trailblazing.LegacyTerrainOpZdoCleanup));
 
+            // ── SPIKE (throwaway, card t_e8bbbe48 — branch spike/v2-map-ui-fork ONLY) ──
+            // Bounded 1000 m map-UI fork proof. Postfix on Minimap.Start attaches the
+            // client-only SpikeMapViewer (F9 toggles a full-screen RawImage rendering a
+            // windowed fog disc). Registered here so PatchCheck stays green. This line —
+            // and the Features/CartographySpike/ folder — must NOT be merged to v1.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.CartographySpike.SpikeBootstrapPatch));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be
