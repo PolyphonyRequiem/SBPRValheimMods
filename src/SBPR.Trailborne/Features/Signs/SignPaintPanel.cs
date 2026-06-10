@@ -12,9 +12,18 @@ namespace SBPR.Trailborne.Features.Signs
     /// 2026-06-07 per Daniel's playtest). A clean-room runtime panel built from public
     /// UnityEngine.UI primitives (Canvas / Image / Button / InputField / Text) laid out
     /// with proper Unity LAYOUT GROUPS — NOT hand-computed y-offsets — so alignment and
-    /// margins are consistent (Issue 7). No copied vanilla UI prefab; the dark-Norse look
-    /// is approximated with our own colors. Opened by interacting with a placed sign
-    /// (replaces the vanilla text dialog).
+    /// margins are consistent (Issue 7). No copied vanilla UI prefab.
+    ///
+    /// CHROME: the panel wears the ACTUAL vanilla UI assets — the 9-sliced wood-panel
+    /// background + carved frame sprite, the carved-wood button sprite with vanilla
+    /// hover/pressed states, and the game's Norse display font — all harvested at
+    /// runtime by <see cref="VanillaUISkin"/> from live vanilla GUI donors (the sign
+    /// dialog we replace, InventoryGui, StoreGui). Reading/reusing vanilla UI sprite +
+    /// font REFERENCES is clean-side (ADR-0001 clarification 2026-06-09: the firewall is
+    /// around other mods, never vanilla). If a donor isn't present the panel degrades to
+    /// its previous flat-colour approximation — the skin is additive, never load-bearing.
+    /// Colour swatch tiles intentionally keep a flat pigment fill (the colour is their
+    /// content). Opened by interacting with a placed sign (replaces the vanilla dialog).
     ///
     ///   Painted Sign
     ///   — PAINTING —
@@ -202,7 +211,12 @@ namespace SBPR.Trailborne.Features.Signs
             wrt.anchorMin = wrt.anchorMax = new Vector2(0.5f, 0.5f);
             wrt.pivot = new Vector2(0.5f, 0.5f);
             wrt.sizeDelta = new Vector2(660, 100); // height grows to fit
-            AddOutline(_window, CFrame);
+            // Skin the window with the vanilla wood-panel sprite (9-sliced, carved frame
+            // baked in — vanilla dialogs don't layer a separate frame sprite). If the
+            // harvest found no donor, the flat CWindow fill + carved-colour Outline below
+            // preserve the previous look (AT-UI-BG / AT-UI-FRAME, graceful fallback).
+            if (!VanillaUISkin.SkinPanel(_window.GetComponent<Image>(), VanillaUISkin.PanelSprite))
+                AddOutline(_window, CFrame);
 
             var col = _window.AddComponent<VerticalLayoutGroup>();
             col.padding = new RectOffset(28, 28, 24, 24);
@@ -499,10 +513,11 @@ namespace SBPR.Trailborne.Features.Signs
 
         private Font? ResolveFont()
         {
-            foreach (var f in Resources.FindObjectsOfTypeAll<Font>())
-                if (f != null) return f;
-            try { return Font.CreateDynamicFontFromOSFont("Arial", 16); }
-            catch { return null; }
+            // Prefer the legacy Font underlying vanilla's TMP display face (Norse feel)
+            // so our legacy UnityEngine.UI.Text matches the HUD/menu font (AT-UI-FONT).
+            // VanillaUISkin handles all the fallbacks (TMP default → live TMP_Text →
+            // any loaded Font → Arial) and never throws.
+            return VanillaUISkin.Font;
         }
 
         private static GameObject MakeImage(Transform parent, string name, Color color)
@@ -578,7 +593,11 @@ namespace SBPR.Trailborne.Features.Signs
             img.color = CButton;
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
-            AddOutline(go, new Color(0f, 0f, 0f, 0.7f));
+            // Skin with the vanilla button sprite + its hover/pressed/disabled SpriteState
+            // (AT-UI-BUTTONS). Falls back to the flat CButton fill + carved Outline when no
+            // vanilla donor was harvested.
+            if (!VanillaUISkin.SkinButton(btn, img))
+                AddOutline(go, new Color(0f, 0f, 0f, 0.7f));
             AddLayoutElement(go, minHeight: height, preferredHeight: height);
             if (onClick != null) btn.onClick.AddListener(() => onClick());
 
@@ -609,6 +628,13 @@ namespace SBPR.Trailborne.Features.Signs
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
             btn.interactable = true;
+            // The "None" tile carries no pigment colour, so skin it with the vanilla
+            // button sprite + hover states for the native carved-wood look. COLOUR
+            // swatches keep their flat pigment fill — the colour IS the content, and a
+            // wood-tinted sprite would muddy it (deliberate: a colour-picker tile reads
+            // cleanly without competing with the pigment hue). The selection Outline
+            // below is added for every swatch (RefreshSwatchHighlights drives it).
+            if (isNone) VanillaUISkin.SkinButton(btn, img);
             AddOutline(go, CUnselected);
             AddLayoutElement(go, preferredWidth: 44, preferredHeight: 44, minHeight: 44);
             btn.onClick.AddListener(() => onClick());
@@ -642,7 +668,11 @@ namespace SBPR.Trailborne.Features.Signs
             go.AddComponent<RectTransform>();
             var bg = go.AddComponent<Image>();
             bg.color = new Color(0.06f, 0.06f, 0.05f, 1f);
-            AddOutline(go, CFrame);
+            // Skin the input background with the vanilla frame/inset sprite for parity
+            // with the rest of the panel (AT-UI-PARITY). Falls back to the flat dark fill
+            // + carved Outline when no donor was harvested.
+            if (!VanillaUISkin.SkinPanel(bg, VanillaUISkin.FrameSprite))
+                AddOutline(go, CFrame);
             AddLayoutElement(go, minHeight: height, preferredHeight: height);
 
             var input = go.AddComponent<InputField>();
