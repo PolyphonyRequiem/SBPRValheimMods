@@ -421,6 +421,8 @@ namespace SBPR.Trailborne.Features.Cairns
         public const float DefaultBannerFreeRampExp       = 2.0f;   // freedom ramp exponent (mount→tail); >1 concentrates flap at the far tail
         public const float DefaultBannerPinBandFrac       = 0.04f;  // mount hard-pin band, FRACTION of Y-span (small mount cluster)
         public const bool  DefaultBannerUseGravity        = true;   // free-fall slack on build, then flop in the wind
+        public const int   DefaultBannerSubdivisions      = 1;      // midpoint subdivisions of the cloth mesh (0=donor ~78v, 1=~4×, 2=~16×) — finer particle grid → real drape/flap
+        public const bool  DefaultBannerRockDrape         = true;   // add cheap sphere colliders approximating the pile so the cloth drapes ON the stones (needs subdivisions>0 to read)
 
         // ── ALIGNMENT (card t_1d7c0d19 — Option A's directional fix; the mechanism all 4 prior
         //    attempts omitted). Live config so Daniel converges the axis in one joined session
@@ -454,6 +456,8 @@ namespace SBPR.Trailborne.Features.Cairns
         private static bool  CfgBannerAlignToWind => Plugin.BannerAlignToWind       != null ? Plugin.BannerAlignToWind.Value       : DefaultBannerAlignToWind;
         private static int   CfgBannerAlignMode   => Plugin.BannerAlignMode         != null ? Plugin.BannerAlignMode.Value         : DefaultBannerAlignMode;
         private static bool  CfgBannerDiagnostic  => Plugin.BannerDiagnostic        != null ? Plugin.BannerDiagnostic.Value        : DefaultBannerDiagnostic;
+        private static int   CfgBannerSubdivisions=> Plugin.BannerSubdivisions       != null ? Plugin.BannerSubdivisions.Value      : DefaultBannerSubdivisions;
+        private static bool  CfgBannerRockDrape   => Plugin.BannerRockDrape          != null ? Plugin.BannerRockDrape.Value         : DefaultBannerRockDrape;
 
         /// <summary>
         /// Attach the wind-responsive color BANNER to the pile as a WINDSOCK (card t_4a4a9706).
@@ -484,6 +488,135 @@ namespace SBPR.Trailborne.Features.Cairns
         /// driver + the baked mesh are all cosmetic client assets, no ZNetView / Piece / pole.
         /// No-op on a headless server (no graphics device → no Cloth) and on an unknown color.
         /// </summary>
+        /// <summary>
+        /// Subdivide a mesh in place: every triangle becomes FOUR via its three edge midpoints
+        /// (the classic 1→4 split), ~4× the triangle/vertex count per call. Vertex POSITIONS,
+        /// NORMALS, UVs and COLORS are linearly interpolated at each midpoint so the wind-shader
+        /// wave mask (carried in UV/color for Option B) and the surface shading survive. Midpoints
+        /// are DEDUPED per shared edge (keyed by the ordered vertex-index pair) so adjacent
+        /// triangles weld at the new vertices — without that the Cloth solver would see a torn
+        /// sheet (split seams) instead of one continuous cloth. Operates on the per-instance baked
+        /// copy only; never the shared donor mesh.
+        ///
+        /// Cost note: this runs ONCE at banner build (not per frame). Cloth solve cost scales with
+        /// particle count, so the subdivision level is live-config (CfgBannerSubdivisions) and the
+        /// SkinnedMeshRenderer's roomy localBounds (set in BuildClothWindsock) already covers the
+        /// denser mesh — no extra culling work.
+        /// </summary>
+        private static void SubdivideMeshMidpoint(Mesh mesh)
+        {
+            Vector3[] srcVerts = mesh.vertices;
+            Vector3[] srcNormals = mesh.normals;
+            Vector2[] srcUv = mesh.uv;
+            Color[] srcColors = mesh.colors;
+            int[] srcTris = mesh.triangles;
+            if (srcVerts.Length == 0 || srcTris.Length == 0) return;
+
+            bool hasNormals = srcNormals != null && srcNormals.Length == srcVerts.Length;
+            bool hasUv      = srcUv != null && srcUv.Length == srcVerts.Length;
+            bool hasColors  = srcColors != null && srcColors.Length == srcVerts.Length;
+
+            var verts   = new System.Collections.Generic.List<Vector3>(srcVerts);
+            var normals = hasNormals ? new System.Collections.Generic.List<Vector3>(srcNormals) : null;
+            var uv      = hasUv      ? new System.Collections.Generic.List<Vector2>(srcUv)      : null;
+            var colors  = hasColors  ? new System.Collections.Generic.List<Color>(srcColors)    : null;
+            var newTris = new System.Collections.Generic.List<int>(srcTris.Length * 4);
+
+            // Edge-midpoint cache: ordered (min,max) index pair → new midpoint vertex index, so a
+            // midpoint shared by two triangles is created ONCE (welds the sheet, no split seams).
+            var midCache = new System.Collections.Generic.Dictionary<long, int>();
+
+            int Midpoint(int a, int b)
+            {
+                long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                if (midCache.TryGetValue(key, out int existing)) return existing;
+                int idx = verts.Count;
+                verts.Add((srcVerts[a] + srcVerts[b]) * 0.5f);
+                if (normals != null) normals.Add((srcNormals![a] + srcNormals![b]).normalized);
+                if (uv != null)      uv.Add((srcUv![a] + srcUv![b]) * 0.5f);
+                if (colors != null)  colors.Add(UnityEngine.Color.Lerp(srcColors![a], srcColors![b], 0.5f));
+                midCache[key] = idx;
+                return idx;
+            }
+
+            for (int t = 0; t < srcTris.Length; t += 3)
+            {
+                int a = srcTris[t], b = srcTris[t + 1], c = srcTris[t + 2];
+                int ab = Midpoint(a, b), bc = Midpoint(b, c), ca = Midpoint(c, a);
+                // Four child triangles, winding preserved.
+                newTris.Add(a);  newTris.Add(ab); newTris.Add(ca);
+                newTris.Add(ab); newTris.Add(b);  newTris.Add(bc);
+                newTris.Add(ca); newTris.Add(bc); newTris.Add(c);
+                newTris.Add(ab); newTris.Add(bc); newTris.Add(ca);
+            }
+
+            mesh.Clear();
+            mesh.SetVertices(verts);
+            if (normals != null) mesh.SetNormals(normals);
+            if (uv != null)      mesh.SetUVs(0, uv);
+            if (colors != null)  mesh.SetColors(colors);
+            mesh.SetTriangles(newTris, 0);
+        }
+
+        /// <summary>
+        /// Build cheap Cloth sphere colliders approximating the cairn rock pile so the hanging
+        /// banner DRAPES against the stones instead of clipping straight through them (Daniel
+        /// 2026-06-10: "flap against the stones"). The pile is a tapered disk of stones centred on
+        /// the kitbash root (BuildPile): radius <c>baseRadius</c> at the bottom, tapering to a
+        /// point at <c>pileHeight</c>. Rather than one collider per stone (T1=9 … T5=21 — too many
+        /// for the Cloth solver, which caps at 32 sphere pairs and pays per-pair), we approximate
+        /// the pile VOLUME with a small vertical stack of <see cref="ClothSphereColliderPair"/>s
+        /// (single-sphere pairs = plain spheres) down the pile's centre axis, each sized to the
+        /// taper at its height. 3–4 spheres capture the "lump the cloth drapes over" shape at a
+        /// fraction of the cost. Positions are in the BANNER's local space (the cloth's transform),
+        /// computed from the pile geometry relative to the shared kitbash parent.
+        ///
+        /// Clean/ADR note: pure UnityEngine.Cloth API on geometry WE authored — no prefab clone, no
+        /// vanilla collider borrowed. The stones themselves stay collider-less (they're cosmetic
+        /// MeshRenderers, per BuildPile); these colliders exist ONLY to shape the cloth drape.
+        /// </summary>
+        private void AddPileClothColliders(Cloth cloth, GameObject banner, float pileTopY)
+        {
+            if (!CfgBannerRockDrape) return;
+
+            int tier = lastBuiltTier > 0 ? lastBuiltTier : 1;
+            float baseRadius = PileBaseRadiusT1 + PileBaseRadiusStep * (tier - 1);
+            float pileHeight = PileHeightT1     + PileHeightStep     * (tier - 1);
+
+            // The cloth (banner) is parented under the SAME kitbash root as the pile and seated at
+            // localPosition (offsetX, pileTopY + mountHeight, 0). The pile sits centred on the
+            // kitbash origin, rising from PileBaseY to ~pileHeight. We place spheres down the pile
+            // axis and express them in the banner's local frame (collider positions are cloth-local).
+            Vector3 bannerLocal = banner.transform.localPosition;   // relative to kitbash root
+
+            const int kSpheres = 4;
+            var pairs = new System.Collections.Generic.List<ClothSphereColliderPair>(kSpheres);
+            for (int i = 0; i < kSpheres; i++)
+            {
+                float k = kSpheres <= 1 ? 0f : (float)i / (kSpheres - 1);   // 0 base .. 1 top
+                // Stone-pile height at this sample, in kitbash-local space.
+                float pileY = PileBaseY + pileHeight * k;
+                // Radius tapers with height (mirrors BuildPile's maxR taper), with a floor so the
+                // top sphere still has body. A little padding so the cloth rests ON the surface.
+                float radius = Mathf.Max(0.12f, baseRadius * (1f - TopTaperFrac * k)) + 0.04f;
+
+                // Kitbash-local sphere centre (pile is centred on the kitbash origin in X/Z).
+                Vector3 centreKitbash = new Vector3(0f, pileY, 0f);
+                // Convert to the banner/cloth local frame: subtract the banner's local offset.
+                Vector3 centreClothLocal = centreKitbash - bannerLocal;
+
+                var go = new GameObject($"SBPR_BannerDrapeSphere{i}");
+                go.transform.SetParent(banner.transform, worldPositionStays: false);
+                go.transform.localPosition = centreClothLocal;
+                var sc = go.AddComponent<SphereCollider>();
+                sc.radius = radius;
+                sc.isTrigger = false;
+                // Single-sphere pair (second left null) = a plain sphere collider for the cloth.
+                pairs.Add(new ClothSphereColliderPair(sc));
+            }
+            cloth.sphereColliders = pairs.ToArray();
+        }
+
         private void BuildBanner(Transform parent, float pileTopY)
         {
             // Renderers/Cloth are client-side cosmetic — a headless dedicated server has no
@@ -547,6 +680,22 @@ namespace SBPR.Trailborne.Features.Cairns
                 verts[i] = new Vector3(verts[i].x, verts[i].y * sy, verts[i].z * sz);
             bakedMesh.vertices = verts;
             bakedMesh.RecalculateBounds();                         // bounds now ≈ widthZ(Z) × dropY(Y)
+
+            // ── TESSELLATION (Daniel 2026-06-10): the donor cloth is a COARSE ~78-vert sheet,
+            // so the Cloth solver has very few particles to drape/flap with — the tail reads as a
+            // stiff plank because there simply aren't enough free vertices between the pinned mount
+            // and the tail tip to curve. Subdivide the baked mesh ONCE (each triangle → 4 via edge
+            // midpoints) for ~4× the polys → a finer particle grid the solver can actually drape
+            // over the rock colliders and flop in wind. Live-config (CfgBannerSubdivisions, default
+            // 1 = 4×) so Daniel can dial 0 (off) … 2 (~16×) in-game and weigh look vs. cloth-solve
+            // cost. Positions/UVs/normals/colors are all interpolated so the wind-shader wave mask
+            // (Option B) and the material survive. Runs on the per-instance baked copy only — the
+            // shared donor mesh is never touched (ADR-0006: we mutate our own copy).
+            int subdiv = CfgBannerSubdivisions;
+            for (int s = 0; s < subdiv; s++)
+                SubdivideMeshMidpoint(bakedMesh);
+            if (subdiv > 0)
+                bakedMesh.RecalculateBounds();
 
             // ── Build + seat the graft GameObject (SHARED by both options) ─────────────
             var banner = new GameObject("SBPR_CairnBanner");
@@ -651,6 +800,12 @@ namespace SBPR.Trailborne.Features.Cairns
             cloth.stretchingStiffness = CfgBannerStretch;
             cloth.bendingStiffness = CfgBannerBend;
             PinMountCloth(cloth, bakedMesh, CfgBannerPinBandFrac, CfgBannerFreeDist, CfgBannerRampExp);
+
+            // Rock-drape (Daniel 2026-06-10): give the Cloth a few sphere colliders approximating
+            // the stone pile so the hanging banner drapes AGAINST the rocks instead of clipping
+            // through them. Cheap (4 spheres down the pile axis), live-config (SBPR_BannerRockDrape),
+            // and only meaningful with the finer subdivided mesh — a 78-vert sheet can't drape.
+            AddPileClothColliders(cloth, banner, 0f);
 
             // Drive it from world wind (direction × force) on a ~2 s cadence (AC1/AC2/AC4).
             var driver = banner.AddComponent<ClothWindDriver>();

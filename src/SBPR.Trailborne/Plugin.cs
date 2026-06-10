@@ -61,6 +61,8 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float> BannerFreeRampExp      = null!;  // freedom ramp exponent (mount→tail)
         internal static ConfigEntry<float> BannerPinBandFrac      = null!;  // mount pin band, fraction of Y-span
         internal static ConfigEntry<bool>  BannerUseGravity       = null!;  // free-fall slack on build
+        internal static ConfigEntry<int>   BannerSubdivisions     = null!;  // midpoint subdivisions of the cloth mesh (0=donor, 1=4×, 2=16×)
+        internal static ConfigEntry<bool>  BannerRockDrape        = null!;  // sphere colliders approximating the pile so the cloth drapes on the stones
         // ── A/B harness — Option A directional alignment (card t_1d7c0d19) ──
         internal static ConfigEntry<bool>  BannerAlignToWind      = null!;  // Option A: orient the windsock to the wind (the directional fix)
         internal static ConfigEntry<int>   BannerAlignMode        = null!;  // Option A: which axis maps to the wind (0=StreamYaw, 1=FaceYaw, 2=VanillaFull)
@@ -172,6 +174,21 @@ namespace SBPR.Trailborne
                 "CairnBanner", "SBPR_BannerUseGravity", CairnTag.DefaultBannerUseGravity,
                 "When true the Cloth free-falls under gravity on build (the tail hangs slack), then wind drives it to " +
                 "stream — Daniel's 'free fall when built, then flop in the wind like a windsock'. False = no gravity (wind only).");
+            BannerSubdivisions = Config.Bind(
+                "CairnBanner", "SBPR_BannerSubdivisions", CairnTag.DefaultBannerSubdivisions,
+                new ConfigDescription(
+                    "Midpoint subdivisions of the per-instance cloth mesh. The donor banner cloth is a COARSE ~78-vertex " +
+                    "sheet — too few Cloth particles to drape over the rocks or flop naturally, so the tail reads as a " +
+                    "stiff plank. Each level splits every triangle into 4 (~4× polys): 0 = donor (coarse), 1 = ~4× " +
+                    "(default), 2 = ~16× (finest, heaviest cloth-solve). Raise for a softer, finer drape; lower if the " +
+                    "cloth solve costs too much with many cairns in view. Takes effect on banner (re)build — reload the zone.",
+                    new AcceptableValueRange<int>(0, 2)));
+            BannerRockDrape = Config.Bind(
+                "CairnBanner", "SBPR_BannerRockDrape", CairnTag.DefaultBannerRockDrape,
+                "When true, a few cheap sphere colliders are placed down the stone-pile axis so the hanging banner " +
+                "DRAPES against the rocks instead of clipping straight through them (Daniel's 'flap against the stones'). " +
+                "Only reads well with SBPR_BannerSubdivisions > 0 — a coarse sheet has too few particles to drape. " +
+                "False = no colliders (the cloth ignores the pile). Takes effect on banner (re)build — reload the zone.");
 
             // ── A/B harness — Option A directional alignment (card t_1d7c0d19) ───────
             // These two only affect Option A (the Cloth windsock — black/blue/red cairns by the
