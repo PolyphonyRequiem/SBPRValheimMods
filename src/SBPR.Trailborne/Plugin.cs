@@ -232,6 +232,15 @@ namespace SBPR.Trailborne
             // so the gate was dead on arrival (cairns still placed underwater). This line wires it.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cairns.CairnPlacementGatePatch));
 
+            // Legacy terrain-op ZDO migration (§A2.2, card t_6fc9b3fa, AT-OP-3). Server-only,
+            // one-time-per-boot postfix on ZNet.LoadWorld: destroys any persistent
+            // piece_sbpr_path_*/piece_sbpr_replant_* ZDOs left by the pre-0.2.17 TerrainModifier
+            // donors, before they can spam "not used when creating" warnings / hang a joining
+            // client. The new additive TerrainOp ops aren't in ZNetScene, so vanilla auto-cleans
+            // these anyway — this makes it deterministic + logs a verifiable count. Inert on a
+            // client (LoadWorld only runs under ServerLoadWorld's m_isServer gate).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Trailblazing.LegacyTerrainOpZdoCleanup));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be

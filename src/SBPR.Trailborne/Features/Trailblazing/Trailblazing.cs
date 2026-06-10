@@ -22,28 +22,62 @@ namespace SBPR.Trailborne.Features.Trailblazing
     /// Spade ITEM itself (prefab + recipe) lifted out of the old fat Registrar
     /// so the spade and its terrain ops live in one vertical slice.
     ///
-    /// Clones the vanilla `path` prefab three times and scales each clone's
-    /// TerrainModifier radii to our 3 widths (narrow/standard/wide =
-    /// 1.5m / 3m / 5m). ALSO clones the vanilla `replant` op — the
-    /// Cultivator's "Grass" mode that regrows grass on dirt — THREE times at the
-    /// SAME 1.5/3/5m widths, but scaling ONLY the grass/paint footprint
-    /// (m_paintRadius). The replant clones leave m_levelRadius / m_smoothRadius
-    /// at the vanilla op's values, so every replant width stays a pure
-    /// grass-restore brush — no terrain raise/level/smooth at ANY width. The
-    /// player scrolls through Path ×3 + Replant Grass ×3 (Daniel playtest call
-    /// 2026-06-05: 3 replant widths mirroring the 3 path widths).
+    /// ── ADDITIVE TerrainOp construction (ADR-0006; attempt #3, t_6fc9b3fa) ──
+    /// The 3 path + 3 replant ops are built ADDITIVELY as modern
+    /// <see cref="TerrainOp"/> pieces — `new GameObject()` + `AddComponent&lt;Piece&gt;` +
+    /// `AddComponent&lt;TerrainOp&gt;`, NO ZNetView — mirroring exactly how vanilla's
+    /// Hoe (`path_v2`) and Cultivator (`replant_v2`) ops are structured. We read the
+    /// live `path_v2`/`replant_v2` as a BLUEPRINT (icon, place-effect, `_GhostOnly`
+    /// preview marker) but never clone them. Each op sets ONLY
+    /// `TerrainOp.m_settings.m_paintType` + `m_paintRadius`; level/smooth/raise stay at
+    /// the Settings default `false`, so the PR #16 "no raise/level at any width" guard
+    /// holds BY CONSTRUCTION. Widths scale only `m_paintRadius` (1.5/3/5m).
     ///
-    /// NB: `replant` is the grass-restore op; `cultivate` is the soil-tiller
-    /// (turns ground into farmland for crops) and is deliberately NOT used —
-    /// the spade stays in the trail/exploration lane, not farming (see
-    /// requirements.md "No Cultivate ability"). Cloning `cultivate` at a forced
-    /// 5m radius was the "UBER level" bug PR #16 fixed; the 3-width replant here
-    /// preserves that fix by never touching the level/smooth radii (see the
-    /// grassRestore branch in RegisterRadiusVariant).
+    /// 🔴 WHY this replaced the previous clone-a-legacy-donor design (the bug Daniel
+    /// reported, 2026-06-10): Valheim ships TWO terrain-op generations sharing the same
+    /// `PaintType` enum but applying paint differently —
+    ///   • LEGACY `TerrainModifier` (`path`, `replant`): a PERSISTENT, ZNetView-bearing
+    ///     networked piece. `OnPlaced` runs `RemoveOthers()`, a precedence battle that
+    ///     only evicts SAME-paint ops — so a Reset(grass) op does NOT remove a Dirt(path)
+    ///     op; the two stack on one tile and fight. THAT was the "grass fights path" bug.
+    ///   • MODERN `TerrainOp` (`path_v2`, `replant_v2`): NO ZNetView; `Awake` bakes its
+    ///     paint into the per-zone heightmap compiler (`TerrainComp`, which owns the
+    ///     persistent terrain ZDO + networks it) then `Destroy(gameObject)`s itself —
+    ///     fire-and-forget. Nothing persists to fight. This is the ENTIRE reason vanilla
+    ///     Hoe-path ↔ Cultivator-grass coexist cleanly on one tile, last-applied-wins.
+    /// Our spade used to clone the LEGACY donors, so BOTH our path and grass ops were
+    /// persistent networked peers that battled. Migrating all six to additive `TerrainOp`
+    /// gives them the vanilla fire-and-forget behavior (fixes AT-OP-1).
     ///
-    /// All ops register as Piece prefabs ADDED to the spade's PieceTable, so
-    /// the player sees our 3 path-widths + 3 replant-widths. Spade-only piece
-    /// table is built in DoObjectDBWiring.
+    /// 🔴 The ops are deliberately NOT registered in ZNetScene — vanilla's OWN
+    /// `path_v2`/`replant_v2` aren't either (they exist only as PieceTable refs). They
+    /// are held under the inactive PrefabHolder (see <see cref="ops"/>) and added to the
+    /// spade's PieceTable BY REFERENCE, exactly as the Hoe/Cultivator hold theirs.
+    /// Consequences (all three of the card's structural goals):
+    ///   • No persistent op ZDO is ever written (AT-OP-2).
+    ///   • A legacy orphan ZDO from the OLD persistent donors can't hang the client
+    ///     (AT-OP-3): an UNregistered prefab makes `ZNetScene.CreateObject` early-return
+    ///     null BEFORE it instantiates + emits "not used when creating", and the server
+    ///     then drops the orphan ZDO itself. (Registering a self-destructing op was the
+    ///     v0.2.14 hang — we structurally avoid it by not registering.) A belt-and-braces
+    ///     server-only sweep (<see cref="LegacyTerrainOpZdoCleanup"/>) cleans them
+    ///     deterministically + logs a verifiable count on top of vanilla's auto-clean.
+    ///
+    /// BUILD TIMING — ObjectDB phase, not ZNetScene.Awake: the `path_v2`/`replant_v2`
+    /// blueprints live ONLY inside the vanilla Hoe/Cultivator build PieceTables, which
+    /// are reachable once ObjectDB is populated (they are NOT in ZNetScene). So the ops
+    /// are constructed in <see cref="DoObjectDBWiring"/> via
+    /// <see cref="Assets.FindOpInToolPieceTable"/>, then wired into the spade table in the
+    /// same pass. <see cref="RegisterPrefabs"/> (ZNetScene phase) now only registers the
+    /// Spade ITEM.
+    ///
+    /// NB: `replant_v2` is the grass-restore op; `cultivate`/`cultivate_v2` is the
+    /// soil-tiller (turns ground into farmland for crops) and is deliberately NOT used —
+    /// the spade stays in the trail/exploration lane, not farming (see requirements.md
+    /// "No Cultivate ability").
+    ///
+    /// All ops are Piece prefabs ADDED to the spade's PieceTable, so the player sees our
+    /// 3 path-widths + 3 replant-widths. Spade-only piece table is built in DoObjectDBWiring.
     ///
     /// ClearVegetation (Pickable.RemoveOne batch) is genuinely out-of-scope
     /// for v0.1.0. TWEAK ME: real ClearVegetation in v0.2.0.
@@ -60,8 +94,17 @@ namespace SBPR.Trailborne.Features.Trailblazing
         public const string ReplantStandardName = "piece_sbpr_replant_standard";
         public const string ReplantWideName      = "piece_sbpr_replant_wide";
 
-        private const string SourcePath      = "path";
-        private const string SourceReplant   = "replant";
+        // Blueprint op names (READ as blueprints, NEVER cloned) — the vanilla MODERN
+        // TerrainOp ops the Hoe/Cultivator actually use. Resolved from the tool PieceTables
+        // at the ObjectDB phase (they are NOT in ZNetScene). Their settings are mirrored
+        // explicitly in the additive build; the blueprint is read only for icon /
+        // place-effect / _GhostOnly preview parity.
+        private const string BlueprintPath    = "path_v2";
+        private const string BlueprintReplant = "replant_v2";
+        // The vanilla tools whose build PieceTables hold the live _v2 blueprint refs.
+        private const string SourceHoeTool        = "Hoe";
+        private const string SourceCultivatorTool = "Cultivator";
+
         private const string SourceHoe       = "Hoe";
 
         private const string IconFile        = "trailblazers_spade_v0.1.png";
@@ -71,32 +114,46 @@ namespace SBPR.Trailborne.Features.Trailblazing
         // (Daniel, 2026-06-04 playtest lock). Terrain-op / build stamina is
         // driven by the WIELDING TOOL, not the op piece: Player.GetBuildStamina()
         // reads the right-hand ItemDrop's m_shared.m_attack.m_attackStamina.
-        // Pieces / TerrainModifier carry no stamina field, so this is the only
+        // Pieces / TerrainOp carry no stamina field, so this is the only
         // layer where the cost can be pinned — and pinning it here is
         // radius-independent by construction. (design/nomap.md §2.)
         private const float PathOpStamina    = 2f;
 
-        // source = vanilla prefab to clone; radius = TerrainModifier radius
-        // OVERRIDE in metres; grassRestore = TRUE for the Cultivator-"Grass"
-        // replant ops, which must scale ONLY the grass/paint footprint
-        // (m_paintRadius) and leave m_levelRadius / m_smoothRadius at the vanilla
-        // clone's values so they NEVER raise/level/smooth terrain at any width
-        // (PR #16 regression guard). FALSE for path ops, which scale all three
-        // radii together (their job IS to paint + level the path tile to width).
+        // Per-op build spec. radius = m_settings.m_paintRadius override in metres
+        // (1.5/3/5m UX); grassRestore = TRUE for the Cultivator-"Grass" replant ops.
         //
-        // Path widths and Replant widths BOTH get our 1.5/3/5m UX, but the
-        // radius is applied to DIFFERENT fields depending on grassRestore — that
-        // branch is the whole safety story of this slice (see RegisterRadiusVariant).
-        private static readonly Dictionary<string, (string source, float radius, bool grassRestore)> variants =
-            new Dictionary<string, (string, float, bool)>
+        // The op is built ADDITIVELY (Assets.ConstructTerrainOpPiece) — there is no
+        // donor to clone. grassRestore selects:
+        //   • the BLUEPRINT op to read (path_v2 vs replant_v2) for icon / place-effect /
+        //     _GhostOnly preview, and which vanilla tool's PieceTable holds it;
+        //   • the PaintType baked into m_settings (Dirt for path, Reset for grass —
+        //     the decomp-confirmed values, identical between the legacy and modern
+        //     generations: investigation §2);
+        //   • Piece.m_vegetationGroundOnly (replant_v2 ships true — it reads the natural
+        //     vegetation mask, which a Dirt path does NOT lower, so grass-on-path still
+        //     places; path_v2 ships false).
+        // NEITHER kind writes level/smooth/raise — that's the Settings default and the
+        // PR #16 guard, true by construction for both (a path op's "width" is purely its
+        // paint footprint here; we intentionally do NOT level/smooth terrain, matching
+        // the prior slice's behavior and the spec's trail-not-earthworks intent).
+        private static readonly Dictionary<string, (float radius, bool grassRestore)> variants =
+            new Dictionary<string, (float, bool)>
             {
-                { PathNarrowName,      (SourcePath,    1.5f, false) },
-                { PathStandardName,    (SourcePath,    3.0f, false) },
-                { PathWideName,        (SourcePath,    5.0f, false) },
-                { ReplantNarrowName,   (SourceReplant, 1.5f, true)  },
-                { ReplantStandardName, (SourceReplant, 3.0f, true)  },
-                { ReplantWideName,     (SourceReplant, 5.0f, true)  },
+                { PathNarrowName,      (1.5f, false) },
+                { PathStandardName,    (3.0f, false) },
+                { PathWideName,        (5.0f, false) },
+                { ReplantNarrowName,   (1.5f, true)  },
+                { ReplantStandardName, (3.0f, true)  },
+                { ReplantWideName,     (5.0f, true)  },
             };
+
+        // The six additively-built op pieces, held alive under the inactive PrefabHolder
+        // (Assets.ConstructTerrainOpPiece parents them there). They are deliberately NOT
+        // registered in ZNetScene — exactly like vanilla path_v2/replant_v2, which live
+        // only as PieceTable refs. Populated in DoObjectDBWiring (the only phase where the
+        // _v2 blueprints are reachable) and added to the spade PieceTable by reference.
+        private static readonly Dictionary<string, GameObject> ops =
+            new Dictionary<string, GameObject>();
 
         // ───────────────────────────────────────────────
         // OP IDENTITY + EFFECT RADIUS (single source of truth for the placement-ripple patch)
@@ -114,20 +171,17 @@ namespace SBPR.Trailborne.Features.Trailblazing
         /// value the ripple should preview.
         ///
         /// Why the radius is sourced from <see cref="variants"/> and NOT re-derived from
-        /// the ghost's <c>TerrainModifier</c> at runtime (which the original spike
-        /// suggested via a "max of enabled op radii" mirror):
-        ///   • <see cref="variants"/> is the SAME table that drives registration — each
-        ///     op's <c>radius</c> here is applied to its TerrainModifier's paint (and,
-        ///     for paths, level/smooth) radius in <see cref="RegisterRadiusVariant"/>.
-        ///     So this IS the op's effect radius, read one step closer to the source.
+        /// the ghost's <c>TerrainOp</c> at runtime (which the original spike suggested via
+        /// a "max of enabled op radii" mirror):
+        ///   • <see cref="variants"/> is the SAME table that drives the additive build —
+        ///     each op's <c>radius</c> here is written to its <c>TerrainOp.m_settings.m_paintRadius</c>
+        ///     in <see cref="BuildOps"/>. So this IS the op's effect radius, read one step
+        ///     closer to the source.
         ///   • A hand-mirrored "max of enabled radii" formula depends on the vanilla op
         ///     flags (m_level / m_smooth / m_paintCleared) AND on fields that differ by
-        ///     game build — the metadata probe against this build's assembly_valheim.dll
-        ///     confirmed m_raise / m_raiseRadius (listed in the spike) do NOT exist here,
-        ///     and for a narrow replant op the vanilla level/smooth radii (~2 m) would
-        ///     overshoot our 1.5 m paint footprint. Sourcing the intended width from the
-        ///     registration table sidesteps all of that and matches the acceptance test
-        ///     exactly (1.5 m op → ~1.5 m ripple, 5 m op → ~5 m ripple).
+        ///     game build; sourcing the intended width from the build table sidesteps all
+        ///     of that and matches the acceptance test exactly (1.5 m op → ~1.5 m ripple,
+        ///     5 m op → ~5 m ripple).
         ///
         /// Robust to Unity's instantiation suffix: a placement ghost GameObject is a
         /// clone, so its <c>.name</c> is e.g. "piece_sbpr_path_wide(Clone)". We strip
@@ -151,11 +205,16 @@ namespace SBPR.Trailborne.Features.Trailblazing
         // PREFAB REGISTRATION (called from ZNetScene.Awake postfix)
         // ───────────────────────────────────────────────
 
+        /// <summary>
+        /// ZNetScene-phase registration. Only the Spade ITEM is registered here — it is a
+        /// ZNetView-bearing ItemDrop that belongs in ZNetScene. The 6 terrain ops are NOT
+        /// built here: their `path_v2`/`replant_v2` blueprints live only in the vanilla
+        /// tool PieceTables, which aren't populated until ObjectDB. The ops are built (and,
+        /// like vanilla, NOT registered in ZNetScene) in <see cref="DoObjectDBWiring"/>.
+        /// </summary>
         public static void RegisterPrefabs(ZNetScene zns)
         {
             RegisterSpadeItemPrefab(zns);
-            foreach (var kv in variants)
-                RegisterRadiusVariant(zns, kv.Key, kv.Value.source, kv.Value.radius, kv.Value.grassRestore);
         }
 
         private static void RegisterSpadeItemPrefab(ZNetScene zns)
@@ -209,58 +268,87 @@ namespace SBPR.Trailborne.Features.Trailblazing
             }
         }
 
-        private static void RegisterRadiusVariant(ZNetScene zns, string name, string source, float radius, bool grassRestore)
+        /// <summary>
+        /// Build all six terrain ops ADDITIVELY (ADR-0006) during the ObjectDB phase and
+        /// stash them in <see cref="ops"/>. Called from <see cref="DoObjectDBWiring"/> — NOT
+        /// at ZNetScene.Awake — because the `path_v2`/`replant_v2` blueprints live only in
+        /// the vanilla Hoe/Cultivator build PieceTables, reachable once ObjectDB exists.
+        ///
+        /// Each op is a `Piece` + `TerrainOp` with NO ZNetView, mirroring vanilla's own
+        /// `path_v2`/`replant_v2`. It is held under the inactive PrefabHolder and is NOT
+        /// registered in ZNetScene (vanilla's aren't either). Settings are set explicitly:
+        ///   • PATH ops: PaintType.Dirt, paintRadius = width, vegetationGroundOnly=false.
+        ///   • REPLANT ops: PaintType.Reset, paintRadius = width, vegetationGroundOnly=true.
+        /// level/smooth/raise stay at the Settings default false for BOTH → flat ground
+        /// stays flat at every width (PR #16 guard + AT-OP-4, by construction).
+        ///
+        /// 🔴 Behavior note vs the pre-0.2.16 clone: the old PATH op ALSO widened the
+        /// legacy TerrainModifier's level/smooth radii (it leveled/smoothed terrain to
+        /// width). The vanilla Hoe path op (`path_v2`) is PAINT-ONLY (m_level/m_smooth/m_raise
+        /// all false) — so mirroring it makes our path op paint-only too. This is the
+        /// correct vanilla-parity behavior and what AT-OP-4 asserts ("flat ground stays
+        /// flat"); it's also what the spade's trail-not-earthworks intent wants. Flagged in
+        /// the PR handoff for Daniel's in-game confirmation.
+        ///
+        /// Idempotent: re-entry (a second ObjectDB hook firing) rebuilds nothing if the
+        /// dict is already populated with live objects.
+        /// </summary>
+        private static void BuildOps()
         {
-            if (zns.GetPrefab(name) != null) return;
-            var clone = Assets.ClonePrefab(source, name);
-            if (clone == null)
+            // Resolve the two blueprints once (read-only; never cloned). They may be null on
+            // a degraded load — ConstructTerrainOpPiece copes (builds a working op with no
+            // icon/ghost) and logs, so we still ship a functional tool.
+            var pathBlueprint    = Assets.FindOpInToolPieceTable(SourceHoeTool, BlueprintPath);
+            var replantBlueprint = Assets.FindOpInToolPieceTable(SourceCultivatorTool, BlueprintReplant);
+            if (pathBlueprint == null)
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M3] Blueprint '{BlueprintPath}' not found in the {SourceHoeTool} PieceTable; " +
+                    "path ops will build but with no icon / placement ghost.");
+            if (replantBlueprint == null)
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M3] Blueprint '{BlueprintReplant}' not found in the {SourceCultivatorTool} PieceTable; " +
+                    "replant ops will build but with no icon / placement ghost.");
+
+            foreach (var kv in variants)
             {
-                Plugin.Log.LogWarning($"[Trailborne/M3] Source '{source}' missing; skipping {name}");
-                return;
-            }
-            // Radius application BRANCHES on op kind — this is the load-bearing
-            // safety boundary of the slice:
-            //
-            //  • PATH ops (grassRestore=false): scale ALL THREE radii together
-            //    (level + smooth + paint). A path tile is SUPPOSED to flatten and
-            //    paint to the chosen width, so widening all three is correct.
-            //
-            //  • REPLANT ops (grassRestore=true): scale ONLY m_paintRadius — the
-            //    grass/vegetation footprint. m_levelRadius and m_smoothRadius are
-            //    LEFT UNTOUCHED at the vanilla `replant` clone's values, so the op
-            //    NEVER raises, levels, or smooths terrain at ANY width. This is the
-            //    regression guard for PR #16 (the "UBER level" bug): widening the
-            //    grass brush cannot reintroduce terrain modification, because the
-            //    terrain-modifying radii are never written. Vanilla `replant`
-            //    (the Cultivator's "Grass" mode) is a pure grass-restore brush —
-            //    confirmed against the public Cultivator wiki — so leaving its
-            //    level/smooth behavior at stock keeps all three replant widths
-            //    pure grass-restore, just at our 1.5/3/5m footprints.
-            var mod = clone.GetComponentInChildren<TerrainModifier>(includeInactive: true);
-            if (mod != null)
-            {
-                mod.m_paintRadius = radius;
-                if (!grassRestore)
-                {
-                    // Path ops only: also widen the terrain-shaping radii.
-                    mod.m_levelRadius  = radius;
-                    mod.m_smoothRadius = radius;
-                }
-            }
-            var piece = clone.GetComponent<Piece>();
-            if (piece != null)
-            {
-                piece.m_name        = NicePieceName(name);
-                piece.m_description = grassRestore
+                string name = kv.Key;
+                float radius = kv.Value.radius;
+                bool grassRestore = kv.Value.grassRestore;
+
+                // Already built and still alive? leave it (idempotent across hook re-fires).
+                if (ops.TryGetValue(name, out var existing) && existing != null)
+                    continue;
+
+                var blueprint = grassRestore ? replantBlueprint : pathBlueprint;
+                var paintType = grassRestore
+                    ? TerrainModifier.PaintType.Reset   // grass-restore (Cultivator "Grass")
+                    : TerrainModifier.PaintType.Dirt;   // path
+                string desc = grassRestore
                     ? $"Trailblazer grass-restore — regrows grass over a {radius:F1}m footprint. No terrain raise/level."
-                    : $"Trailblazer path/ground op — {radius:F1}m radius.";
-                piece.m_category    = Piece.PieceCategory.Misc;
-                // Free placement like vanilla hoe ops — no resource cost
-                piece.m_resources   = Array.Empty<Piece.Requirement>();
+                    : $"Trailblazer path — paints a {radius:F1}m dirt path. No terrain raise/level.";
+
+                var go = Assets.ConstructTerrainOpPiece(
+                    name,
+                    blueprint,
+                    paintType,
+                    radius,
+                    vegetationGroundOnly: grassRestore,   // replant_v2=true, path_v2=false
+                    NicePieceName(name),
+                    desc);
+
+                if (go == null)
+                {
+                    Plugin.Log.LogError(
+                        $"[Trailborne/M3] FAILED to construct spade op '{name}' — it will be MISSING " +
+                        "from the spade menu. This should not happen (additive build has no donor to miss).");
+                    continue;
+                }
+
+                ops[name] = go;
+                var opKind = grassRestore ? "grass-restore" : "path";
+                Plugin.Log.LogInfo(
+                    $"[Trailborne/M3] Built additive spade op: {name} ({opKind}, paint={paintType}, {radius:F1}m, no ZNetView).");
             }
-            Assets.RegisterPrefabInZNetScene(clone);
-            var opKind = grassRestore ? "grass-restore" : "path";
-            Plugin.Log.LogInfo($"[Trailborne/M3] Registered spade op: {name} ({opKind}, {radius:F1}m)");
         }
 
         // ───────────────────────────────────────────────
@@ -284,6 +372,11 @@ namespace SBPR.Trailborne.Features.Trailblazing
             // Spade recipe — at orienteering table (was Registrar.AddRecipes).
             AddSpadeRecipe();
 
+            // Build the 6 terrain ops ADDITIVELY now — this is the only phase where the
+            // path_v2/replant_v2 blueprints (inside the vanilla Hoe/Cultivator PieceTables)
+            // are reachable. They are held in `ops`, NOT registered in ZNetScene.
+            BuildOps();
+
             // Spade-only PieceTable build (the original M3 wiring).
             var drop = zns?.GetPrefab(SpadeName)?.GetComponent<ItemDrop>();
             if (drop == null)
@@ -303,10 +396,17 @@ namespace SBPR.Trailborne.Features.Trailblazing
             table.m_categoryLabels = new List<string> { "Trail" };
             table.m_canRemovePieces = true;
 
+            // Add the 6 ops to the spade table BY REFERENCE from our `ops` dict — NOT via
+            // zns.GetPrefab (the ops are deliberately not in ZNetScene, exactly like the
+            // vanilla path_v2/replant_v2 the Hoe/Cultivator hold the same way).
             foreach (var n in variants.Keys)
             {
-                var p = zns?.GetPrefab(n);
-                if (p != null) Assets.AddPieceToTable(p, table);
+                if (ops.TryGetValue(n, out var p) && p != null)
+                    Assets.AddPieceToTable(p, table);
+                else
+                    Plugin.Log.LogWarning(
+                        $"[Trailborne/M3] Spade table: op '{n}' was not built (see BuildOps warnings); " +
+                        "it will be missing from the spade menu.");
             }
 
             // Explorer-placed signage + lighting + cairns belong on the Trailblazer's Spade,
