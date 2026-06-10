@@ -13,6 +13,14 @@ Planning artifacts for the Black Forest tier. Same role as
   `Features/Cartography/` placement, and each feature's SpecCheck manifest row. This is
   what gates the three implementation cards (filed as children of the spec-pass + the
   UI-fork spike).
+- **`marker-signs-impl-spec.md`** — the buildable *how* for **Marker Signs + the
+  WorldPin substrate** (design lock:
+  [`../../design/marker-signs-worldpin.md`](../../design/marker-signs-worldpin.md)).
+  Four additive Spade-placed marker pieces (POI / mining / shelter / portal) that
+  pin/unpin themselves on the map via Shift+E with custom marker icons, plus the
+  durable destroy-safe WorldPin engine (derive-by-scan reconcile keyed on the sign's
+  ZDOID). **This is the pin model the Local Map viewer + Surveyor's Table consume** —
+  built once, not forked. SpecCheck delta = **+4 build pieces**.
 
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
