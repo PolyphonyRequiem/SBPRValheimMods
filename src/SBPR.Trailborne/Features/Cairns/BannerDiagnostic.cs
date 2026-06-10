@@ -1,5 +1,6 @@
 using System.Text;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
 
 namespace SBPR.Trailborne.Features.Cairns
 {
@@ -44,10 +45,20 @@ namespace SBPR.Trailborne.Features.Cairns
     /// </summary>
     public sealed class BannerDiagnostic : MonoBehaviour
     {
+        // Live registry of every banner diagnostic currently in the scene, so the `bannerdiag`
+        // console command can snapshot ALL loaded banners on demand (Daniel 2026-06-10). The
+        // time-based Start→+4s probe samples at WORLD LOAD when wind is still ramping from 0
+        // (premature sampling — Daniel's catch), so the real steady-state / forced-storm numbers
+        // can only be read by an ON-DEMAND resample after the wind has settled. This registry +
+        // SnapshotNow() is that path.
+        public static readonly System.Collections.Generic.List<BannerDiagnostic> Live =
+            new System.Collections.Generic.List<BannerDiagnostic>();
+
         // Set by CairnTag right after AddComponent, while the GameObject is still being built.
         public string Label = "?";          // "<color>/A-cloth" or "<color>/B-shader"
         public Mesh? BakedMesh;             // the per-instance baked banner mesh (rest geometry)
         public Cloth? Cloth;                // null for Option B (shader-wave: a static mesh, no solver)
+        public ClothWindDriver? Driver;     // the wind driver (for live mult/align readback); null for Option B
 
         private Vector3[]? _initialClothLocal;   // particle positions at first post-activation frame (≈rest)
         private int _tailIdx = -1;               // particle with the lowest rest-pose local-Y (the tail tip)
@@ -58,6 +69,89 @@ namespace SBPR.Trailborne.Features.Cairns
         private bool _eulerChanged;
         private int _sample;
         private const int MaxSamples = 4;
+
+        private void OnEnable()  { if (!Live.Contains(this)) Live.Add(this); }
+        private void OnDisable() { Live.Remove(this); }
+        private void OnDestroy() { Live.Remove(this); }
+
+        /// <summary>
+        /// ON-DEMAND physics + config snapshot for ONE banner, fired by the `bannerdiag` console
+        /// command. Unlike the Start→+4s auto-probe (which samples at world load while wind is
+        /// still ~0 — the premature-sampling trap), this runs whenever Daniel asks, so it reads
+        /// the TRUE steady-state or forced-storm state. Logs a single greppable [BannerSnap] block:
+        ///   • live wind (EnvMan intensity + GetWindForce magnitude) — is the wind actually up?
+        ///   • the cloth's externalAcceleration magnitude — what force is ACTUALLY reaching the
+        ///     solver (= wind × mult). This is THE number: ~mult×intensity if delivery works.
+        ///   • orientation: tail-vs-mount world-Y (hang angle off vertical) — how far it's streaming.
+        ///   • every live CairnBanner config value, so the snapshot is self-describing (no need to
+        ///     cross-reference the cfg file).
+        /// </summary>
+        public void SnapshotNow()
+        {
+            try
+            {
+                var env = EnvMan.instance;
+                float intensity = env != null ? env.GetWindIntensity() : float.NaN;
+                Vector3 windForce = env != null ? env.GetWindForce() : Vector3.zero;
+
+                var sb = new StringBuilder();
+                sb.Append($"[BannerSnap] {Label}\n");
+                sb.Append($"    WIND: intensity={intensity:0.000} forceMag={windForce.magnitude:0.000} dir={Fmt(windForce.normalized)}\n");
+
+                var cloth = Cloth;
+                if (cloth != null)
+                {
+                    Vector3 ext = cloth.externalAcceleration;
+                    Vector3 rnd = cloth.randomAcceleration;
+                    // Hang angle: tail tip vs mount in world-Y, plus horizontal offset → degrees off vertical.
+                    float angleOffVertical = float.NaN;
+                    Vector3[] cur = cloth.vertices;
+                    Matrix4x4 l2w = transform.localToWorldMatrix;
+                    if (_tailIdx >= 0 && _tailIdx < cur.Length && _initialClothLocal != null)
+                    {
+                        // Mount = the pinned cluster centroid (maxDistance≈0); tail = lowest-rest-Y particle.
+                        var coeffs = cloth.coefficients;
+                        Vector3 mountW = Vector3.zero; int mountN = 0;
+                        for (int i = 0; i < cur.Length && i < coeffs.Length; i++)
+                            if (coeffs[i].maxDistance <= 1e-4f) { mountW += l2w.MultiplyPoint3x4(cur[i]); mountN++; }
+                        if (mountN > 0)
+                        {
+                            mountW /= mountN;
+                            Vector3 tailW = l2w.MultiplyPoint3x4(cur[_tailIdx]);
+                            Vector3 delta = tailW - mountW;                 // mount → tail vector, world space
+                            float horiz = new Vector2(delta.x, delta.z).magnitude;
+                            float vert  = Mathf.Abs(delta.y);
+                            angleOffVertical = Mathf.Atan2(horiz, vert) * Mathf.Rad2Deg;  // 0=straight down, 90=horizontal
+                        }
+                    }
+                    sb.Append($"    CLOTH: extAccel={Fmt(ext)} mag={ext.magnitude:0.000} randAccel mag={rnd.magnitude:0.000} ");
+                    sb.Append($"hangAngleOffVertical={angleOffVertical:0.0}deg (0=down,90=horizontal)\n");
+                    sb.Append($"    CLOTH cfg: stretch={cloth.stretchingStiffness:0.00} bend={cloth.bendingStiffness:0.00} ");
+                    sb.Append($"damping={cloth.damping:0.00} useGravity={cloth.useGravity} sphereColliders={(cloth.sphereColliders != null ? cloth.sphereColliders.Length : 0)}\n");
+                    if (Driver != null)
+                        sb.Append($"    DRIVER: mult={Driver.Multiplier:0.0} randFactor={Driver.RandomFactor:0.00} alignToWind={Driver.AlignToWindDirection} alignMode={Driver.AlignMode}\n");
+                }
+                else
+                {
+                    sb.Append("    CLOTH: none (Option B shader-wave, no solver)\n");
+                }
+
+                Plugin.Log.LogWarning(sb.ToString());
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogError($"[BannerSnap] {Label} snapshot threw: {e}");
+            }
+        }
+
+        /// <summary>Snapshot EVERY live banner. Returns the count (for the console reply).</summary>
+        public static int SnapshotAll()
+        {
+            int n = 0;
+            foreach (var d in Live)
+                if (d != null) { d.SnapshotNow(); n++; }
+            return n;
+        }
 
         private void Start()
         {
