@@ -429,6 +429,13 @@ namespace SBPR.Trailborne.Features.Cairns
         public const bool DefaultBannerAlignToWind = true;   // ON for the cairn windsock (default OFF on the reusable driver)
         public const int  DefaultBannerAlignMode   = 0;      // 0=StreamYaw (pure yaw, drop stays vertical), 1=FaceYaw, 2=VanillaFull (see ClothWindDriver.AlignMode)
 
+        // ── DIAGNOSTIC (card t_7de074f3 — ATTEMPT #6 Step 1). When ON, BuildBanner attaches a
+        //    BannerDiagnostic probe that logs the live parent-chain lossyScale, cloth state, and
+        //    a frame-to-frame movement test proving whether the solver is actually integrating.
+        //    Default ON for this diagnostic build; turn OFF (or strip the component) once the
+        //    attempt-#6 rebuild lands and the failure mode is known.
+        public const bool DefaultBannerDiagnostic  = true;
+
         // Live config accessors — the runtime value, or the Default* fallback when Plugin isn't
         // bound (unit context). Centralized so BuildBanner reads one name per knob.
         private static float CfgBannerWidthZ      => Plugin.BannerWidthZ            != null ? Plugin.BannerWidthZ.Value            : DefaultBannerWidthZ;
@@ -446,6 +453,7 @@ namespace SBPR.Trailborne.Features.Cairns
         private static bool  CfgBannerUseGravity  => Plugin.BannerUseGravity        != null ? Plugin.BannerUseGravity.Value        : DefaultBannerUseGravity;
         private static bool  CfgBannerAlignToWind => Plugin.BannerAlignToWind       != null ? Plugin.BannerAlignToWind.Value       : DefaultBannerAlignToWind;
         private static int   CfgBannerAlignMode   => Plugin.BannerAlignMode         != null ? Plugin.BannerAlignMode.Value         : DefaultBannerAlignMode;
+        private static bool  CfgBannerDiagnostic  => Plugin.BannerDiagnostic        != null ? Plugin.BannerDiagnostic.Value        : DefaultBannerDiagnostic;
 
         /// <summary>
         /// Attach the wind-responsive color BANNER to the pile as a WINDSOCK (card t_4a4a9706).
@@ -577,6 +585,22 @@ namespace SBPR.Trailborne.Features.Cairns
                 BuildShaderWaveBanner(banner, bakedMesh, clothMat);
             else
                 BuildClothWindsock(banner, bakedMesh, clothMat, dropY);
+
+            // ── Step-1 DIAGNOSTIC (card t_7de074f3 — cairn-banner ATTEMPT #6) ──────────
+            // Attach the runtime probe AFTER the A/B route so it can read the live Cloth (or
+            // its absence, for Option B). It logs a single greppable [BannerDiag] report from
+            // Start→+4s proving WHICH failure mode is real — non-uniform parent lossyScale
+            // (prime suspect), an enabled-but-inert solver, inverted seating, or a fine solver
+            // — then self-disables. This is the deliverable that rebuilds trust before we write
+            // a sixth fix: the prior five all tuned a solver we never proved was running. Behind
+            // a config flag (default ON for this diagnostic build); strip with the rebuild.
+            if (CfgBannerDiagnostic)
+            {
+                var diag = banner.AddComponent<BannerDiagnostic>();
+                diag.Label = color + (useShaderWave ? "/B-shader" : "/A-cloth");
+                diag.BakedMesh = bakedMesh;
+                diag.Cloth = banner.GetComponent<Cloth>();   // null for Option B — itself a signal
+            }
         }
 
         /// <summary>

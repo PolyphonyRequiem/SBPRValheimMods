@@ -5,7 +5,21 @@ last_updated: 2026-06-10
 investigator: Starbright (engineering), clean-side — read Valheim's OWN assembly + prefab payload (permitted, ADR-0001)
 spec_anchor: "docs/v0.1.0/planning/requirements.md §A2.1b (cairn banner color identity + wind response)"
 supersedes_attempts: "PR #56 (color), #61 (scale), #69 (Cloth A-prime), #71 (windsock redesign), #78 (stiffness '3rd-attempt')"
+attempt_6_reframe: "2026-06-10 — Daniel's gravity observation reframes this doc: if the solver is INERT, alignment is moot (you can't orient a sheet that never integrates). Alignment is now a SECONDARY fix behind 'prove the solver runs at all'. See the Attempt #6 section at the foot of this doc."
 ---
+
+> **⚠️ REFRAME (2026-06-10, attempt #6 — read this before the original analysis below).**
+> This doc originally concluded the root cause was the missing `m_alignToWindDirection`
+> rotation. Daniel then observed in-game that **a one-end-anchored cloth with gravity ON
+> cannot stand upright — it MUST hang down — yet both the Option-A (real-Cloth) and
+> Option-B (shader-wave, *no Cloth at all*) banners stand straight up and only shader-waggle,
+> looking IDENTICAL.** That is airtight evidence the `UnityEngine.Cloth` solver is **not
+> integrating** — an expensive sim and a free fake cannot look identical if the sim is
+> running. **Alignment is moot until the solver actually steps.** The real Step-1 question is
+> therefore *"is the solver inert, and if so why,"* not *"which way does it point."* The
+> diagnostic build (v0.2.17, card t_7de074f3) added to answer that is documented in the
+> **Attempt #6** section at the foot of this doc. The alignment analysis below is retained as
+> history (it is a real secondary gap) but is **no longer the lead hypothesis.**
 
 # Cairn banner: why it waggles in place and never streams downwind
 
@@ -95,3 +109,70 @@ The fix is to add the alignment mechanism vanilla uses, not to tune the Cloth fu
 - §A2.1b describes wind response; update it to specify DIRECTIONAL alignment (transform rotation to `GetWindDir`), not just force-driven motion, so code+spec agree (AGENTS.md). No SpecCheck manifest impact (banner is cosmetic, not a recipe).
 - **Clean-side:** all evidence from Valheim's own assembly/prefabs (permitted). Construct additively (ADR-0006); do not clone the sail/banner prefab; do not commit decompiled GlobalWind.cs. Route to **architect** for the design decision (port-GlobalWind-faithfully vs aligned-mesh-streamer), implementation lane **engineer-systems**, worktree-isolated.
 - **Reusability:** the alignment belongs in `ClothWindDriver` (already feature-agnostic) so future sails/tents/flags inherit it.
+
+---
+
+# Attempt #6 (2026-06-10, card t_7de074f3) — diagnostic-first: PROVE the solver state before any sixth fix
+
+## Why a sixth attempt is structurally different
+Attempts #1–#5 (color → scale → Cloth → windsock → stiffness) and the alignment hypothesis
+above all **assumed the Cloth solver was running** and argued about its *inputs* (pins,
+stiffness, dims, force, orientation). Daniel's gravity observation removes that assumption:
+
+> "the flag isn't falling down from where it is anchored… If it isn't running as a proper
+> anchored-at-one-end flag-like cloth simulation, how am I to believe [a new mesh] will fix it?"
+
+A one-end-anchored cloth with gravity ON **cannot** stand upright; it must hang. Both banners
+stand up and only shader-waggle, and Option A (`UnityEngine.Cloth`) is **visually identical**
+to Option B (no Cloth at all, just the wind-shader material). An integrating solver and a free
+vertex-shader cannot look the same. **Therefore the solver is not integrating** — and no input
+tuning (the entire history above) could ever have fixed a solver that never steps.
+
+## Step 1 deliverable (this build, v0.2.17): a runtime probe, not a fix
+`src/SBPR.Trailborne/Features/Cairns/BannerDiagnostic.cs` is attached to each cairn banner
+(behind `CairnBanner.SBPR_BannerDiagnostic`, default ON). It logs one greppable `[BannerDiag]`
+report per banner from `Start`→+4s, then self-disables. It measures **only things static
+analysis cannot produce** — which is precisely why five rounds of static reasoning missed the
+cause:
+
+1. **SCALE CHAIN** — walks `banner → kitbashRoot → CairnTag.transform(piece root)` and flags any
+   **non-uniform `lossyScale`**. This is the PRIME SUSPECT: `UnityEngine.Cloth` silently refuses
+   to simulate under skewed world scale, and it is Cloth's #1 real-world failure mode. The three
+   transforms are each `localScale = 1` by static reading, so a non-uniform *lossy* scale can only
+   be injected by placement/registration at runtime — invisible to source inspection.
+2. **CLOTH STATE** — `enabled`, particle/coefficient/mesh-vertex counts, pinned-vs-free split,
+   `useGravity`, stiffness, current `externalAcceleration`.
+3. **MOVEMENT (definitive)** — snapshots the cloth particles at the first post-activation frame,
+   then measures max per-particle displacement at t+1/2/3/4s. With gravity ON, **<1cm over 4s ⇒
+   solver provably INERT**; a tail that falls then settles ⇒ RUNNING. This is the one measurement
+   that separates "expensive Cloth" from "free shader-wave" — the distinction Daniel's eye could
+   not make because they look identical.
+4. **ORIENTATION** — world-Y of the pinned mount vs the free tail tip: does the rest pose
+   HANG-DOWN or STAND-UP? This runs for the **cloth-less Option B** too, which resolves the A≈B
+   paradox: a *static mesh* that stands up proves the "stands up" is geometry/transform (a cause
+   **shared** by both options), not the solver — whereas an inert solver in A is layered on top.
+5. **VERDICT** — one `[BannerDiag] … ===== VERDICT:` line per banner naming the suspect.
+
+## What the VERDICT will tell us (decision tree for Step 2)
+- **non-uniform lossyScale present** → PRIME SUSPECT confirmed. Step-2 fix = neutralize/re-parent
+  so the banner's `lossyScale` is uniform (likely THE fix; the rebuild's clean mesh makes it tidy).
+- **uniform scale + <1cm movement** → solver enabled-but-inert (suspect #2). Fix = how the Cloth/SMR
+  is constructed (e.g. SMR bounds/update path, activation order), not pins/stiffness/wind.
+- **Option B stands up** → shared geometry/seating bug (mesh not below pivot, or rotated parent);
+  fix seating regardless of the solver.
+- **movement present + hangs down** → solver is fine; the residual is wind/streaming (the original
+  alignment hypothesis re-enters as the *secondary* fix it always was).
+
+## Honesty / scope
+- **This build ships the diagnostic ONLY.** Per the card: write no fix until the diagnostic names
+  the cause. The worker is headless and cannot render Cloth, so the verdict can only come from a
+  **client** run by Daniel (the dedicated server bails out of `BuildBanner` via `IsHeadless()` and
+  never builds a banner, so the probe never even attaches server-side). `dotnet build -c Release`
+  is **0/0**, but per this repo's honesty rule a clean build proves nothing here — it has compiled
+  clean on every failed attempt.
+- **§A2.1b is intentionally NOT rewritten yet.** The Step-2 rebuild (own quad-grid mesh + edge pin
+  + rock colliders) is not built or verified, so rewriting the spec now would document work that
+  doesn't exist. The spec moves WITH the Step-2 code, once the verdict is in and the rebuild is
+  real. This doc + the `[BannerDiag]` output are the Step-1 record.
+- **Clean-side / ADR-0006:** the probe reads transforms/mesh/Cloth on our own additively-built
+  banner; no prefab cloning, no decompiled source committed.

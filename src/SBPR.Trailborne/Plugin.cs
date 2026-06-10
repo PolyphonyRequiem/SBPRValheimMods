@@ -64,6 +64,8 @@ namespace SBPR.Trailborne
         // ── A/B harness — Option A directional alignment (card t_1d7c0d19) ──
         internal static ConfigEntry<bool>  BannerAlignToWind      = null!;  // Option A: orient the windsock to the wind (the directional fix)
         internal static ConfigEntry<int>   BannerAlignMode        = null!;  // Option A: which axis maps to the wind (0=StreamYaw, 1=FaceYaw, 2=VanillaFull)
+        // ── DIAGNOSTIC (card t_7de074f3 — ATTEMPT #6 Step 1) ──
+        internal static ConfigEntry<bool>  BannerDiagnostic       = null!;  // attach the BannerDiagnostic runtime probe (default ON for this diagnostic build)
 
         private void Awake()
         {
@@ -190,6 +192,23 @@ namespace SBPR.Trailborne
                     "LookRotation(windDir, up) including the vertical component (pitches the sheet) — reference only, not " +
                     "expected to read as a clean windsock on our axes. Prototype 0 vs 1 in-game, then we bake the winner.",
                     new AcceptableValueRange<int>(0, 2)));
+
+            // ── DIAGNOSTIC (card t_7de074f3 — ATTEMPT #6 Step 1) ─────────────────────
+            // Attaches the BannerDiagnostic runtime probe to each cairn banner. It logs a
+            // single greppable [BannerDiag] report (parent-chain lossyScale uniformity, cloth
+            // enabled/particle/coefficient counts, a frame-to-frame movement test proving
+            // whether the Cloth solver actually integrates, and rest-pose world orientation),
+            // then self-disables after ~4 s. This is the Step-1 deliverable: prove the failure
+            // mode BEFORE writing a sixth fix. Default ON for this diagnostic build; set false
+            // (or strip the component) once the attempt-#6 rebuild lands.
+            BannerDiagnostic = Config.Bind(
+                "CairnBanner", "SBPR_BannerDiagnostic", CairnTag.DefaultBannerDiagnostic,
+                "DIAGNOSTIC (attempt #6, card t_7de074f3). When true, each cairn banner logs a one-shot " +
+                "[BannerDiag] report proving the Cloth failure mode: the live parent-chain lossyScale (the " +
+                "prime suspect — Cloth won't simulate under non-uniform world scale), the cloth particle/" +
+                "coefficient counts, a frame-to-frame MOVEMENT test (does the solver actually step, or is it " +
+                "inert like the prior 5 attempts assumed it wasn't?), and whether the rest pose hangs down or " +
+                "stands up. Grep the client log for '[BannerDiag]'. Set false once the failure mode is known.");
 
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
