@@ -5,6 +5,7 @@ using SBPR.Trailborne.Features.Trailblazing;
 using SBPR.Trailborne.Features.Pigments;
 using SBPR.Trailborne.Features.Signs;
 using SBPR.Trailborne.Features.Cairns;
+using SBPR.Trailborne.Features.Cartography;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -61,6 +62,7 @@ namespace SBPR.Trailborne.Runtime
                 Pigments.RegisterPrefabs(__instance);
                 Signs.RegisterPrefabs(__instance);
                 Cairns.RegisterPrefabs(__instance);
+                SurveyorsTable.RegisterPrefabs(__instance);
 
                 znetSceneDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -115,6 +117,7 @@ namespace SBPR.Trailborne.Runtime
                 Pigments.DoObjectDBWiring(ZNetScene.instance);
                 Signs.DoObjectDBWiring(ZNetScene.instance);
                 Cairns.DoObjectDBWiring(ZNetScene.instance);
+                SurveyorsTable.DoObjectDBWiring(ZNetScene.instance);
 
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 

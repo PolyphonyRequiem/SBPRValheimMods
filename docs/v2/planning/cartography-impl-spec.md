@@ -60,11 +60,21 @@ alongside the v0.1.0 source, and generalize the "v0.1.0 locked manifest" wording
 
 ## 1. Surveyor's Table — placed station retaining a shared 1000 m survey
 
-**Lands in:** `Features/Cartography/SurveyorsTable.cs` (+ `SurveyorTableTag.cs` for the
-MonoBehaviour). New feature folder `Features/Cartography/` (first v2 feature; mirror the
-vertical-slice layout of `Features/Cairns/`, `Features/Signs/`).
-**Card:** `t_38f9c77a` (engineer-systems).
-**Depends on:** this spec (recipe + bench lock) **and** the viewer (§2B) it opens.
+> **IMPL STATUS (2026-06-10, card t_2715661d, engineer-systems):** built additively on
+> branch `feat/surveyors-table-t_2715661d`; build 0/0; SpecCheck row 1 added. Code +
+> spec + manifest move together (this PR). **Two build-card deviations from the sketch
+> below, flagged for review:** (a) §1.1 sketches "one `Switch` (Use → open viewer)"; the
+> impl instead implements `Hoverable + Interactable` directly on `SurveyorTableTag` — the
+> repo's proven in-production interactable pattern (`CairnInteractable`), avoiding a
+> child-collider/`Switch`-delegate wiring layer for the same behaviour. (b) The forked
+> VIEWER itself is the downstream card `t_7b616020` (engineer-ui), so this card ships the
+> survey DATA + ZDO persistence + contribute/merge + ward gate + pin-removal BACKEND +
+> a `CartographyViewer` seam the viewer plugs into; until that card lands, Use records +
+> persists the survey and shows a "viewer not installed yet" message (no data lost). The
+> windowed-fog cell math (`BoundedMapMath`) is the productionized, executed-proven spike
+> seam (`t_e8bbbe48`). **logs-green ≠ playable — Daniel verifies in-game.**
+
+**Lands in:** `Features/Cartography/SurveyorsTable.cs` (registration) + `SurveyorTableTag.cs`
 
 ### 1.1 Construction (ADR-0006 additive — hard constraint)
 - `new GameObject("piece_sbpr_surveyors_table")` + `AddComponent` of exactly: `Piece`,

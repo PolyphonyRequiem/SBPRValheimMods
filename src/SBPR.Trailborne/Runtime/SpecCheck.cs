@@ -19,8 +19,11 @@ namespace SBPR.Trailborne.Runtime
     /// the moment drift appears.
     ///
     /// LOCKED SOURCE: docs/v0.1.0/planning/requirements.md
-    /// (lines 170-222, 318-323). Update BOTH this manifest AND the spec
-    /// in the same commit when intentionally changing a recipe.
+    /// (lines 170-222, 318-323) for the Meadows manifest, and
+    /// docs/v2/planning/requirements.md §1 + docs/v2/planning/cartography-impl-spec.md §0
+    /// for the Black-Forest cartography rows (added per impl card as each lands).
+    /// Update BOTH this manifest AND the spec in the same commit when intentionally
+    /// changing a recipe.
     /// </summary>
     internal static class SpecCheck
     {
@@ -56,6 +59,15 @@ namespace SBPR.Trailborne.Runtime
             new RecipeSpec {
                 Piece = "piece_sbpr_sign", Station = null,
                 Resources = new[] { R("Wood", 2) }
+            },
+
+            // ── v2 Black-Forest cartography (impl spec §0 row 1; card t_2715661d) ──
+            // Surveyor's Table — placed station, NO bench-in-range to place
+            // (m_craftingStation = null). Black-Forest tier. LOCKED per
+            // docs/v2/planning/requirements.md §1 + cartography-impl-spec.md §0/§1.2.
+            new RecipeSpec {
+                Piece = "piece_sbpr_surveyors_table", Station = null,
+                Resources = new[] { R("FineWood", 10), R("Bronze", 2), R("DeerHide", 4), R("BoneFragments", 8) }
             },
 
             // ── Item recipes ───────────────────────────────────────────

@@ -25,6 +25,11 @@ no north). Three interlocking pieces:
 
 ## 1. Surveyor's Table (placed station)
 
+> **IMPL (2026-06-10, card t_2715661d):** built additively, build 0/0, SpecCheck row added
+> — see `cartography-impl-spec.md` §1 IMPL STATUS for the two flagged build-card deviations
+> (interactable-vs-Switch; viewer is the downstream card t_7b616020). `[hold]` PR; in-game
+> verify pending. The bullets below remain the locked behavioural target.
+
 - A Black-Forest-tier piece, placed via the **Trailblazer's Spade build menu** (never
   the Hammer — design Pillar 1).
 - **Built additively (ADR-0006)** — `new GameObject()` + `Piece`/`WearNTear`/`ZNetView`
