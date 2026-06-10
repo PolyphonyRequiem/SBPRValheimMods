@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using SBPR.Trailborne.Features.Pigments;
 using SBPR.Trailborne.Features.Cairns;
+using SBPR.Trailborne.Features.MarkerSigns;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -19,8 +20,10 @@ namespace SBPR.Trailborne.Runtime
     /// the moment drift appears.
     ///
     /// LOCKED SOURCE: docs/v0.1.0/planning/requirements.md
-    /// (lines 170-222, 318-323). Update BOTH this manifest AND the spec
-    /// in the same commit when intentionally changing a recipe.
+    /// (lines 170-222, 318-323). The v2 marker-sign rows are sourced from
+    /// docs/design/marker-signs-worldpin.md + docs/v2/planning/marker-signs-impl-spec.md
+    /// (§0 manifest table). Update BOTH this manifest AND the spec in the same commit
+    /// when intentionally changing a recipe.
     /// </summary>
     internal static class SpecCheck
     {
@@ -177,6 +180,27 @@ namespace SBPR.Trailborne.Runtime
                     // Upgrade-cost validation happens at runtime in Cairns.TryUpgradeCairn.
                     var expected = new[] { R("Stone", 9), R("Resin", 1), R(markerName, 1) };
                     CompareResources(cairnName, expected, cairnPiece.m_resources, ref errors);
+                }
+            }
+
+            // ── v2 Marker Signs (4 additive build pieces, Wood x2) ──
+            // Generated rather than enumerated (4× repetitive) — same DRY pattern as the
+            // cairn loop above. These are build pieces (Item == null), Wood x2, no station
+            // (placed via the spade). Source: marker-signs-impl-spec.md §0.
+            foreach (var mk in MarkerSigns.MarkerTypes)
+            {
+                checks++;
+                var prefab = zns.GetPrefab(mk.PrefabName);
+                var piece  = prefab != null ? prefab.GetComponent<Piece>() : null;
+                if (piece == null)
+                {
+                    Plugin.Log.LogError($"[Trailborne/SpecCheck] MISSING PIECE: {mk.PrefabName}");
+                    errors++;
+                }
+                else
+                {
+                    var expected = new[] { R("Wood", MarkerSigns.WoodCost) };
+                    CompareResources(mk.PrefabName, expected, piece.m_resources, ref errors);
                 }
             }
 

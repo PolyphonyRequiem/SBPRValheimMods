@@ -53,6 +53,13 @@ piece entries** (all new, all build pieces — no item recipes):
 
 ## 1. The four Marker Sign pieces — additive construction
 
+> **STATUS (M1 IMPLEMENTED, card t_0c7b782d):** the four additive pieces +
+> `MarkerSignTag` + spade wiring + SpecCheck +4 rows are built and compile 0/0. The
+> WearNTear destroy hook is subscribed (its WorldPin-unpin callback is an inert,
+> logged stub until the §3 engine lands). The §1.4 panel-icon and the §4 Shift+E
+> gesture are the gated follow-up milestones — see the card's review-required handoff.
+> **logs-green ≠ playable**: AT-MARK-1 / AT-PIN-ADR0006 close only on Daniel's in-game check.
+
 **Lands in:** `Features/MarkerSigns/MarkerSigns.cs` (registration + the type table) and
 `Features/MarkerSigns/MarkerSignTag.cs` (the per-instance MonoBehaviour). New feature
 folder `Features/MarkerSigns/` (mirror the vertical-slice layout of
