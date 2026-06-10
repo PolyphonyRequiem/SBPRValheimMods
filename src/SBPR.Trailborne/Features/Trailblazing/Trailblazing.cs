@@ -24,22 +24,63 @@ namespace SBPR.Trailborne.Features.Trailblazing
     ///
     /// Clones the vanilla `path` prefab three times and scales each clone's
     /// TerrainModifier radii to our 3 widths (narrow/standard/wide =
-    /// 1.5m / 3m / 5m). ALSO clones the vanilla `replant` op — the
+    /// 1.5m / 3m / 5m). ALSO clones the vanilla `replant_v2` op — the
     /// Cultivator's "Grass" mode that regrows grass on dirt — THREE times at the
     /// SAME 1.5/3/5m widths, but scaling ONLY the grass/paint footprint
-    /// (m_paintRadius). The replant clones leave m_levelRadius / m_smoothRadius
-    /// at the vanilla op's values, so every replant width stays a pure
-    /// grass-restore brush — no terrain raise/level/smooth at ANY width. The
-    /// player scrolls through Path ×3 + Replant Grass ×3 (Daniel playtest call
-    /// 2026-06-05: 3 replant widths mirroring the 3 path widths).
+    /// (m_settings.m_paintRadius). The replant clones leave
+    /// m_settings.m_level / m_smooth / m_raise at their stock `false`, so every
+    /// replant width stays a pure grass-restore brush — no terrain raise/level/
+    /// smooth at ANY width. The player scrolls through Path ×3 + Replant Grass ×3
+    /// (Daniel playtest call 2026-06-05: 3 replant widths mirroring the 3 path
+    /// widths).
     ///
-    /// NB: `replant` is the grass-restore op; `cultivate` is the soil-tiller
-    /// (turns ground into farmland for crops) and is deliberately NOT used —
-    /// the spade stays in the trail/exploration lane, not farming (see
+    /// DONOR SYSTEM (t_1d6fa833 fix, investigation
+    /// docs/investigations/2026-06-09-replant-grass-fights-path-terrainop-vs-terrainmodifier.md):
+    /// Valheim ships TWO parallel terrain-op systems that share the same
+    /// `TerrainModifier.PaintType` enum but apply paint by different mechanisms:
+    ///   • LEGACY `TerrainModifier` (prefabs `replant`, `path`, `cultivate`): a
+    ///     persistent ZNetView-bearing networked piece. `OnPlaced` runs
+    ///     `RemoveOthers()`, a precedence battle — a Reset-paint op (grass) only
+    ///     evicts OTHER Reset ops, so it does NOT remove our `path` (Dirt) op;
+    ///     the two stack and fight. That was the "grass fights path" bug.
+    ///   • MODERN `TerrainOp` (prefabs `replant_v2`, `path_v2`): no ZNetView; on
+    ///     Awake it bakes its paint straight into the heightmap compiler then
+    ///     destroys its own GameObject. Nothing persists to fight.
+    /// The vanilla Cultivator's grass op is `replant_v2` (a `TerrainOp`) — that's
+    /// why it cleanly regrasses our path. We clone `replant_v2` to inherit the
+    /// same compiler-applied, non-conflicting behavior. The PATH ops are still
+    /// the legacy `path` donor (Daniel: path tool "works fine") — migrating them
+    /// to `_v2` is a tracked follow-up, deliberately out of scope here.
+    ///
+    /// REGISTRATION TIMING — TWO PHASES (t_d84d2c17 fix):
+    /// The two donor systems live in DIFFERENT places at runtime, which forces a
+    /// two-phase registration:
+    ///   • PATH donor `path` (a TerrainModifier) is ZNetView-bearing, so it sits in
+    ///     `ZNetScene.m_prefabs` and `ZNetScene.GetPrefab("path")` resolves at our
+    ///     `ZNetScene.Awake` postfix. Path variants register THERE (RegisterPrefabs).
+    ///   • REPLANT donor `replant_v2` (a TerrainOp) has NO ZNetView, so it is in
+    ///     NEITHER of ZNetScene's serialized lists (m_prefabs / m_nonNetViewPrefabs)
+    ///     — `ZNetScene.GetPrefab("replant_v2")` is null at EVERY ZNetScene phase, on
+    ///     the dedicated server AND a client. (v0.2.12 regressed exactly here: the
+    ///     boot logged `replant_v2 not in ZNetScene` 3× and the spade menu dropped
+    ///     12→9, the grass tool vanished — rolled back in v0.2.13.) The only live
+    ///     `replant_v2` reference is baked into the vanilla Cultivator's build
+    ///     PieceTable, which is reachable once ObjectDB is populated. So replant
+    ///     variants register in the ObjectDB-wiring phase (DoObjectDBWiring →
+    ///     RegisterReplantVariantsFromCultivator), resolving the donor via
+    ///     `Assets.FindOpInToolPieceTable("Cultivator", "replant_v2")`. This mirrors
+    ///     the proven deferred-after-ODB pattern Cairns uses for marker-dependent
+    ///     resources. If the donor still can't be resolved, the piece FAILS LOUD at
+    ///     ERROR rather than silently vanishing (AT-RV2-4).
+    ///
+    /// NB: `replant_v2` is the grass-restore op; `cultivate`/`cultivate_v2` is the
+    /// soil-tiller (turns ground into farmland for crops) and is deliberately NOT
+    /// used — the spade stays in the trail/exploration lane, not farming (see
     /// requirements.md "No Cultivate ability"). Cloning `cultivate` at a forced
     /// 5m radius was the "UBER level" bug PR #16 fixed; the 3-width replant here
-    /// preserves that fix by never touching the level/smooth radii (see the
-    /// grassRestore branch in RegisterRadiusVariant).
+    /// preserves that fix by construction — `replant_v2` ships
+    /// level=0/smooth=0/raise=0 and we write ONLY m_settings.m_paintRadius (see
+    /// the grassRestore branch in RegisterRadiusVariant).
     ///
     /// All ops register as Piece prefabs ADDED to the spade's PieceTable, so
     /// the player sees our 3 path-widths + 3 replant-widths. Spade-only piece
@@ -60,8 +101,27 @@ namespace SBPR.Trailborne.Features.Trailblazing
         public const string ReplantStandardName = "piece_sbpr_replant_standard";
         public const string ReplantWideName      = "piece_sbpr_replant_wide";
 
+        // PATH donor: the LEGACY `path` (a TerrainModifier, ZNetView-bearing). It IS in
+        // ZNetScene.m_namedPrefabs at our ZNetScene.Awake hook, so path variants clone it
+        // there (unchanged).
         private const string SourcePath      = "path";
-        private const string SourceReplant   = "replant";
+        // REPLANT donor: the MODERN `replant_v2` (a TerrainOp, NO ZNetView) — the op the
+        // vanilla Cultivator actually uses for its "Grass" mode. Cloning it makes our
+        // Replant-Grass bake into the heightmap compiler (fire-and-forget, no persistent
+        // networked modifier) instead of fighting the path op. See the class doc +
+        // investigation doc (t_1d6fa833 / t_d84d2c17).
+        //
+        // CRITICAL TIMING (t_d84d2c17): unlike the legacy `replant`, `replant_v2` is in
+        // NEITHER of ZNetScene's serialized prefab lists (m_prefabs / m_nonNetViewPrefabs),
+        // so ZNetScene.GetPrefab("replant_v2") is null at EVERY ZNetScene phase on a
+        // dedicated server (v0.2.12 boot logged it null 3×, dropping the spade menu 12→9).
+        // We therefore resolve it from the vanilla Cultivator's build PieceTable during the
+        // ObjectDB-wiring phase (Assets.FindOpInToolPieceTable), where the live reference
+        // exists. Identical paint settings to legacy `replant` (Reset, paintR 2.2),
+        // different APPLICATION system.
+        private const string SourceReplant   = "replant_v2";
+        // The vanilla tool whose build PieceTable holds the live `replant_v2` reference.
+        private const string SourceCultivator = "Cultivator";
         private const string SourceHoe       = "Hoe";
 
         private const string IconFile        = "trailblazers_spade_v0.1.png";
@@ -76,17 +136,31 @@ namespace SBPR.Trailborne.Features.Trailblazing
         // radius-independent by construction. (design/nomap.md §2.)
         private const float PathOpStamina    = 2f;
 
-        // source = vanilla prefab to clone; radius = TerrainModifier radius
-        // OVERRIDE in metres; grassRestore = TRUE for the Cultivator-"Grass"
-        // replant ops, which must scale ONLY the grass/paint footprint
-        // (m_paintRadius) and leave m_levelRadius / m_smoothRadius at the vanilla
-        // clone's values so they NEVER raise/level/smooth terrain at any width
-        // (PR #16 regression guard). FALSE for path ops, which scale all three
-        // radii together (their job IS to paint + level the path tile to width).
+        // source = vanilla prefab to clone; radius = paint-radius OVERRIDE in
+        // metres; grassRestore = TRUE for the Cultivator-"Grass" replant ops.
         //
-        // Path widths and Replant widths BOTH get our 1.5/3/5m UX, but the
-        // radius is applied to DIFFERENT fields depending on grassRestore — that
-        // branch is the whole safety story of this slice (see RegisterRadiusVariant).
+        // The radius is applied to a DIFFERENT component+field depending on
+        // grassRestore, because the two op kinds clone different donor *systems*
+        // (t_1d6fa833 fix):
+        //   • grassRestore=TRUE  → donor `replant_v2` is a TerrainOp. Scale ONLY
+        //     `TerrainOp.m_settings.m_paintRadius` (the grass/paint footprint);
+        //     m_settings.m_level / m_smooth / m_raise stay at stock false, so the
+        //     op NEVER raises/levels/smooths at any width (PR #16 guard, by
+        //     construction).
+        //   • grassRestore=FALSE → donor `path` is a legacy TerrainModifier. Scale
+        //     all three radii together (paint + level + smooth) — a path tile's job
+        //     IS to paint + level to width.
+        //
+        // grassRestore ALSO selects the REGISTRATION PHASE (t_d84d2c17 fix), because
+        // the two donor systems are resolvable at different times:
+        //   • grassRestore=FALSE (path) → donor is in ZNetScene at our ZNetScene.Awake
+        //     hook → registered in RegisterPrefabs (ZNetScene phase).
+        //   • grassRestore=TRUE (replant) → donor `replant_v2` is NOT in ZNetScene at
+        //     all (no ZNetView), only in the Cultivator's PieceTable which arrives with
+        //     ObjectDB → registered in DoObjectDBWiring (ObjectDB phase).
+        //
+        // Path widths and Replant widths BOTH get our 1.5/3/5m UX; that branch is
+        // the whole safety story of this slice (see RegisterRadiusVariant).
         private static readonly Dictionary<string, (string source, float radius, bool grassRestore)> variants =
             new Dictionary<string, (string, float, bool)>
             {
@@ -154,8 +228,53 @@ namespace SBPR.Trailborne.Features.Trailblazing
         public static void RegisterPrefabs(ZNetScene zns)
         {
             RegisterSpadeItemPrefab(zns);
+            // PHASE 1 (ZNetScene): only the PATH variants. Their donor `path` is a
+            // ZNetView-bearing TerrainModifier present in ZNetScene at this hook.
+            // The REPLANT variants are deferred to the ObjectDB phase — their donor
+            // `replant_v2` (a TerrainOp, no ZNetView) is not in ZNetScene at all;
+            // see RegisterReplantVariantsFromCultivator + the class doc timing note.
             foreach (var kv in variants)
+            {
+                if (kv.Value.grassRestore) continue;   // replant → ObjectDB phase
                 RegisterRadiusVariant(zns, kv.Key, kv.Value.source, kv.Value.radius, kv.Value.grassRestore);
+            }
+        }
+
+        // ───────────────────────────────────────────────
+        // REPLANT REGISTRATION (PHASE 2 — called from DoObjectDBWiring)
+        //
+        // The modern `replant_v2` TerrainOp donor is NOT in ZNetScene's prefab lists
+        // on any platform (it has no ZNetView), so we resolve it from the vanilla
+        // Cultivator's build PieceTable — available once ObjectDB is populated — and
+        // register the three grass-restore width variants here. This is the t_d84d2c17
+        // fix for the v0.2.12 dedicated-server regression where ZNetScene.GetPrefab
+        // returned null and all three replant pieces silently vanished.
+        // ───────────────────────────────────────────────
+
+        public static void RegisterReplantVariantsFromCultivator(ZNetScene zns)
+        {
+            // Resolve the donor ONCE from the Cultivator's PieceTable.
+            var donor = Assets.FindOpInToolPieceTable(SourceCultivator, SourceReplant);
+            if (donor == null)
+            {
+                // FAIL LOUD (AT-RV2-4): a shipped feature that silently doesn't register
+                // is a bug. The previous regression was diagnosable only because the
+                // ClonePrefab path happened to log; make this path scream unmistakably.
+                Plugin.Log.LogError(
+                    $"[Trailborne/M3] Replant-Grass donor '{SourceReplant}' NOT FOUND in the " +
+                    $"vanilla '{SourceCultivator}' build PieceTable (ObjectDB phase). All three " +
+                    "grass-restore widths will be ABSENT from the spade menu. This is the " +
+                    "t_d84d2c17 failure mode — the modern TerrainOp donor could not be resolved. " +
+                    "Check: is the Cultivator item in ObjectDB, and does its m_buildPieces table " +
+                    "still contain 'replant_v2' on this game build?");
+                return;
+            }
+
+            foreach (var kv in variants)
+            {
+                if (!kv.Value.grassRestore) continue;   // path handled in ZNetScene phase
+                RegisterReplantVariant(zns, kv.Key, donor, kv.Value.radius);
+            }
         }
 
         private static void RegisterSpadeItemPrefab(ZNetScene zns)
@@ -209,44 +328,91 @@ namespace SBPR.Trailborne.Features.Trailblazing
             }
         }
 
+        // PATH variant registration (PHASE 1, ZNetScene). Path ops clone the legacy
+        // `path` TerrainModifier and scale ALL THREE radii (level + smooth + paint)
+        // together — a path tile is SUPPOSED to flatten + paint to the chosen width.
+        // grassRestore is always FALSE here (replant variants go through
+        // RegisterReplantVariant in the ObjectDB phase); it's kept in the signature so
+        // the variants-table tuple maps 1:1 and a future caller can't silently route a
+        // grass op down the path branch.
         private static void RegisterRadiusVariant(ZNetScene zns, string name, string source, float radius, bool grassRestore)
         {
             if (zns.GetPrefab(name) != null) return;
+            if (grassRestore)
+            {
+                // Defensive: replant ops MUST use RegisterReplantVariant (different donor
+                // system + resolution path). Reaching here means a caller mis-routed one.
+                Plugin.Log.LogError(
+                    $"[Trailborne/M3] RegisterRadiusVariant called for grass-restore op '{name}' — " +
+                    "replant variants must register via RegisterReplantVariantsFromCultivator " +
+                    "(ObjectDB phase). Skipping to avoid cloning the wrong donor system.");
+                return;
+            }
             var clone = Assets.ClonePrefab(source, name);
             if (clone == null)
             {
                 Plugin.Log.LogWarning($"[Trailborne/M3] Source '{source}' missing; skipping {name}");
                 return;
             }
-            // Radius application BRANCHES on op kind — this is the load-bearing
-            // safety boundary of the slice:
-            //
-            //  • PATH ops (grassRestore=false): scale ALL THREE radii together
-            //    (level + smooth + paint). A path tile is SUPPOSED to flatten and
-            //    paint to the chosen width, so widening all three is correct.
-            //
-            //  • REPLANT ops (grassRestore=true): scale ONLY m_paintRadius — the
-            //    grass/vegetation footprint. m_levelRadius and m_smoothRadius are
-            //    LEFT UNTOUCHED at the vanilla `replant` clone's values, so the op
-            //    NEVER raises, levels, or smooths terrain at ANY width. This is the
-            //    regression guard for PR #16 (the "UBER level" bug): widening the
-            //    grass brush cannot reintroduce terrain modification, because the
-            //    terrain-modifying radii are never written. Vanilla `replant`
-            //    (the Cultivator's "Grass" mode) is a pure grass-restore brush —
-            //    confirmed against the public Cultivator wiki — so leaving its
-            //    level/smooth behavior at stock keeps all three replant widths
-            //    pure grass-restore, just at our 1.5/3/5m footprints.
+            // PATH ops: scale all three TerrainModifier radii together (level + smooth +
+            // paint). A path tile is SUPPOSED to flatten and paint to the chosen width.
             var mod = clone.GetComponentInChildren<TerrainModifier>(includeInactive: true);
             if (mod != null)
             {
-                mod.m_paintRadius = radius;
-                if (!grassRestore)
-                {
-                    // Path ops only: also widen the terrain-shaping radii.
-                    mod.m_levelRadius  = radius;
-                    mod.m_smoothRadius = radius;
-                }
+                mod.m_paintRadius  = radius;
+                mod.m_levelRadius  = radius;
+                mod.m_smoothRadius = radius;
             }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M3] Path op '{name}': cloned donor '{source}' has no " +
+                    "TerrainModifier; radii NOT scaled. Check the donor prefab.");
+            }
+            FinalizePieceAndRegister(clone, name, radius, grassRestore: false);
+        }
+
+        // REPLANT variant registration (PHASE 2, ObjectDB). The donor is the modern
+        // `replant_v2` TerrainOp template resolved from the Cultivator's PieceTable (it
+        // is NOT in ZNetScene — see RegisterReplantVariantsFromCultivator). We clone the
+        // template (NOT a ZNetScene name) under the inactive holder so the TerrainOp's
+        // self-destructing Awake never fires, then scale ONLY the paint footprint.
+        private static void RegisterReplantVariant(ZNetScene zns, string name, GameObject donorTemplate, float radius)
+        {
+            if (zns.GetPrefab(name) != null) return;
+            var clone = Assets.ClonePrefabTemplate(donorTemplate, name);
+            if (clone == null)
+            {
+                Plugin.Log.LogError($"[Trailborne/M3] Replant op '{name}': failed to clone donor template; skipping.");
+                return;
+            }
+            // REPLANT ops: scale ONLY TerrainOp.m_settings.m_paintRadius — the grass/
+            // vegetation footprint. m_settings.m_level / m_smooth / m_raise ship `false`
+            // on `replant_v2` and are LEFT UNTOUCHED, so the op NEVER raises, levels, or
+            // smooths terrain at ANY width. This is the PR #16 ("UBER level" bug)
+            // regression guard, satisfied BY CONSTRUCTION (AT-RV2-3): the terrain-shaping
+            // flags are never enabled, so widening the paint footprint cannot reintroduce
+            // terrain modification.
+            var op = clone.GetComponentInChildren<TerrainOp>(includeInactive: true);
+            if (op != null && op.m_settings != null)
+            {
+                op.m_settings.m_paintRadius = radius;
+            }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M3] Replant op '{name}': cloned donor '{SourceReplant}' has no " +
+                    "TerrainOp (or null m_settings); paint radius NOT scaled. The grass op will use " +
+                    "the donor's stock footprint. Check the donor is the modern '_v2' TerrainOp.");
+            }
+            FinalizePieceAndRegister(clone, name, radius, grassRestore: true);
+        }
+
+        // Shared piece-field finalization + ZNetScene registration for both op kinds.
+        // Keeps the Piece name/description/category/cost identical regardless of which
+        // donor system produced the clone.
+        private static void FinalizePieceAndRegister(GameObject clone, string name, float radius, bool grassRestore)
+        {
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
@@ -291,6 +457,18 @@ namespace SBPR.Trailborne.Features.Trailblazing
                 Plugin.Log.LogWarning("[Trailborne/M3] Spade prefab missing; cannot wire spade table.");
                 return;
             }
+
+            // PHASE 2 (ObjectDB): register the three REPLANT grass-restore variants NOW,
+            // before the spade PieceTable is assembled below. Their donor `replant_v2`
+            // (modern TerrainOp, no ZNetView) is not in ZNetScene at any phase — it lives
+            // only in the vanilla Cultivator's build PieceTable, which is reachable now
+            // that ObjectDB is populated. This is the t_d84d2c17 fix: doing this here
+            // (instead of at ZNetScene.Awake, where GetPrefab("replant_v2") returns null
+            // on a dedicated server) is what makes all three widths actually register, so
+            // the loop below finds 6 ops, not 3. Idempotent across re-joins (each variant
+            // early-outs if already in ZNetScene). zns is non-null here (we just resolved
+            // the spade off it).
+            RegisterReplantVariantsFromCultivator(zns!);
 
             // Build a fresh, spade-only PieceTable so the player never sees vanilla
             // raise/level/paved_road when wielding the spade. Hosted on the same
