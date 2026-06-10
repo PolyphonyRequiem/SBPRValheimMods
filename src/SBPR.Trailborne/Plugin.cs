@@ -193,6 +193,15 @@ namespace SBPR.Trailborne
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cairns.CairnPlacementGatePatch));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
+
+            // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be
+            // the LAST line of Awake — after EVERY PatchAll above. Reflects over this
+            // assembly for [HarmonyPatch] classes and asserts each actually wove a method
+            // we own; any attributed-but-unregistered class ERROR-logs on boot. Born from
+            // the dead CairnPlacementGatePatch (registered one line up): that class shipped
+            // in v0.2.10 attributed-but-unwired and nobody noticed for weeks. If you add a
+            // new [HarmonyPatch] class, register it above or this guard will scream.
+            PatchCheck.Run();
         }
 
         private void OnDestroy()

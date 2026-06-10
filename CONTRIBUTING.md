@@ -46,6 +46,20 @@ If you change the number of recipes/pieces (e.g. collapsing 4 sign variants into
 1), the `SpecCheck` manifest count **and** the spec doc **and** the code all move
 together — or the server logs a drift ERROR on next boot.
 
+### Every `[HarmonyPatch]` class must be registered (enforced at boot)
+
+`SpecCheck` has a sibling: `src/SBPR.Trailborne/Runtime/PatchCheck.cs`. A Harmony
+patch class that's attributed but never handed to `harmony.PatchAll(typeof(X))` in
+`Plugin.Awake()` compiles fine, ships in the DLL, and silently does **nothing** —
+that's exactly how the underwater-cairn gate shipped dead in v0.2.10. `PatchCheck`
+runs as the last line of `Awake()` and ERROR-logs (naming the class) if any
+`[HarmonyPatch]` type in our assembly produced no woven method we own. **So: when
+you add a new `[HarmonyPatch]` class, add its `harmony.PatchAll(typeof(X))` line in
+`Plugin.Awake()` in the same change — or the server screams `UNREGISTERED PATCH
+CLASS` on next boot.** (Nested patch containers count individually, just as
+`Plugin.Awake()` registers each `SignPanelInputBlock.*` separately.)
+
+
 ## Clean-room rule (non-negotiable)
 
 The clean-room firewall is around **other developers' mod code** — Jotunn and any
