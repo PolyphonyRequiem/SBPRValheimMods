@@ -1,7 +1,7 @@
 ---
 title: "Trailborne v2 (Black Forest) — Cartography requirements"
 status: current
-purpose: "Locked, build-ready requirements for the v2 cartography system (Surveyor's Table, Local Maps, Cartographer's Kit), distilled from the ratified decisions in docs/design/cartography-v2.md. Two recipes remain PROPOSED (flagged inline)."
+purpose: "Locked, build-ready requirements for the v2 cartography system (Surveyor's Table, Local Maps, Cartographer's Kit), distilled from the ratified decisions in docs/design/cartography-v2.md. ALL open items closed 2026-06-10 (architect spec-pass, card t_4be278de): both recipes + the Local Map ItemType are LOCKED. Per-feature buildable impl specs in cartography-impl-spec.md."
 ---
 
 # Trailborne v2 (Black Forest) — Cartography requirements
@@ -39,28 +39,82 @@ no north). Three interlocking pieces:
   REMOVAL enabled** (the field Local-Map view is read-only; the Table view can edit).
 - Ward-gated (`PrivateArea.CheckAccess`) like vanilla — a Table in a ward is
   read/write-locked to those with access.
-- **Recipe — 🟡 PROPOSED (needs final lock):** Fine Wood ×10, Bronze ×2, Deer Hide ×4,
-  Bone Fragments ×8. Open: require an Explorer's Bench in range to place? (lean: yes.)
+- **Recipe — ✅ LOCKED:** Fine Wood ×10, Bronze ×2, Deer Hide ×4, Bone Fragments ×8.
+  Black-Forest tier; Bronze (Copper + Tin → Smelter/Forge) is the correct tier gate.
+  Grounded against vanilla's own Cartography Table economy (Finewood ×10 / Bronze ×2 /
+  Bone Fragments ×10 / Leather Scraps ×5 / Raspberries ×4) — our recipe sits in the
+  same band, themed for a surveyor's post (wood frame, bronze instruments, a hide
+  map-surface, bone styli).
+- **Bench-in-range to PLACE — ✅ LOCKED: NO.** `Piece.m_craftingStation = null`. The
+  Table is placed via the Spade build menu, and **every existing Spade-placed SBPR
+  piece sets `m_craftingStation = null`** (Painted Sign `Signs.cs:270`, Path Lamp
+  `Trailhead.cs:186`). The earlier "lean: yes, parallels the Spade" conflated two
+  things: crafting the Spade *tool* is Explorer's-Bench-gated, but pieces placed *via*
+  the Spade menu are not station-gated to place. A survey post is built out in the
+  field, away from base — gating its placement on bench-proximity breaks that loop for
+  no design payoff. The Cartographer's Kit's 40-pigment cost is already the system's
+  hard gate. *(This resolution reverses the proposed lean; flagged for review.)*
 
 ## 2. Local Map (two-handed equippable artifact)
 
 ### Acquisition + binding
 - A craftable **item**, **blank when crafted** — carries no map data until **imprinted
   at a Surveyor's Table** (binds to that Table as its 1000 m origin).
-- **Recipe — 🟡 PROPOSED (needs final lock):** Deer Hide ×1 + Fine Wood ×1 (cheap;
-  crafted at the Surveyor's Table — the cartography hub).
+- **Recipe — ✅ LOCKED:** Deer Hide ×1 + Fine Wood ×1 (cheap; a blank rolled leather
+  on a dowel — you craft many). **Crafted at the Explorer's Bench**, NOT the Surveyor's
+  Table. Rationale (reverses the earlier "craft at the Table" lean): a vanilla
+  `CraftingStation` *is* an `Interactable` whose `Interact` opens the crafting GUI
+  (`CraftingStation.Interact`, decomp :56135 → `InventoryGui.Show`). The Surveyor's
+  Table's Use is reserved for opening the forked map viewer (§1) — making the Table
+  *also* a crafting station would collide two behaviors on one Use and force a
+  suppress-patch. Crafting blank Local Maps at the Explorer's Bench (the existing
+  cartography crafting hub — Spade, pigments, Kit all craft there) keeps the Table's
+  single responsibility = *imprint + view*. The Table-coupling the design wants is the
+  **imprint** step (blank → bound snapshot, below), not the craft. *(Reverses the
+  proposed lean; flagged for review.)*
 - Imprint = a **snapshot** of the Table's current survey at imprint time (NOT a live
   link — a map "as it was when drawn"). Can be carried, read, and handed to another
   player.
 
 ### Equipping + viewing
+- **`ItemType` — ✅ LOCKED: `ItemType.TwoHandedWeapon` (= 14)** with attack paths
+  neutered, NOT a custom enum value. **This is the decisive build-time call** (closes
+  the §13-C list item 4 and the requirements §7 open item). Grounded reasoning, decomp
+  `Humanoid.EquipItem` :13798–14011:
+  - `EquipItem` is a **closed `if / else-if` chain** keyed on `m_itemType`, ending at
+    `Trinket` (:13992) then falling straight to `if (IsItemEquiped(item)) …` (:14001).
+    **There is NO default/else branch that assigns a hand slot.** A brand-new custom
+    `ItemType` value would match no branch, no `m_rightItem`/`m_leftItem` would be set,
+    and the item would **never equip**. So "invent a two-handed-non-weapon type" is not
+    viable without *also* Harmony-patching `EquipItem` to add a whole new branch —
+    strictly more surface than option B for zero benefit.
+  - The **`TwoHandedWeapon` branch (:13921–13932) already does the exact C3 block-clear
+    discipline verbatim**: `UnequipItem(m_leftItem)` + `UnequipItem(m_rightItem)` +
+    `m_hiddenRightItem = null` + `m_hiddenLeftItem = null`, then `m_rightItem = item`.
+    That is precisely the "true-unequip, never-hide" behavior the map needs — for free,
+    no patch.
+  - `IsTwoHanded()` (:58050) returns true for `TwoHandedWeapon`, so all vanilla
+    two-handed gating (no shield, no left-hand item) falls out by construction.
+  - **Suppress combat:** leave `m_shared.m_attack.m_attackAnimation` and
+    `m_secondaryAttack.m_attackAnimation` **empty** so `HavePrimaryAttack()` /
+    `HaveSecondaryAttack()` (:58059/:58064) return false → RMB/LMB do nothing. The map's
+    "activate as minimap" action is **not** the attack path; it's a custom equip-side
+    hook (see the viewer impl card), so we don't repurpose `m_secondaryAttack`.
+  - **One unavoidable patch — the torch exception (C12, ships from gate):** the bare
+    `TwoHandedWeapon` branch force-unequips the left hand including a torch. To permit a
+    left-hand `Torch`, Harmony-patch `Humanoid.EquipItem` so that when the equipping
+    item is our Local Map it runs the TwoHandedWeapon eviction but **allows a `Torch`
+    back into `m_leftItem`** (mirror the torch-beside-one-handed special-case at
+    :13846–13850 / :13882). Shield/left-weapon are still hard-`UnequipItem`'d (never
+    hidden). This is the *only* patch the ItemType decision requires.
 - **Equipped as a two-handed item** — occupies BOTH hands; omits weapon and shield.
   Reading the map is a deliberate "put your weapon away" act.
 - **🔴 Must truly UNEQUIP the shield/weapon, never HIDE them.** `GetCurrentBlocker()`
-  reads `m_leftItem` directly, so a *hidden* (`m_hiddenLeftItem`) shield can leave a
-  lingering/ghost block state. The map's equip path does a full `UnequipItem` on both
-  hands and nulls `m_hiddenRightItem`/`m_hiddenLeftItem` — exactly like vanilla's
-  `Tool` / two-handed-weapon branches.
+  reads `m_leftItem` directly (decomp :13263 → `return m_leftItem`), so a *hidden*
+  (`m_hiddenLeftItem`) shield can leave a lingering/ghost block state. The map's equip
+  path does a full `UnequipItem` on both hands and nulls
+  `m_hiddenRightItem`/`m_hiddenLeftItem` — which is **exactly what the `TwoHandedWeapon`
+  branch already does** (:13921–13932), so this is inherited, not hand-rolled.
 - **Map + Torch ships from the gate** (not a fast-follow). A Harmony patch on
   `Humanoid.EquipItem` lets the map occupy both hands for weapon/shield purposes but
   **permits a left-hand `Torch`** to coexist (mirrors vanilla's torch-beside-one-handed
@@ -160,15 +214,32 @@ item/gating cards layer on top.
 - **AT-PIN-SHARE** — per-pin opt-in sharing works; a non-shared pin stays private.
 - logs-green ≠ playable: every AT closes only on Daniel's in-game check.
 
-## 7. Still open (everything else is locked)
+## 7. Open items — ✅ ALL CLOSED (2026-06-10, architect spec-pass, card t_4be278de)
 
-1. **Surveyor's Table recipe** final lock (proposed: 10 Fine Wood / 2 Bronze / 4 Deer
-   Hide / 8 Bone Fragments) + bench-in-range-to-place question.
-2. **Local Map recipe** final lock (proposed: 1 Deer Hide / 1 Fine Wood) + craft-at-Table
-   vs craft-at-Bench.
-3. **Local Map `ItemType`** — confirm the literal type at build (likely a custom
-   two-handed type + the `EquipItem` patch, since vanilla has no "two-handed
-   non-weapon").
+The three items that were open are now LOCKED in-place above:
+
+1. **Surveyor's Table recipe + bench-in-range** → §1. Recipe locked at Fine Wood ×10 /
+   Bronze ×2 / Deer Hide ×4 / Bone Fragments ×8. Bench-in-range-to-place = **NO**
+   (`m_craftingStation = null`, matching every Spade-placed SBPR piece). *(Bench answer
+   reverses the earlier lean — see §1.)*
+2. **Local Map recipe + craft location** → §2. Recipe locked at Deer Hide ×1 + Fine
+   Wood ×1, **crafted at the Explorer's Bench** (not the Table — avoids a
+   `CraftingStation.Interact` ↔ map-viewer Use collision). *(Craft location reverses the
+   earlier lean — see §2.)*
+3. **Local Map `ItemType`** → §2 "Equipping + viewing". Locked at
+   **`ItemType.TwoHandedWeapon` with empty attack anims + the one C12 torch-exception
+   `EquipItem` patch** — NOT a custom enum value (a custom value matches no `EquipItem`
+   branch and never equips; the `TwoHandedWeapon` branch already gives the exact
+   block-clear discipline for free).
 
 Everything else — viewing model, 1000 m bound, fog sizing, edge clamp, per-pin sharing,
-full scope, the auto-mapping gate, map+torch, and naming — is LOCKED.
+full scope, the auto-mapping gate, map+torch, and naming — was already LOCKED.
+
+> **Buildable per-feature implementation specs** (observable acceptance criteria, exact
+> vanilla hooks, feature-folder placement, SpecCheck manifest impact) live in
+> [`cartography-impl-spec.md`](cartography-impl-spec.md). **SpecCheck manifest delta =
+> +3 recipes** — all three cartography recipes are new to `Runtime/SpecCheck.cs` (which
+> today holds only the v0.1.0 manifest): +1 build piece (Surveyor's Table), +1 item
+> recipe (Local Map), +1 item recipe (Cartographer's Kit). Each impl card adds its own
+> entry as it lands, and the manifest's `LOCKED SOURCE` comment gains a cite to
+> `docs/v2/planning/requirements.md`. See that doc's §0 for the per-recipe manifest rows.

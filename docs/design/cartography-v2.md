@@ -559,24 +559,32 @@ MVP-critical, not optional:
 - In-game gate: map equipped → can hold a torch (lit map at night), CANNOT block or
   attack; unequip map → weapon+shield return clean, no ghost block.
 
-### 📋 AUTHORITATIVE OPEN LIST (everything not below is LOCKED)
+### 📋 AUTHORITATIVE OPEN LIST — ✅ ALL CLOSED (architect spec-pass 2026-06-10, card t_4be278de)
+> Promoted into `docs/v2/planning/requirements.md` §1/§2/§7 + the buildable impl spec
+> `docs/v2/planning/cartography-impl-spec.md`. Kept here for decision history.
 1. **Keep-5-vs-drop-white** on the Kit — **RESOLVED: keep 5** (C11, Daniel).
    *(no longer open)*
-2. **Surveyor's Table recipe** — 🟡 PROPOSED, needs lock: *Fine Wood ×10, Bronze ×2,
-   Deer Hide ×4, Bone Fragments ×8* (surveyor's post: wood frame, bronze instruments,
-   a hide map-surface, bone styli). Black-Forest tier. Does it require an Explorer's
-   Bench in range to PLACE? (lean yes, parallels the Spade.)
-3. **Local Map recipe** — 🟡 PROPOSED, needs lock: *Deer Hide ×1 + Fine Wood ×1* (a
-   blank rolled leather on a dowel — cheap, you craft many). Crafted at the Table or
-   the Bench? (lean: at the Surveyor's Table, since the Table is the cartography hub.)
-4. **Local Map equip slot** — `Utility`(18) vs a true two-handed weapon slot. C3 locks
-   it as functionally two-handed; confirm the literal `ItemType` at build (likely a
-   custom two-handed type + the EquipItem patch, since vanilla has no "two-handed
-   non-weapon").
+2. **Surveyor's Table recipe** — ✅ **LOCKED:** Fine Wood ×10, Bronze ×2, Deer Hide ×4,
+   Bone Fragments ×8 (Black-Forest tier; Bronze = Copper+Tin gate; in-band with
+   vanilla's own Cartography Table economy). **Bench-in-range to PLACE = NO**
+   (`Piece.m_craftingStation = null`, matching every Spade-placed SBPR piece — Sign,
+   Path Lamp). *This reverses the earlier "lean: yes" — placing the Spade tool is
+   bench-gated, but placing pieces via the Spade menu is not, and a field survey post
+   shouldn't need base proximity.*
+3. **Local Map recipe** — ✅ **LOCKED:** Deer Hide ×1 + Fine Wood ×1. **Crafted at the
+   Explorer's Bench, NOT the Surveyor's Table.** *This reverses the earlier "lean: at
+   the Table" — a `CraftingStation`'s `Interact` opens the crafting GUI (:56135), which
+   would collide with the Table's map-viewer-on-Use. The Table-coupling the design wants
+   is the imprint step, not the craft.*
+4. **Local Map equip slot / `ItemType`** — ✅ **LOCKED:** `ItemType.TwoHandedWeapon`
+   (=14) with empty attack anims, NOT a custom enum value and NOT `Utility`. `EquipItem`
+   (:13798–14011) is a closed if/else-if with no default branch, so a custom type never
+   equips; the `TwoHandedWeapon` branch (:13921) already performs the exact C3
+   block-clear (true-unequip both hands + null hidden slots) for free. The C12 torch
+   exception remains its own `Humanoid.EquipItem` Harmony patch (the only patch the
+   ItemType choice requires).
 
-That's the whole remaining design surface — two recipes + one implementation-detail
-slot confirm. Everything else (viewing model, bounds, fog sizing, sharing, scope,
-gating, torch, naming) is LOCKED.
+That whole remaining design surface is now closed — nothing in this tier is open.
 
 > ⚠️ The "Still open after this pass" / "Net open list" blocks in §10 and §11 are
 > STALE — this §13 list supersedes them.
