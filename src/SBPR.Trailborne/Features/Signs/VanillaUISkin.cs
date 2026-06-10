@@ -55,6 +55,16 @@ namespace SBPR.Trailborne.Features.Signs
         public static Sprite? ButtonSprite { get { EnsureHarvested(); return _buttonSprite; } }
         public static Font? Font { get { EnsureHarvested(); return _font; } }
 
+        /// <summary>
+        /// True once a vanilla button donor was harvested — i.e. <see cref="SkinButton"/>
+        /// will apply the LIGHT carved-wood sprite. Callers use this to pick legible
+        /// (dark) label colors for the skinned light chrome vs. the original light colors
+        /// for the flat dark fallback fill (t_f2fe06d4). Stable after the one-time harvest,
+        /// so every button is skinned identically — querying it is equivalent to capturing
+        /// each button's <see cref="SkinButton"/> return value.
+        /// </summary>
+        public static bool HasButtonSkin { get { EnsureHarvested(); return _buttonSprite != null; } }
+
         /// <summary>True only if we captured a usable button SpriteState (hover/press).</summary>
         public static bool TryGetButtonState(out SpriteState state)
         {
