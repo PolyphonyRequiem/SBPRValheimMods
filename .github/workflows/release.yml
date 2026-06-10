@@ -55,13 +55,13 @@ jobs:
           fi
 
       - name: Checkout (the tag)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.tag.outputs.name }}
           fetch-depth: 0
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '8.0.x'
 
@@ -71,7 +71,7 @@ jobs:
 
       - name: Cache Valheim server assemblies
         id: cache-valheim
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/valheim-server/valheim_server_Data/Managed
           key: valheim-managed-${{ env.VALHEIM_SERVER_APPID }}-week${{ steps.weekstamp.outputs.week }}
