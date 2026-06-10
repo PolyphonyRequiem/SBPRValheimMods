@@ -418,11 +418,12 @@ namespace SBPR.Trailborne.Features.Cairns
         public const float DefaultBannerStretchStiffness  = 0.5f;   // Cloth.stretchingStiffness — LOW so wind can billow the sheet (vanilla sail = 0.5)
         public const float DefaultBannerBendStiffness     = 0.5f;   // Cloth.bendingStiffness — LOW so the tail can curl/flutter downwind (vanilla sail = 0.5)
         public const float DefaultBannerClothFreeDistance = 3.0f;   // max tail travel (cloth units) — LARGE → the far tail flops/streams
-        public const float DefaultBannerFreeRampExp       = 2.0f;   // freedom ramp exponent (mount→tail); >1 concentrates flap at the far tail
+        public const float DefaultBannerFreeRampExp       = 1.0f;   // freedom ramp exponent (mount→tail). 1.0=LINEAR (freedom grows evenly from the pinned mount → whole body can swing like a flag). >1 (e.g. the old 2.0) keeps the upper sheet near-rigid and only the tail tip flicks — read as "all four corners pinned" (Daniel 2026-06-10). Lower toward 0.5 to free the body even more.
         public const float DefaultBannerPinBandFrac       = 0.04f;  // mount hard-pin band, FRACTION of Y-span (small mount cluster)
         public const bool  DefaultBannerUseGravity        = true;   // free-fall slack on build, then flop in the wind
         public const int   DefaultBannerSubdivisions      = 1;      // midpoint subdivisions of the cloth mesh (0=donor ~78v, 1=~4×, 2=~16×) — finer particle grid → real drape/flap
         public const bool  DefaultBannerRockDrape         = true;   // add cheap sphere colliders approximating the pile so the cloth drapes ON the stones (needs subdivisions>0 to read)
+        public const float DefaultBannerTiltDegrees       = 0f;     // tilt the mount toward horizontal so the sheet lies out like a flagpole flag instead of hanging straight down. 0=vertical hang (gravity fights the lift); 90=horizontal mount (sheet falls out sideways, gravity droops it ACROSS its length so even weak wind streams it). Daniel 2026-06-10 — the "rotate 90° so it falls into place" idea; tune live 0..90.
 
         // ── ALIGNMENT (card t_1d7c0d19 — Option A's directional fix; the mechanism all 4 prior
         //    attempts omitted). Live config so Daniel converges the axis in one joined session
@@ -458,6 +459,7 @@ namespace SBPR.Trailborne.Features.Cairns
         private static bool  CfgBannerDiagnostic  => Plugin.BannerDiagnostic        != null ? Plugin.BannerDiagnostic.Value        : DefaultBannerDiagnostic;
         private static int   CfgBannerSubdivisions=> Plugin.BannerSubdivisions       != null ? Plugin.BannerSubdivisions.Value      : DefaultBannerSubdivisions;
         private static bool  CfgBannerRockDrape   => Plugin.BannerRockDrape          != null ? Plugin.BannerRockDrape.Value         : DefaultBannerRockDrape;
+        private static float CfgBannerTiltDegrees => Plugin.BannerTiltDegrees        != null ? Plugin.BannerTiltDegrees.Value       : DefaultBannerTiltDegrees;
 
         /// <summary>
         /// Attach the wind-responsive color BANNER to the pile as a WINDSOCK (card t_4a4a9706).
@@ -724,6 +726,20 @@ namespace SBPR.Trailborne.Features.Cairns
             // not skewed. The dimensions live in the baked mesh, not here. (Option B is happy too.)
             banner.transform.localScale = Vector3.one;
 
+            // 🔴 MOUNT TILT (Daniel 2026-06-10): optionally tilt the mount toward horizontal so the
+            // sheet lies OUT like a flagpole flag instead of hanging straight down. Why this matters:
+            // a top-pinned vertical sheet fights all 9.8 m/s² of gravity to lift on wind (so even
+            // forced wind barely raises it), whereas a horizontally-mounted sheet has gravity pulling
+            // it into a gentle droop ACROSS its length — wind then streams it sideways with far less
+            // force needed. 0° = the original vertical hang; 90° = full horizontal flag. The tilt is
+            // a pure rotation about the banner's local Z (width axis) so the drop axis swings from
+            // down toward out; the alignment driver still yaws the whole thing to face the wind. When
+            // AlignToWind is on, the driver OVERWRITES transform.rotation each tick, so the tilt is
+            // applied by the driver instead (see ClothWindDriver.BaseTilt) to avoid being stomped.
+            float tilt = CfgBannerTiltDegrees;
+            if (tilt != 0f && !CfgBannerAlignToWind)
+                banner.transform.localRotation = Quaternion.AngleAxis(tilt, Vector3.forward);
+
             // ── HARNESS ROUTE (card t_1d7c0d19) ───────────────────────────────────────
             // white → Option B (vanilla shader-wave flag); black/blue/red → Option A (Cloth
             // windsock). ShaderWaveColors is the ONE knob the follow-up "collapse onto the
@@ -749,6 +765,7 @@ namespace SBPR.Trailborne.Features.Cairns
                 diag.Label = color + (useShaderWave ? "/B-shader" : "/A-cloth");
                 diag.BakedMesh = bakedMesh;
                 diag.Cloth = banner.GetComponent<Cloth>();   // null for Option B — itself a signal
+                diag.Driver = banner.GetComponent<ClothWindDriver>();   // null for Option B; live mult/align readback
             }
         }
 
@@ -820,6 +837,7 @@ namespace SBPR.Trailborne.Features.Cairns
             // hardcoded guess. Both live-config.
             driver.AlignToWindDirection = CfgBannerAlignToWind;
             driver.AlignMode = CfgBannerAlignMode;
+            driver.BaseTilt = CfgBannerTiltDegrees;   // horizontal-flag mount (Daniel) — survives the per-tick align overwrite
         }
 
         /// <summary>

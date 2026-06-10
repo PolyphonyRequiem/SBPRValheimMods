@@ -77,6 +77,13 @@ namespace SBPR.Trailborne.Runtime
         //       the in-world comparison; NOT expected to read as a clean windsock on our axes.
         public int AlignMode = 0;
 
+        // Base tilt (degrees) applied about the LOCAL width axis BEFORE the wind yaw, so a banner
+        // mounted toward horizontal (Daniel's flag idea) keeps that tilt even though the alignment
+        // branch overwrites transform.rotation each tick. 0 = the original vertical hang. Composed
+        // as yaw(wind) * tilt so the sheet is first laid out toward horizontal, then yawed to face
+        // the wind. Set by CairnTag.BuildClothWindsock from SBPR_BannerTiltDegrees.
+        public float BaseTilt = 0f;
+
         private Cloth _cloth = null!;            // resolved in Start; may be null on headless / Option B
         private Player? _player;                 // only used when CheckPlayerShelter
 
@@ -166,6 +173,12 @@ namespace SBPR.Trailborne.Runtime
             Quaternion yaw = Quaternion.LookRotation(flat, Vector3.up);
             if (AlignMode == 1)
                 yaw *= Quaternion.AngleAxis(90f, Vector3.up);
+
+            // Compose the base tilt (Daniel's horizontal-flag mount) AFTER the yaw, about the local
+            // width axis (Z), so the sheet is laid toward horizontal then yawed to face the wind.
+            // yaw * tilt: tilt is applied in the yawed local frame so it tips the drop axis out.
+            if (BaseTilt != 0f)
+                yaw *= Quaternion.AngleAxis(BaseTilt, Vector3.forward);
 
             transform.rotation = yaw;
         }
