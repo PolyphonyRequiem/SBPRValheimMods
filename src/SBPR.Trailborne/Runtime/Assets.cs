@@ -78,79 +78,6 @@ namespace SBPR.Trailborne.Runtime
             return clone;
         }
 
-        /// <summary>
-        /// Clone an already-resolved prefab TEMPLATE (a GameObject in hand) under a new
-        /// name, with the same inactive-holder parenting as
-        /// <see cref="ClonePrefab(string,string)"/> — so the clone's <c>Awake</c> does
-        /// NOT fire. This matters acutely for a modern <c>TerrainOp</c> donor: its
-        /// <c>Awake</c> bakes its paint straight into the heightmap compiler and then
-        /// destroys its own GameObject, so a clone that woke would self-immolate the
-        /// instant it was instantiated.
-        ///
-        /// Use this overload when the donor was resolved from somewhere OTHER than
-        /// <c>ZNetScene.GetPrefab(name)</c> — e.g. off a vanilla tool's build PieceTable
-        /// (see <see cref="FindOpInToolPieceTable"/>), which is how the modern <c>_v2</c>
-        /// TerrainOp ops have to be reached because they are not in ZNetScene at all.
-        /// </summary>
-        public static GameObject? ClonePrefabTemplate(GameObject src, string newName)
-        {
-            if (src == null)
-            {
-                Plugin.Log.LogError($"[Trailborne] ClonePrefabTemplate('{newName}') called with a null source template.");
-                return null;
-            }
-            var holder = GetHolder();
-            var clone = UnityEngine.Object.Instantiate(src, holder.transform);
-            clone.name = newName;
-            return clone;
-        }
-
-        /// <summary>
-        /// Resolve a vanilla op prefab by NAME from a vanilla tool's build
-        /// <see cref="PieceTable"/> (the tool's <c>m_itemData.m_shared.m_buildPieces</c>),
-        /// instead of via <c>ZNetScene.GetPrefab</c>.
-        ///
-        /// WHY THIS EXISTS: modern <c>TerrainOp</c> donors (<c>replant_v2</c>,
-        /// <c>cultivate_v2</c>, <c>path_v2</c>, …) carry NO <see cref="ZNetView"/> — only
-        /// <see cref="Piece"/> + <see cref="TerrainOp"/>. <c>ZNetScene.Awake</c> builds its
-        /// <c>m_namedPrefabs</c> lookup ONLY from <c>m_prefabs</c> (ZNetView-bearing) and
-        /// <c>m_nonNetViewPrefabs</c>, and the <c>_v2</c> ops are in NEITHER serialized
-        /// list, so <c>ZNetScene.GetPrefab("replant_v2")</c> returns <c>null</c> at EVERY
-        /// ZNetScene phase on BOTH the dedicated server and a client (the niflheim
-        /// v0.2.12 boot log logged it null three times). The only place a live
-        /// <c>replant_v2</c> reference exists is as a baked asset reference inside the
-        /// vanilla Cultivator's build PieceTable. Reaching it there is how the Cultivator
-        /// itself uses it.
-        ///
-        /// Call this when <see cref="ObjectDB"/> is populated (the ObjectDB-wiring phase),
-        /// because the tool item prefab + its serialized <c>m_shared.m_buildPieces</c> are
-        /// read from ObjectDB. Returns <c>null</c> if the tool, its PieceTable, or the
-        /// named op can't be found — the caller decides how loud to be (the spade caller
-        /// logs at ERROR; a silently-vanishing piece is itself a bug, AT-RV2-4).
-        ///
-        /// Reads only public UnityEngine / Valheim asset fields — clean-room safe
-        /// (we read the base game's own assets to mod the base game; permitted).
-        /// </summary>
-        public static GameObject? FindOpInToolPieceTable(string toolItemName, string opPrefabName)
-        {
-            var odb = ObjectDB.instance;
-            // ObjectDB is the canonical home for item prefabs + their SharedData; fall
-            // back to ZNetScene only if the tool somehow isn't in ODB (it normally is).
-            GameObject? tool = odb?.GetItemPrefab(toolItemName);
-            if (tool == null) tool = ZNetScene.instance?.GetPrefab(toolItemName);
-            if (tool == null) return null;
-
-            var table = tool.GetComponent<ItemDrop>()?.m_itemData?.m_shared?.m_buildPieces;
-            if (table == null || table.m_pieces == null) return null;
-
-            foreach (var go in table.m_pieces)
-            {
-                if (go != null && go.name == opPrefabName)
-                    return go;
-            }
-            return null;
-        }
-
         public static void RegisterPrefabInZNetScene(GameObject prefab)
         {
             var zns = ZNetScene.instance;
@@ -162,20 +89,7 @@ namespace SBPR.Trailborne.Runtime
             var named = (System.Collections.Generic.Dictionary<int, GameObject>)namedField.GetValue(zns);
             if (!named.ContainsKey(hash))
             {
-                // Mirror vanilla's own partition: ZNetScene.Awake populates m_namedPrefabs
-                // from m_prefabs (ZNetView-bearing) AND m_nonNetViewPrefabs. Route by
-                // ZNetView presence so a non-networked donor clone — e.g. our modern
-                // Replant-Grass ops (Piece + TerrainOp, NO ZNetView) — lands in the
-                // correct list rather than masquerading as a networked prefab. Within a
-                // session only the m_namedPrefabs entry is consulted by GetPrefab; the
-                // list choice only matters if ZNetScene.Awake re-runs (scene reload),
-                // where correct partitioning keeps vanilla's re-populate honest. (All
-                // pre-existing callers pass ZNetView-bearing prefabs, so their behavior
-                // is unchanged: they still land in m_prefabs.)
-                if (prefab.GetComponent<ZNetView>() != null)
-                    zns.m_prefabs.Add(prefab);
-                else
-                    zns.m_nonNetViewPrefabs.Add(prefab);
+                zns.m_prefabs.Add(prefab);
                 named.Add(hash, prefab);
             }
         }

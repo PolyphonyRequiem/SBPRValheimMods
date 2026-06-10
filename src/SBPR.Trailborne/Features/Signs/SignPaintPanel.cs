@@ -88,6 +88,23 @@ namespace SBPR.Trailborne.Features.Signs
         private static readonly Color CSelected = new Color(1f, 0.95f, 0.5f, 1f);
         private static readonly Color CUnselected = new Color(0f, 0f, 0f, 0.8f);
 
+        // ── Interactive-text colors that track the chrome under them ─────────
+        // The harvested vanilla button + input-frame sprites are LIGHT carved wood,
+        // so text drawn on the SKINNED path must be DARK to read; the flat fallback
+        // fills are DARK, so text on them keeps the original LIGHT colors. Never
+        // light-on-light or dark-on-dark (t_f2fe06d4 — Daniel's screenshot showed the
+        // cream labels + near-white field text vanishing on the light skinned chrome).
+        // Only the LOWER interactive panel (buttons + text field) uses these; the
+        // upper panel labels sit on the dark window backing and are left untouched.
+        private static readonly Color CBtnLabelOnSkin = new Color(0.12f, 0.09f, 0.05f, 1f);          // dark on light wood
+        private static readonly Color CBtnLabelOnFlat = new Color(0.97f, 0.95f, 0.88f, 1f);          // orig cream on dark fill
+        private static readonly Color CBtnLabelDisabledOnSkin = new Color(0.36f, 0.30f, 0.22f, 1f);  // dim-dark, still reads on light wood
+        private static readonly Color CBtnLabelDisabledOnFlat = CParchmentDim;                        // orig dim cream on dark fill
+        private static readonly Color CInputTextOnSkin = new Color(0.10f, 0.08f, 0.05f, 1f);          // dark typed text on light frame
+        private static readonly Color CInputTextOnFlat = new Color(0.95f, 0.93f, 0.86f, 1f);          // orig light typed text on dark fill
+        private static readonly Color CInputPlaceholderOnSkin = new Color(0.34f, 0.30f, 0.24f, 0.9f); // dimmer than typed, reads on light
+        private static readonly Color CInputPlaceholderOnFlat = new Color(0.6f, 0.58f, 0.52f, 0.8f);  // orig dim placeholder on dark fill
+
         // ── Public entry point ───────────────────────────────────────
 
         /// <summary>
