@@ -96,28 +96,25 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         }
 
         /// <summary>
-        /// Fired owner-side on REAL destruction of the marker sign. Drops the projected
-        /// WorldPin for this sign locally (the prompt online path). The durable offline
-        /// case is handled by the derive-by-scan reconcile, which simply never re-projects
-        /// a sign whose ZDO is gone.
-        ///
-        /// NOTE (milestone gating): the WorldPin projection/reconcile engine
-        /// (WorldPins.cs) is not yet built — see the review-required block on this card.
-        /// Until it lands this callback only records the destroy for that engine to
-        /// consume; it intentionally does not touch the vanilla Minimap directly here, so
-        /// there is no half-wired pin path. When WorldPins lands, this calls
-        /// WorldPins.OnMarkerDestroyed(zdoid).
+        /// Fired owner-side on REAL destruction of the marker sign (decay/raid/demolish —
+        /// never a zone unload). Drops the projected WorldPin for this sign promptly on any
+        /// client with the zone loaded (the fast path, AT-PIN-DESTROY-LOADED). The durable
+        /// OFFLINE case needs nothing here: the derive-by-scan reconcile (WorldPins) simply
+        /// never re-projects a sign whose ZDO is gone (AT-PIN-DESTROY-DURABLE).
         /// </summary>
         private void OnSignDestroyed()
         {
-            // The engine seam this will call once WorldPins.cs exists:
-            //   WorldPins.OnMarkerDestroyed(this);
-            // Kept as a no-op (not a silent one — logged at debug) until the engine lands,
-            // so M1 ships a real, inert-by-design hook rather than dead or fake code.
-            if (Plugin.Log != null)
-                Plugin.Log.LogDebug(
-                    $"[Trailborne/MarkerSigns] Marker sign destroyed (type='{MarkerType}'). " +
-                    "WorldPin unpin will be handled by the reconcile engine once it lands.");
+            try
+            {
+                WorldPins.OnMarkerDestroyed(this);
+            }
+            catch (Exception e)
+            {
+                // Never let a render-side failure escape the WearNTear destroy callback.
+                if (Plugin.Log != null)
+                    Plugin.Log.LogWarning(
+                        $"[Trailborne/MarkerSigns] OnSignDestroyed → WorldPins unpin suppressed: {e.Message}");
+            }
         }
 
         /// <summary>Current pinned state from the ZDO (false on the ghost / no ZDO).</summary>
