@@ -331,6 +331,13 @@ placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 > - **AC5 — Visible as a frame at readable distance.** Not a hairline, not a second board.
 > - **AC6 — Clean build.** `dotnet build -c Release` → 0 errors, **0 warnings** (`TreatWarningsAsErrors`, net48, Nullable=enable).
 > - **AC7 — Logs-green ≠ playable.** Real close is Daniel seeing one-board-plus-thin-frame in-game (QA t_6e3cf19c).
+>
+> **Panel chrome — reuse vanilla UI sprites + font (2026-06-09, t_b47035e7 — Daniel playtest "the UI background and borders still don't look very valheimy, can we reuse the style assets from the game? ditto on font choices").** The panel's *layout/function* (above) is unchanged; this is a SKIN pass on its chrome. The combined Paint+Text panel no longer approximates the wood-panel look with hand-picked flat colours — it wears the **actual vanilla UI assets**, harvested at runtime from live vanilla GUI donors (the sign dialog we replace, `InventoryGui`, `StoreGui`) by `Features/Signs/VanillaUISkin.cs`:
+> - **Background + frame:** the vanilla 9-sliced wood-panel sprite (carved frame baked into the panel sprite, as vanilla dialogs do — not a separately-layered frame).
+> - **Buttons:** the vanilla carved-wood button sprite + its `SpriteState` (hover/pressed/disabled), so action buttons and the `∅ None` swatch tiles get native look + working hover states. Colour swatch tiles deliberately keep a flat pigment fill (the colour IS their content; a wood tint would muddy it).
+> - **Text:** the legacy `Font` underlying vanilla's TMP display face (`TMP_FontAsset.sourceFontFile`), so the legacy `UnityEngine.UI.Text` widgets render in the game's Norse face instead of an Arial fallback.
+> - **Clean-room:** reading/reusing vanilla UI sprite + font *references* at runtime is clean-side (ADR-0001 clarification 2026-06-09: the firewall is around other mods, never vanilla). No asset files are copied/exported/committed — same model as reusing vanilla meshes/materials for content.
+> - **Graceful degradation:** if a donor isn't present the panel falls back to the prior flat-colour primitives; the skin is additive, never load-bearing for function. No recipe/piece change → SpecCheck untouched. Real close is Daniel's eyes in-game (AT-UI-PARITY).
 
 ---
 
