@@ -195,7 +195,7 @@ Each entry has:
 ## Future SBPR mods (not yet specced)
 
 - **Guardian Stones** family — server worldbuilding (separate mod, separate spec)
-- **Map Station** (Trailborne v2)
+- **Surveyor's Table** + **Local Maps** + **Cartographer's Kit** (Trailborne v2 — now SPECCED; see `docs/design/cartography-v2.md` and `docs/v2/planning/`)
 - **Real Tents** (Trailborne v2)
 - **Pocket Portal / Twisted Portal** (Trailborne v3+)
 - **Iron Compass** (Trailborne v3+, optional)

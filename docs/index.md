@@ -10,6 +10,7 @@ Machine-readable manifest of the documentation tree.
 | decisions/ | durable | Architecture Decision Records (ADRs) — load-bearing decisions, append-only |
 | v0.1.0/ | version-scoped | Specs, planning, milestones, and playtest logs for the v0.1.0 release |
 | v1/ | version-scoped | v1 architecture plan + implementation research notes |
+| v2/ | version-scoped | Black Forest tier: cartography requirements (Surveyor's Table, Local Maps, Cartographer's Kit) |
 | datasets/ | reference | Data tables (pieces, craftables, recipes) for humans and tooling |
 
 ## Files in this directory

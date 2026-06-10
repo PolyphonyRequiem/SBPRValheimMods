@@ -376,7 +376,7 @@ When we get to this, the questions to answer will include:
 - How does the no-floor wear-and-tear get applied — globally, or only on SBPR
   servers, or only inside coverage gaps?
 - Does the Guardian Stone interact with the cartography system (e.g., does a
-  Map Station auto-mark Guardian Stone coverage areas on the map)?
+  Surveyor's Table auto-mark Guardian Stone coverage areas on the map)?
 
 Not now. Just noting the connection.
 
