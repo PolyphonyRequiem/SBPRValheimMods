@@ -78,6 +78,189 @@ namespace SBPR.Trailborne.Runtime
             return clone;
         }
 
+        /// <summary>
+        /// Resolve a vanilla op prefab by NAME from a vanilla tool's build
+        /// <see cref="PieceTable"/> (the tool's <c>m_itemData.m_shared.m_buildPieces</c>),
+        /// instead of via <c>ZNetScene.GetPrefab</c>. Returns the live GameObject to be
+        /// read as a BLUEPRINT (mesh/material/EffectList/field values) — NOT cloned.
+        ///
+        /// WHY THIS EXISTS: modern <see cref="TerrainOp"/> ops (<c>replant_v2</c>,
+        /// <c>path_v2</c>, …) carry NO <see cref="ZNetView"/> — only <see cref="Piece"/> +
+        /// <see cref="TerrainOp"/>. <c>ZNetScene.Awake</c> builds its <c>m_namedPrefabs</c>
+        /// lookup ONLY from <c>m_prefabs</c> (ZNetView-bearing) and <c>m_nonNetViewPrefabs</c>,
+        /// and the <c>_v2</c> ops are in NEITHER serialized list, so
+        /// <c>ZNetScene.GetPrefab("replant_v2")</c> returns <c>null</c> at EVERY ZNetScene
+        /// phase on BOTH the dedicated server and a client (the niflheim v0.2.12 boot log
+        /// logged it null three times — that regression vanished the grass tool). The only
+        /// place a live <c>_v2</c> reference exists is as a baked asset reference inside the
+        /// vanilla tool's build PieceTable. Reaching it there is exactly how the vanilla
+        /// tool itself uses it — and how WE must reach it to read its real field values.
+        ///
+        /// Call this when <see cref="ObjectDB"/> is populated (the ObjectDB-wiring phase),
+        /// because the tool item prefab + its serialized <c>m_shared.m_buildPieces</c> are
+        /// read from ObjectDB. Returns <c>null</c> if the tool, its PieceTable, or the named
+        /// op can't be found — the caller decides how loud to be.
+        ///
+        /// Reads only public UnityEngine / Valheim asset fields — clean-room safe (we read
+        /// the base game's own assets to mod the base game; permitted, ADR-0001).
+        /// </summary>
+        public static GameObject? FindOpInToolPieceTable(string toolItemName, string opPrefabName)
+        {
+            var odb = ObjectDB.instance;
+            // ObjectDB is the canonical home for item prefabs + their SharedData; fall back
+            // to ZNetScene only if the tool somehow isn't in ODB (it normally is).
+            GameObject? tool = odb?.GetItemPrefab(toolItemName);
+            if (tool == null) tool = ZNetScene.instance?.GetPrefab(toolItemName);
+            if (tool == null) return null;
+
+            var table = tool.GetComponent<ItemDrop>()?.m_itemData?.m_shared?.m_buildPieces;
+            if (table?.m_pieces == null) return null;
+
+            foreach (var go in table.m_pieces)
+            {
+                if (go != null && go.name == opPrefabName)
+                    return go;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// ADDITIVELY construct a terrain-op build piece (ADR-0006) that mirrors a vanilla
+        /// modern <see cref="TerrainOp"/> op (<c>path_v2</c> / <c>replant_v2</c>) WITHOUT
+        /// cloning it. Returns a fresh GameObject parented under the inactive holder
+        /// (so no <c>Awake</c> fires during construction), carrying exactly
+        /// <see cref="Piece"/> + <see cref="TerrainOp"/> — the same two components the
+        /// vanilla op has, and (deliberately) NO <see cref="ZNetView"/>.
+        ///
+        /// 🔴 WHY ADDITIVE + NO ZNetView + NOT REGISTERED IN ZNetScene (the whole fix —
+        /// attempt #3, t_6fc9b3fa): a vanilla <c>TerrainOp</c> is fire-and-forget. When
+        /// <see cref="Player.PlacePiece"/> instantiates it, <c>TerrainOp.Awake</c> bakes its
+        /// paint straight into the per-zone heightmap compiler (<c>TerrainComp</c>, which
+        /// owns the persistent terrain ZDO and RPCs the change to clients) and then
+        /// <c>Destroy(gameObject)</c>s itself. So the op piece:
+        ///   • needs NO ZNetView (the TerrainComp, not the op, owns persistence/networking);
+        ///   • must NOT be registered in ZNetScene — vanilla's OWN <c>path_v2</c>/<c>replant_v2</c>
+        ///     aren't either (they live only as PieceTable refs). Registering a
+        ///     self-destructing op was the v0.2.14 client-hang: on world load
+        ///     <c>ZNetScene.CreateObject</c> would find it, Instantiate it (firing the
+        ///     self-destruct) and leave the init-ZDO unconsumed → "not used when creating".
+        ///     UNregistered, <c>CreateObject</c> early-returns null BEFORE instantiating, so
+        ///     any legacy orphan ZDO is dropped cleanly by vanilla — no warning possible.
+        /// This structurally removes BOTH the precedence fight (no persistent op peer) AND
+        /// the orphan-ZDO hang (nothing to orphan), which is exactly why the vanilla
+        /// Hoe/Cultivator path↔grass coexist on one tile.
+        ///
+        /// REFERENCE (not clone) the BLUEPRINT op: pass the live <c>path_v2</c>/<c>replant_v2</c>
+        /// resolved via <see cref="FindOpInToolPieceTable"/> as <paramref name="blueprint"/>.
+        /// We read (value-copy) its <c>Piece.m_icon</c> + <c>Piece.m_placeEffect</c> and
+        /// REPARENT a fresh instance of its <c>_GhostOnly</c> preview child (a ZNetView-free
+        /// cosmetic subtree — same safe graft pattern as <see cref="GraftTorchFire"/>), so
+        /// the placement ghost looks identical to vanilla's. Reading an asset / copying an
+        /// EffectList value is reference, not inheritance — clean-room safe.
+        ///
+        /// Op settings are set EXPLICITLY from known decomp values (the caller passes
+        /// <paramref name="paintType"/> + <paramref name="paintRadius"/>); level/smooth/raise
+        /// are LEFT at the Settings default <c>false</c> so no width can ever raise/level/
+        /// smooth terrain — the PR #16 guard holds BY CONSTRUCTION, not by remembering to
+        /// avoid writing a field on a clone.
+        /// </summary>
+        public static GameObject? ConstructTerrainOpPiece(
+            string name,
+            GameObject? blueprint,
+            TerrainModifier.PaintType paintType,
+            float paintRadius,
+            bool vegetationGroundOnly,
+            string niceName,
+            string description)
+        {
+            var holder = GetHolder();
+            var go = new GameObject(name);
+            go.transform.SetParent(holder.transform, worldPositionStays: false);
+
+            // ── TerrainOp: the fire-and-forget paint applier (no ZNetView) ──
+            var op = go.AddComponent<TerrainOp>();
+            // m_settings is a [Serializable] field already newed by the class initializer,
+            // but a fresh AddComponent gives us a fresh Settings — set the paint fields we
+            // intend and leave level/smooth/raise at their stock false (PR #16 guard).
+            op.m_settings = new TerrainOp.Settings
+            {
+                m_paintCleared = true,            // matches vanilla path_v2/replant_v2 (paint IS the op)
+                m_paintType    = paintType,
+                m_paintRadius  = paintRadius,
+                // m_level / m_smooth / m_raise default false; m_*Radius defaults are inert
+                // while their bool is false. Explicit for the reader:
+                m_level  = false,
+                m_smooth = false,
+                m_raise  = false,
+            };
+
+            // ── Piece: placement identity (mirrors the vanilla op's Piece flags) ──
+            var piece = go.AddComponent<Piece>();
+            piece.m_name        = niceName;
+            piece.m_description = description;
+            piece.m_category    = Piece.PieceCategory.Misc;   // single 'Trail' tab (spade table)
+            piece.m_groundPiece = true;                        // vanilla path_v2/replant_v2 = groundPiece
+            piece.m_targetNonPlayerBuilt = true;               // vanilla op default
+            piece.m_canBeRemoved = false;                      // a terrain op isn't a removable structure
+            piece.m_vegetationGroundOnly = vegetationGroundOnly; // replant_v2=true (regrass needs ground), path_v2=false
+            piece.m_resources   = Array.Empty<Piece.Requirement>(); // free placement like vanilla hoe ops
+
+            // Reference-copy the icon + place-effect off the blueprint so the build menu
+            // entry + placement sound match vanilla. Graft the _GhostOnly preview child so
+            // the placement ghost shows the same marker. All ZNetView-free, all read-only
+            // on the blueprint (we never instantiate the blueprint root).
+            if (blueprint != null)
+            {
+                var bp = blueprint.GetComponent<Piece>();
+                if (bp != null)
+                {
+                    if (bp.m_icon != null) piece.m_icon = bp.m_icon;
+                    piece.m_placeEffect = bp.m_placeEffect;   // EffectList value-copy (reference, not inheritance)
+                }
+                GraftGhostOnly(blueprint, go);
+            }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] ConstructTerrainOpPiece('{name}'): no blueprint op resolved; " +
+                    "piece will build correctly but with no icon / placement ghost / place-effect " +
+                    "(degraded cosmetics, still functional).");
+            }
+
+            return go;
+        }
+
+        /// <summary>
+        /// Reparent a fresh instance of <paramref name="blueprint"/>'s <c>_GhostOnly</c>
+        /// child (the vanilla terrain-op's placement-preview marker — a ParticleSystem,
+        /// sometimes a Quad mesh, both ZNetView-free) under <paramref name="dst"/>, named
+        /// and positioned exactly as vanilla so <c>Player.SetupPlacementGhost</c>'s
+        /// <c>transform.Find("_GhostOnly")</c> + <c>SetActive(true)</c> lights it up during
+        /// aiming. Starts inactive (vanilla keeps it inactive until placement preview).
+        ///
+        /// Grafting just the ZNetView-free child subtree wakes no ZDO (the op blueprint's
+        /// only networked-ness would be a ZNetView it does NOT have), so there is nothing to
+        /// orphan — the same safe pattern <see cref="GraftTorchFire"/> uses for the cairn
+        /// flame. Public UnityEngine API only — clean-room safe.
+        /// </summary>
+        private static void GraftGhostOnly(GameObject blueprint, GameObject dst)
+        {
+            var ghost = blueprint.transform.Find("_GhostOnly");
+            if (ghost == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftGhostOnly: blueprint '{blueprint.name}' has no '_GhostOnly' child " +
+                    "(vanilla op structure changed?); the spade op will have no placement-preview marker this build.");
+                return;
+            }
+            var copy = UnityEngine.Object.Instantiate(ghost.gameObject, dst.transform);
+            copy.name = "_GhostOnly";                       // vanilla looks up this exact name
+            copy.transform.localPosition = ghost.localPosition;
+            copy.transform.localRotation = ghost.localRotation;
+            copy.transform.localScale    = ghost.localScale;
+            copy.SetActive(false);                          // vanilla activates it during placement preview
+        }
+
         public static void RegisterPrefabInZNetScene(GameObject prefab)
         {
             var zns = ZNetScene.instance;
