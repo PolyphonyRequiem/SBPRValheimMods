@@ -541,7 +541,7 @@ Planned scans:
 7. **Path Lamps** — **3 Wood + 2 Resin** (Meadows-tier, Daniel 2026-06-04), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), dimmer than torch, longer fuel, manual ignition (no chain ignition). **Scaled 3× vertically** (foot-anchored — base on the ground, flame at the new top; Daniel 2026-06-05)
 8. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
 
-**NOT in v1:** Ember Lamps, Beacons, Seer's Stone, Map Station, Pocket Portal, Twisted Portal, Iron Compass, Inert Guardian Stones, Yellow pigment (cloudberry).
+**NOT in v1:** Ember Lamps, Beacons, Seer's Stone, Surveyor's Table, Pocket Portal, Twisted Portal, Iron Compass, Inert Guardian Stones, Yellow pigment (cloudberry).
 
 ## Constraints stated
 
@@ -556,9 +556,9 @@ Planned scans:
 ## Out of scope (user-confirmed)
 
 - **Guardian Stones (active OR inert)** — entirely separate mod family, NOT Trailborne
-- Local Maps + Map Stations — v2 (Black Forest tier)
+- Local Maps + Surveyor's Table — v2 (Black Forest tier; SPECCED — see `docs/design/cartography-v2.md`)
 - Real Tents (Bear hide) — v2 (Black Forest tier)
-- Cartographer's Kit (gated on 4 pigment discovery) — v2
+- Cartographer's Kit (a normal recipe; the 40-pigment cost is the gate — NOT a discovery unlock) — v2
 - Iron Compass — v3 (Swamps tier, iron is Swamps metal)
 - Twisted Portal, Beacons, Ember magic, Scrying Altar, Smokeless Cookfire — v3
 - Seer's Stone (crystal-gated, Stone Golem drop) — v4 (Mountains tier, sole headline)
@@ -687,7 +687,7 @@ Starbright generates placeholders on demand during implementation. FLUX local la
 
 - Iconography polish pass (consistent line weight, palette, silhouette discipline across the set)
 - Antler integration for Explorer's Bench mesh (per Q3.10 — deer trophy antlers visually integrated into the bench, not mounted on top)
-- Custom mesh authoring (if/when v2 brings Map Station, Iron Compass, Tents — those have genuine geometry needs)
+- Custom mesh authoring (if/when v2 brings the Surveyor's Table, Iron Compass, Tents — those have genuine geometry needs)
 - Visual differentiation of the 5 Cairn tiers beyond "scale + color" (e.g. moss progression, lichen, accumulated character)
 - Pigment vegetation-stain visual on Cairns (color seeps slightly into the rock surface vs flat tint)
 
@@ -719,7 +719,7 @@ After spec finalization, the following doc updates are needed to keep repo consi
 
 ### ⏳ Remaining doc-PR work
 1. **Trailblazer's Spade recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
-2. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 Map Station shape. v1 is DISABLED, not "rebalanced." Move that section to a future-v2 doc or annotate inline.
+2. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 cartography shape (now the Surveyor's Table). v1 is DISABLED, not "rebalanced." The v2 design is specced in `docs/design/cartography-v2.md` + `docs/v2/planning/`; the PLAYER_GUIDE section is annotated inline as v2-future.
 3. **Painted Sign interaction model** — line 253 says "default keybind _TBD_" for the pin trigger. **Re-locked 2026-06-05 (Daniel, from UI mockup):** ONE buildable sign, placed UNPAINTED (2 Wood). Interacting with a placed sign opens a **custom combined Paint+Text panel** — set a **text color AND a border color** (two-tone), pay one pigment per filled slot via `{Paint this and consume}` (border optional, re-paint re-consumes), and edit the label via `{Update Text}` (free, locked until a color is chosen). This **supersedes** the 6/04 apply-ink/single-color/no-UI lock. Pin trigger (text color, no-op if nomap=ON) deferred + currently unregistered. PLAYER_GUIDE needs the build-unpainted-then-open-panel loop surfaced (and the "color baked at craft time" line corrected).
 4. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
 5. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe: 2 Leather Scraps + 1 Finewood + 1 Pigment.

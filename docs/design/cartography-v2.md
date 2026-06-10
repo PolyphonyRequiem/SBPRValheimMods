@@ -291,3 +291,320 @@ build. But this is the load-bearing aesthetic/scope decision and it's yours.
 9. **Q-CART-9 — Scope cut for first ship.** Is the v2 cartography MVP all three
    features at once, or a thin slice first (e.g. Station + minimap-reveal only,
    Local Maps + Kit in a follow-up)? Affects how I decompose the cards.
+
+---
+
+## 10. ✅ LOCKED DECISIONS (Daniel, 2026-06-10) — supersede the 🟡/🔴 above where they conflict
+
+> These are ratified. Where a locked decision here contradicts an earlier PROPOSED
+> section, **this section wins**; the prose above stays for design history but is
+> superseded. Next promotion step: fold these into `requirements.md` proper.
+
+### D1 — Q-CART-1 RESOLVED: the Local Map is an EQUIPPABLE item with a bounded fork of the vanilla map viewer
+The viewing model is **(B′)** — a *fork of the vanilla map UI*, not the minimap-only
+reveal (A) and not the vanilla big map (C). Concretely:
+
+- **The Local Map equips like a weapon/shield/torch.** It's an `ItemDrop` with an
+  equip slot (grounded: `ItemDrop.ItemData.ItemType` has `Shield=5`/`Torch=15`/
+  `Utility=18`/`Tool=19` at decomp :57627 — pick the slot that reads right; Utility
+  is the natural fit for a non-combat held tool). **Right-click (the item's
+  secondary-use / `m_secondaryAttack` path) SETS it as your active minimap.**
+- **Durable while equipped-then-unequipped, gone when removed from inventory.** While
+  the map item is *in your inventory* its binding stays active (the minimap keeps
+  showing that map even if you swap to a weapon); the moment the item *leaves your
+  inventory* (dropped, traded, destroyed) the minimap reverts to nothing. So the map
+  is a physical prerequisite you must keep carrying — lose the leather, lose the map.
+- **Both the minimap AND the full view are a FORK of the current map viewer** with
+  three hard constraints:
+  1. **No pinning interface** on the Local Map view (read-only in the field — pin
+     *editing* happens only at the Surveyor's Table, see D4).
+  2. **Fixed zoom distance** — both the minimap circle AND the full-screen view are
+     fixed-zoom (no scroll-to-zoom). One authored scale each.
+  3. **Hard 1000 m radius**, centered on **the Surveyor's Table the map was bound
+     to** (NOT the player). Everything beyond 1000 m of that bound origin is
+     permanent shroud and never reveals.
+
+### D2 — Q-CART-1b RESOLVED: the fog array is SIZED to 1000 m, not the whole world (Daniel's over-provisioning catch — confirmed by the math)
+Vanilla's fog is a `256×256` `bool[]` (`m_textureSize=256`, `m_pixelSize=64 m/px`,
+decomp :46692/:46694) covering the **entire ~16 km world** (`WorldToMapPoint`,
+:47977). Reusing that whole array to store a 1000 m local map is exactly the
+over-provisioning Daniel flagged.
+
+**Locked: the Local Map / Station fog is a small array sized to its 1000 m radius,
+at its own pixel resolution — NOT the vanilla 256² world array.** The numbers
+(verified):
+- A 2000 m diameter at vanilla's coarse 64 m/px = a `32×32` array (1,024 bools) —
+  **1.6 %** of vanilla's 65,536. But 64 m/px is too coarse for a small local map to
+  look good.
+- 🟡 **Recommended resolution: 8 m/pixel** → a `~251×251` array (~63 k bools) — about
+  the SAME storage as one vanilla world-map, but at **8× finer** spatial detail over
+  the 1000 m disc (a crisp local map for the storage cost of the coarse world one).
+  16 m/px (`126×126`, ~16 k bools) is the lighter-weight alternative if storage on
+  the item/ZDO matters more than crispness. **Pick one before build (D2-RES, a sub-
+  question — my lean is 8 m/px).**
+- **Implementation note:** this means we do NOT just hand the blob to
+  `Minimap.AddSharedMapData` (which expects the 256² world array). The Local Map
+  carries its OWN compact fog array + the bound-origin world coord + a resolution
+  tag; the forked viewer renders THAT array directly, clipped to the 1000 m disc.
+  This is a bigger fork than "reuse vanilla's map texture," but it's the right call —
+  it's what makes the 1000 m bound, the fixed storage, and the shroud-everything-else
+  all fall out by construction.
+
+### D3 — Player-outside-the-map: an EDGE ARROW, not a blank map
+When the player is **outside the 1000 m disc** of the bound Surveyor's Table, the map
+can't show their position (they're off it). Instead, render **a direction arrow at
+the edge of the map view pointing toward the bound Station** — "your map is back
+that way." Grounded precedent: vanilla already has `Minimap.ClampToScreenEdge`
+(:34731) for clamping off-screen ping/chat markers to the screen edge — same pattern,
+reused for the off-map player→station indicator. Pins likewise **only render within
+the 1000 m radius**; anything beyond the disc is not drawn.
+
+### D4 — The Surveyor's Table (Q-CART-7 RESOLVED: the name) pulls up the SAME view, but with pin EDITING
+- **Name locked: "Surveyor's Table."** (Supersedes the Norse candidates in §9 Q-CART-7
+  and the "Map Station" placeholder throughout.)
+- **Using the Surveyor's Table opens the SAME forked viewer as a Local Map** — same
+  fixed zoom, same 1000 m disc bound to that table — **except it operates on the
+  Table's SHARED map data and ALLOWS pin removal** while open. So: field view (Local
+  Map) = read-only; at-the-Table view = the shared record, with pin-removal editing
+  enabled. (Pin *adding* model still gated on Q-CART-4; pin *removal at the table* is
+  locked here.)
+
+### D5 — Cartographer's Tools gate ALL auto-mapping (reaffirmed)
+**Without the Cartographer's Tools, NO auto-mapping happens at all** — zero passive
+fog reveal from walking. Exploration only writes to a map when the player has the
+Tools. This is the hard gate that makes cartography an earned capability, not a
+default. (Consistent with §5; reaffirmed as locked. Note: "Cartographer's Tools" /
+"Cartographer's Kit" are the same thing — normalize the name in the requirements.md
+promotion.)
+
+---
+
+## 11. ✅ CORRECTIONS & REFINEMENTS (Daniel, 2026-06-10, second pass) — these override §10 where they conflict
+
+### C1 — D3 CORRECTED: the player marker clamps to the 1000 m SHROUD RADIUS, not the screen edge
+My D3 said "clamp to screen edge" (the vanilla `ClampToScreenEdge` ping pattern).
+**Wrong.** The clamp is to the **1000 m shroud boundary of the bound map**, not the
+screen. When the player walks outside the 1000 m disc, their position marker (or a
+direction arrow) **pins to the edge of the mapped disc at 1000 m** — i.e. at the
+radius circle where shroud begins — pointing outward to where they actually are
+relative to the bound Surveyor's Table. It's a map-space clamp (to the disc radius),
+not a screen-space clamp. `ClampToScreenEdge` is the wrong precedent; this is a
+"project the off-disc position onto the 1000 m circle" computation in map coordinates.
+
+### C2 — D2 CORRECTED: fog resolution must MATCH the player's personal auto-map array — no custom 8 m/px
+My "spend the storage saving on 8 m/px detail" idea is **rejected**, and for a real
+reason: the Local Map is imprinted FROM the player's personal auto-map knowledge
+(the fog the Cartographer's Tools accumulated as they walked). That personal
+knowledge lives in vanilla's native fog resolution. **A custom-resolution local-map
+array would not map cleanly onto the source** — we'd be resampling the player's
+real explored fog into a different grid, introducing aliasing/registration error and
+a conversion step every imprint. So the Local Map fog **uses the SAME pixel
+resolution as the player's auto-map** (vanilla's `m_pixelSize`), just **windowed to
+the 1000 m disc** — a sub-rectangle/sub-disc of the native grid, not a rescaled one.
+- The over-provisioning fix STILL holds, just done correctly: store only the
+  ~1000 m-radius window of cells at native resolution (≈ a `32×32` window at vanilla's
+  64 m/px, or whatever the player auto-map's true `m_pixelSize` is), NOT the full
+  256² world array. Same grid, fewer cells. Clean copy, no resample.
+- **D2-RES is therefore CLOSED:** resolution = whatever the personal auto-map uses;
+  we don't pick 8 vs 16. The only stored thing is the windowed cell range + the bound
+  origin. (Confirm the auto-map's real `m_pixelSize` at build — the personal map the
+  Tools write to may differ from the 64 m/px world minimap default.)
+
+### C3 — D1 CORRECTED: the Local Map is a TWO-HANDED equippable; full view requires it equipped
+- **The Local Map is equipped as a TWO-HANDED item** — it occupies BOTH hands,
+  omitting weapon AND shield while held. You cannot fight with the map out; reading
+  the map is a deliberate "put your weapon away and study it" act. (Grounded:
+  `IsTwoHanded()` at decomp :13815 — a `TwoHandedWeapon`/`TwoHandedWeaponLeft`/`Bow`
+  unconditionally unequips the left hand on equip, :13836-13840.)
+- **🔴 It must truly UNEQUIP the shield, NOT hide it (Daniel, 2026-06-10 — block-weirdness fix).**
+  Two vanilla mechanisms differ and only one is correct here:
+  - `UnequipItem(m_leftItem)` → sets `m_leftItem = null`. `GetCurrentBlocker()`
+    (decomp :13xxx) reads `m_leftItem` directly, so a null left hand → no shield
+    block → clean.
+  - `HideHandItems()` → stashes the shield in `m_hiddenLeftItem` to RESTORE later
+    (the transient path used for eating, etc.). A lingering/auto-restored
+    `m_hiddenLeftItem` repopulates `m_leftItem` → the shield's **block state comes
+    back / never fully clears** = the "block weirdness" to avoid.
+  So the map's equip path MUST do a full `UnequipItem(m_rightItem)` +
+  `UnequipItem(m_leftItem)` and explicitly null `m_hiddenRightItem`/`m_hiddenLeftItem`
+  — exactly what vanilla's `Tool` and two-handed-weapon equip branches already do
+  (:13836-13840). Do NOT use the hide-and-restore mechanism for the map. Verify
+  in-game that with the map equipped, RMB/block does nothing (no ghost shield block)
+  and that unequipping the map cleanly returns weapon+shield.
+- **Full-screen map view REQUIRES the map equipped** (not merely in inventory). The
+  minimap binding is the durable-while-in-inventory part (D1); the FULL view is only
+  available with the two-handed map actively equipped in hand. So: carry it → minimap
+  persists; equip it (two hands, weapons away) → open the full map.
+- **🟡 OPEN sub-question (C3-TORCH): can we allow map + TORCH?** Daniel would accept
+  map-and-torch if feasible. Decomp finding: a *pure* two-handed item force-unequips
+  the left hand including torch (:13836), and there is **no vanilla "two-handed but
+  keep torch" flag**. BUT the torch-equip path (:13846) has special-casing, and the
+  achievable route is a **custom equip rule via a Harmony patch on `Humanoid.EquipItem`**:
+  treat the map as occupying both hands for weapon/shield purposes but explicitly
+  permit a left-hand `Torch` to coexist (mirror the patch logic vanilla already uses
+  to let a torch sit in the left hand beside a one-handed right weapon, :13846-13850).
+  Feasible, modest patch surface. **Decision needed: pure-two-handed (simplest, no
+  torch) vs custom map+torch rule (a Harmony patch, but you get a lit map at night).**
+  My lean: ship pure-two-handed first, add the torch exception as a fast follow if it
+  feels bad in the dark. **NOTE for C3-TORCH:** the torch exception must use the SAME
+  true-unequip discipline for the shield — permit only a left-hand `Torch`, still
+  hard-`UnequipItem` any shield/left-weapon (never hide), so the block-clear guarantee
+  holds whether or not a torch is allowed.
+
+### C4 — Q-CART-6 RESOLVED: the Cartographer's Kit is an ACCESSORY (Megingjord/Wishbone slot)
+The Cartographer's Kit/Tools is an **equippable accessory in the Utility slot** — the
+SAME slot as Megingjord (belt) and Wishbone. (Grounded: `ItemType.Utility = 18`,
+decomp :57646; the player's dedicated `m_utilityItem` field :12874, fully separate
+from both hands.) So the loadout model is clean and non-conflicting:
+- **Kit (accessory / Utility slot):** worn passively; its presence is what enables
+  auto-mapping (D5). Coexists with any weapon/shield/map — it's not a hand item.
+- **Local Map (two-handed):** the artifact you imprint and read; equipping it for the
+  full view costs you both hands.
+- These never fight for a slot. You explore with the Kit worn (auto-mapping on) +
+  weapons in hand; you stop and equip the Map (two-handed) to study the full view.
+- **Note (Daniel, standing):** the Kit *may eventually fold into "holding a Local Map"*
+  and disappear as a separate item — but for now it stays a distinct earned accessory.
+  Design around it existing; keep the coupling loose so folding it in later is cheap.
+
+### Net open list after this pass
+- **C3-TORCH:** pure two-handed map vs custom map+torch Harmony rule (lean: pure first).
+- **Q-CART-2** (cumulative/shared station knowledge — D4 implies yes; confirm).
+- **Q-CART-3** (pigment-gate persistence), **Q-CART-4** (pin-ADD sharing model),
+  **Q-CART-5** (recipes for Table / Local Map / Kit + Black-Forest material lock),
+  **Q-CART-8** (docs home), **Q-CART-9** (MVP scope cut).
+
+---
+
+## 12. ✅ LOCKED (Daniel, 2026-06-10, third pass)
+
+### C5 — Q-CART-2 RESOLVED: shared+cumulative, but ONLY within the 1000 m bound
+A Surveyor's Table accumulates **everyone's** exploration into one shared regional
+record — **but only the fog/pins falling inside its own 1000 m disc.** Writes from any
+surveyor merge into the Table's shared blob; anything they explored beyond 1000 m of
+THIS table is not stored here (it belongs to whatever other table bounds it, or
+nowhere). So a Table is a *shared, cumulative, locally-bounded* survey of its 1000 m
+neighborhood — not a global shared map. (Confirms D4's "shared map data," scoped to
+the bound.)
+
+### C6 — Q-CART-8 RESOLVED: stand up `docs/v2/` now
+Ratified v2 cartography specs promote into a new **`docs/v2/planning/`** semver dir
+(mirrors `docs/v0.1.0/planning/`), not appended to the v0.1.0 `requirements.md`. Clean
+tier boundary. (Two-file rule applies: each new docs folder gets `README.md` +
+`index.md`.)
+
+### C7 — Q-CART-5 PARTIAL: Cartographer's Kit recipe (pigment-mount theme)
+**Cartographer's Kit = 2× each basic pigment + 4 Fine Wood** (the wood mounts a map to
+be drawn on; the inks are the drawing medium — and consuming all four pigments you
+*discovered* into the kit reinforces the 4-pigment gate diegetically).
+- **The 4-ingredient-cap worry is UNFOUNDED (grounded in decomp):** the crafting panel
+  (`InventoryGui.SetupRequirementList`, :42389) does NOT cap recipes at 4 ingredients.
+  `m_recipeRequirementList` is a fixed slot array, but when ingredients exceed the
+  visible slots the panel **cycles through them on a timer** (:42417-42423) — the
+  recipe still crafts. Vanilla ships 5+-ingredient recipes (padded armor, Eitr gear)
+  that render fine, so the panel has ≥5–6 slots and the SBPR bench reuses it.
+- **Therefore: KEEP all five** (2×Red + 2×White + 2×Blue + 2×Black + 4 Fine Wood) —
+  🟡 RECOMMENDED (full-palette theme, panel handles it). Dropping White to hit "4
+  distinct items" is unnecessary AND slightly off-theme (White is one of the four
+  gate pigments). **Final lock pending Daniel's keep-5-vs-drop-white call.**
+- Table + Local Map recipes still TBD (Q-CART-5 remainder).
+
+---
+
+## 13. ✅ LOCKED (Daniel, 2026-06-10, fourth pass) — AUTHORITATIVE current state (supersedes the stale open-lists in §10/§11)
+
+### C8 — Q-CART-4 RESOLVED: per-pin explicit sharing model
+Adopt the **per-pin explicit-sharing model** from `design/pin-sharing.md` (each pin
+has an owner; sharing is opt-in per pin), NOT vanilla's all-or-nothing-per-write. This
+is the clean-room reimplementation the investigation already scoped. Pin *removal* at
+the Table is already locked (D4); this locks the *add/share* model as per-pin.
+
+### C9 — Q-CART-9 RESOLVED: FULL SCOPE for the first ship
+The v2 cartography MVP is **all three features at once** — Surveyor's Table + Local
+Maps + Cartographer's Kit — not a thin slice. 🔴 **Build-risk note (honest):** the
+bounded map-UI fork (C1/C2/D2 — own 1000 m-windowed fog array, fixed-zoom forked
+viewer, edge-clamp-to-disc, no-pin field view) is the single biggest unknown in the
+tier, and full-scope means we don't de-risk it in isolation first. Mitigation is in
+the decomposition, not the scope: the UI fork becomes its OWN early card that a
+spike/proof can validate before the item+gating cards layer on top. (See §14
+decomposition note.)
+
+### C10 — Q-CART-3 DISSOLVED: the Kit is just a normal recipe — NO discovery-gate system
+Daniel: *"I think you're overcomplicating how the tools are discovered/made. It's just
+a recipe like any other."* **Correct — remove the pigment-DISCOVERY gate entirely.**
+There is NO "you have discovered all 4 pigments" unlock flag, no per-player/per-world
+discovery persistence to track (Q-CART-3 is moot — resolved by deletion). The
+Cartographer's Kit is a **normal craftable recipe** at the bench, surfaced the vanilla
+way (`IsKnownMaterial` — it appears once you've encountered its ingredients). **The
+recipe COST is the natural gate:** needing 40 pigments means you've necessarily
+engaged with the pigment system, with zero special-case machinery. This also simplifies
+D5 — the Kit (accessory) still gates *auto-mapping* by being worn, but acquiring the
+Kit is just "craft it like anything else."
+
+### C11 — Q-CART-5: Cartographer's Kit recipe LOCKED
+**Cartographer's Kit = 10 Red + 10 White + 10 Blue + 10 Black pigment + 4 Fine Wood.**
+(Keep all five ingredient types — the 4-slot worry was unfounded, §C7. The heavy
+40-pigment cost is deliberate: it's the gate, per C10. Fine Wood mounts the map to be
+drawn on.) Crafted at the Explorer's Bench.
+
+### C12 — C3-TORCH RESOLVED: map + torch ships FROM THE GATE (not a fast-follow)
+The two-handed Local Map MUST allow a left-hand **Torch** in the first shipped version
+— Daniel: *"Torch out the gate. Not fast follow."* So the custom equip rule is
+MVP-critical, not optional:
+- Harmony-patch `Humanoid.EquipItem` so the map occupies both hands for **weapon and
+  shield** purposes but **explicitly permits a left-hand `Torch`** to coexist (mirror
+  vanilla's :13846-13850 torch-beside-one-handed logic).
+- The shield/left-weapon eviction still uses TRUE `UnequipItem` (never hide — the C3
+  block-weirdness rule holds): equipping the map hard-unequips any shield/weapon and
+  nulls the hidden slots, then allows ONLY a `Torch` back into the left hand.
+- In-game gate: map equipped → can hold a torch (lit map at night), CANNOT block or
+  attack; unequip map → weapon+shield return clean, no ghost block.
+
+### 📋 AUTHORITATIVE OPEN LIST (everything not below is LOCKED)
+1. **Keep-5-vs-drop-white** on the Kit — **RESOLVED: keep 5** (C11, Daniel).
+   *(no longer open)*
+2. **Surveyor's Table recipe** — 🟡 PROPOSED, needs lock: *Fine Wood ×10, Bronze ×2,
+   Deer Hide ×4, Bone Fragments ×8* (surveyor's post: wood frame, bronze instruments,
+   a hide map-surface, bone styli). Black-Forest tier. Does it require an Explorer's
+   Bench in range to PLACE? (lean yes, parallels the Spade.)
+3. **Local Map recipe** — 🟡 PROPOSED, needs lock: *Deer Hide ×1 + Fine Wood ×1* (a
+   blank rolled leather on a dowel — cheap, you craft many). Crafted at the Table or
+   the Bench? (lean: at the Surveyor's Table, since the Table is the cartography hub.)
+4. **Local Map equip slot** — `Utility`(18) vs a true two-handed weapon slot. C3 locks
+   it as functionally two-handed; confirm the literal `ItemType` at build (likely a
+   custom two-handed type + the EquipItem patch, since vanilla has no "two-handed
+   non-weapon").
+
+That's the whole remaining design surface — two recipes + one implementation-detail
+slot confirm. Everything else (viewing model, bounds, fog sizing, sharing, scope,
+gating, torch, naming) is LOCKED.
+
+> ⚠️ The "Still open after this pass" / "Net open list" blocks in §10 and §11 are
+> STALE — this §13 list supersedes them.
+
+### Still open after this pass (smaller forks)
+- **D2-RES:** 8 m/px vs 16 m/px fog resolution for the local map (storage vs
+  crispness). Lean 8.
+- **Q-CART-2** (station knowledge cumulative/shared — though D4's "shared map data"
+  implies cumulative+shared; likely now resolved, confirm).
+- **Q-CART-3** (pigment-gate persistence), **Q-CART-4** (pin-add sharing model),
+  **Q-CART-5** (recipes + the equip slot choice), **Q-CART-6** (now largely answered
+  by D1 — the *Local Map* is the equippable; the *Tools* are the separate gating
+  item — confirm the Tools' physical form), **Q-CART-8** (docs home), **Q-CART-9**
+  (MVP scope cut).
+
+### New acceptance tests from this pass
+- [ ] **AT-MAP-EQUIP:** equipping the Local Map + right-click sets it as the active
+  minimap; the minimap shows ONLY that map's 1000 m disc.
+- [ ] **AT-MAP-DURABLE:** binding persists while the item sits unequipped in
+  inventory; reverts to no-map the instant the item leaves inventory.
+- [ ] **AT-MAP-BOUND:** nothing beyond 1000 m of the bound Surveyor's Table ever
+  reveals (permanent shroud); pins beyond 1000 m don't render.
+- [ ] **AT-MAP-FIXEDZOOM:** neither the minimap nor the full view zooms (fixed scale
+  each); the full view has no pinning interface.
+- [ ] **AT-MAP-EDGEARROW:** when the player is outside the 1000 m disc, an edge arrow
+  points toward the bound Station and the player marker is off-map.
+- [ ] **AT-MAP-STORAGE:** the Local Map's fog array is sized to the 1000 m radius at
+  the chosen resolution — NOT a full 256² world array.
+- [ ] **AT-TABLE-PINEDIT:** using the Surveyor's Table opens the same forked viewer
+  on the shared data and permits pin removal; the field Local Map view does not.
+- [ ] **AT-NOAUTOMAP:** with no Cartographer's Tools, walking reveals ZERO fog.
