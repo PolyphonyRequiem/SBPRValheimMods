@@ -55,6 +55,8 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float> BannerWindMult         = null!;  // directional wind multiplier
         internal static ConfigEntry<float> BannerWindRandomFactor = null!;  // omnidirectional jitter factor
         internal static ConfigEntry<float> BannerClothDamping     = null!;  // Cloth.damping
+        internal static ConfigEntry<float> BannerStretchStiffness  = null!;  // Cloth.stretchingStiffness (card t_a2fc3073)
+        internal static ConfigEntry<float> BannerBendStiffness     = null!;  // Cloth.bendingStiffness (card t_a2fc3073)
         internal static ConfigEntry<float> BannerClothFreeDistance= null!;  // max tail travel (cloth units)
         internal static ConfigEntry<float> BannerFreeRampExp      = null!;  // freedom ramp exponent (mount→tail)
         internal static ConfigEntry<float> BannerPinBandFrac      = null!;  // mount pin band, fraction of Y-span
@@ -128,6 +130,21 @@ namespace SBPR.Trailborne
                 new ConfigDescription(
                     "Cloth.damping (0 = floppy/lively, 1 = stiff/dead). Lower = the tail responds more loosely to wind.",
                     new AcceptableValueRange<float>(0f, 1f)));
+            BannerStretchStiffness = Config.Bind(
+                "CairnBanner", "SBPR_BannerStretchStiffness", CairnTag.DefaultBannerStretchStiffness,
+                new ConfigDescription(
+                    "Cloth.stretchingStiffness (0.1 = very billowy, 1.0 = RIGID). THE windsock fix (card t_a2fc3073): a fresh " +
+                    "Cloth defaults to 1.0 (rigid), so the ~1 m/s² wind force could only make it jitter in place — never stream. " +
+                    "Lower it until the sheet billows. Default 0.5 mirrors the vanilla SAIL (the closest vanilla wind-streaming " +
+                    "cloth; the vanilla banner has no Cloth at all). Drop toward 0.2 if it still won't lean downwind.",
+                    new AcceptableValueRange<float>(0.1f, 1f)));
+            BannerBendStiffness = Config.Bind(
+                "CairnBanner", "SBPR_BannerBendStiffness", CairnTag.DefaultBannerBendStiffness,
+                new ConfigDescription(
+                    "Cloth.bendingStiffness (0.1 = curls/flutters freely, 1.0 = RIGID). Pairs with stretchingStiffness as the " +
+                    "windsock fix (card t_a2fc3073) — at the default 1.0 the tail cannot curl/flutter downwind. Default 0.5 " +
+                    "mirrors the vanilla SAIL. Drop toward 0.2 alongside stretch if the tail won't flutter into the wind.",
+                    new AcceptableValueRange<float>(0.1f, 1f)));
             BannerClothFreeDistance = Config.Bind(
                 "CairnBanner", "SBPR_BannerTailFreedom", CairnTag.DefaultBannerClothFreeDistance,
                 new ConfigDescription(

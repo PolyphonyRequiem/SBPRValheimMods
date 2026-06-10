@@ -386,6 +386,18 @@ namespace SBPR.Trailborne.Features.Cairns
         public const float DefaultBannerWindMult          = 1.0f;   // directional multiplier (vanilla GlobalWind default; intensity response already confirmed at 1.0)
         public const float DefaultBannerWindRandomFactor  = 0.25f;  // omnidirectional jitter (LOWER than vanilla 0.5 → directional streaming dominates)
         public const float DefaultBannerClothDamping      = 0.10f;  // Cloth.damping — low → lively/floppy tail
+        // 🔴 STIFFNESS (card t_a2fc3073 — the THIRD-attempt root cause): a fresh AddComponent<Cloth>()
+        // leaves stretching/bending stiffness at Unity's default 1.0 (maximally RIGID), so the
+        // ~1 m/s² wind force from ClothWindDriver can only jitter the sheet — it cannot displace it
+        // (the "waggles in place, won't stream downwind" bug). Lowering both lets the EXISTING wind
+        // force actually deform the cloth. Defaults grounded in the vanilla SAIL's authored Cloth
+        // (sail_full: stretching 0.5 / bending 0.5 / damping 0.0 — read offline via UnityPy over the
+        // dedicated-server asset payload), the closest vanilla wind-STREAMING sheet. NB: the vanilla
+        // BANNER donor has NO Cloth at all (it waves via a wind shader on a static mesh — that was
+        // the *first* failed attempt's "shader-only waggle"), so the sail, not the banner, is the
+        // correct reference for a physics-cloth that streams. Live config so Daniel converges in one session.
+        public const float DefaultBannerStretchStiffness  = 0.5f;   // Cloth.stretchingStiffness — LOW so wind can billow the sheet (vanilla sail = 0.5)
+        public const float DefaultBannerBendStiffness     = 0.5f;   // Cloth.bendingStiffness — LOW so the tail can curl/flutter downwind (vanilla sail = 0.5)
         public const float DefaultBannerClothFreeDistance = 3.0f;   // max tail travel (cloth units) — LARGE → the far tail flops/streams
         public const float DefaultBannerFreeRampExp       = 2.0f;   // freedom ramp exponent (mount→tail); >1 concentrates flap at the far tail
         public const float DefaultBannerPinBandFrac       = 0.04f;  // mount hard-pin band, FRACTION of Y-span (small mount cluster)
@@ -400,6 +412,8 @@ namespace SBPR.Trailborne.Features.Cairns
         private static float CfgBannerWindMult    => Plugin.BannerWindMult          != null ? Plugin.BannerWindMult.Value          : DefaultBannerWindMult;
         private static float CfgBannerRandom      => Plugin.BannerWindRandomFactor  != null ? Plugin.BannerWindRandomFactor.Value  : DefaultBannerWindRandomFactor;
         private static float CfgBannerDamping     => Plugin.BannerClothDamping      != null ? Plugin.BannerClothDamping.Value      : DefaultBannerClothDamping;
+        private static float CfgBannerStretch     => Plugin.BannerStretchStiffness  != null ? Plugin.BannerStretchStiffness.Value  : DefaultBannerStretchStiffness;
+        private static float CfgBannerBend        => Plugin.BannerBendStiffness     != null ? Plugin.BannerBendStiffness.Value     : DefaultBannerBendStiffness;
         private static float CfgBannerFreeDist    => Plugin.BannerClothFreeDistance != null ? Plugin.BannerClothFreeDistance.Value : DefaultBannerClothFreeDistance;
         private static float CfgBannerRampExp     => Plugin.BannerFreeRampExp       != null ? Plugin.BannerFreeRampExp.Value       : DefaultBannerFreeRampExp;
         private static float CfgBannerPinBandFrac => Plugin.BannerPinBandFrac       != null ? Plugin.BannerPinBandFrac.Value       : DefaultBannerPinBandFrac;
@@ -545,6 +559,19 @@ namespace SBPR.Trailborne.Features.Cairns
             cloth.useGravity = CfgBannerUseGravity;
             // Damping is the flop-vs-stiff knob; low = lively tail. Live-config.
             cloth.damping = CfgBannerDamping;
+            // 🔴 THE FIX (card t_a2fc3073): a fresh Cloth's stretching/bending stiffness default to
+            // 1.0 (maximally RIGID), which is why the prior two builds "waggled in place but never
+            // streamed" — at stiffness 1.0 the ~1 m/s² wind force can only jitter the sheet, never
+            // displace it downwind. Lowering both (defaults 0.5/0.5, mirrored from the vanilla SAIL's
+            // authored Cloth — the closest vanilla wind-STREAMING sheet; the vanilla BANNER has no
+            // Cloth at all, it shader-waves) lets the EXISTING ClothWindDriver force actually billow
+            // and curl the tail. Both live-config so Daniel converges the feel in one joined session.
+            // NB: worldAcceleration/VelocityScale are deliberately NOT exposed — they scale the cloth's
+            // reaction to its TRANSFORM moving through the world (a sail rides a moving ship); the cairn
+            // banner's transform is static, so they're inert here. externalAcceleration (the wind path)
+            // is what ClothWindDriver drives, and it's unaffected by stiffness defaults.
+            cloth.stretchingStiffness = CfgBannerStretch;
+            cloth.bendingStiffness = CfgBannerBend;
             PinMountCloth(cloth, bakedMesh, CfgBannerPinBandFrac, CfgBannerFreeDist, CfgBannerRampExp);
 
             // Drive it from world wind (direction × force) on a ~2 s cadence (AC1/AC2/AC4).
