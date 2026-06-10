@@ -9,4 +9,5 @@
 | nomap.md | Investigation: how Valheim tracks the map + no-map patch-surface cross-reference |
 | pin-sharing.md | Investigation: multiplayer pin-sharing surface under server gating |
 | constitution.md | Governing principles for spec-driven v2 (ADR-0005 Option C) — Spec Kit vocabulary + load-bearing invariants |
+| cartography-v2.md | DRAFT design: Black Forest cartography — Map Station + Local Maps + Cartographer's Kit (grounded on vanilla MapTable/Minimap; open questions pending Daniel) |
 | PARKED-2026-06-03.md | Working-state resume point from the 2026-06-03 session |
