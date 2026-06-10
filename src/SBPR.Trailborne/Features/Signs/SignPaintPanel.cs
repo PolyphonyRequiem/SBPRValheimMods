@@ -613,7 +613,8 @@ namespace SBPR.Trailborne.Features.Signs
             // Skin with the vanilla button sprite + its hover/pressed/disabled SpriteState
             // (AT-UI-BUTTONS). Falls back to the flat CButton fill + carved Outline when no
             // vanilla donor was harvested.
-            if (!VanillaUISkin.SkinButton(btn, img))
+            bool skinned = VanillaUISkin.SkinButton(btn, img);
+            if (!skinned)
                 AddOutline(go, new Color(0f, 0f, 0f, 0.7f));
             AddLayoutElement(go, minHeight: height, preferredHeight: height);
             if (onClick != null) btn.onClick.AddListener(() => onClick());
@@ -628,7 +629,10 @@ namespace SBPR.Trailborne.Features.Signs
             labelText.fontSize = 16;
             labelText.fontStyle = FontStyle.Bold;
             labelText.alignment = TextAnchor.MiddleCenter;
-            labelText.color = new Color(0.97f, 0.95f, 0.88f, 1f);
+            // Dark label on the LIGHT skinned wood sprite; original cream on the dark flat
+            // fallback fill (t_f2fe06d4 — never light-on-light). SetButtonEnabled tracks the
+            // same split for the dynamically toggled Paint / Update Text buttons.
+            labelText.color = skinned ? CBtnLabelOnSkin : CBtnLabelOnFlat;
             labelText.text = label;
             labelText.horizontalOverflow = HorizontalWrapMode.Overflow;
             labelText.verticalOverflow = VerticalWrapMode.Overflow;
@@ -688,7 +692,8 @@ namespace SBPR.Trailborne.Features.Signs
             // Skin the input background with the vanilla frame/inset sprite for parity
             // with the rest of the panel (AT-UI-PARITY). Falls back to the flat dark fill
             // + carved Outline when no donor was harvested.
-            if (!VanillaUISkin.SkinPanel(bg, VanillaUISkin.FrameSprite))
+            bool skinned = VanillaUISkin.SkinPanel(bg, VanillaUISkin.FrameSprite);
+            if (!skinned)
                 AddOutline(go, CFrame);
             AddLayoutElement(go, minHeight: height, preferredHeight: height);
 
@@ -702,7 +707,15 @@ namespace SBPR.Trailborne.Features.Signs
             var txt = textGo.AddComponent<Text>();
             txt.font = _font;
             txt.fontSize = 18;
-            txt.color = new Color(0.95f, 0.93f, 0.86f, 1f);
+            // Dark typed text on the LIGHT skinned frame; original light text on the dark
+            // flat fallback fill (t_f2fe06d4 — never light-on-light). A *distinct* frame
+            // sprite is the light carved inset (Daniel's screenshot); if FrameSprite
+            // degrades to the dark PanelSprite backing (no secondary sliced sprite
+            // harvested), that backing is dark — matching the window — so light text is
+            // correct there. Identity check, not luminance: Valheim's atlas textures
+            // aren't CPU-readable, and the contrast direction is fixed by spec.
+            bool lightFrame = skinned && VanillaUISkin.FrameSprite != VanillaUISkin.PanelSprite;
+            txt.color = lightFrame ? CInputTextOnSkin : CInputTextOnFlat;
             txt.supportRichText = false;
             txt.alignment = TextAnchor.MiddleLeft;
 
@@ -715,7 +728,10 @@ namespace SBPR.Trailborne.Features.Signs
             ph.font = _font;
             ph.fontSize = 18;
             ph.fontStyle = FontStyle.Italic;
-            ph.color = new Color(0.6f, 0.58f, 0.52f, 0.8f);
+            // Placeholder tracks the same chrome but stays visibly DIMMER than the typed
+            // text in both paths (a muted dark on the light frame, a muted light on the
+            // dark fill) so it reads as a hint, not as content.
+            ph.color = lightFrame ? CInputPlaceholderOnSkin : CInputPlaceholderOnFlat;
             ph.text = Loc("$sbpr_sign_text_placeholder", "Sign text…");
             ph.alignment = TextAnchor.MiddleLeft;
 
@@ -730,7 +746,15 @@ namespace SBPR.Trailborne.Features.Signs
         {
             if (btn != null) btn.interactable = enabled;
             if (label != null)
-                label.color = enabled ? new Color(0.97f, 0.95f, 0.88f, 1f) : CParchmentDim;
+            {
+                // Track the chrome: dark labels on the LIGHT skinned wood sprite, original
+                // cream/dim-cream on the dark flat fallback fill (t_f2fe06d4). Both enabled
+                // and disabled states stay legible — never light-on-light or dark-on-dark.
+                bool skinned = VanillaUISkin.HasButtonSkin;
+                label.color = enabled
+                    ? (skinned ? CBtnLabelOnSkin : CBtnLabelOnFlat)
+                    : (skinned ? CBtnLabelDisabledOnSkin : CBtnLabelDisabledOnFlat);
+            }
         }
 
         /// <summary>
