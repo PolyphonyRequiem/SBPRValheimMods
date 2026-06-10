@@ -1,0 +1,345 @@
+---
+title: "Trailborne v2 (Black Forest) — Cartography buildable implementation spec"
+status: current
+purpose: "Per-feature, build-ready implementation specs for the three v2 cartography features (Surveyor's Table, Local Map + viewer, Cartographer's Kit). Each section gives observable acceptance criteria, the exact vanilla hooks, the feature-folder it lands in, and its SpecCheck manifest row. Authored by the architect spec-pass (card t_4be278de) once all open items locked. Implementers (engineer-systems / engineer-ui) build from THIS doc; requirements.md is the what, this is the how-to-pick-it-up-cold."
+---
+
+# Trailborne v2 cartography — buildable implementation spec
+
+The requirements doc ([`requirements.md`](requirements.md)) is the locked *what*. This
+doc is the *buildable how*: one tight section per feature an implementer can pick up
+cold, with the vanilla hooks carried forward from the design doc
+([`../../design/cartography-v2.md`](../../design/cartography-v2.md)), observable
+acceptance criteria, the feature-folder placement, and the SpecCheck manifest impact.
+
+> **Clean-side note (ADR-0001):** every vanilla decomp line cited here is the base game
+> (`assembly_valheim`), which is fair game to read and adapt. The reference mods
+> (`NomapPrinter`, `BetterCartographyTable`) are studied for *approach only* — reproduce
+> behavior from vanilla primitives, never copy their code.
+>
+> **Spike dependency:** the viewer render path (Local Map §2B) is gated on the UI-fork
+> spike (`t_e8bbbe48`) whose findings doc lands at
+> `docs/v2/investigations/2026-06-10-bounded-map-ui-fork-spike.md`. Where this spec says
+> "per the spike," the spike's confirmed `m_pixelSize` and render path are the build
+> truth. If the spike returns BLOCKED, the Local Map viewer card re-specs against
+> whatever wall it hit — the Table and Kit cards are independent of that risk.
+
+## 0. SpecCheck manifest impact (read first — it moves with the code)
+
+`Runtime/SpecCheck.cs` holds the recipe drift manifest. Today it carries only the
+v0.1.0 Meadows manifest. These three features add **+3 entries** (all new):
+
+| # | Manifest entry | Kind | Resources | Station |
+|---|---|---|---|---|
+| 1 | `piece_sbpr_surveyors_table` | build piece | Wood-Fine ×10, Bronze ×2, DeerHide ×4, BoneFragments ×8 | (place via Spade menu; `m_craftingStation = null`) |
+| 2 | `SBPR_LocalMap` | item recipe (amount 1) | DeerHide ×1, FineWood ×1 | `piece_sbpr_explorers_bench` |
+| 3 | `SBPR_CartographersKit` | item recipe (amount 1) | InkRed ×10, InkWhite ×10, InkBlue ×10, InkBlack ×10, FineWood ×4 | `piece_sbpr_explorers_bench` |
+
+**Resource prefab-name caveats (must match vanilla / existing SBPR consts, or SpecCheck
+flags a NULL `m_resItem`):**
+- Fine Wood = vanilla internal id **`FineWood`** (the existing cairn-marker manifest row
+  uses `FineWood`; confirm the Table piece uses the same string).
+- Deer Hide = vanilla **`DeerHide`** (verified, wiki Internal ID + decomp item).
+- Bone Fragments = vanilla **`BoneFragments`**. Bronze = **`Bronze`**.
+- The four pigments are SBPR items whose **wire/prefab names are still the historical
+  `SBPR_Ink{Red,White,Blue,Black}`** (see `Pigments.cs:40-43` — the consts say "Pigment"
+  but the VALUES are `SBPR_Ink*` and must not change). Reference them via
+  `Pigments.PigmentRedName` etc., never a literal.
+
+Each impl card adds **only its own row** in the same PR as its code (spec-first rule:
+code + spec + SpecCheck move together). The card that touches `SpecCheck.cs` first should
+also update the class's `LOCKED SOURCE` comment to cite `docs/v2/planning/requirements.md`
+alongside the v0.1.0 source, and generalize the "v0.1.0 locked manifest" wording.
+
+> **Drift-watchdog gotcha:** `SpecCheck.Run()` iterates `Manifest.Where(s => s.Piece !=
+> null)` for build pieces and `s.Item != null` for item recipes — a new `RecipeSpec`
+> with both null (or both set) won't be checked. The Table is `Piece` only; the Local Map
+> and Kit are `Item` only. Match that shape.
+
+---
+
+## 1. Surveyor's Table — placed station retaining a shared 1000 m survey
+
+**Lands in:** `Features/Cartography/SurveyorsTable.cs` (+ `SurveyorTableTag.cs` for the
+MonoBehaviour). New feature folder `Features/Cartography/` (first v2 feature; mirror the
+vertical-slice layout of `Features/Cairns/`, `Features/Signs/`).
+**Card:** `t_38f9c77a` (engineer-systems).
+**Depends on:** this spec (recipe + bench lock) **and** the viewer (§2B) it opens.
+
+### 1.1 Construction (ADR-0006 additive — hard constraint)
+- `new GameObject("piece_sbpr_surveyors_table")` + `AddComponent` of exactly: `Piece`,
+  `WearNTear`, `ZNetView`, one `Switch` (Use → open viewer), and a custom
+  `SurveyorTableTag : MonoBehaviour`. **Do NOT `Instantiate` the vanilla `maptable`
+  prefab** (it carries a `ZNetView`; cloning ZNetView-bearing prefabs is the ADR-0006
+  anti-pattern that caused the v0.2.7 ZDO-orphan soft-lock).
+- Read vanilla `maptable` (decomp `MapTable` :114014) as a **blueprint only** —
+  `vprefab inspect maptable` for mesh/material/`EffectList`/field values; reference-copy,
+  never instantiate. `ZNetScene.GetPrefab` fires no `Awake`, so reading is safe.
+
+### 1.2 Placement + recipe (LOCKED)
+- Placed via the **Trailblazer's Spade build menu** (Pillar 1 — never the Hammer).
+  Register the piece onto the Spade's `PieceTable` the same way Signs / Path Lamp / Cairns
+  do (see `Trailblazing.cs` / `Trailhead.cs` for the existing pattern).
+- **`piece.m_craftingStation = null`** — NO Explorer's Bench required in range to place.
+  This matches every existing Spade-placed SBPR piece (`Signs.cs:270`,
+  `Trailhead.cs:186` set it null). Do not set a station.
+- **Build cost (Piece.m_resources):** FineWood ×10, Bronze ×2, DeerHide ×4,
+  BoneFragments ×8. Black-Forest tier.
+
+### 1.3 Stored data — windowed, shared, cumulative (C5 + the over-provisioning fix)
+- Persist the survey **compressed in the Table's ZDO** byte array `ZDOVars.s_data`
+  (`Utils.Compress` / `Decompress`) — exactly as vanilla `MapTable` does, so save/load is
+  inherited and the format stays interoperable.
+- The stored blob is **NOT** vanilla's full-world `GetSharedMapData` 256² array. It is the
+  **windowed fog array** (the shared §2C format): the ~32×32 native-resolution window
+  around the Table's origin + the bound-origin world coord + the pin list, clipped to the
+  Table's own 1000 m disc.
+- **Write (any surveyor):** merge the writer's explored cells *that fall inside 1000 m of
+  THIS table* + their shareable pins inside the disc into the stored window. Beyond-1000 m
+  is dropped (C5 — a Table is a locally-bounded shared survey, not a global map). Owner
+  persists via the Table's `ZNetView` (`InvokeRPC` to the owner like vanilla `MapTable`,
+  or owner-side write if the interacting player owns the ZDO).
+- **Cumulative:** writes OR-merge into the existing window, never overwrite (AT-TABLE-SHARED).
+
+### 1.4 Use → open the viewer with pin editing (D4)
+- The Table's `Switch.Interact` opens the **same forked viewer** the Local Map opens
+  (§2B), bound to this Table's 1000 m disc — but operating on the Table's **SHARED** blob
+  and with **pin REMOVAL enabled**. Field Local-Map view = read-only; Table view = edit.
+- Pin removal hook: vanilla `Minimap.RemovePin(PinData)` (decomp :48408) and
+  `RemovePin(Vector3 pos, float radius)` (:48366) via `GetClosestPin`. The forked viewer's
+  Table mode wires a click → `RemovePin` against the Table's pin list (not the player's
+  global `m_pins`). Per-pin-add sharing (C8) is the separate pin-sharing surface; removal
+  here operates on the shared record.
+- **Ward-gated:** every read/write/remove checks `PrivateArea.CheckAccess` (vanilla
+  `MapTable` does this; reproduce it). A Table in a ward is locked to those with access.
+
+### 1.5 Acceptance criteria (observable — close only on Daniel's in-game check)
+- **AT-TABLE-SHARED** — two surveyors writing to one Table build a combined record of its
+  1000 m disc; fog/pins beyond 1000 m of the Table are not stored.
+- **AT-TABLE-PINEDIT** — the Table view permits pin removal on the shared data; the field
+  Local-Map view does not.
+- **AT-TABLE-PERSIST** — placed Table's recorded fog+pins round-trip across a dedicated-
+  server restart (ZDO blob, compressed).
+- **AT-TABLE-PLACE** — the Table places from the Spade menu with NO Explorer's Bench in
+  range (no `m_craftingStation` block message).
+- **AT-TABLE-WARD** — a Table inside a ward is read/write-locked to non-permitted players.
+- SpecCheck row 1 present; `[hold]` PR; logs-green ≠ playable.
+
+---
+
+## 2. Local Map — two-handed item + bounded forked viewer
+
+**Lands in:** `Features/Cartography/LocalMap.cs` (item + recipe + the equip patch) and
+`Features/Cartography/MapViewer.cs` (the forked viewer, shared with the Table).
+**Card:** `t_7b616020` (engineer-ui; the equip patch may pair briefly with
+engineer-systems). **The viewer is the tier's single biggest build-risk.**
+**Depends on:** this spec (ItemType + recipe lock) **and** the UI-fork spike (`t_e8bbbe48`).
+
+### 2A — The item, equip behavior, and the torch patch
+
+#### 2A.1 Item + recipe (LOCKED)
+- A craftable `ItemDrop` named `SBPR_LocalMap`, **blank when crafted** (no map data).
+- **Recipe:** DeerHide ×1 + FineWood ×1, amount 1, **crafted at the Explorer's Bench**
+  (`m_craftingStation = piece_sbpr_explorers_bench` via
+  `RecipeHelpers.FindStation(Trailhead.ExplorersBenchName)` — the existing pattern in
+  `Pigments.cs:143`, `Cairns.cs:268`). NOT crafted at the Surveyor's Table.
+
+#### 2A.2 `ItemType` = `TwoHandedWeapon` (the decisive lock — decomp-grounded)
+- Set `m_shared.m_itemType = ItemType.TwoHandedWeapon` (= 14). **Do NOT invent a custom
+  enum value, do NOT use `Utility`.**
+- **Why not a custom type:** `Humanoid.EquipItem` (decomp :13798–14011) is a closed
+  `if / else-if` keyed on `m_itemType`, ending at `Trinket` (:13992) then falling to
+  `if (IsItemEquiped(item))` (:14001) with **no default hand-slot branch**. A custom value
+  matches nothing → never assigns `m_rightItem`/`m_leftItem` → the item never equips. You'd
+  have to patch `EquipItem` to add a whole branch — strictly more surface for no gain.
+- **Why `TwoHandedWeapon` is correct:** its branch (:13921–13932) already does the exact
+  block-clear discipline the C3 lock demands — `UnequipItem(m_leftItem)` +
+  `UnequipItem(m_rightItem)` + `m_hiddenRightItem = null` + `m_hiddenLeftItem = null`,
+  then `m_rightItem = item`. True-unequip, never-hide, inherited for free.
+  `IsTwoHanded()` (:58050) returns true → all two-handed gating falls out.
+- **Suppress combat:** leave `m_shared.m_attack.m_attackAnimation` and
+  `m_shared.m_secondaryAttack.m_attackAnimation` **empty** → `HavePrimaryAttack()` /
+  `HaveSecondaryAttack()` (:58059/:58064) false → LMB/RMB do nothing, no block
+  (AT-MAP-BLOCKCLEAR). Give it a benign animation state (the spike/impl picks a
+  non-combat hold pose; fishing-rod-style is the closest vanilla precedent).
+- **Activating the map as the minimap is NOT the attack path.** It's a separate
+  equip-side hook (see §2B "binding"), so we don't repurpose `m_secondaryAttack`.
+
+#### 2A.3 The torch exception (C12 — ships from the gate, one Harmony patch)
+- The bare `TwoHandedWeapon` branch force-unequips the left hand including a Torch. To
+  permit a lit map at night, **Harmony-patch `Humanoid.EquipItem`** so that *when the
+  item being equipped is `SBPR_LocalMap`* it runs the TwoHandedWeapon eviction but then
+  **allows a `Torch` back into `m_leftItem`** — mirror vanilla's torch-beside-one-handed
+  special-case (:13846–13850 and the OneHandedWeapon-keeps-torch guard :13882).
+- Discipline: shield / left-weapon are still hard-`UnequipItem`'d (never hidden); ONLY a
+  `Torch` is allowed back. The block-clear guarantee holds whether or not a torch is up.
+- This is the **only** Harmony patch the ItemType decision requires. Keep it scoped to our
+  item (guard on the prefab name / a tag component) so it never alters vanilla two-handed
+  weapons.
+
+#### 2A.4 Binding durability (D1 / C3)
+- **Minimap binding is durable while the item sits in inventory** (equipped or not) and
+  **reverts to no-map the instant the item leaves inventory** (dropped/traded/destroyed).
+  Hook inventory-changed; when no `SBPR_LocalMap` instance remains, drop the binding.
+- **Full-screen view requires the map actively EQUIPPED** (two hands). Carrying it keeps
+  the minimap bound; only equipping opens the full viewer.
+
+#### 2A.5 Imprint + per-instance storage
+- **Imprint** happens at a Surveyor's Table (§1): blank map → a **snapshot** of the
+  Table's current windowed survey + the Table's bound-origin world coord. Not a live link.
+- Store the windowed fog array + bound-origin coord **on the item instance**. Verify
+  `ItemDrop.ItemData.m_customData` (a `Dictionary<string,string>`) exists and round-trips
+  trade/drop **on our game version before relying on it** (flagged unknown — decomp it at
+  build). **Fallback if absent:** a ZDO-backed "map case" carrier. The blob is the §2C
+  windowed format, so one format serves item + Table + viewer.
+
+### 2B — The forked viewer (productionize the spike's proof)
+
+> **The spike (`t_e8bbbe48`) is the source of truth for the render path.** Build §2B
+> against its findings doc — especially the confirmed `m_pixelSize` and which RawImage
+> path renders cleanly. Everything below is the spec the spike validates; if the spike
+> caveats or blocks any item, this section re-specs to match.
+
+- **It's a FORK of the vanilla map UI**, not a reuse of the live map. Vanilla `Minimap`
+  (decomp ~:46485+) builds `m_mapTexture` (:46894) and shows it via `m_mapImageLarge` /
+  `m_mapImageSmall` RawImages on `m_largeRoot` / `m_smallRoot` (:46613–46619). The fork
+  drives a custom RawImage from OUR windowed array — it does NOT feed our blob to
+  `Minimap.AddSharedMapData` (which expects the 256² world array).
+- **Hard 1000 m radius**, centered on the **bound origin** (the Surveyor's Table the map
+  was imprinted at — NOT the player). Everything beyond 1000 m is permanent shroud and
+  never reveals. Pins render only inside the disc.
+- **Fixed zoom** on both the minimap circle AND the full-screen view — no scroll-to-zoom.
+  One authored scale each.
+- **No pinning interface in the field** (Local-Map view is read-only). The same viewer in
+  **Table mode** (§1.4) enables pin removal; the mode flag is set by who opened it.
+- **Player-outside-the-disc → edge indicator clamped to the 1000 m SHROUD RADIUS**
+  (C1-corrected): project the off-disc player position onto the 1000 m circle and draw a
+  direction arrow toward the bound Table. This is a **map-space clamp to the disc radius**,
+  computed in map coords — **NOT** `Minimap.ClampToScreenEdge` (:34731), which is a
+  screen-space ping clamp and the wrong precedent. (The spike sketches this; full polish
+  here.)
+- Must work / degrade gracefully under v1's map nerf (no M-key full map): the fork owns
+  its own open/close, it does not rely on vanilla `Minimap.SetMapMode(Large)` being
+  reachable by the M key.
+
+### 2C — Fog storage format (the over-provisioning fix, C2-corrected)
+- The fog is a **small array windowed to the 1000 m disc at the player auto-map's NATIVE
+  pixel resolution** — NOT the full 256² world array, NOT a custom-resolution resample.
+- Vanilla world fog: `m_explored` / `m_exploredOthers` are `bool[m_textureSize²]` with
+  **`m_textureSize = 256`** (decomp :46692) and **`m_pixelSize = 64f`** (:46694), covering
+  the ~16 km world. A 2000 m-diameter disc at 64 m/px ≈ a **~32×32 window** (~1,024 cells)
+  — ~1.6 % of the 65,536-cell world array.
+- **Resolution = whatever the player's auto-map actually uses — do NOT pick 8 vs 16 m/px**
+  (C2 rejected the custom-resolution idea: the map imprints FROM the player's native fog,
+  and a custom grid forces a lossy resample every imprint). **Confirm the real
+  `m_pixelSize` at build** — the spike does exactly this; the personal auto-map may differ
+  from the 64 m/px world-minimap default. Whatever the spike confirms is the build value.
+- World→cell windowing uses vanilla `WorldToMapPoint` (:47977) / `WorldToPixel`; copy the
+  sub-rectangle of cells around the bound origin out of the live `m_explored` at imprint.
+  Stored = the windowed cell range + the bound-origin world coord (+ a resolution tag for
+  forward-safety). The forked viewer renders THAT array directly, clipped to the disc.
+- The walking-reveal source is vanilla `Minimap.Explore(Vector3, radius)` (:48015) →
+  `Explore(x,y)` (:48036) writing `m_explored`; the Kit gate (§3) controls whether that
+  write happens at all.
+
+### 2D — Acceptance criteria (spec §6; close only on Daniel's in-game check)
+- **AT-MAP-EQUIP** — equip the Local Map + activate → it becomes the active minimap
+  showing ONLY its 1000 m disc.
+- **AT-MAP-DURABLE** — binding persists while the item sits in inventory; reverts to
+  no-map the instant it leaves inventory.
+- **AT-MAP-BOUND** — nothing beyond 1000 m of the bound Table reveals; pins beyond 1000 m
+  don't render.
+- **AT-MAP-FIXEDZOOM** — neither minimap nor full view zooms; the field full view has no
+  pinning interface.
+- **AT-MAP-EDGEARROW** — player outside the disc → arrow clamped to the 1000 m circle
+  pointing at the bound Table (map-space clamp, not screen edge).
+- **AT-MAP-STORAGE** — the fog array is windowed to 1000 m at native resolution, not a full
+  256² world array, not a resample.
+- **AT-MAP-BLOCKCLEAR** — map equipped → RMB/block does nothing (no ghost shield block);
+  unequip → weapon + shield return clean.
+- **AT-MAP-TORCH** — map + left-hand torch coexist (lit map at night); still can't block or
+  attack.
+- SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
+
+---
+
+## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping
+
+**Lands in:** `Features/Cartography/CartographersKit.cs` (item + recipe + the gate patch).
+**Card:** `t_c871efec` (engineer-systems). Smaller / lower-risk than the viewer.
+**Depends on:** this spec (recipe already locked; confirm the gate hook).
+
+### 3.1 Item + recipe (LOCKED)
+- An equippable `ItemDrop` named `SBPR_CartographersKit`, **`m_shared.m_itemType =
+  ItemType.Utility`** (= 18, decomp :57646) — the SAME slot as Megingjord / Wishbone,
+  written to the player's dedicated `m_utilityItem` (`EquipItem` Utility branch :13983).
+  Coexists with any weapon / shield / map; never a hand item.
+- **Recipe (LOCKED, C11):** InkRed ×10 + InkWhite ×10 + InkBlue ×10 + InkBlack ×10 +
+  FineWood ×4, amount 1, crafted at the Explorer's Bench. Reference pigments via
+  `Pigments.Pigment{Red,White,Blue,Black}Name` (values are `SBPR_Ink*`).
+- **NO discovery-flag system (C10).** It's a normal recipe surfaced the vanilla way
+  (`IsKnownMaterial` — appears once the player has encountered its ingredients). The
+  40-pigment cost IS the gate. Do **not** build any "discovered all 4 pigments" tracking.
+
+### 3.2 The auto-mapping gate (the whole point)
+- **With the Kit in the Utility slot, walking reveals fog; without it, ZERO passive
+  reveal.** Gate the vanilla walking-reveal behind "is `SBPR_CartographersKit` the player's
+  equipped `m_utilityItem`?"
+- **Exact hook (confirmed):** Harmony-patch **`Minimap.UpdateExplore(float dt, Player
+  player)`** (decomp :48005) — this is the per-interval driver that calls
+  `Explore(player.transform.position, m_exploreRadius)` (:48011) every `m_exploreInterval`.
+  A **Prefix returning `false` when the local player has no Kit equipped** cleanly no-ops
+  the fog write for that tick (nothing reveals) while leaving everything else untouched.
+  - Prefer patching `UpdateExplore` over `Explore(Vector3,float)` (:48015): `UpdateExplore`
+    is the single gated entry point; `Explore` is also reachable from
+    `ExploreOthers`/shared-data merges (:48823 path) which we do NOT want to gate (reading
+    a Table's shared fog must still work without the Kit). Gating `UpdateExplore` targets
+    *only* the personal walking-reveal — exactly the intended boundary.
+  - Guard the patch on `player == Player.m_localPlayer` and a null-safe `m_utilityItem`
+    name check (or a tag component on our item) so it only affects the local walking-reveal.
+- **v1 nomap interaction:** under v1 the M-key map is gone but personal fog still
+  accumulates; the gate makes that accumulation Kit-dependent. Confirm in-game that with no
+  Kit, walking adds nothing to the personal auto-map (and therefore nothing imprintable at
+  a Table); with the Kit, it accumulates normally.
+
+### 3.3 Acceptance criteria (spec §6; close only on Daniel's in-game check)
+- **AT-KIT-GATE** — Kit worn → walking reveals fog; Kit absent → walking reveals ZERO fog.
+- **AT-KIT-RECIPE** — crafts from 10×(R/W/B/K) + 4 FineWood at the Explorer's Bench,
+  surfaced as a normal recipe (no discovery flag).
+- **AT-KIT-COEXIST** — sits in the Utility slot alongside weapon / shield / Local Map with
+  no slot collision.
+- SpecCheck row 3 present; `[hold]` PR; logs-green ≠ playable.
+
+---
+
+## 4. Build order, cross-feature seams, and the shared format
+
+- **Build order (lowest → highest risk):** Cartographer's Kit (§3, smallest — one gate
+  patch + a Utility item) → Surveyor's Table (§1, re-gated `MapTable` loop on public APIs)
+  → Local Map item + equip (§2A) → **the forked viewer (§2B), the one high-risk item**, and
+  it is gated on the spike. The three impl cards are children of THIS spec + the spike.
+- **The shared windowed-fog blob (§2C) is the seam** between all three: the Kit writes the
+  player's native fog, the Table stores a windowed merge of it, the Local Map snapshots the
+  Table's window, and the viewer renders that window. One format, defined once in
+  `Features/Cartography/` — agree on it before §1 and §2 diverge.
+- **The viewer (§2B / `MapViewer.cs`) is shared** by the Local Map (read-only field mode)
+  and the Surveyor's Table (pin-removal Table mode). Build it once with a mode flag; don't
+  fork two viewers.
+- **All clean-side / ADR-0006:** additive construction, vanilla read as blueprint, reference
+  mods studied not copied, no decompiled IronGate source committed.
+- **Spec-first:** each impl card moves its `requirements.md` cross-check + its `SpecCheck.cs`
+  manifest row + its code in the same PR. A card is done when code, spec, and the SpecCheck
+  manifest agree — and (logs-green ≠ playable) only when Daniel verifies it in-game.
+
+## 5. Naming reference (prefab / id strings — agree before building)
+| Thing | Prefab / id (proposed; confirm at build) | Type |
+|---|---|---|
+| Surveyor's Table | `piece_sbpr_surveyors_table` | build piece |
+| Local Map | `SBPR_LocalMap` | `ItemDrop`, `TwoHandedWeapon` |
+| Cartographer's Kit | `SBPR_CartographersKit` | `ItemDrop`, `Utility` |
+| Pigments (ingredient) | `SBPR_Ink{Red,White,Blue,Black}` (existing) | `ItemDrop` |
+
+> Prefab-name strings are save/wire contracts the moment a piece/item is placed or
+> crafted in a live world. Lock these three names in the first impl PR that registers each,
+> and never rename them after (renaming orphans every placed/crafted instance — the same
+> reason `Pigments` kept `SBPR_Ink*`).
