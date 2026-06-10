@@ -348,6 +348,25 @@ namespace SBPR.Trailborne.Features.Cairns
             { "white", "piece_banner11" },   // Banner_Border_BlackWhiteInverted_mat
         };
 
+        // 🔴 A/B HARNESS ROUTING (card t_1d7c0d19) — THE ONE KNOB THE FOLLOW-UP CARD FLIPS.
+        //
+        // This is a TEMPORARY comparison harness, NOT a final ship state. Daniel asked to build
+        // BOTH wind mechanisms and route them by color so he can stand in front of four cairns
+        // and compare side-by-side in one world:
+        //   • a color IN this set      → Option B (vanilla shader-wave flag — BuildShaderWaveBanner)
+        //   • a color NOT in this set  → Option A (directional Cloth windsock — BuildClothWindsock)
+        //
+        // Locked harness routing: white → B; black/blue/red → A.
+        //
+        // 🔧 COLLAPSE-TO-WINNER (the follow-up card, after Daniel picks in-world): this is a
+        // ONE-LINE edit, by design.
+        //   • Daniel picks Option B (shader-wave) for all colors → make this contain ALL four:
+        //         new() { "white", "black", "blue", "red" }   (then delete the now-dead Option-A path)
+        //   • Daniel picks Option A (Cloth windsock) for all colors → make this EMPTY:
+        //         new HashSet<string>()                          (then delete the now-dead Option-B path)
+        // Until that pick, BOTH paths ship so the comparison exists in-world.
+        private static readonly HashSet<string> ShaderWaveColors = new HashSet<string> { "white" };
+
         // ── WINDSOCK tunables (card t_4a4a9706 — supersedes the A-prime square-drape seating) ──
         //
         // 🔴 WHY THESE ARE ALL LIVE CONFIG (not the const-only A-prime set): this banner is a
@@ -403,6 +422,13 @@ namespace SBPR.Trailborne.Features.Cairns
         public const float DefaultBannerPinBandFrac       = 0.04f;  // mount hard-pin band, FRACTION of Y-span (small mount cluster)
         public const bool  DefaultBannerUseGravity        = true;   // free-fall slack on build, then flop in the wind
 
+        // ── ALIGNMENT (card t_1d7c0d19 — Option A's directional fix; the mechanism all 4 prior
+        //    attempts omitted). Live config so Daniel converges the axis in one joined session
+        //    instead of us shipping a third hardcoded guess. Only Option-A (Cloth windsock) colors
+        //    read these; Option B (shader-wave) ignores them.
+        public const bool DefaultBannerAlignToWind = true;   // ON for the cairn windsock (default OFF on the reusable driver)
+        public const int  DefaultBannerAlignMode   = 0;      // 0=StreamYaw (pure yaw, drop stays vertical), 1=FaceYaw, 2=VanillaFull (see ClothWindDriver.AlignMode)
+
         // Live config accessors — the runtime value, or the Default* fallback when Plugin isn't
         // bound (unit context). Centralized so BuildBanner reads one name per knob.
         private static float CfgBannerWidthZ      => Plugin.BannerWidthZ            != null ? Plugin.BannerWidthZ.Value            : DefaultBannerWidthZ;
@@ -418,6 +444,8 @@ namespace SBPR.Trailborne.Features.Cairns
         private static float CfgBannerRampExp     => Plugin.BannerFreeRampExp       != null ? Plugin.BannerFreeRampExp.Value       : DefaultBannerFreeRampExp;
         private static float CfgBannerPinBandFrac => Plugin.BannerPinBandFrac       != null ? Plugin.BannerPinBandFrac.Value       : DefaultBannerPinBandFrac;
         private static bool  CfgBannerUseGravity  => Plugin.BannerUseGravity        != null ? Plugin.BannerUseGravity.Value        : DefaultBannerUseGravity;
+        private static bool  CfgBannerAlignToWind => Plugin.BannerAlignToWind       != null ? Plugin.BannerAlignToWind.Value       : DefaultBannerAlignToWind;
+        private static int   CfgBannerAlignMode   => Plugin.BannerAlignMode         != null ? Plugin.BannerAlignMode.Value         : DefaultBannerAlignMode;
 
         /// <summary>
         /// Attach the wind-responsive color BANNER to the pile as a WINDSOCK (card t_4a4a9706).
@@ -450,9 +478,9 @@ namespace SBPR.Trailborne.Features.Cairns
         /// </summary>
         private void BuildBanner(Transform parent, float pileTopY)
         {
-            // Cloth is client-side cosmetic physics — a headless dedicated server has no
+            // Renderers/Cloth are client-side cosmetic — a headless dedicated server has no
             // graphics device and the donor renderers/meshes are stripped there, so there is
-            // nothing to drive. Bail before spinning up a SkinnedMeshRenderer + Cloth.
+            // nothing to build. Bail before touching renderers/Cloth.
             if (IsHeadless()) return;
 
             var zns = ZNetScene.instance;
@@ -476,12 +504,16 @@ namespace SBPR.Trailborne.Features.Cairns
                 return;
             }
 
-            // ── Bake the windsock dimensions into a PER-INSTANCE mesh (AC10) ───────────
-            // Measure-and-normalize off the DONOR's honest bounds (real metres): Z→width,
-            // Y→drop, X≈0 inert. Apply to the VERTICES of a private copy so the Cloth runs
-            // under a UNIFORM transform (the solver shears under a skewed lossyScale). The
-            // target metres are LIVE CONFIG (CfgBanner*) so Daniel tunes the tail in-game.
-            // Never touch the shared donor mesh.
+            // ── Bake the banner dimensions into a PER-INSTANCE mesh (AC10) ─────────────
+            // BOTH harness options use the SAME baked mesh so the A/B comparison is size- and
+            // position-matched (same width/drop, same spot on the pile). Measure-and-normalize
+            // off the DONOR's honest bounds (real metres): Z→width, Y→drop, X≈0 inert. Apply to
+            // the VERTICES of a private copy so Option A's Cloth runs under a UNIFORM transform
+            // (its solver shears under a skewed lossyScale); Option B's shader-wave is happy on
+            // the same baked mesh. Vertex COLORS/UVs/normals are copied untouched (we only scale
+            // positions), so the wind-shader's wave mask survives the bake for Option B. The
+            // target metres are LIVE CONFIG (CfgBanner*) so Daniel tunes both in-game. Never
+            // touch the shared donor mesh.
             float dropY  = CfgBannerDropY;
             float widthZ = CfgBannerWidthZ;
             Vector3 native = donorMesh.bounds.size;                 // ≈ (0, 2.974, 1.1802)
@@ -492,9 +524,9 @@ namespace SBPR.Trailborne.Features.Cairns
             bakedMesh.name = donorMesh.name + "_SBPRbaked";
             if (!bakedMesh.isReadable)
             {
-                // Can't read/rewrite verts → can't bake dims OR pin the cloth mount. Rather than
-                // ship a wrong-sized blow-away banner, drop the banner this build and shout —
-                // the donor's readability changed in a game patch and the spec needs re-grounding.
+                // Can't read/rewrite verts → can't bake dims (or pin the Option-A cloth mount).
+                // Rather than ship a wrong-sized banner, drop it this build and shout — the donor's
+                // readability changed in a game patch and the spec needs re-grounding.
                 Plugin.Log.LogError(
                     $"[Trailborne/M2] Cairn banner: donor cloth mesh '{donorMesh.name}' is NON-READABLE; " +
                     "cannot bake dimensions or pin the cloth mount. Skipping banner — re-ground the windsock spec " +
@@ -508,32 +540,59 @@ namespace SBPR.Trailborne.Features.Cairns
             bakedMesh.vertices = verts;
             bakedMesh.RecalculateBounds();                         // bounds now ≈ widthZ(Z) × dropY(Y)
 
-            // ── Build the graft GameObject ────────────────────────────────────────────
+            // ── Build + seat the graft GameObject (SHARED by both options) ─────────────
             var banner = new GameObject("SBPR_CairnBanner");
             banner.transform.SetParent(parent, worldPositionStays: false);
 
             // Free the baked per-instance mesh on EVERY teardown (tier rebuild destroys the
             // kitbash root, cairn removal, scene unload) — a runtime Mesh is not GC'd with its
-            // GameObject, so without this we'd leak one mesh per rebuild.
+            // GameObject, so without this we'd leak one mesh per rebuild. BOTH options bake a
+            // per-instance mesh, so both attach this janitor.
             banner.AddComponent<DestroyMeshOnDestroy>().Owned = bakedMesh;
 
-            // 🔴 WINDSOCK seating (card t_4a4a9706): the cloth pivot sits at the mesh TOP (its
-            // mount/pinned end) and the ribbon hangs DOWN from it. Seat the mount ELEVATED a
-            // full BannerMountHeight ABOVE the pile crown so the tail FREE-FALLS down past the
-            // cairn as a proper tail (Daniel: "mount above the cairn, tail free-falls below …
-            // flop in the wind like a windsock"). This replaces the prior half-drop seat that
-            // hugged the upper pile as a short square drape. Nudge off-centre (deterministic
-            // side per ZDO → stable across reloads) so the tail clears the cosmetic flame.
+            // 🔴 SEATING (card t_4a4a9706): the cloth mesh pivot sits at the mesh TOP (its
+            // mount end) and the ribbon hangs DOWN from it. Seat the mount ELEVATED a full
+            // BannerMountHeight ABOVE the pile crown so the tail hangs down past the cairn as a
+            // proper tail. Option A then free-falls + STREAMS downwind; Option B hangs static-
+            // but-WAVING — same mount, same size, so the A/B comparison is apples-to-apples.
+            // Nudge off-centre (deterministic side per ZDO → stable across reloads) so the tail
+            // clears the cosmetic flame.
             int seed = (nview != null && nview.GetZDO() != null) ? nview.GetZDO().m_uid.GetHashCode() : 1337;
             float side = ((seed & 1) == 0) ? 1f : -1f;
             banner.transform.localPosition = new Vector3(
                 CfgBannerOffsetXZ * side,
                 pileTopY + CfgBannerMountHeight,
                 0f);
-            // UNIFORM scale only — Cloth simulates correctly under uniform lossyScale, not
-            // skewed. The dimensions live in the baked mesh, not here.
+            // UNIFORM scale only — Cloth (Option A) simulates correctly under uniform lossyScale,
+            // not skewed. The dimensions live in the baked mesh, not here. (Option B is happy too.)
             banner.transform.localScale = Vector3.one;
 
+            // ── HARNESS ROUTE (card t_1d7c0d19) ───────────────────────────────────────
+            // white → Option B (vanilla shader-wave flag); black/blue/red → Option A (Cloth
+            // windsock). ShaderWaveColors is the ONE knob the follow-up "collapse onto the
+            // winner" card flips — see its declaration. Each color still shows its OWN donor
+            // (resolved above), so every cairn renders its color in BOTH modes.
+            bool useShaderWave = ShaderWaveColors.Contains(color);
+            if (useShaderWave)
+                BuildShaderWaveBanner(banner, bakedMesh, clothMat);
+            else
+                BuildClothWindsock(banner, bakedMesh, clothMat, dropY);
+        }
+
+        /// <summary>
+        /// OPTION A (cards t_4a4a9706 windsock · t_a2fc3073 stiffness · t_1d7c0d19 ALIGNMENT) —
+        /// the directional-streaming Cloth windsock. The graft carries a
+        /// <see cref="SkinnedMeshRenderer"/> + <see cref="Cloth"/> (Cloth simulates an SMR's
+        /// vertices) with a hard-pinned MOUNT band, a steep tail-freedom ramp, and the reusable
+        /// <see cref="ClothWindDriver"/> — NOW with <c>AlignToWindDirection</c> ON so the sheet
+        /// actually ORIENTS downwind. That alignment rotation is the mechanism all FOUR prior
+        /// attempts omitted: they tuned the Cloth solver (force/stiffness/pins), which adds
+        /// ripple but never orients. Vanilla cloth streams because GlobalWind rotates the whole
+        /// transform to the wind FIRST, then the solver ripples on top. The <paramref name="banner"/>
+        /// GameObject is already built + seated by <see cref="BuildBanner"/>.
+        /// </summary>
+        private void BuildClothWindsock(GameObject banner, Mesh bakedMesh, Material? clothMat, float dropY)
+        {
             // Cloth REQUIRES a SkinnedMeshRenderer (it simulates that renderer's vertices).
             // The baked mesh has no bones/skin; the SMR renders it with identity skinning and
             // Cloth then drives the vertices.
@@ -559,29 +618,63 @@ namespace SBPR.Trailborne.Features.Cairns
             cloth.useGravity = CfgBannerUseGravity;
             // Damping is the flop-vs-stiff knob; low = lively tail. Live-config.
             cloth.damping = CfgBannerDamping;
-            // 🔴 THE FIX (card t_a2fc3073): a fresh Cloth's stretching/bending stiffness default to
-            // 1.0 (maximally RIGID), which is why the prior two builds "waggled in place but never
-            // streamed" — at stiffness 1.0 the ~1 m/s² wind force can only jitter the sheet, never
-            // displace it downwind. Lowering both (defaults 0.5/0.5, mirrored from the vanilla SAIL's
-            // authored Cloth — the closest vanilla wind-STREAMING sheet; the vanilla BANNER has no
-            // Cloth at all, it shader-waves) lets the EXISTING ClothWindDriver force actually billow
-            // and curl the tail. Both live-config so Daniel converges the feel in one joined session.
-            // NB: worldAcceleration/VelocityScale are deliberately NOT exposed — they scale the cloth's
-            // reaction to its TRANSFORM moving through the world (a sail rides a moving ship); the cairn
-            // banner's transform is static, so they're inert here. externalAcceleration (the wind path)
-            // is what ClothWindDriver drives, and it's unaffected by stiffness defaults.
+            // 🔴 STIFFNESS (card t_a2fc3073): a fresh Cloth's stretching/bending stiffness default
+            // to 1.0 (maximally RIGID). Lowering both (defaults 0.5/0.5, mirrored from the vanilla
+            // SAIL — the closest vanilla wind-STREAMING sheet; the vanilla BANNER has no Cloth at
+            // all, it shader-waves — which is exactly Option B) lets the wind force billow/curl the
+            // tail. Necessary but NOT sufficient: stiffness lets the sheet deform, ALIGNMENT (below)
+            // is what makes it point downwind. Both live-config.
             cloth.stretchingStiffness = CfgBannerStretch;
             cloth.bendingStiffness = CfgBannerBend;
             PinMountCloth(cloth, bakedMesh, CfgBannerPinBandFrac, CfgBannerFreeDist, CfgBannerRampExp);
 
             // Drive it from world wind (direction × force) on a ~2 s cadence (AC1/AC2/AC4).
-            // RandomFactor is lowered from vanilla 0.5 so the DIRECTIONAL term dominates the
-            // omnidirectional jitter — the prior "zigs and zags on the spot" was random flutter
-            // drowning out the downwind stream. All live-config.
             var driver = banner.AddComponent<ClothWindDriver>();
             driver.Multiplier = CfgBannerWindMult;
-            driver.RandomFactor = CfgBannerRandom;
-            driver.CheckPlayerShelter = false; // cairns are open-air trail markers
+            driver.RandomFactor = CfgBannerRandom;     // lowered from vanilla 0.5 so directional dominates jitter
+            driver.CheckPlayerShelter = false;          // cairns are open-air trail markers
+            // 🔴 THE ALIGNMENT FIX (card t_1d7c0d19): orient the sheet to the wind so it STREAMS
+            // downwind instead of only force-jittering in place — the mechanism the prior 4
+            // attempts omitted. Axis is SELECTABLE (ClothWindDriver.AlignMode; default StreamYaw,
+            // a pure yaw about world-up so the pinned mount stays horizontal and the drop stays
+            // vertical) so Daniel prototypes the right axis live rather than us shipping a third
+            // hardcoded guess. Both live-config.
+            driver.AlignToWindDirection = CfgBannerAlignToWind;
+            driver.AlignMode = CfgBannerAlignMode;
+        }
+
+        /// <summary>
+        /// OPTION B (card t_1d7c0d19 A/B harness) — the clean vanilla shader-wave flag. A STATIC
+        /// mesh carrying the donor's cloth MATERIAL, whose vertex shader already reads the global
+        /// wind uniforms (<c>_GlobalWind1/2</c>, <c>_GlobalWindForce</c> — decomp :80463-80471) and
+        /// waves the sheet for free. NO <see cref="Cloth"/>, NO SkinnedMeshRenderer-for-cloth, NO
+        /// pin coefficients, NO <see cref="ClothWindDriver"/> — exactly how every vanilla DECORATIVE
+        /// banner moves (e.g. <c>piece_banner01</c>'s <c>default</c> child is a plain
+        /// <see cref="MeshRenderer"/> + <c>Banner_Border_*_mat</c>, X-ray-confirmed). Zero
+        /// per-instance physics cost, rock-solid (no Cloth solver to ship wrong). It WAVES in place;
+        /// it does NOT stream directionally — that is Option A's job. The <paramref name="banner"/>
+        /// GameObject is already built + seated by <see cref="BuildBanner"/>; it owns the per-instance
+        /// baked mesh via the shared <see cref="DestroyMeshOnDestroy"/> janitor.
+        ///
+        /// 🔴 UNVERIFIED until in-game (honest note, per the card): the X-ray says the MATERIAL is the
+        /// whole mechanism, so the bare donor material on a static mesh should "just wave" off the
+        /// global wind uniforms (the vanilla banner waves in-world on exactly this setup). If in-world
+        /// it turns out the wave only animates under the vanilla banner's specific prefab setup, that's
+        /// called out in the handoff — we do NOT fake the motion.
+        /// </summary>
+        private void BuildShaderWaveBanner(GameObject banner, Mesh bakedMesh, Material? clothMat)
+        {
+            var mf = banner.AddComponent<MeshFilter>();
+            mf.sharedMesh = bakedMesh;
+
+            var mr = banner.AddComponent<MeshRenderer>();
+            if (clothMat != null) mr.sharedMaterial = clothMat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.TwoSided;
+            mr.receiveShadows = false;
+            // That's the whole mechanism — the material's vertex shader does the waving, globally,
+            // for free. No driver, no physics, no per-instance tick. The MeshRenderer culls by the
+            // baked mesh's bounds; the shader's wave displacement is sub-vertex-scale (vanilla
+            // banners don't edge-pop), so the tight RecalculateBounds box is fine.
         }
 
         /// <summary>

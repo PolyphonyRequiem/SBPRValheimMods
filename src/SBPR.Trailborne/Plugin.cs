@@ -61,6 +61,9 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float> BannerFreeRampExp      = null!;  // freedom ramp exponent (mount→tail)
         internal static ConfigEntry<float> BannerPinBandFrac      = null!;  // mount pin band, fraction of Y-span
         internal static ConfigEntry<bool>  BannerUseGravity       = null!;  // free-fall slack on build
+        // ── A/B harness — Option A directional alignment (card t_1d7c0d19) ──
+        internal static ConfigEntry<bool>  BannerAlignToWind      = null!;  // Option A: orient the windsock to the wind (the directional fix)
+        internal static ConfigEntry<int>   BannerAlignMode        = null!;  // Option A: which axis maps to the wind (0=StreamYaw, 1=FaceYaw, 2=VanillaFull)
 
         private void Awake()
         {
@@ -167,6 +170,26 @@ namespace SBPR.Trailborne
                 "CairnBanner", "SBPR_BannerUseGravity", CairnTag.DefaultBannerUseGravity,
                 "When true the Cloth free-falls under gravity on build (the tail hangs slack), then wind drives it to " +
                 "stream — Daniel's 'free fall when built, then flop in the wind like a windsock'. False = no gravity (wind only).");
+
+            // ── A/B harness — Option A directional alignment (card t_1d7c0d19) ───────
+            // These two only affect Option A (the Cloth windsock — black/blue/red cairns by the
+            // harness routing). Option B (white, shader-wave) ignores them entirely.
+            BannerAlignToWind = Config.Bind(
+                "CairnBanner", "SBPR_BannerAlignToWind", CairnTag.DefaultBannerAlignToWind,
+                "OPTION A ONLY. When true the Cloth windsock ORIENTS to the wind so it STREAMS downwind (the " +
+                "directional fix all 4 prior attempts omitted — vanilla cloth streams because GlobalWind rotates the " +
+                "whole transform to the wind, THEN the solver ripples on top). False = the old force-only behaviour " +
+                "(waggles in place, never points downwind). No effect on Option B (shader-wave) cairns.");
+            BannerAlignMode = Config.Bind(
+                "CairnBanner", "SBPR_BannerAlignMode", CairnTag.DefaultBannerAlignMode,
+                new ConfigDescription(
+                    "OPTION A ONLY — which axis maps to the wind (the pivot/axis trap our flat Y-Z cloth sheet creates: " +
+                    "Y=drop, Z=width, X=normal). 0 = StreamYaw (DEFAULT): pure yaw about world-up, the sheet's PLANE " +
+                    "contains the wind so the tail streams downwind in-plane while the drop stays vertical. 1 = FaceYaw: " +
+                    "StreamYaw +90°, presents the broad FACE to the wind. 2 = VanillaFull: literal vanilla " +
+                    "LookRotation(windDir, up) including the vertical component (pitches the sheet) — reference only, not " +
+                    "expected to read as a clean windsock on our axes. Prototype 0 vs 1 in-game, then we bake the winner.",
+                    new AcceptableValueRange<int>(0, 2)));
 
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
