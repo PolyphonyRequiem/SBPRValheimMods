@@ -376,6 +376,184 @@ if (wnt != null) wnt.m_onDestroyed += OnSignDestroyed;
   for the owner / the owner is offline (decay/raid) → no stale pin; gone on the
   owner's next map open (the reconcile §3.2 backstop). **The load-bearing test.**
 
+## 4A. State-aware hover hint — "[Shift+E] Pin/Unpin" (card t_7816c0b0)
+
+> **STATUS: SPEC, not yet implemented.** The Shift+E gesture (§4.1) shipped and works,
+> but it is **invisible in-world** — a placed marker sign shows only the vanilla `Sign`
+> hover text (its typed text + the primary `[Use]` line), giving no hint that Shift+E
+> pins/unpins it and no indication of the current pin state. Daniel, v0.2.19-playtest:
+> *"sign posts should have hint text when looked at that state Shift + E to pin/unpin
+> depending on the tracked state."* This section specs the missing **hover-text surface
+> only**; the gesture, the `SBPR_Pinned` ZDO, and `ReadPinned()` already exist.
+
+### 4A.1 Why the marker falls through to vanilla `Sign.GetHoverText` (root cause, decomp-grounded)
+
+The crosshair hover text is produced by exactly **one** `Hoverable`, resolved like this:
+
+- `Hud.UpdateCrosshair` (decomp `assembly_valheim.decompiled.cs:39688`) does
+  `Hoverable hoverable = hoverObject.GetComponentInParent<Hoverable>();` (`:39699`) then
+  `string text = hoverable.GetHoverText();` (`:39702`). `GetComponentInParent<Hoverable>()`
+  returns the **first** `Hoverable` found walking up from the hovered collider — a single
+  component, not all of them.
+- The hovered GameObject is set by `Player.FindHoverObject` (`:19230`), which picks the
+  object whose collider (or its parent) carries a `Hoverable` (`:19253`).
+- **`Sign` itself implements `Hoverable`:** `public class Sign : MonoBehaviour, Hoverable,
+  Interactable, TextReceiver` (`:121412`). On a marker sign the `Sign` component is added
+  **before** `MarkerSignTag` (`MarkerSigns.cs`: `AddComponent<Sign>()` at :176, then
+  `AddComponent<MarkerSignTag>()` at :222), so `Sign` is the `Hoverable` that wins the
+  query. The bug report — "shows only the vanilla Sign hover text" — is **empirical proof**
+  that `Sign.GetHoverText` is the method firing on a marker.
+
+Vanilla `Sign.GetHoverText` (`:121447`) returns, when the player has ward access:
+
+```
+"<typed sign text>"
+<m_name>
+[<color=yellow><b>$KEY_Use</b></color>] $piece_use
+```
+
+…and when ward access is denied, it **returns early** with just the quoted text (no
+`[Use]` line). So a marker already shows the primary-`[Use]` hint for free (this is what
+**AT-MARKER-HINT-4** asserts — keep it; do not duplicate it). The only thing missing is a
+`[Shift+E] Pin/Unpin` line whose wording flips with `ReadPinned()`.
+
+### 4A.2 Decision — ROUTE (a): Harmony **postfix** on `Sign.GetHoverText`, markers-only
+
+The card floated two routes. They are **not** equivalent; the engine settles it:
+
+- **Route (a) — postfix `Sign.GetHoverText` (CHOSEN).** Augments the exact method already
+  proven to fire on a marker (§4A.1). Markers-only: the postfix early-returns unless the
+  `Sign` carries a `MarkerSignTag`, identical to how `SignInteractPatch` keys on the tag.
+  Consistent with the established "augment vanilla `Sign` for markers only" pattern.
+- **Route (b) — `MarkerSignTag : Hoverable` (REJECTED).** Adding a *second* `Hoverable` to
+  the marker does **not** reliably win the crosshair query: `GetComponentInParent<Hoverable>()`
+  (`:39699`) returns only one component, and the vanilla `Sign` is added first, so `Sign`
+  keeps winning. To make route (b) work you'd have to *displace* or suppress the `Sign`'s
+  Hoverable — fighting Unity component order for no benefit. Route (a) is strictly simpler
+  and lands on the surface that already works.
+
+> 🔧 **Card correction (do not propagate the error):** the task body calls
+> `SignInteractPatch` a *"postfix on `Sign.Interact`"* twice. It is in fact a
+> **`[HarmonyPrefix]`** (`SignInteractPatch.cs:38`) — it conditionally *replaces* the
+> vanilla interact body. The NEW hover patch specced here is genuinely a
+> **`[HarmonyPostfix]`**: it must run *after* vanilla builds its hover string and **append**
+> to it (mutating `ref string __result`), never replace it — otherwise the typed-text line
+> and the `[Use]` hint (AT-MARKER-HINT-4) are lost.
+
+### 4A.3 The patch shape
+
+New file `Features/Signs/SignHoverTextPatch.cs` (sibling to `SignInteractPatch.cs`):
+
+```csharp
+[HarmonyPatch(typeof(Sign), nameof(Sign.GetHoverText))]
+public static class SignHoverTextPatch
+{
+    [HarmonyPostfix]
+    private static void Postfix(Sign __instance, ref string __result)
+    {
+        // Markers-only: a plain Painted Sign (SignTag, no MarkerSignTag) is untouched.
+        var marker = __instance.GetComponent<MarkerSignTag>();
+        if (marker == null) return;
+
+        // Ward-denied vanilla path returned early with no [Use] line; don't bolt a
+        // pin affordance onto a sign the player can't act on. Mirror the same gate
+        // vanilla uses (Sign.GetHoverText :121450, PrivateArea.CheckAccess flash:false).
+        if (!PrivateArea.CheckAccess(__instance.transform.position, 0f, flash: false))
+            return;
+
+        // ReadPinned() is false on a ghost / no-ZDO instance (MarkerSignTag.cs:121-124),
+        // so a not-yet-placed marker simply reads "Pin to map" — no NRE, no special case.
+        bool pinned = marker.ReadPinned();
+        string verb = pinned ? "Unpin from map" : "Pin to map";
+
+        // Append a Shift+<use> line. Mirror CairnInteractable.cs:56's shipped precedent
+        // for the alt-interact modifier hint (literal "Shift" + the bound $KEY_Use token),
+        // then localize so $KEY_Use renders the player's actual bound use key.
+        string line = $"\n[<color=yellow><b>Shift+$KEY_Use</b></color>] {verb}";
+        __result += Localization.instance != null
+            ? Localization.instance.Localize(line)
+            : line;
+    }
+}
+```
+
+Notes the implementer MUST honor:
+
+- **Markers-only (AT-MARKER-HINT-5):** key on `GetComponent<MarkerSignTag>() != null`, exactly
+  like `SignInteractPatch.cs:44`. A plain Painted Sign carries `SignTag`, not `MarkerSignTag`,
+  so it never gets the pin line. **Add a regression assertion** in the markers-only test that a
+  `SignTag`-only sign's hover text contains no "Pin"/"Unpin" substring.
+- **Append, never replace (AT-MARKER-HINT-4):** `__result += …`. The vanilla typed-text line and
+  the `[Use] $piece_use` line stay intact above the new pin line.
+- **Live state (AT-MARKER-HINT-3):** `GetHoverText()` is called every crosshair frame
+  (`Hud.UpdateCrosshair`), and `ReadPinned()` reads the ZDO live — so the wording flips on the
+  very next hover frame after a Shift+E toggle with **zero** extra plumbing. No caching; no
+  look-away-and-back.
+- **No-ZDO / ghost path (open-question resolution):** `ReadPinned()` returns `false` on the ghost
+  (no ZDO — `MarkerSignTag.cs:123`). The ghost has no `Sign.GetHoverText` crosshair query anyway
+  (it's a placement preview, not a hovered world object), but even if hit, it reads "Pin to map"
+  with no exception. **Confirmed: no NRE path.**
+
+### 4A.4 Hint wording + key-token correctness (AT-MARKER-HINT-6 — resolved)
+
+- **Verb wording (LOCKED):** un-pinned → **"Pin to map"**; pinned → **"Unpin from map"**. This
+  matches the panel's own button labels for consistency (`MarkerSignPanel.cs:262`:
+  `"Unpin"`/`"Pin"`; state line `"Pinned on your map"`/`"Not pinned"` at :260). The hover line is
+  the terse form; the panel is the verbose form. Don't invent a third phrasing.
+- **The use key IS tokenized:** `$KEY_Use` localizes to the player's bound use key (verified:
+  vanilla `Sign.GetHoverText` itself emits `$KEY_Use`, `:121456`; the repo localizes it on the way
+  out, `CairnInteractable.cs:58-65`). So rebinding "Use" is handled correctly.
+- **The modifier — recommended vs. accepted simplification:**
+  - There is **no `$KEY_AltPlace` localization token** in vanilla (verified: a `strings` +
+    decomp scan finds only the private `m_altPlace` field at `:15447`, never a `$KEY_AltPlace`
+    string). So you cannot tokenize the modifier the way you tokenize `$KEY_Use`.
+  - **True rebind-correctness IS available** via `ZInput.instance.GetBoundKeyString("AltPlace")`
+    (vanilla uses this exact API for on-screen key hints, `:39338` / `:135144`). The gesture's
+    modifier is `ZInput.GetButton("AltPlace")` (`:16115`), so `GetBoundKeyString("AltPlace")`
+    yields the player's actual bound modifier string.
+  - **ACCEPTED SIMPLIFICATION (default):** ship the literal **"Shift"** — this is the **shipped
+    repo precedent**: `CairnInteractable.cs:56` already shows `[Shift+$KEY_Use]` as a literal for
+    the cairn's own alt-interact debug affordance. Matching it keeps the two SBPR alt-interact
+    hints visually identical and avoids a per-frame `GetBoundKeyString` call in the hover hot path.
+  - **Implementer's call, documented either way:** prefer the literal "Shift" to match
+    `CairnInteractable` (simpler, consistent); upgrade to `GetBoundKeyString("AltPlace")` only if
+    Daniel wants true rebind-correctness in a later polish pass. Either choice satisfies
+    AT-MARKER-HINT-6 because the simplification is now documented here. **Do not silently hardcode
+    "E"** — always tokenize the use key via `$KEY_Use`.
+
+### 4A.5 Acceptance criteria (refined from the card)
+
+- **AT-MARKER-HINT-1** — hovering an UN-pinned marker sign shows a pin hint:
+  `[Shift+E] Pin to map` (use key localized to the player's bound key).
+- **AT-MARKER-HINT-2** — hovering a PINNED marker sign shows `[Shift+E] Unpin from map` — the
+  verb flips with the tracked `SBPR_Pinned` state (`ReadPinned()`).
+- **AT-MARKER-HINT-3** — after a Shift+E toggle, the hint reflects the new state on the next
+  hover frame, without looking away and back (free, because `GetHoverText` is per-frame and
+  `ReadPinned` is live).
+- **AT-MARKER-HINT-4** — the vanilla primary `[Use] $piece_use` hint (open/edit the panel) and the
+  typed sign text remain present above the pin line (the postfix appends, never replaces).
+- **AT-MARKER-HINT-5 (markers-only)** — a plain Painted Sign (SignTag, no MarkerSignTag) shows NO
+  Shift+E pin hint. Regression-assert the hover string contains no "Pin"/"Unpin".
+- **AT-MARKER-HINT-6 (key correctness)** — the use key is tokenized (`$KEY_Use`); the "Shift"
+  modifier is either `GetBoundKeyString("AltPlace")` (true) or the documented literal "Shift"
+  matching `CairnInteractable.cs:56` (accepted simplification). Never a hardcoded "E".
+- **AT-MARKER-HINT-WARD** *(added)* — when the player lacks ward access (vanilla `Sign.GetHoverText`
+  returns early with text only), the postfix appends **nothing** — no pin affordance is offered on
+  a sign the player can't toggle. (Mirrors the vanilla ward gate; the gesture itself is
+  ward/owner-gated by `WritePinned`'s ownership claim anyway.)
+- **logs-green ≠ playable** — closes only on Daniel confirming in-game that the hover hint appears
+  and flips with pin state.
+
+### 4A.6 SpecCheck / scope
+
+- **SpecCheck impact: NONE.** Hover text is not a recipe or piece-count row; the
+  `Runtime/SpecCheck.cs` manifest is untouched. **No new ZDO field** — reads the existing
+  `SBPR_Pinned` via `ReadPinned()`. No prefab/registration change.
+- **In scope:** the state-aware hover-hint text on placed marker signs, markers-only.
+- **Out of scope:** the Shift+E gesture (§4.1, already works); the `MarkerSignPanel` (card
+  t_62af5802); geometry (t_69f3b4f8); the recipe tier (t_d5dcb044); Painted-Sign hover text; the
+  Surveyor's Table / Local Map hover surfaces.
+
 ## 5. Build order, cross-feature seams, and the SpecCheck rule
 
 - **Build order (lowest → highest risk):**

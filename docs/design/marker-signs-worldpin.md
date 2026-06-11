@@ -309,6 +309,28 @@ incompatible pin notion inside the cartography cards.**
   signs use a marker-specific tag — see the impl spec — so the branch only affects
   marker pieces, not the plain Painted Sign, which has no pin gesture.)
 
+### 6.1 Discoverability — the gesture must be VISIBLE in-world (card t_7816c0b0)
+
+The gesture shipped working but **undiscoverable**: a placed marker sign shows only the
+vanilla `Sign` hover text, so a player has no way to learn Shift+E pins/unpins it, and no
+indication of the current pin state. Daniel, v0.2.19-playtest: *"sign posts should have
+hint text when looked at that state Shift + E to pin/unpin depending on the tracked
+state."*
+
+- **The surface:** the crosshair hover text, produced by `Sign.GetHoverText` — which is
+  the `Hoverable` that wins the query on a marker (the vanilla `Sign` owns `Hoverable` and
+  is added before `MarkerSignTag`; `Hud.UpdateCrosshair` reads a single
+  `GetComponentInParent<Hoverable>()`). The fix is a Harmony **postfix** on
+  `Sign.GetHoverText`, markers-only, that **appends** a state-aware line:
+  - not pinned → `[Shift+E] Pin to map`
+  - pinned → `[Shift+E] Unpin from map`
+  reading the existing `MarkerSignTag.ReadPinned()`. The vanilla typed-text + primary
+  `[Use]` line are preserved above it (append, never replace). Markers-only, so a plain
+  Painted Sign is unaffected.
+- This is **UX polish over an already-correct gesture** — no new state, no new ZDO field,
+  no SpecCheck change. Full buildable detail (root cause, route (a) vs (b), patch shape,
+  wording, key-token correctness, ATs) is in the impl spec **§4A**.
+
 ## 7. Clean/dirty routing & scope
 
 - **Clean-side.** Reading vanilla `Minimap` / `PinData` / `ZDOMan` / `WearNTear`
@@ -363,6 +385,11 @@ restates them per-feature with exact observable criteria.
   derive-by-scan).
 - **AT-PIN-ADR0006** — the 4 marker pieces are built additively (no runtime clone of
   a ZNetView-bearing prefab).
+- **AT-MARKER-HINT-1…6 + AT-MARKER-HINT-WARD** *(card t_7816c0b0 — hover hint)* — a
+  placed marker sign's crosshair hover text carries a state-aware `[Shift+E] Pin to map`
+  / `Unpin from map` line that flips with `ReadPinned()`, preserves the vanilla `[Use]`
+  hint, shows only on markers (not plain Painted Signs), tokenizes the use key, and
+  appends nothing when the player lacks ward access. Refined in impl spec §4A.5.
 - **AT-PILLAR-2** — no UI/tooltip assigns an inherent meaning to a pigment color; the
   marker TYPE carries the meaning. (First cut has no per-pin color at all, so this
   holds trivially; the fast-follow color must preserve it.)
