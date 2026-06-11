@@ -67,12 +67,17 @@ namespace SBPR.Trailborne.Features.Cartography
     }
 
     /// <summary>
-    /// The viewer implementation the t_7b616020 card registers. Kept to a single
-    /// method so the seam stays narrow; the viewer owns all uGUI/render state.
+    /// The viewer implementation the viewer impl card registers. The seam stays narrow:
+    /// Open (show + render), Refresh (re-render the live request while open — player
+    /// marker / pins move), Close (hide), and IsOpen (state probe the controller polls).
+    /// The viewer owns all uGUI/render state behind these.
     /// </summary>
     public interface IMapViewer
     {
         void Open(MapViewRequest request);
+        void Refresh(MapViewRequest request);
+        void Close();
+        bool IsOpen { get; }
     }
 
     /// <summary>
@@ -136,6 +141,32 @@ namespace SBPR.Trailborne.Features.Cartography
                 Plugin.Log.LogError($"[Trailborne/Cartography] Viewer.Open threw: {e}");
                 return false;
             }
+        }
+
+        /// <summary>True if a viewer is registered AND currently showing.</summary>
+        public static bool IsViewerOpen => _impl != null && _impl.IsOpen;
+
+        /// <summary>
+        /// Re-render the currently-open viewer against an updated request (the imprinted
+        /// snapshot is static, but the player marker + reconciled WorldPins move). No-op if
+        /// no viewer is registered or it isn't open. Never throws out (logged + swallowed).
+        /// </summary>
+        public static void Refresh(MapViewRequest request)
+        {
+            if (_impl == null || !_impl.IsOpen) return;
+            try { _impl.Refresh(request); }
+            catch (System.Exception e) { Plugin.Log.LogError($"[Trailborne/Cartography] Viewer.Refresh threw: {e}"); }
+        }
+
+        /// <summary>
+        /// Hide the viewer if one is registered + open. Safe to call unconditionally (the
+        /// controller calls it on every map-unequip / map-left-inventory transition).
+        /// </summary>
+        public static void Close()
+        {
+            if (_impl == null) return;
+            try { _impl.Close(); }
+            catch (System.Exception e) { Plugin.Log.LogError($"[Trailborne/Cartography] Viewer.Close threw: {e}"); }
         }
     }
 }

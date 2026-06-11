@@ -304,6 +304,19 @@ namespace SBPR.Trailborne
             // Minimap.instance is null on the dedicated server, so the reconcile early-outs there.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.MarkerSigns.WorldPinReconcilePatches));
 
+            // v2 Local Map (card t_cb831069) — the two-handed map item's equip discipline +
+            // its bounded-viewer binding bootstrap.
+            //  • LocalMapEquipPatch: prefix+postfix on Humanoid.EquipItem (overload-disambiguated
+            //    by Type[]{ItemData,bool}) implementing the torch exception (C12/AT-MAP-TORCH) —
+            //    ItemType=TwoHandedWeapon already gives the block-clear for free; this re-seats a
+            //    left-hand Torch after the eviction so a lit map at night works.
+            //  • LocalMapBootstrapPatch: postfix on Minimap.Start attaching the client-only
+            //    LocalMapController (carry/equip state machine driving the bounded viewer).
+            // Both client-relevant; the equip patch is server-safe (gated on our item) and the
+            // bootstrap never fires server-side (no Minimap on the dedicated server).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapEquipPatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapBootstrapPatch));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be

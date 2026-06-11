@@ -114,6 +114,11 @@ namespace SBPR.Trailborne.Features.Cartography
             //    persisted owner-authoritatively. Cumulative; beyond-1000 m dropped (C5).
             ContributeLocalSurvey(user);
 
+            // 1b) IMPRINT (§2A.5): if the surveyor carries a Local Map, snapshot THIS Table's
+            //     shared survey + bound-origin onto it (a snapshot, not a live link). Done
+            //     after contribute so the imprint includes what this player just added.
+            ImprintCarriedLocalMaps(user);
+
             // 2) OPEN the forked viewer on the SHARED data in pin-removal Table mode (D4).
             //    The render is the downstream card; this degrades gracefully without it.
             var shared = ReadSharedSurvey() ?? new SurveyData();
@@ -194,6 +199,45 @@ namespace SBPR.Trailborne.Features.Cartography
                 $"pins(in-disc)={contribution.Pins.Count} | merged pins={merged.Pins.Count}.");
 
             user.Message(MessageHud.MessageType.Center, "Survey recorded");
+        }
+
+        /// <summary>
+        /// Imprint every blank/old Local Map the surveyor carries with a SNAPSHOT of THIS
+        /// Table's shared survey + its bound-origin world coord (§2A.5 — a snapshot, not a
+        /// live link). Imprints ALL carried Local Maps so a player can stock several. No-ops
+        /// silently if the player carries none or the Table has no survey yet. Ward access is
+        /// already gated by the caller (Interact).
+        /// </summary>
+        private void ImprintCarriedLocalMaps(Humanoid user)
+        {
+            var player = user as Player;
+            var inv = player != null ? player.GetInventory() : null;
+            if (inv == null) return;
+
+            var shared = ReadSharedSurvey();
+            if (shared == null || shared.IsEmpty)
+                return; // nothing surveyed here yet — leave carried maps blank
+
+            int imprinted = 0;
+            foreach (var it in inv.GetAllItems())
+            {
+                if (it?.m_dropPrefab == null) continue;
+                bool isMap = it.m_dropPrefab.GetComponent<LocalMapItemTag>() != null
+                             || it.m_dropPrefab.name == LocalMap.LocalMapName;
+                if (!isMap) continue;
+
+                if (LocalMap.Imprint(it, shared, transform.position))
+                    imprinted++;
+            }
+
+            if (imprinted > 0)
+            {
+                user.Message(MessageHud.MessageType.Center,
+                    imprinted == 1 ? "Local Map imprinted" : $"{imprinted} Local Maps imprinted");
+                Plugin.Log.LogInfo(
+                    $"[Trailborne/Cartography] Imprinted {imprinted} Local Map(s) @({transform.position.x:F0},{transform.position.z:F0}) " +
+                    $"| survey window {shared.Size}x{shared.Size} | pins={shared.Pins.Count}.");
+            }
         }
 
         /// <summary>
