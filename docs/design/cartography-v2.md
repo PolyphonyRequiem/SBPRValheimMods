@@ -219,6 +219,19 @@ post to study the map" loop) + **(A)** for a Local Map in the field (minimap rev
 only) — with **(B)** as a v2.1 stretch if the framed-leather viewer proves worth the
 build. But this is the load-bearing aesthetic/scope decision and it's yours.
 
+> **🟢 RESOLVED + CORRECTED (2026-06-11, issue 6, Daniel in-game).** Built as a
+> standalone bounded fork (impl spec §2B) — the right call, because under v1's `nomap`
+> vanilla forces the minimap roots OFF, so neither (C)'s station-Large-mode nor a reused
+> root is reachable; the fork owns its own open path. **But the first render leaned too far
+> toward (B)'s "bespoke, explicitly-NOT-the-vanilla-map" framing and painted a two-color
+> fog mask** — Daniel: *"it should be almost identical in behavior to the regular map, just
+> with the shroud at a fixed RADIUS, and the no-zoom alterations."* **Corrected design
+> intent: the viewer is the (B) fork SHELL rendering (C)-grade vanilla cartography** — reuse
+> a copy of vanilla's map material (the 4-texture biome/height/forest/fog shader composite)
+> masked to our fixed-radius fog window, at fixed zoom. The two deliberate departures from
+> vanilla are ONLY: fixed 1000 m shroud radius + no zoom. Authoritative build path:
+> `cartography-impl-spec.md` §2E.
+
 ## 7. Construction, gating & build-order summary
 
 - **Build order (lowest→highest risk):** Map Station piece (clean — it's a
@@ -254,10 +267,13 @@ build. But this is the load-bearing aesthetic/scope decision and it's yours.
 
 ## 9. 🔴 OPEN QUESTIONS — Daniel's calls (these gate the build)
 
-1. **Q-CART-1 — How is a map VIEWED?** The central fork (§6): (A) minimap-only
-   reveal, (B) bespoke framed full-screen "leather map" viewer, or (C) the vanilla
-   big map re-enabled only at a Station. My lean: C for Stations + A for field Local
-   Maps, B as a stretch. **This decision gates almost everything else.**
+1. **Q-CART-1 — How is a map VIEWED?** ✅ **RESOLVED (2026-06-10 build; render
+   CORRECTED 2026-06-11, issue 6).** Built as a standalone bounded fork (nomap forces the
+   vanilla roots off, so (C)'s station-Large-mode is unreachable; the fork owns its own
+   open path) that renders **(C)-grade vanilla cartography** inside a **(B)-style framed
+   viewer** — reuse a copy of vanilla's 4-texture map material, masked to a fixed 1000 m
+   shroud at fixed zoom. NOT the two-color mask the first build shipped. See §6 resolution
+   note + `cartography-impl-spec.md` §2E.
 2. **Q-CART-2 — Station knowledge: cumulative & shared, or per-surveyor?** Does a
    Station accumulate everyone's exploration into one shared regional record
    (recommend), or keep each player's separately?

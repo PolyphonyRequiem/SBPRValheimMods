@@ -227,6 +227,14 @@ with the Table via the `CartographyViewer` seam).
 
 ### 2B — The forked viewer (productionize the spike's proof)
 
+> **⚠️ RENDER PATH SUPERSEDED (2026-06-11, issue 6 → §2E).** Bullet 1 below originally
+> specced the fork to "drive a custom RawImage from OUR windowed array" painted as a
+> two-color fog mask. Daniel's v0.2.19-playtest report: that doesn't look/behave like the
+> real map. **§2E is now the authoritative render path** — reuse a COPY of vanilla's map
+> MATERIAL (the 4-texture shader composite) masked by our fog window. The fork SHELL,
+> bounding, fixed zoom, and edge-arrow below are all UNCHANGED and still correct; only the
+> per-pixel paint is replaced. Read §2E before touching the render.
+
 > **The spike (`t_e8bbbe48`) is the source of truth for the render path.** Build §2B
 > against its findings doc — especially the confirmed `m_pixelSize` and which RawImage
 > path renders cleanly. Everything below is the spec the spike validates; if the spike
@@ -291,7 +299,136 @@ with the Table via the `CartographyViewer` seam).
   unequip → weapon + shield return clean.
 - **AT-MAP-TORCH** — map + left-hand torch coexist (lit map at night); still can't block or
   attack.
+- **AT-TABLEMAP-1…7** (issue 6 correction, 2026-06-11) — the viewer must render vanilla
+  cartography (biome/height/forest/water), not a two-color fog mask; see **§2E** for the
+  named criteria + the locked route.
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
+
+### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
+
+> **Status: DESIGN CORRECTION.** Supersedes the "paint our own two-color texture" render
+> path of §2B bullet 1 / the spike. The fork **SHELL** (own Canvas + open/close path, fixed
+> zoom, fixed-radius shroud, pin + player-marker overlay, polar edge-arrow) is UNCHANGED and
+> correct — **only the fog-paint step changes.** Reported by Daniel, v0.2.19-playtest, in
+> game; applies to BOTH the Surveyor's Table view and the shared field Local-Map view (one
+> `MapViewer`). Clean-side (ADR-0001).
+
+**What Daniel reported (verbatim):** *"the surveyor's table does NOT appear to behave like
+the regular map. It should be almost identical in behavior to the regular map, just with the
+shroud at a fixed RADIUS. and the no zoom alterations."*
+
+**Root cause (grounded).** `MapViewer.PaintFog` (`MapViewer.cs:137-165`) builds a literal
+two-color `Texture2D` — `px[i] = fog[i] ? CParchment : CShroud` (`:158-159`, palette `:76-77`).
+That is *all* the map shows: no biome color, no height relief, no forest, no water. The fork
+was built standalone-from-scratch (PR #101) to avoid riding vanilla's nomap-suppressed
+minimap — correct for the OPEN PATH, but the render went too far and discarded vanilla's
+cartography wholesale.
+
+**The decisive RE finding (this re-frames the card's "route 1").** There is **NO single
+"vanilla map texture" to composite.** The vanilla map is a runtime **GPU shader blend of FOUR
+textures**, allocated in `Minimap.Start` (`Minimap.cs:413-442`) and filled by
+`GenerateWorldMap` (`:1639-1682`):
+
+| Shader slot | Field | Format | Content (decomp) |
+|---|---|---|---|
+| `_MainTex`   | `m_mapTexture`        | RGB24 | per-cell biome base color (`GetPixelColor(biome)`, `:1754-1769`) |
+| `_MaskTex`   | `m_forestMaskTexture` | RGBA  | forest stipple + ocean/ashlands gradient (`GetMaskColor`, `:1719-1752`) |
+| `_HeightTex` | `m_heightTexture`     | RHalf | biome height → drives the hillshade relief |
+| `_FogTex`    | `m_fogTexture`        | R8G8  | explored (R) / shared (G) mask (`Explore`, `:1555-1566`) |
+
+…composited by the **custom shader on `m_mapImageLarge.material`** with uniforms `_mapCenter`
+(world), `_pixelSize` (`= 200f / zoom`), `_zoom`, `_SharedFade` (set in `CenterMap :1023-1034`
+and `Update :628-639`), and the `RawImage.uvRect` windowing the quad (`:1007-1021`). **The
+"look of the map" lives in that shader, not in any one texture.** So "composite vanilla's real
+map texture" is not a literal operation — the real operation is **reuse the vanilla map
+MATERIAL and its four bound source textures.**
+
+**These textures EXIST and are populated under `nomap`** — this answers the card's crux
+question. `nomap` only forces `SetMapMode → MapMode.None`, which toggles the UI **roots** off
+(`:961-966`). It does **not** gate generation: `Minimap.Update` runs the generation block
+(`:556-568`) and `UpdateExplore` **unconditionally every frame, before any mode/`m_noMap`
+check** — already VERIFIED by the Cartographer's Kit card (§3 IMPL STATUS: *"personal fog
+accumulates even under v1's server-side nomap"*). Therefore `m_mapTexture` /
+`m_forestMaskTexture` / `m_heightTexture` are generated, and the **public**
+`Minimap.instance.m_mapImageLarge.material` carries all four textures bound (via
+`SetTexture` in `Start :435-438`) — readable at runtime, clean-side.
+
+**LOCKED ROUTE — material reuse (the card's route 1, corrected for the no-single-texture
+reality). Route 2 — "drive vanilla's renderer in bounded mode" — is REJECTED:** re-enabling
+roots risks AT-TABLEMAP-6 and entangles us with the nomap suppression the fork exists to
+avoid.
+
+1. **Keep the entire fork shell. Delete only the two-color paint.**
+2. **Render through a COPY of the vanilla map material:**
+   `var mat = UnityEngine.Object.Instantiate(Minimap.instance.m_mapImageLarge.material);`
+   The copy inherits the four texture bindings (shared by reference) + the shader. Apply it
+   to the viewer's existing map `RawImage`; set `RawImage.texture = mat.GetTexture("_MainTex")`
+   so the RawImage has a valid main texture. Drive **our copy's** `uvRect` +
+   `_mapCenter`/`_pixelSize`/`_zoom` to frame the bound origin's 1000 m disc at our single
+   fixed scale. We never touch vanilla's own material/roots → **AT-TABLEMAP-6 holds by
+   construction.**
+3. **Shroud = OUR fog window, NOT vanilla's `_FogTex`.** Composite `SurveyData.Fog`
+   (explored-AND-in-disc, already produced by `BoundedMapMath.BuildWindowedFog`) as a
+   disc+explored alpha mask OVER the cartography: lit → real map, unlit / beyond-radius →
+   opaque shroud. This realizes the ONE deliberate difference (fixed radius). Implementer's
+   choice: overlay a mask `RawImage` (simplest, fully decoupled) **or** build a window
+   texture and bind it as `_FogTex` on the copy (reuses vanilla's fog-edge fade) — visual
+   polish, Daniel verifies.
+4. **Fixed zoom:** one authored window; no scroll/zoom input (keep `LayoutMapRect`'s
+   no-scroll discipline). Disc span = 2000 m ≈ `2000/(m_textureSize*m_pixelSize)` =
+   `2000/16384 ≈ 0.122` normalized (`uvRect.width`, × aspect). The matching `_zoom`/
+   `_pixelSize` uniform values are **build-calibrated** against the live render (see spike).
+   Preserves AT-MAP-FIXEDZOOM.
+
+**NO SurveyData wire-format change** (answers card open-Q2). The biome/height/forest textures
+are **global and deterministic from the world seed** — vanilla regenerates them at `Start`
+for the whole ~16 km world (`m_textureSize=256`, `m_pixelSize=64f`, `Minimap.cs:211/213`)
+independent of exploration. The viewer **samples them live** at render time using the stored
+bound-origin + radius window. `SurveyData` keeps carrying ONLY the bool fog window + pins → no
+ZDO contract change, placed Surveyor's Tables do not orphan → **AT-TABLEMAP-7 by
+construction.** (Local Map = same engine: live global cartography masked by the item's frozen
+snapshot fog window = "the map as it was drawn," now with real terrain. Static terrain +
+snapshot shroud is correct.)
+
+**Graceful degradation (mandatory).** If `Minimap.instance == null` or `mat.GetTexture("_MainTex")`
+is null at open (generation not yet run), fall back to the current two-color paint rather than
+render blank. **Keep `PaintFog` as the fallback path** — do not delete it.
+
+**Mandatory pre-build micro-spike (de-risks the one unverifiable piece — the shader).** The
+shader is a GPU asset; its exact `uvRect`-vs-`_mapCenter`/`_pixelSize` sampling semantics
+cannot be confirmed from the C# decomp alone. Before the full integration the engineer MUST,
+in-client under nomap: instantiate the vanilla map material onto a throwaway RawImage, set
+`.texture = mat.GetTexture("_MainTex")`, drive `uvRect`/`_mapCenter`/`_zoom` to a known world
+window, and confirm it renders biome cartography (not blank / magenta / clipped). Lock the
+calibration constants from that spike — exactly as the original UI-fork spike (t_e8bbbe48)
+locked `m_pixelSize`. **If the material cannot be driven this way, BLOCK and re-route — do NOT
+silently ship the two-color mask as the shipped behavior.**
+
+**Clean/dirty:** Clean-side (ADR-0001). Reading `Minimap.instance.m_mapImageLarge.material`
+plus its bound base-game textures and instantiating a copy is reusing the game we mod at
+runtime — the same model as the already-shipped vanilla-UI-sprite/font reuse
+(`requirements.md:353`). No decompiled IronGate source is copied into our code; no asset files
+are committed; no third-party mod code is touched.
+
+#### 2E acceptance tests (named, observable — close only on Daniel's in-game check)
+- **AT-TABLEMAP-1** — the Table map shows the SAME cartographic content as the vanilla map
+  for the explored area (biome color + height relief + forest + water), not a two-color mask.
+- **AT-TABLEMAP-2** — unexplored cells AND everything beyond the fixed 1000 m radius render as
+  opaque shroud (the one intended difference from vanilla).
+- **AT-TABLEMAP-3** — no zoom controls; fixed scale (preserves AT-MAP-FIXEDZOOM).
+- **AT-TABLEMAP-4** — pins + the polar edge-clamp arrow render at correct positions (preserves
+  the existing overlay + `BoundedMapMath.EdgeClampToDisc`).
+- **AT-TABLEMAP-5** — open/close, pin display, player marker feel like the vanilla map within
+  the bounded disc.
+- **AT-TABLEMAP-6** (nomap intact) — the player's world minimap is NOT re-enabled; v1 nomap
+  stays in force everywhere except inside our bounded viewer.
+- **AT-TABLEMAP-7** (regression) — Local-Map view (same engine) still works; no SurveyData
+  wire change, so placed Tables don't orphan.
+- logs-green ≠ playable — Daniel confirms in-game it looks/behaves like the real map, bounded.
+
+**Implementation card:** routed to `engineer-ui` (owns `MapViewer.cs`, built it under
+t_cb831069), as a child of the issue-6 card. **SpecCheck impact: none** (render behavior, not a
+recipe row). Spec + code move together in that PR.
 
 ---
 
