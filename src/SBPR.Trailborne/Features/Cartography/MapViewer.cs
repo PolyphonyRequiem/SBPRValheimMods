@@ -42,6 +42,7 @@ namespace SBPR.Trailborne.Features.Cartography
     // NAMESPACE from here, so alias it to the static class for the MarkerTypes lookup
     // (the shared #100 WorldPin marker model — impl spec §2B: consume the seam, don't fork).
     using MarkerSignsType = SBPR.Trailborne.Features.MarkerSigns.MarkerSigns;
+    using WorldPins = SBPR.Trailborne.Features.MarkerSigns.WorldPins;
     /// <summary>
     /// The forked bounded viewer. A client-only singleton MonoBehaviour that implements
     /// <see cref="IMapViewer"/> and registers itself with <see cref="CartographyViewer"/>.
@@ -91,6 +92,7 @@ namespace SBPR.Trailborne.Features.Cartography
         private MapViewRequest _req;
         private bool _open;
         public bool IsOpen => _open;
+        public MapViewerMode CurrentMode => _req.Mode;
 
         // ── IMapViewer ──────────────────────────────────────────────────────────────────
 
@@ -188,17 +190,29 @@ namespace SBPR.Trailborne.Features.Cartography
             float radius = _req.RadiusMeters > 0f ? _req.RadiusMeters : survey.RadiusMeters;
             int size = survey.Size;
 
-            // ── Pins (in-disc only) ──
-            if (survey.Pins != null)
+            // ── Pins: union the imprinted SNAPSHOT pins with the LIVE WorldPins (§2B —
+            //    consume the #100 seam, render ONE shared model, do not fork). The snapshot
+            //    carries what was surveyed at imprint; the live scan adds marker-signs pinned
+            //    since (and is the Table-view's live source). De-dup by (type, ~1 m, name).
+            var rendered = new List<SurveyPin>();
+            if (survey.Pins != null) rendered.AddRange(survey.Pins);
+            try
             {
-                foreach (var pin in survey.Pins)
-                {
-                    if (!BoundedMapMath.InDisc(pin.Pos.x, pin.Pos.z, origin.x, origin.z, radius))
-                        continue; // beyond 1000 m never renders (AT-MAP-BOUND)
-                    if (!WorldToMapRect(pin.Pos, survey, out Vector2 anchored))
-                        continue;
-                    SpawnPinMarker(pin, anchored);
-                }
+                var live = WorldPins.CollectInDiscPins(origin, radius);
+                foreach (var lp in live) AddIfNew(rendered, lp);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: live WorldPins scan failed: {e.Message}");
+            }
+
+            foreach (var pin in rendered)
+            {
+                if (!BoundedMapMath.InDisc(pin.Pos.x, pin.Pos.z, origin.x, origin.z, radius))
+                    continue; // beyond 1000 m never renders (AT-MAP-BOUND)
+                if (!WorldToMapRect(pin.Pos, survey, out Vector2 anchored))
+                    continue;
+                SpawnPinMarker(pin, anchored);
             }
 
             // ── Player marker / edge arrow ──
@@ -350,6 +364,98 @@ namespace SBPR.Trailborne.Features.Cartography
             foreach (var go in _pinObjects)
                 if (go != null) UnityEngine.Object.Destroy(go);
             _pinObjects.Clear();
+        }
+
+        /// <summary>De-dup a pin into a list by (type, ~1 m proximity, name) — same rule as
+        /// SurveyData.AddOrUpdatePin, so the snapshot+live union never double-draws a pin.</summary>
+        private static void AddIfNew(List<SurveyPin> list, SurveyPin pin)
+        {
+            const float prox2 = 1.0f * 1.0f;
+            foreach (var e in list)
+            {
+                if (e.Type != pin.Type) continue;
+                float dx = e.Pos.x - pin.Pos.x, dz = e.Pos.z - pin.Pos.z;
+                if (dx * dx + dz * dz > prox2) continue;
+                if (!string.Equals(e.Name ?? "", pin.Name ?? "", StringComparison.Ordinal)) continue;
+                return; // already present
+            }
+            list.Add(pin);
+        }
+
+        // ── Input: Escape closes; Table-mode click removes the nearest pin ───────────────
+
+        private void Update()
+        {
+            if (!_open) return;
+
+            // ESC closes the full-screen view (the fork owns its own close path — it does NOT
+            // rely on vanilla Minimap's M/ESC handling, which is dead under nomap). For the
+            // field Local-Map view the controller will also close it on unequip; this is the
+            // explicit player dismiss. We do NOT toggle vanilla map mode.
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                Close();
+                return;
+            }
+
+            // TableEdit mode: a left-click on a pin removes it via the pin-removal backend
+            // (AT-TABLE-PINEDIT). FieldReadOnly mode never wires this (PinEditor is null), so
+            // the field view structurally cannot remove pins.
+            if (_req.Mode == MapViewerMode.TableEdit && _req.PinEditor != null && Input.GetMouseButtonDown(0))
+                TryRemovePinAtCursor();
+        }
+
+        /// <summary>
+        /// Map the cursor (screen px) back to a world position via the inverse of
+        /// WorldToMapRect, then ask the pin editor to remove the nearest shared pin within a
+        /// tolerance. Owner-authoritative persistence + ward re-check happen in the editor
+        /// (SurveyorTableTag.RemovePinNear) — the viewer never trusts itself to have gated.
+        /// </summary>
+        private void TryRemovePinAtCursor()
+        {
+            var survey = _req.Survey;
+            if (survey == null || _mapRect == null || _req.PinEditor == null) return;
+
+            // Cursor → map-rect local point.
+            Vector2 local;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    _mapRect, Input.mousePosition, _canvas?.worldCamera, out local))
+                return;
+
+            float edge = _mapRect.sizeDelta.x;
+            if (Mathf.Abs(local.x) > edge / 2f || Mathf.Abs(local.y) > edge / 2f)
+                return; // click outside the map square
+
+            // Inverse of WorldToMapRect: local px → window cell → world.
+            float pixelSize = survey.PixelSize > 0f ? survey.PixelSize : 64f;
+            int textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
+            int size = survey.Size;
+            float cell = edge / size;
+
+            float wx = (local.x + edge / 2f) / cell - 0.5f;
+            float wy = (local.y + edge / 2f) / cell - 0.5f;
+            int half = (size - 1) / 2;
+
+            int cx = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, textureSize);
+            int cy = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, textureSize);
+            int px = Mathf.RoundToInt(wx - half) + cx;
+            int py = Mathf.RoundToInt(wy - half) + cy;
+
+            float worldX = BoundedMapMath.CellCenterWorldX(px, pixelSize, textureSize);
+            float worldZ = BoundedMapMath.CellCenterWorldZ(py, pixelSize, textureSize);
+            var worldPos = new Vector3(worldX, 0f, worldZ);
+
+            // Removal tolerance ≈ a couple of cells in world metres (forgiving click target).
+            float tol = pixelSize * 2f;
+            if (_req.PinEditor.RemovePinNear(worldPos, tol))
+            {
+                Plugin.Log.LogInfo($"[Trailborne/Cartography] Table-view removed a pin near ({worldX:F0},{worldZ:F0}).");
+                // Re-read the now-edited shared survey so the render drops the removed pin
+                // (the snapshot we were opened with is stale after the removal).
+                var fresh = _req.PinEditor.ReadCurrentSurvey();
+                if (fresh != null) _req.Survey = fresh;
+                Render();
+            }
         }
 
         // ── Canvas / overlay construction (SignPaintPanel idiom) ─────────────────────────

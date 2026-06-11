@@ -54,51 +54,78 @@ namespace SBPR.Trailborne.Features.Cartography
         private void Awake() => Instance = this;
         private void OnDestroy() { if (Instance == this) Instance = null; }
 
+        // Cached state from the throttled inventory poll (read every frame for the input
+        // edge-check below, refreshed on the poll cadence).
+        private ItemDrop.ItemData? _equippedMap;
+        private bool _mapEquipped;
+
         private void Update()
         {
             // Client + graphics only. On the dedicated server graphicsDeviceType is Null
             // and there is no local player, so this loop never runs there.
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) return;
 
+            var player = Player.m_localPlayer;
+            if (player == null)
+            {
+                if (_hadMapCarried || _hadMapEquipped) ClearBinding("no local player");
+                _equippedMap = null; _mapEquipped = false;
+                return;
+            }
+
+            bool tableViewOwnsViewer = CartographyViewer.IsViewerOpen
+                                       && CartographyViewer.CurrentMode == MapViewerMode.TableEdit;
+
+            // ── EVERY-FRAME: the Map-button activate/dismiss edge (a one-frame GetButtonDown
+            //    would be missed by the throttled poll). Equipping BINDS the map; it does NOT
+            //    auto-pop the overlay — the player ACTIVATES the full view with the vanilla
+            //    "Map" button (dead under nomap, so the fork repurposes it as its own open
+            //    path — spec §2B). ZInput.GetButtonDown("Map") is the exact call vanilla
+            //    Minimap.Update uses (decomp :616), confirmed-real. The viewer also self-closes
+            //    on Escape (its own Update). ──
+            if (_mapEquipped && _equippedMap != null && !tableViewOwnsViewer && ZInput.GetButtonDown("Map"))
+            {
+                if (CartographyViewer.IsViewerOpen && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly)
+                    CloseFullView("map button toggle");
+                else
+                    OpenFullView(_equippedMap);
+            }
+
+            // ── THROTTLED: the heavier inventory/equip state scan + transitions ──
             float now = Time.realtimeSinceStartup;
             if (now < _nextPoll) return;
             _nextPoll = now + PollSeconds;
 
-            var player = Player.m_localPlayer;
-            if (player == null)
-            {
-                // No player (menu / loading): tear down any live binding once.
-                if (_hadMapCarried || _hadMapEquipped) ClearBinding("no local player");
-                return;
-            }
-
             var equippedMap = GetEquippedLocalMap(player);
             var carriedMap  = equippedMap ?? GetCarriedLocalMap(player);
+            _equippedMap = equippedMap;
 
             bool mapCarried  = carriedMap != null;
             bool mapEquipped = equippedMap != null;
+            _mapEquipped = mapEquipped;
 
             // ── Transition: carried-state changed (AT-MAP-DURABLE) ──
             if (mapCarried != _hadMapCarried)
             {
                 if (mapCarried)
                     Plugin.Log.LogInfo("[Trailborne/Cartography] Local Map bound (in inventory) — minimap follows its 1000 m disc.");
-                else
+                else if (!tableViewOwnsViewer)
                     ClearBinding("map left inventory");
                 _hadMapCarried = mapCarried;
             }
 
-            // ── Transition: equipped-state changed (AT-MAP-EQUIP) ──
+            // ── Transition: equipped-state changed (AT-MAP-EQUIP) ── close on unequip.
             if (mapEquipped != _hadMapEquipped)
             {
-                if (mapEquipped) OpenFullView(equippedMap!);
-                else CloseFullView("map unequipped");
+                if (!mapEquipped && !tableViewOwnsViewer) CloseFullView("map unequipped");
                 _hadMapEquipped = mapEquipped;
             }
 
             // Keep the viewer's bound survey fresh while equipped (the imprinted snapshot is
             // static, but the player marker / WorldPins reconcile move — the viewer redraws).
-            if (mapEquipped && CartographyViewer.IsViewerOpen)
+            // Only when WE own the open viewer (field mode), never over a Table session.
+            if (mapEquipped && CartographyViewer.IsViewerOpen
+                && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly)
                 RefreshOpenView(equippedMap!);
         }
 

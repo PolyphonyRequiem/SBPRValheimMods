@@ -157,6 +157,12 @@ namespace SBPR.Trailborne.Features.Cartography
             return true;
         }
 
+        /// <summary>
+        /// Re-read the Table's CURRENT shared survey (post-edit) for the viewer to re-render
+        /// against after a pin removal (ICartographyPinEditor). Just the existing ZDO read.
+        /// </summary>
+        public SurveyData? ReadCurrentSurvey() => ReadSharedSurvey();
+
         // ── Contribute: window the player's fog + pins to the disc, merge, persist ────
 
         private void ContributeLocalSurvey(Humanoid user)

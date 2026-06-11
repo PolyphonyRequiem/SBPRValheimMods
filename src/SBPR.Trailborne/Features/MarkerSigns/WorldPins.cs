@@ -221,6 +221,48 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         /// <summary>Count of pins currently projected (diagnostics / tests).</summary>
         public static int ProjectedCount => Projected.Count;
 
+        /// <summary>
+        /// Collect the LIVE pinned marker-signs inside a disc, projected as the cartography
+        /// <see cref="Cartography.SurveyPin"/> shape, so the forked bounded viewer (card
+        /// t_cb831069) renders THE SAME pin model the minimap circle uses — impl spec §2B:
+        /// "consume the WorldPins seam from #100; do NOT fork a second pin model." This is
+        /// the derive-by-scan source of truth (the live marker-sign ZDOs), disc-clipped to
+        /// the bound 1000 m circle, so the Local-Map and Table viewer show the same world
+        /// pins without persisting anything of their own.
+        ///
+        /// CLIENT-ONLY usefulness: the scan reads the RESIDENT ZDO set (loaded zones), the
+        /// same coverage the minimap-circle MVP has. The server-authoritative offline-zone
+        /// scan that would show pins in unloaded zones is the documented deferral (§"Scope"),
+        /// and converges here — when it lands, this method's scan source upgrades and every
+        /// caller (viewer + minimap) benefits with no fork. Returns an empty list if the
+        /// ZDOMan isn't ready. Does NOT touch the projection map or the minimap.
+        /// </summary>
+        public static List<Cartography.SurveyPin> CollectInDiscPins(Vector3 boundCenter, float boundRadius)
+        {
+            var result = new List<Cartography.SurveyPin>();
+            if (ZDOMan.instance == null) return result;
+            bool bounded = boundRadius > 0f;
+
+            foreach (var m in MarkerSigns.MarkerTypes)
+            {
+                if (!ScanPrefab(m.PrefabName, out var zdos)) continue;
+                foreach (var zdo in zdos)
+                {
+                    if (zdo == null) continue;
+                    if (!zdo.GetBool(MarkerSigns.ZdoPinned, false)) continue;
+
+                    Vector3 pos = zdo.GetPosition();
+                    if (bounded && Vector3.Distance(pos, boundCenter) > boundRadius) continue;
+
+                    var def = ResolveType(zdo.GetString(MarkerSigns.ZdoMarkerType, ""), m);
+                    int pinType = def != null ? (int)def.VanillaPinType : (int)Minimap.PinType.Icon0;
+                    string label = def != null ? def.PinLabel : "Marker";
+                    result.Add(new Cartography.SurveyPin(label, pinType, pos, isChecked: false, ownerId: 0L));
+                }
+            }
+            return result;
+        }
+
         // ─────────────────────────────────────────────────────────────────────────────
         // INTERNALS
         // ─────────────────────────────────────────────────────────────────────────────

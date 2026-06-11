@@ -50,6 +50,13 @@ namespace SBPR.Trailborne.Features.Cartography
         /// re-checks PrivateArea.CheckAccess — never trust the UI to have gated).
         /// </summary>
         bool RemovePinNear(Vector3 worldPos, float radius);
+
+        /// <summary>
+        /// Re-read the editor's CURRENT shared survey (post-edit) so the viewer can re-render
+        /// against live Table data after a removal — the snapshot the viewer was opened with
+        /// is stale once a pin is removed. Returns null if the survey can't be read.
+        /// </summary>
+        SurveyData? ReadCurrentSurvey();
     }
 
     /// <summary>
@@ -78,6 +85,10 @@ namespace SBPR.Trailborne.Features.Cartography
         void Refresh(MapViewRequest request);
         void Close();
         bool IsOpen { get; }
+
+        /// <summary>The mode the viewer is currently showing (meaningful only while open).
+        /// Lets a caller avoid clobbering a TableEdit session with a field refresh.</summary>
+        MapViewerMode CurrentMode { get; }
     }
 
     /// <summary>
@@ -145,6 +156,9 @@ namespace SBPR.Trailborne.Features.Cartography
 
         /// <summary>True if a viewer is registered AND currently showing.</summary>
         public static bool IsViewerOpen => _impl != null && _impl.IsOpen;
+
+        /// <summary>The mode the open viewer is in, or FieldReadOnly if none (safe default).</summary>
+        public static MapViewerMode CurrentMode => _impl != null ? _impl.CurrentMode : MapViewerMode.FieldReadOnly;
 
         /// <summary>
         /// Re-render the currently-open viewer against an updated request (the imprinted
