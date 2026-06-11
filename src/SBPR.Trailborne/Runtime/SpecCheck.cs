@@ -3,6 +3,7 @@ using System.Linq;
 using SBPR.Trailborne.Features.Pigments;
 using SBPR.Trailborne.Features.Cairns;
 using SBPR.Trailborne.Features.MarkerSigns;
+using SBPR.Trailborne.Features.Cartography;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -21,8 +22,9 @@ namespace SBPR.Trailborne.Runtime
     ///
     /// LOCKED SOURCE: docs/v0.1.0/planning/requirements.md
     /// (lines 170-222, 318-323) for the Meadows manifest;
-    /// docs/v2/planning/requirements.md §1 + docs/v2/planning/cartography-impl-spec.md §0
-    /// for the Black-Forest cartography rows (Surveyor's Table);
+    /// docs/v2/planning/requirements.md §1/§3 + docs/v2/planning/cartography-impl-spec.md §0
+    /// for the Black-Forest cartography rows (Surveyor's Table piece; Cartographer's Kit
+    /// item recipe — the 40-pigment gate);
     /// docs/design/marker-signs-worldpin.md + docs/v2/planning/marker-signs-impl-spec.md
     /// (§0 manifest table) for the v2 marker-sign rows.
     /// Update BOTH this manifest AND the relevant spec in the same commit when
@@ -93,6 +95,22 @@ namespace SBPR.Trailborne.Runtime
             new RecipeSpec {
                 Item = Pigments.PigmentBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Coal", 1) }
+            },
+
+            // ── v2 Black-Forest cartography (impl spec §0 row 3; card t_65fcfe5c) ──
+            // Cartographer's Kit — Utility-slot accessory that GATES auto-mapping. The
+            // 40-pigment recipe IS the gate (no discovery flag). LOCKED per
+            // docs/v2/planning/requirements.md §3 + cartography-impl-spec.md §0/§3.1.
+            // Pigment resource names are the SBPR_Ink* wire values via Pigments.*Name.
+            new RecipeSpec {
+                Item = CartographersKit.KitName, Station = "piece_sbpr_explorers_bench", Amount = 1,
+                Resources = new[] {
+                    R(Pigments.PigmentRedName,   10),
+                    R(Pigments.PigmentWhiteName, 10),
+                    R(Pigments.PigmentBlueName,  10),
+                    R(Pigments.PigmentBlackName, 10),
+                    R("FineWood", 4),
+                }
             },
         };
 

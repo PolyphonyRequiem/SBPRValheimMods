@@ -209,7 +209,27 @@ Each entry has:
 | Status | IMPLEMENTED (code + spec + SpecCheck row 1, card t_2715661d, 2026-06-10; `[hold]` PR, awaiting Daniel merge + in-game verify). **logs-green ≠ playable.** |
 | Source spec | `docs/v2/planning/requirements.md` §1 + `docs/v2/planning/cartography-impl-spec.md` §1 |
 
-> **Local Map** (`SBPR_LocalMap`, item) + **Cartographer's Kit** (`SBPR_CartographersKit`, item) + the **forked map viewer** (`MapViewer`) are the sibling/downstream cartography cards (t_7b616020, t_c871efec) — specced in `cartography-impl-spec.md` §2/§3, not yet implemented. Their dataset rows land with their impl PRs.
+#### Cartographer's Kit
+
+| Field | Value |
+|---|---|
+| Display name | Cartographer's Kit |
+| Prefab name | `SBPR_CartographersKit` |
+| Type | `ItemDrop`, **`ItemType.Utility` (= 18)** — the Utility slot (player's `m_utilityItem`), same slot as Megingjord / Wishbone. Coexists with any weapon / shield / Local Map; never a hand item (AT-KIT-COEXIST). |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
+| Recipe (craft) | Red Pigment ×10 + White Pigment ×10 + Blue Pigment ×10 + Black Pigment ×10 + Fine Wood ×4 → 1 (the **40-pigment cost IS the gate**; pigments referenced via `Pigments.Pigment{Red,White,Blue,Black}Name`, values `SBPR_Ink*`) |
+| Function | **Gates the personal auto-map's passive fog reveal.** Kit worn → walking reveals fog (vanilla `Minimap.UpdateExplore` runs); Kit absent → ZERO passive reveal (AT-KIT-GATE). The fog it accumulates is what gets imprinted at a Surveyor's Table. **NO discovery-flag system** (C10) — a normal recipe surfaced the vanilla way (`IsKnownMaterial`). |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructItemShell` builds the networked item skeleton (ZNetView + ZSyncTransform + Rigidbody + collider + ItemDrop with a FRESH SharedData) from scratch; NEVER clones a vanilla item (the pre-ADR Pigments/cairn-marker pattern). World-drop mesh grafted as a ZNetView-free cosmetic child off the vanilla `LeatherScraps` blueprint (`Assets.GraftVisualSubtree`, child `attach`). Inventory icon `cartographers_kit_v0.1.png` (v0.1 placeholder; icon is MANDATORY — the crafting UI indexes `m_icons[0]`). Utility items have no worn-body attach visual. Mesh/icon are visual-polish flags for Daniel's in-game pass. |
+| Patch surface | **Harmony Prefix on `Minimap.UpdateExplore(float, Player)`** (decomp :48005) — no-ops the personal walking-reveal fog write unless the local player wears the Kit. Gates ONLY `UpdateExplore` (the single personal-reveal entry), NOT `Explore` directly (also reached from shared-data merges that must work without the Kit). Equipped-Kit detection via public `Inventory.GetEquippedItems()` + `m_dropPrefab` name (`m_utilityItem` is protected). Client-only by construction (no Minimap on the dedicated server); fails OPEN on error. **Touches the same Minimap explore path the Local-Map viewer (t_cb831069) reads — see PR handoff; one fog-write model, not forked.** |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 3, card t_65fcfe5c, 2026-06-10; `[hold]` PR, awaiting Daniel merge + in-game verify). **logs-green ≠ playable.** |
+| Source spec | `docs/v2/planning/requirements.md` §3 + `docs/v2/planning/cartography-impl-spec.md` §3 |
+
+> **Local Map** (`SBPR_LocalMap`, item) + the **forked map viewer** (`MapViewer`) are the
+> remaining downstream cartography cards (t_7b616020 / t_cb831069) — specced in
+> `cartography-impl-spec.md` §2, not yet landed. Their dataset rows land with their impl PRs.
+> The **Cartographer's Kit** (above) and **Surveyor's Table** are implemented.
 
 ## Trailborne v2 (Black Forest) — Marker Signs / WorldPins
 
