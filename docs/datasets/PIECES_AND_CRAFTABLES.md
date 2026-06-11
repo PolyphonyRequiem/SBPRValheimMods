@@ -183,6 +183,36 @@ Each entry has:
 
 ---
 
+## Trailborne v2 (Black Forest) — Cartography
+
+> Spec: `docs/v2/planning/requirements.md` + `docs/v2/planning/cartography-impl-spec.md`.
+> Three interlocking features (Surveyor's Table + Local Map + Cartographer's Kit). The
+> Table is the FOUNDATION (lowest risk); the Local Map viewer (highest risk) builds on it.
+
+### Pieces
+
+#### Surveyor's Table
+
+| Field | Value |
+|---|---|
+| Display name | Surveyor's Table |
+| Prefab name | `piece_sbpr_surveyors_table` |
+| Type | `Piece` (placed station; custom `SurveyorTableTag : MonoBehaviour`, Hoverable + Interactable) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed in-world via the **Trailblazer's Spade build menu** ('Trail' tab), like every Spade-placed SBPR piece. (Architect REVERSED the proposed bench-in-range lean, 2026-06-10.) |
+| Recipe (build) | Fine Wood ×10 + Bronze ×2 + Deer Hide ×4 + Bone Fragments ×8 |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`, like all spade pieces; `EnsureCategory` guards drift) |
+| Function | Retains a **shared, cumulative, windowed 1000 m survey** of its own disc, persisted compressed in the Table ZDO (`ZDOVars.s_data`) like vanilla MapTable. **Using it** merges the surveyor's in-disc explored fog + in-disc shareable pins into the shared record (cumulative OR-merge; beyond-1000 m dropped — C5) and opens the forked viewer on the SHARED data with **pin removal enabled** (D4). Ward-gated (`PrivateArea.CheckAccess`) like vanilla. Persists across server restart (AT-TABLE-PERSIST). |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructPieceShell` builds the networked skeleton (ZNetView + Piece + WearNTear + collider) from scratch; the vanilla `piece_cartographytable` is read ONLY as a visual blueprint and its mesh subtree (`new`, material `Cartographer_mat`) is grafted as a ZNetView-free cosmetic child (`Assets.GraftVisualSubtree`). NEVER instantiates the vanilla MapTable prefab. HP 800 (tunable v0.2+). Collider/material/HP are visual-polish flags for Daniel's in-game pass. |
+| Patch surface | None (no Harmony patch). Self-contained: `SurveyorTableTag` owns the survey, ZDO persistence (owner-write via `ZNetView.IsOwner`/`InvokeRPC` like vanilla MapTable `RPC_MapData`), contribute-on-use, ward gate, and the pin-removal backend (`ICartographyPinEditor`). The forked viewer is the separate card t_7b616020; the `CartographyViewer` seam decouples them (graceful no-op until the viewer registers). Windowed-fog cell math = `BoundedMapMath` (productionized spike seam t_e8bbbe48). |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 1, card t_2715661d, 2026-06-10; `[hold]` PR, awaiting Daniel merge + in-game verify). **logs-green ≠ playable.** |
+| Source spec | `docs/v2/planning/requirements.md` §1 + `docs/v2/planning/cartography-impl-spec.md` §1 |
+
+> **Local Map** (`SBPR_LocalMap`, item) + **Cartographer's Kit** (`SBPR_CartographersKit`, item) + the **forked map viewer** (`MapViewer`) are the sibling/downstream cartography cards (t_7b616020, t_c871efec) — specced in `cartography-impl-spec.md` §2/§3, not yet implemented. Their dataset rows land with their impl PRs.
+
+---
+
 ## Trailborne v1.1 (planned, not yet specced)
 
 - Ember Lamps
@@ -195,7 +225,7 @@ Each entry has:
 ## Future SBPR mods (not yet specced)
 
 - **Guardian Stones** family — server worldbuilding (separate mod, separate spec)
-- **Surveyor's Table** + **Local Maps** + **Cartographer's Kit** (Trailborne v2 — now SPECCED; see `docs/design/cartography-v2.md` and `docs/v2/planning/`)
+- **Local Maps** + **Cartographer's Kit** (Trailborne v2 cartography — SPECCED, see `docs/v2/planning/`; the **Surveyor's Table** of this tier is now IMPLEMENTED — see the "Trailborne v2 (Black Forest)" section above)
 - **Real Tents** (Trailborne v2)
 - **Pocket Portal / Twisted Portal** (Trailborne v3+)
 - **Iron Compass** (Trailborne v3+, optional)

@@ -791,6 +791,63 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Graft a vanilla prefab's VISUAL mesh subtree onto <paramref name="dst"/> as a
+        /// purely-cosmetic child, ADDITIVE / clean-room safe (ADR-0001 + ADR-0006). Reads
+        /// the donor via <see cref="ZNetScene.GetPrefab"/> (fires no Awake), instantiates a
+        /// COPY of the named visual child (e.g. the cartographytable's <c>new</c> LODGroup
+        /// subtree), strips any gameplay/networking components off the copy
+        /// (<see cref="StripToDecorative"/> removes ZNetView/Piece/WearNTear/Collider), and
+        /// parents it under <paramref name="dst"/>. Instantiating a ZNetView-free subtree
+        /// wakes no ZDO, so there is nothing to orphan — the same safe graft pattern
+        /// <see cref="GraftTorchFire"/> / <see cref="GraftGhostOnly"/> use. We read the base
+        /// game's own asset to build our piece's look; reading an asset is reference, not
+        /// cloning — never the subtractive Instantiate-the-whole-networked-prefab anti-pattern.
+        ///
+        /// Returns the grafted visual GameObject (parented at the local position/rotation/
+        /// scale the donor child had), or null if the donor or the named child is missing
+        /// (caller decides how loud to be; the piece still works, just without that visual).
+        /// </summary>
+        public static GameObject? GraftVisualSubtree(string donorPrefabName, string visualChildName,
+                                                     GameObject dst, string graftName)
+        {
+            if (dst == null) return null;
+            var zns = ZNetScene.instance;
+            if (zns == null)
+            {
+                Plugin.Log.LogWarning($"[Trailborne] GraftVisualSubtree('{donorPrefabName}'): no ZNetScene.");
+                return null;
+            }
+            var donor = zns.GetPrefab(donorPrefabName);
+            if (donor == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftVisualSubtree: donor prefab '{donorPrefabName}' not found; " +
+                    $"'{dst.name}' will have no grafted visual.");
+                return null;
+            }
+            var src = donor.transform.Find(visualChildName);
+            if (src == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftVisualSubtree: donor '{donorPrefabName}' has no '{visualChildName}' child " +
+                    $"(vanilla structure changed?); '{dst.name}' will have no grafted visual.");
+                return null;
+            }
+
+            var copy = UnityEngine.Object.Instantiate(src.gameObject, dst.transform);
+            copy.name = graftName;
+            copy.transform.localPosition = src.localPosition;
+            copy.transform.localRotation = src.localRotation;
+            copy.transform.localScale    = src.localScale;
+            // Belt-and-braces: the visual subtree should carry no networking/gameplay, but
+            // a donor could nest one (a Switch, a collider). Strip anything that would make
+            // the cosmetic copy interactive / networked / separately destructible.
+            StripToDecorative(copy);
+            copy.SetActive(true);
+            return copy;
+        }
+
+        /// <summary>
         /// Construct a networked build-piece SHELL from scratch — ADR-0006 additive
         /// construction, the replacement for clone-then-strip. Returns a fresh
         /// GameObject parented under the inactive holder (so its Awake has NOT fired),
