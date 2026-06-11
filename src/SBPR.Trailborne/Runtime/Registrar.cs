@@ -64,6 +64,7 @@ namespace SBPR.Trailborne.Runtime
                 Signs.RegisterPrefabs(__instance);
                 Cairns.RegisterPrefabs(__instance);
                 SurveyorsTable.RegisterPrefabs(__instance);
+                LocalMap.RegisterPrefabs(__instance);
                 MarkerSigns.RegisterPrefabs(__instance);
 
                 znetSceneDone = true;
@@ -121,6 +122,7 @@ namespace SBPR.Trailborne.Runtime
                 MarkerSigns.DoObjectDBWiring(ZNetScene.instance);
                 Cairns.DoObjectDBWiring(ZNetScene.instance);
                 SurveyorsTable.DoObjectDBWiring(ZNetScene.instance);
+                LocalMap.DoObjectDBWiring(ZNetScene.instance);
 
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 
