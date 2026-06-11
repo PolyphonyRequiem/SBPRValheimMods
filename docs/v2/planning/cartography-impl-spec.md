@@ -139,10 +139,32 @@ alongside the v0.1.0 source, and generalize the "v0.1.0 locked manifest" wording
 
 ## 2. Local Map — two-handed item + bounded forked viewer
 
-**Lands in:** `Features/Cartography/LocalMap.cs` (item + recipe + the equip patch) and
-`Features/Cartography/MapViewer.cs` (the forked viewer, shared with the Table).
-**Card:** `t_7b616020` (engineer-ui; the equip patch may pair briefly with
-engineer-systems). **The viewer is the tier's single biggest build-risk.**
+> **IMPL STATUS (2026-06-10, card t_cb831069, engineer-ui):** built FULL (not MVP) on
+> branch `feat/local-map-viewer-t_cb831069` off `integ/v2-cartography`; build 0/0
+> (`TreatWarningsAsErrors` ON); SpecCheck row 2 (`SBPR_LocalMap`) added; spec + code +
+> manifest + dataset move together (this PR). Milestones: **M-A** = the item + equip/torch
+> patch + binding controller; **M-B** = the forked viewer render (`MapViewer.cs`,
+> productionized from the spike); **M-C** = pin-click removal + WorldPins-seam consumption +
+> the fork's own open path. Every load-bearing vanilla signature was verified against
+> `assembly_valheim.dll` before coding (EquipItem/UnequipItem/GetCurrentBlocker overloads,
+> `ItemData.m_customData` round-trip, the nomap `SetMapMode` force, `AnimationState` nesting);
+> the windowed-cell projection + its click-inverse are proven by a standalone math harness
+> (8/8). **Two design clarifications flagged for review:** (a) §2A.4 says "equip + activate
+> → active minimap"; under v1's `nomap` world key vanilla forces `Minimap` to `None` and
+> keeps BOTH map roots off (decomp `SetMapMode :975`), so the viewer is a STANDALONE uGUI
+> overlay (the spike's design) and equipping BINDS the map while the vanilla **"Map" button**
+> (otherwise dead under nomap) ACTIVATES the full view — the fork owning its own open path,
+> exactly as §2B requires. (b) The "active minimap shows ONLY its disc" is realized as the
+> fork's own bounded full-view overlay, not a re-skin of vanilla's nomap-suppressed minimap
+> circle. **logs-green ≠ playable — Daniel verifies the in-game pixel render + equip feel
+> (F9/Map-key + in-hand) per AT-MAP-* below; the per-AT status table is in the PR handoff.**
+
+**Lands in:** `Features/Cartography/LocalMap.cs` (item + recipe + `LocalMapItemTag`),
+`Features/Cartography/LocalMapEquipPatch.cs` (the torch-exception equip patch),
+`Features/Cartography/LocalMapController.cs` + `LocalMapBootstrapPatch.cs` (carry/equip
+binding state machine), and `Features/Cartography/MapViewer.cs` (the forked viewer, shared
+with the Table via the `CartographyViewer` seam).
+**Card:** `t_cb831069` (engineer-ui). **The viewer is the tier's single biggest build-risk.**
 **Depends on:** this spec (ItemType + recipe lock) **and** the UI-fork spike (`t_e8bbbe48`).
 
 ### 2A — The item, equip behavior, and the torch patch

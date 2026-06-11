@@ -62,6 +62,17 @@ no north). Three interlocking pieces:
 
 ## 2. Local Map (two-handed equippable artifact)
 
+> **IMPL (2026-06-10, card t_cb831069, engineer-ui):** built FULL (not MVP) — the item +
+> equip/torch patch + binding controller + the forked bounded viewer (`MapViewer`) +
+> Table-mode pin removal + the WorldPins-seam consumption. Build 0/0; SpecCheck row 2
+> added; isolated dedicated-server boot is clean (SpecCheck "✓ All 22 recipes match",
+> PatchCheck "✓ All 15 patch classes registered", 0 SBPR exceptions). See
+> `cartography-impl-spec.md` §2 IMPL STATUS for the two flagged design clarifications
+> (nomap forces a standalone overlay + the Map-button activate path) and the per-AT table
+> in the PR handoff. `[hold]` PR off `integ/v2-cartography`; **logs-green ≠ playable** — the
+> in-game pixel render + equip feel are Daniel's F9/Map-key/in-hand checks. The bullets
+> below remain the locked behavioural target.
+
 ### Acquisition + binding
 - A craftable **item**, **blank when crafted** — carries no map data until **imprinted
   at a Surveyor's Table** (binds to that Table as its 1000 m origin).
