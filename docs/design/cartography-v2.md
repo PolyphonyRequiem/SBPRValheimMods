@@ -19,9 +19,12 @@ purpose: "DRAFT design spec for the v2 Black Forest cartography system. Grounded
   the 0.2.x polish line) is locked. Not started; zero map code exists in `src/`
   today (greenfield).
 - **The v1 map baseline this builds on (locked, `requirements.md` Q1.2 / A1.2):**
-  - `nomap=ON` → no global map at all (only the minimap circle survives, see below).
-  - `nomap=OFF` (default) → **minimap circle ONLY**, freely rotating, **no north
-    indicator, no M-key full map**.
+  - `nomap=ON` (server) → no map at all.
+  - `nomap=OFF` (default) → **minimap circle ONLY**, free-rotating (turns with the
+    player's heading — this is SBPR *design intent*, NOT a vanilla mode: vanilla's
+    minimap is north-up and only its marker spins, decomp `Minimap.CenterMap`/
+    `UpdatePlayerMarker`; see impl-spec §2H correction 1), **no north indicator, no
+    M-key full map**.
   - The vanilla **Cartography Table is nerfed**: existing ones lose function, new
     ones can't be built.
   - **⚠️ PREMISE CORRECTION (2026-06-11, card t_8c9abf6f):** the `nomap=ON` line above was
@@ -252,11 +255,25 @@ build. But this is the load-bearing aesthetic/scope decision and it's yours.
 > our viewer to "Map" therefore stacked both maps. **Corrected: the equipped Local Map opens
 > on the Use key (E)** — the same gesture the Surveyor's Table uses — off "Map" entirely, so
 > it's correct regardless of the nomap config. Authoritative path: `cartography-impl-spec.md`
-> §2F. **Separately surfaced (NOT this card):** the v1 "no M-key full map" baseline
+> §2G. **Separately surfaced (NOT this card):** the v1 "no M-key full map" baseline
 > (`PARKED-2026-06-03.md:20`) was never actually implemented — no patch clamps vanilla's
 > Large map — so under `nomap=OFF` players currently have the full vanilla map. Whether to
 > ship that nerf (a `Minimap.SetMapMode` clamp) or relax the baseline is a separate Daniel
-> call (impl-spec §2F.3).
+> call (impl-spec §2G.3).
+> **🟢 RESOLVED (2026-06-11, issue 8, Daniel in-game).** *"Local map does not rotate freely
+> but rather is north fixed."* The first build shipped the held Local Map **north-up** because
+> §2B/§2E never specified an orientation. **Corrected: the held Local Map (FieldReadOnly view)
+> FREE-ROTATES with the player's heading (forward = up) and is PLAYER-CENTRED** — a static
+> square marker sits at centre while the world rotates under it (Daniel, 2026-06-11: keep the
+> existing square, no facing indicator). The **Surveyor's Table (TableEdit) view stays north-up
+> and table-centred** (a table has no heading). Two card-level framings were corrected during
+> spec: (1) vanilla has NO free-rotate mode to copy — it's north-up, only the marker spins
+> (decomp-verified); free-rotate is SBPR behaviour we build. (2) The held view is table-centred,
+> so "static marker at centre" + "rotate the root, leave the marker" are mutually exclusive
+> without also player-centring the view — hence the player-centred construction. No north/free
+> toggle (Daniel asked for free-rotate; that's the v1 intent). Authoritative build path:
+> `cartography-impl-spec.md` §2H. **§2E + §2H co-define the same `MapViewer` RawImage → one
+> worker, §2E sequenced first.**
 
 ## 7. Construction, gating & build-order summary
 
