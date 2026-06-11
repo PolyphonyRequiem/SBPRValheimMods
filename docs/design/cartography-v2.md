@@ -242,6 +242,22 @@ build. But this is the load-bearing aesthetic/scope decision and it's yours.
 > vanilla are ONLY: fixed 1000 m shroud radius + no zoom. Authoritative build path:
 > `cartography-impl-spec.md` §2E.
 
+> **🟢 OPEN-INPUT CORRECTED (2026-06-11, issue 7, Daniel in-game).** Built as a standalone
+> bounded fork (B-shell). The first build wired the fork's OPEN trigger to the vanilla
+> **"Map" button** on the assumption that "Map is dead under nomap." That assumption is
+> **false for this playtest's world.** Decomp truth (`Minimap.cs`): `Game.m_noMap==true`
+> forces `SetMapMode→None`, killing **both** the M-map AND the minimap circle; so "Map" is
+> only dead when there's no minimap either. Daniel sees a minimap circle AND M opening the
+> global map → the world is **`nomap=OFF`**, where vanilla's M-map is fully alive. Binding
+> our viewer to "Map" therefore stacked both maps. **Corrected: the equipped Local Map opens
+> on the Use key (E)** — the same gesture the Surveyor's Table uses — off "Map" entirely, so
+> it's correct regardless of the nomap config. Authoritative path: `cartography-impl-spec.md`
+> §2F. **Separately surfaced (NOT this card):** the v1 "no M-key full map" baseline
+> (`PARKED-2026-06-03.md:20`) was never actually implemented — no patch clamps vanilla's
+> Large map — so under `nomap=OFF` players currently have the full vanilla map. Whether to
+> ship that nerf (a `Minimap.SetMapMode` clamp) or relax the baseline is a separate Daniel
+> call (impl-spec §2F.3).
+
 ## 7. Construction, gating & build-order summary
 
 - **Build order (lowest→highest risk):** Map Station piece (clean — it's a
