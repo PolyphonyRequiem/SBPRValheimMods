@@ -52,6 +52,88 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Create a fresh empty GameObject parented under the inactive prefab holder, so
+        /// no <c>Awake</c> fires while a feature module assembles its components on it
+        /// (the same discipline <see cref="ClonePrefab"/> + <see cref="ConstructPieceShell"/>
+        /// use). Returns null only if the holder can't be created (never, in practice).
+        /// ADR-0006: the additive entry point for a feature that wants full control over
+        /// which components it adds, rather than the fixed skeleton ConstructPieceShell bakes.
+        /// </summary>
+        public static GameObject NewHolderObject(string name)
+        {
+            var h = GetHolder();
+            var go = new GameObject(name);
+            go.transform.SetParent(h.transform, worldPositionStays: false);
+            return go;
+        }
+
+        /// <summary>
+        /// ADDITIVELY graft a vanilla prefab's VISUAL mesh as a fresh child of
+        /// <paramref name="dst"/> — by READING the blueprint's <c>MeshFilter.sharedMesh</c>
+        /// + <c>MeshRenderer.sharedMaterials</c> references and attaching them to a NEW
+        /// GameObject (with the donor child's local TRS), NOT by Instantiating the
+        /// blueprint. Reading a shared mesh/material reference off a vanilla prefab is
+        /// explicitly permitted by ADR-0006 ("Copying ... a shared mesh onto our own
+        /// constructed GameObject is reference, not inheritance"); we never Instantiate the
+        /// ZNetView-bearing donor, so there is no init-ZDO window to orphan.
+        ///
+        /// Finds the first non-empty MeshFilter under <paramref name="blueprint"/> whose
+        /// GameObject name contains <paramref name="meshChildHint"/> (case-insensitive), or
+        /// the first mesh anywhere if the hint is null/empty. Returns the grafted child, or
+        /// null if the blueprint has no matching mesh (logged once). The grafted child
+        /// carries ONLY MeshFilter + MeshRenderer — no collider, no ZNetView, no script.
+        /// </summary>
+        public static GameObject? GraftMeshFromBlueprint(
+            GameObject? blueprint, GameObject dst, string childName, string? meshChildHint = null)
+        {
+            if (blueprint == null || dst == null) return null;
+
+            MeshFilter? srcMf = null;
+            foreach (var mf in blueprint.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                if (string.IsNullOrEmpty(meshChildHint) ||
+                    mf.gameObject.name.IndexOf(meshChildHint, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    srcMf = mf;
+                    break;
+                }
+            }
+            // Fall back to the first mesh of any name if the hint matched nothing.
+            if (srcMf == null)
+            {
+                foreach (var mf in blueprint.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (mf != null && mf.sharedMesh != null) { srcMf = mf; break; }
+                }
+            }
+            if (srcMf == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftMeshFromBlueprint: blueprint '{blueprint.name}' has no mesh to graft " +
+                    $"(child '{childName}' will be empty). Visual will be bare — still functional.");
+                return null;
+            }
+
+            var child = new GameObject(childName);
+            child.transform.SetParent(dst.transform, worldPositionStays: false);
+            // Preserve the donor mesh-child's local transform relative to the donor ROOT,
+            // so the plank/post lands where it does on the vanilla prefab.
+            var srcT = srcMf.transform;
+            var blueT = blueprint.transform;
+            child.transform.localPosition = blueT.InverseTransformPoint(srcT.position);
+            child.transform.localRotation = Quaternion.Inverse(blueT.rotation) * srcT.rotation;
+            child.transform.localScale    = srcT.lossyScale;
+
+            var mf2 = child.AddComponent<MeshFilter>();
+            mf2.sharedMesh = srcMf.sharedMesh;     // reference, not a copy — clean-room safe
+            var mr2 = child.AddComponent<MeshRenderer>();
+            var srcMr = srcMf.GetComponent<MeshRenderer>();
+            if (srcMr != null) mr2.sharedMaterials = srcMr.sharedMaterials;  // reference array
+            return child;
+        }
+
+        /// <summary>
         /// Clone a registered prefab from ZNetScene under a new name.
         /// Caller is responsible for adding the clone back into ZNetScene + ObjectDB.
         /// </summary>

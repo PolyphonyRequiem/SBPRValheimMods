@@ -211,6 +211,42 @@ Each entry has:
 
 > **Local Map** (`SBPR_LocalMap`, item) + **Cartographer's Kit** (`SBPR_CartographersKit`, item) + the **forked map viewer** (`MapViewer`) are the sibling/downstream cartography cards (t_7b616020, t_c871efec) — specced in `cartography-impl-spec.md` §2/§3, not yet implemented. Their dataset rows land with their impl PRs.
 
+## Trailborne v2 (Black Forest) — Marker Signs / WorldPins
+
+> v2 cartography tier. These four Marker Sign pieces are the **WorldPin substrate**
+> the tier consumes (the Surveyor's Table edits WorldPins; the Local Map renders them).
+> Design lock: `docs/design/marker-signs-worldpin.md`; impl spec:
+> `docs/v2/planning/marker-signs-impl-spec.md`. Shipped in build-order milestones:
+> **M1 = the four pieces + tag + spade wiring + SpecCheck (this entry)**; the Shift+E
+> pin/unpin gesture + the WorldPin projection/reconcile engine are gated follow-ups
+> (see the impl card t_0c7b782d review-required handoff — the durable cross-player
+> unpin needs a server-authoritative scan/RPC the spec deferred to the cartography
+> Table card).
+
+### Pieces
+
+#### Marker Signs (POI / Mining / Shelter / Portal)
+
+| Field | Value |
+|---|---|
+| Display name | Marker: Point of Interest / Marker: Mining / Marker: Shelter / Marker: Portal |
+| Prefab name | `piece_sbpr_marker_poi` / `piece_sbpr_marker_mining` / `piece_sbpr_marker_shelter` / `piece_sbpr_marker_portal` — **save/wire contract, do NOT rename** (placed markers store these as the ZDO-keyed pin identity). Four distinct pieces, NOT one piece with a type selector (Q3). |
+| Type | `Piece` (Sign variant — carries a vanilla `Sign` so the paint/text panel + interaction stack apply) |
+| Mod | Trailborne (v2) |
+| Biome tier | Black Forest (v2 cartography tier) |
+| Craft station | None to place — on the **Trailblazer's Spade build menu** ('Trail' tab, Pillar 1: Spade never Hammer). `Piece.m_craftingStation = null`. |
+| Recipe | 2 Wood each (placed cost; same fieldcraft tier as the Painted Sign — the map pin is the value-add, not a costlier recipe). |
+| Function | A buildable trail marker that, on **Shift+use**, pins/unpins itself on the player's map with a **custom type-coded marker icon** (magnifying glass / pickaxe / tent / circle). The pin is a durable, ZDOID-keyed WorldPin that disappears when the sign is destroyed — including destroyed while its zone is unloaded / the placer is offline (derive-by-scan reconcile). Primary use (E) opens a dedicated reference panel showing the marker icon, name, pin state, and a Pin/Unpin button. |
+| Visual notes | **ADDITIVE construction (ADR-0006, AT-PIN-ADR0006)** — `new GameObject()` + `AddComponent` of Piece + WearNTear + ZNetView(`m_persistent=true`) + Sign + `MarkerSignTag` + a root BoxCollider. The board plank + 2m post are grafted by **reading** the vanilla `sign` / `wood_pole2` mesh+material references (NOT an Instantiate-then-strip of those ZNetView-bearing prefabs). A minimal additive world-space TMP widget is built and bound to `Sign.m_textWidget` so the vanilla Sign poll has a widget to write into (a null widget would NRE). First cut: **piece build-icon art = the marker icon art** (Daniel: "for now, just make the piece art the icon art"); the "icon overlaid on the piece art" is v2.1 polish. Placeholder glyph PNGs in `assets/icons/items/marker_{poi,mining,shelter,portal}_v0.1.png` (regenerable at the same filename via `scripts/gen_marker_icons_v01.py`). Board/post seat heights are v0.2+ visual polish (design §1.2 — silhouette not load-bearing for M1). |
+| Patch surface | Registration via `MarkerSigns.RegisterPrefabs` (Registrar fan-out) + ODB resource rebuild + spade-table add in `Trailblazing`. `SignInteractPatch` recognises `MarkerSignTag`: **primary E → dedicated `MarkerSignPanel`** (icon + name + pin-state + Pin/Unpin button — NOT the pigment `SignPaintPanel`, which hard-requires a `SignTag` and has no marker colors); **Shift+E (`alt==true`) → toggle `SBPR_Pinned` + project/remove the WorldPin** (fast path). WorldPin engine in `WorldPins.cs` (`AddPin save:false` + `m_icon` override + derive-by-scan reconcile); triggers in `WorldPinReconcilePatches.cs` (`Minimap.SetMapMode` map-open, throttled `Minimap.Update` tick, `Minimap.Awake` stale-projection reset). Destroy hook = `MarkerSignTag` subscribes `WearNTear.m_onDestroyed` (public `Action`, no Harmony) → `WorldPins.OnMarkerDestroyed`. `SignPanelInputBlock` widened to gate on either panel (`AnyOpen`). |
+| ZDO fields | `SBPR_MarkerType` (string: poi/mining/shelter/portal), `SBPR_Pinned` (bool), `SBPR_PinIconColor` + `SBPR_PinTextColor` (RESERVED, unused first cut — Q1 defers per-pin color; reserved so the fast-follow needs no ZDO migration). Owner-write via ZNetView. |
+| Status | **M1+M2+M3 IMPLEMENTED** (card t_0c7b782d): 4 additive pieces + tag + spade wiring + SpecCheck +4 rows (M1); WorldPin projection + derive-by-scan reconcile engine + triggers (M2); Shift+E pin/unpin gesture + dedicated MarkerSignPanel + WearNTear destroy hook (M3). Build 0/0. **logs-green ≠ playable** — AT-MARK-1/2, AT-PIN-PERSIST, AT-PIN-DESTROY-LOADED/DURABLE, AT-PIN-ADR0006, AT-PILLAR-2 close only on Daniel's in-game check. **MVP scope:** renders to the player-centered minimap circle (v1 nerfs the full map); the 1000 m disc-bound, server-authoritative-RPC variant is deferred to the cartography viewer cards (both currently archived/triage). |
+| Source spec | `docs/design/marker-signs-worldpin.md` + `docs/v2/planning/marker-signs-impl-spec.md` |
+
+### Patched vanilla entities (v2)
+
+- **Minimap (WIRED, M2/M3, card t_0c7b782d)** — the WorldPin projection calls `Minimap.AddPin(..., save:false)` + overrides `PinData.m_icon` with the custom marker sprite (a `save:false` projection so vanilla never persists our pins), reconciled by a derive-by-scan over live marker-sign ZDOs (`ZDOMan.GetAllZDOsWithPrefabIterative`). Trigger postfixes: `Minimap.SetMapMode` (map-open full reconcile), throttled `Minimap.Update` (periodic tick), `Minimap.Awake` (stale-projection reset for fresh-map rebuild). Renders to the player-centered minimap circle in the v1 MVP (no disc bound); the 1000 m disc-bound, server-authoritative-scan variant is deferred to the cartography viewer cards.
+
 ---
 
 ## Trailborne v1.1 (planned, not yet specced)
