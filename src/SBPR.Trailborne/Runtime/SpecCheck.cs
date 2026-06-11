@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Linq;
 using SBPR.Trailborne.Features.Pigments;
 using SBPR.Trailborne.Features.Cairns;
+using SBPR.Trailborne.Features.MarkerSigns;
+using SBPR.Trailborne.Features.Cartography;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -19,8 +21,14 @@ namespace SBPR.Trailborne.Runtime
     /// the moment drift appears.
     ///
     /// LOCKED SOURCE: docs/v0.1.0/planning/requirements.md
-    /// (lines 170-222, 318-323). Update BOTH this manifest AND the spec
-    /// in the same commit when intentionally changing a recipe.
+    /// (lines 170-222, 318-323) for the Meadows manifest;
+    /// docs/v2/planning/requirements.md §1/§3 + docs/v2/planning/cartography-impl-spec.md §0
+    /// for the Black-Forest cartography rows (Surveyor's Table piece; Cartographer's Kit
+    /// item recipe — the 40-pigment gate);
+    /// docs/design/marker-signs-worldpin.md + docs/v2/planning/marker-signs-impl-spec.md
+    /// (§0 manifest table) for the v2 marker-sign rows.
+    /// Update BOTH this manifest AND the relevant spec in the same commit when
+    /// intentionally changing a recipe.
     /// </summary>
     internal static class SpecCheck
     {
@@ -58,6 +66,15 @@ namespace SBPR.Trailborne.Runtime
                 Resources = new[] { R("Wood", 2) }
             },
 
+            // ── v2 Black-Forest cartography (impl spec §0 row 1; card t_2715661d) ──
+            // Surveyor's Table — placed station, NO bench-in-range to place
+            // (m_craftingStation = null). Black-Forest tier. LOCKED per
+            // docs/v2/planning/requirements.md §1 + cartography-impl-spec.md §0/§1.2.
+            new RecipeSpec {
+                Piece = "piece_sbpr_surveyors_table", Station = null,
+                Resources = new[] { R("FineWood", 10), R("Bronze", 2), R("DeerHide", 4), R("BoneFragments", 8) }
+            },
+
             // ── Item recipes ───────────────────────────────────────────
             new RecipeSpec {
                 Item = "SBPR_TrailblazersSpade", Station = "piece_sbpr_explorers_bench", Amount = 1,
@@ -78,6 +95,31 @@ namespace SBPR.Trailborne.Runtime
             new RecipeSpec {
                 Item = Pigments.PigmentBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
                 Resources = new[] { R("Coal", 1) }
+            },
+
+            // ── v2 Black-Forest cartography (impl spec §0 row 2; card t_cb831069) ──
+            // Local Map — TwoHandedWeapon item, crafted blank at the Explorer's Bench,
+            // imprinted at a Surveyor's Table. LOCKED per docs/v2/planning/requirements.md §2
+            // + cartography-impl-spec.md §0/§2A.1: DeerHide ×1 + FineWood ×1, amount 1.
+            new RecipeSpec {
+                Item = "SBPR_LocalMap", Station = "piece_sbpr_explorers_bench", Amount = 1,
+                Resources = new[] { R("DeerHide", 1), R("FineWood", 1) }
+            },
+
+            // ── v2 Black-Forest cartography (impl spec §0 row 3; card t_65fcfe5c) ──
+            // Cartographer's Kit — Utility-slot accessory that GATES auto-mapping. The
+            // 40-pigment recipe IS the gate (no discovery flag). LOCKED per
+            // docs/v2/planning/requirements.md §3 + cartography-impl-spec.md §0/§3.1.
+            // Pigment resource names are the SBPR_Ink* wire values via Pigments.*Name.
+            new RecipeSpec {
+                Item = CartographersKit.KitName, Station = "piece_sbpr_explorers_bench", Amount = 1,
+                Resources = new[] {
+                    R(Pigments.PigmentRedName,   10),
+                    R(Pigments.PigmentWhiteName, 10),
+                    R(Pigments.PigmentBlueName,  10),
+                    R(Pigments.PigmentBlackName, 10),
+                    R("FineWood", 4),
+                }
             },
         };
 
@@ -177,6 +219,27 @@ namespace SBPR.Trailborne.Runtime
                     // Upgrade-cost validation happens at runtime in Cairns.TryUpgradeCairn.
                     var expected = new[] { R("Stone", 9), R("Resin", 1), R(markerName, 1) };
                     CompareResources(cairnName, expected, cairnPiece.m_resources, ref errors);
+                }
+            }
+
+            // ── v2 Marker Signs (4 additive build pieces, Wood x2) ──
+            // Generated rather than enumerated (4× repetitive) — same DRY pattern as the
+            // cairn loop above. These are build pieces (Item == null), Wood x2, no station
+            // (placed via the spade). Source: marker-signs-impl-spec.md §0.
+            foreach (var mk in MarkerSigns.MarkerTypes)
+            {
+                checks++;
+                var prefab = zns.GetPrefab(mk.PrefabName);
+                var piece  = prefab != null ? prefab.GetComponent<Piece>() : null;
+                if (piece == null)
+                {
+                    Plugin.Log.LogError($"[Trailborne/SpecCheck] MISSING PIECE: {mk.PrefabName}");
+                    errors++;
+                }
+                else
+                {
+                    var expected = new[] { R("Wood", MarkerSigns.WoodCost) };
+                    CompareResources(mk.PrefabName, expected, piece.m_resources, ref errors);
                 }
             }
 

@@ -295,6 +295,38 @@ namespace SBPR.Trailborne
             // client (LoadWorld only runs under ServerLoadWorld's m_isServer gate).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Trailblazing.LegacyTerrainOpZdoCleanup));
 
+            // v2 Marker Signs — WorldPin reconcile-trigger driver (card t_0c7b782d). Postfixes
+            // Minimap.SetMapMode (map-open → full reconcile, the load-bearing trigger) and a
+            // throttled Minimap.Update (light periodic tick) to keep the projected WorldPin set
+            // consistent with the live marker-sign ZDOs (derive-by-scan, design §4.4). The
+            // Shift+E pin gesture itself rides the already-registered SignInteractPatch; this
+            // class only drives the projection/reconcile engine. Client-only by construction:
+            // Minimap.instance is null on the dedicated server, so the reconcile early-outs there.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.MarkerSigns.WorldPinReconcilePatches));
+
+            // v2 Local Map (card t_cb831069) — the two-handed map item's equip discipline +
+            // its bounded-viewer binding bootstrap.
+            //  • LocalMapEquipPatch: prefix+postfix on Humanoid.EquipItem (overload-disambiguated
+            //    by Type[]{ItemData,bool}) implementing the torch exception (C12/AT-MAP-TORCH) —
+            //    ItemType=TwoHandedWeapon already gives the block-clear for free; this re-seats a
+            //    left-hand Torch after the eviction so a lit map at night works.
+            //  • LocalMapBootstrapPatch: postfix on Minimap.Start attaching the client-only
+            //    LocalMapController (carry/equip state machine driving the bounded viewer).
+            // Both client-relevant; the equip patch is server-safe (gated on our item) and the
+            // bootstrap never fires server-side (no Minimap on the dedicated server).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapEquipPatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapBootstrapPatch));
+
+            // v2 Cartographer's Kit — the auto-mapping GATE (card t_65fcfe5c, impl-spec §3.2).
+            // Prefix on Minimap.UpdateExplore(float, Player): no-ops the personal walking-reveal
+            // fog write unless the local player wears the Cartographer's Kit in the Utility slot.
+            // Minimap.Update calls UpdateExplore unconditionally every frame (decomp :47056), so
+            // fog accumulates even under v1's server-side nomap config — this gate makes that
+            // accumulation Kit-dependent (AT-KIT-GATE). Client-only by construction: the dedicated
+            // server has no Minimap, so UpdateExplore never runs there. The nested patch class is
+            // registered explicitly so the PatchCheck watchdog sees it wove a method.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.CartographersKit.UpdateExploreGate));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be

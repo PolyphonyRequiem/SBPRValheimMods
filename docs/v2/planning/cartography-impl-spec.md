@@ -60,11 +60,21 @@ alongside the v0.1.0 source, and generalize the "v0.1.0 locked manifest" wording
 
 ## 1. Surveyor's Table — placed station retaining a shared 1000 m survey
 
-**Lands in:** `Features/Cartography/SurveyorsTable.cs` (+ `SurveyorTableTag.cs` for the
-MonoBehaviour). New feature folder `Features/Cartography/` (first v2 feature; mirror the
-vertical-slice layout of `Features/Cairns/`, `Features/Signs/`).
-**Card:** `t_38f9c77a` (engineer-systems).
-**Depends on:** this spec (recipe + bench lock) **and** the viewer (§2B) it opens.
+> **IMPL STATUS (2026-06-10, card t_2715661d, engineer-systems):** built additively on
+> branch `feat/surveyors-table-t_2715661d`; build 0/0; SpecCheck row 1 added. Code +
+> spec + manifest move together (this PR). **Two build-card deviations from the sketch
+> below, flagged for review:** (a) §1.1 sketches "one `Switch` (Use → open viewer)"; the
+> impl instead implements `Hoverable + Interactable` directly on `SurveyorTableTag` — the
+> repo's proven in-production interactable pattern (`CairnInteractable`), avoiding a
+> child-collider/`Switch`-delegate wiring layer for the same behaviour. (b) The forked
+> VIEWER itself is the downstream card `t_7b616020` (engineer-ui), so this card ships the
+> survey DATA + ZDO persistence + contribute/merge + ward gate + pin-removal BACKEND +
+> a `CartographyViewer` seam the viewer plugs into; until that card lands, Use records +
+> persists the survey and shows a "viewer not installed yet" message (no data lost). The
+> windowed-fog cell math (`BoundedMapMath`) is the productionized, executed-proven spike
+> seam (`t_e8bbbe48`). **logs-green ≠ playable — Daniel verifies in-game.**
+
+**Lands in:** `Features/Cartography/SurveyorsTable.cs` (registration) + `SurveyorTableTag.cs`
 
 ### 1.1 Construction (ADR-0006 additive — hard constraint)
 - `new GameObject("piece_sbpr_surveyors_table")` + `AddComponent` of exactly: `Piece`,
@@ -129,10 +139,32 @@ vertical-slice layout of `Features/Cairns/`, `Features/Signs/`).
 
 ## 2. Local Map — two-handed item + bounded forked viewer
 
-**Lands in:** `Features/Cartography/LocalMap.cs` (item + recipe + the equip patch) and
-`Features/Cartography/MapViewer.cs` (the forked viewer, shared with the Table).
-**Card:** `t_7b616020` (engineer-ui; the equip patch may pair briefly with
-engineer-systems). **The viewer is the tier's single biggest build-risk.**
+> **IMPL STATUS (2026-06-10, card t_cb831069, engineer-ui):** built FULL (not MVP) on
+> branch `feat/local-map-viewer-t_cb831069` off `integ/v2-cartography`; build 0/0
+> (`TreatWarningsAsErrors` ON); SpecCheck row 2 (`SBPR_LocalMap`) added; spec + code +
+> manifest + dataset move together (this PR). Milestones: **M-A** = the item + equip/torch
+> patch + binding controller; **M-B** = the forked viewer render (`MapViewer.cs`,
+> productionized from the spike); **M-C** = pin-click removal + WorldPins-seam consumption +
+> the fork's own open path. Every load-bearing vanilla signature was verified against
+> `assembly_valheim.dll` before coding (EquipItem/UnequipItem/GetCurrentBlocker overloads,
+> `ItemData.m_customData` round-trip, the nomap `SetMapMode` force, `AnimationState` nesting);
+> the windowed-cell projection + its click-inverse are proven by a standalone math harness
+> (8/8). **Two design clarifications flagged for review:** (a) §2A.4 says "equip + activate
+> → active minimap"; under v1's `nomap` world key vanilla forces `Minimap` to `None` and
+> keeps BOTH map roots off (decomp `SetMapMode :975`), so the viewer is a STANDALONE uGUI
+> overlay (the spike's design) and equipping BINDS the map while the vanilla **"Map" button**
+> (otherwise dead under nomap) ACTIVATES the full view — the fork owning its own open path,
+> exactly as §2B requires. (b) The "active minimap shows ONLY its disc" is realized as the
+> fork's own bounded full-view overlay, not a re-skin of vanilla's nomap-suppressed minimap
+> circle. **logs-green ≠ playable — Daniel verifies the in-game pixel render + equip feel
+> (F9/Map-key + in-hand) per AT-MAP-* below; the per-AT status table is in the PR handoff.**
+
+**Lands in:** `Features/Cartography/LocalMap.cs` (item + recipe + `LocalMapItemTag`),
+`Features/Cartography/LocalMapEquipPatch.cs` (the torch-exception equip patch),
+`Features/Cartography/LocalMapController.cs` + `LocalMapBootstrapPatch.cs` (carry/equip
+binding state machine), and `Features/Cartography/MapViewer.cs` (the forked viewer, shared
+with the Table via the `CartographyViewer` seam).
+**Card:** `t_cb831069` (engineer-ui). **The viewer is the tier's single biggest build-risk.**
 **Depends on:** this spec (ItemType + recipe lock) **and** the UI-fork spike (`t_e8bbbe48`).
 
 ### 2A — The item, equip behavior, and the torch patch
@@ -264,6 +296,27 @@ engineer-systems). **The viewer is the tier's single biggest build-risk.**
 ---
 
 ## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping
+
+> **IMPL STATUS (2026-06-10, card t_65fcfe5c, engineer-systems):** built additively on
+> branch `feat/cartographers-kit-t_65fcfe5c` off `integ/v2-cartography`; build 0/0
+> (`TreatWarningsAsErrors` ON); SpecCheck row 3 added; code + spec + manifest + dataset
+> move together (this PR). **Construction:** new `Assets.ConstructItemShell` (the ADR-0006
+> item analogue of `ConstructPieceShell`) builds the networked item skeleton (ZNetView +
+> ZSyncTransform + Rigidbody + collider + ItemDrop with a FRESH `SharedData`) from scratch —
+> it does NOT clone a vanilla item (the pre-ADR Pigments/cairn-marker pattern). World-drop
+> mesh grafted off the vanilla `LeatherScraps` blueprint. **The gate is exactly §3.2's hook:**
+> a Harmony **Prefix on `Minimap.UpdateExplore(float, Player)`** returns `false` (skips the
+> fog write) unless the local player wears the Kit. **Spike claim VERIFIED against the decomp:**
+> `Minimap.Update` calls `UpdateExplore` *unconditionally* every frame (`:47056`), BEFORE any
+> map-mode/`Game.m_noMap` check, so personal fog accumulates even under v1's server-side nomap
+> config — gating `UpdateExplore` is the correct, sufficient boundary. **One detection
+> deviation flagged for review:** `Player.m_utilityItem` is `protected`, so the Kit is detected
+> via the PUBLIC `Inventory.GetEquippedItems()` + `m_dropPrefab` name (the same pair vanilla
+> uses at `VisEquipment` wiring, `:14158`) rather than reading `m_utilityItem` — same intended
+> boundary, public API. **Coupling note for the viewer card (t_cb831069):** this gate controls
+> whether vanilla writes `m_explored` at all; the viewer READS that same `m_explored` window.
+> One fog-write model — the Kit is the write-gate, the viewer is the reader; not forked.
+> **logs-green ≠ playable — Daniel verifies AT-KIT-* in-game.**
 
 **Lands in:** `Features/Cartography/CartographersKit.cs` (item + recipe + the gate patch).
 **Card:** `t_c871efec` (engineer-systems). Smaller / lower-risk than the viewer.

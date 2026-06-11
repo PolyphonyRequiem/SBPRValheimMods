@@ -183,6 +183,122 @@ Each entry has:
 
 ---
 
+## Trailborne v2 (Black Forest) — Cartography
+
+> Spec: `docs/v2/planning/requirements.md` + `docs/v2/planning/cartography-impl-spec.md`.
+> Three interlocking features (Surveyor's Table + Local Map + Cartographer's Kit). The
+> Table is the FOUNDATION (lowest risk); the Local Map viewer (highest risk) builds on it.
+
+### Pieces
+
+#### Surveyor's Table
+
+| Field | Value |
+|---|---|
+| Display name | Surveyor's Table |
+| Prefab name | `piece_sbpr_surveyors_table` |
+| Type | `Piece` (placed station; custom `SurveyorTableTag : MonoBehaviour`, Hoverable + Interactable) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed in-world via the **Trailblazer's Spade build menu** ('Trail' tab), like every Spade-placed SBPR piece. (Architect REVERSED the proposed bench-in-range lean, 2026-06-10.) |
+| Recipe (build) | Fine Wood ×10 + Bronze ×2 + Deer Hide ×4 + Bone Fragments ×8 |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`, like all spade pieces; `EnsureCategory` guards drift) |
+| Function | Retains a **shared, cumulative, windowed 1000 m survey** of its own disc, persisted compressed in the Table ZDO (`ZDOVars.s_data`) like vanilla MapTable. **Using it** merges the surveyor's in-disc explored fog + in-disc shareable pins into the shared record (cumulative OR-merge; beyond-1000 m dropped — C5) and opens the forked viewer on the SHARED data with **pin removal enabled** (D4). Ward-gated (`PrivateArea.CheckAccess`) like vanilla. Persists across server restart (AT-TABLE-PERSIST). |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructPieceShell` builds the networked skeleton (ZNetView + Piece + WearNTear + collider) from scratch; the vanilla `piece_cartographytable` is read ONLY as a visual blueprint and its mesh subtree (`new`, material `Cartographer_mat`) is grafted as a ZNetView-free cosmetic child (`Assets.GraftVisualSubtree`). NEVER instantiates the vanilla MapTable prefab. HP 800 (tunable v0.2+). Collider/material/HP are visual-polish flags for Daniel's in-game pass. |
+| Patch surface | None (no Harmony patch). Self-contained: `SurveyorTableTag` owns the survey, ZDO persistence (owner-write via `ZNetView.IsOwner`/`InvokeRPC` like vanilla MapTable `RPC_MapData`), contribute-on-use, ward gate, and the pin-removal backend (`ICartographyPinEditor`). The forked viewer is the separate card t_7b616020; the `CartographyViewer` seam decouples them (graceful no-op until the viewer registers). Windowed-fog cell math = `BoundedMapMath` (productionized spike seam t_e8bbbe48). |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 1, card t_2715661d, 2026-06-10; `[hold]` PR, awaiting Daniel merge + in-game verify). **logs-green ≠ playable.** |
+| Source spec | `docs/v2/planning/requirements.md` §1 + `docs/v2/planning/cartography-impl-spec.md` §1 |
+
+### Items (v2 cartography)
+
+#### Local Map
+
+| Field | Value |
+|---|---|
+| Display name | Local Map |
+| Prefab name | `SBPR_LocalMap` |
+| Type | `ItemDrop`, **`ItemType.TwoHandedWeapon`** (=14, architect lock PR #94) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) — NOT the Surveyor's Table |
+| Recipe (craft) | Deer Hide ×1 + Fine Wood ×1 (amount 1) |
+| Function | A field map, **blank when crafted**. **Imprint at a Surveyor's Table** copies a SNAPSHOT (not a live link) of that table's windowed 1000 m survey + bound-origin onto the item instance. **Two-handed equip** hard-unequips weapon+shield (never hides — block-clears by construction via the vanilla `TwoHandedWeapon` `EquipItem` branch); a left-hand **Torch** is allowed back (lit map at night). **Minimap binding durable while in inventory; reverts to no-map the instant it leaves.** **Full-screen bounded view requires it actively EQUIPPED.** Field view is read-only (no pin editing). |
+| Storage | Per-instance in `ItemDrop.ItemData.m_customData` (`sbpr_map_blob` = Base64(`Utils.Compress`(windowed `SurveyData`)), `sbpr_map_bound` = origin X;Z). **Verified at build** to round-trip `Inventory.Save/Load` (player profile ZPackage) AND the dropped-item ZDO on this game version — so it persists restart/drop/trade; no ZDO "map case" fallback needed. One format with the Table + viewer (§2C). |
+| Patch surface | `LocalMapEquipPatch` — prefix+postfix on `Humanoid.EquipItem(ItemData,bool)` (overload-disambiguated): the torch exception (C12/AT-MAP-TORCH). `LocalMapBootstrapPatch` — postfix on `Minimap.Start` attaching the client-only `LocalMapController` (carry/equip state machine). Combat suppressed by empty `m_attack`/`m_secondaryAttack` animations (`HavePrimaryAttack`/`HaveSecondaryAttack` false → no LMB/RMB/block — AT-MAP-BLOCKCLEAR). Item built by the repo's clone-and-reshape idiom (donor `Hoe`, like the Spade): type reshaped to TwoHandedWeapon, build PieceTable nulled, attacks emptied. |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 2, card t_cb831069; merged to `integ/v2-cartography` via PR #101, awaiting Daniel's integ→v1 merge + in-game verify). **logs-green ≠ playable** — the in-game pixel render + equip feel are F9/in-hand checks. |
+| Source spec | `docs/v2/planning/requirements.md` §2 + `docs/v2/planning/cartography-impl-spec.md` §2 |
+
+#### Forked map viewer (`MapViewer`) — not a craftable
+
+The bounded forked viewer is the render engine shared by the Local Map (field, read-only)
+and the Surveyor's Table (TableEdit, pin removal). It is **not an item/piece** (no recipe,
+no dataset row of its own); it registers behind the `CartographyViewer` seam. Productionized
+from the GO-WITH-CAVEATS spike (`t_e8bbbe48`): paints OUR windowed fog `Texture2D` onto a
+standalone uGUI `Canvas`/`RawImage` at fixed zoom (NOT vanilla's 4-texture shader composite,
+NOT vanilla's nomap-suppressed map roots), hard 1000 m disc clip, polar edge-arrow clamp to
+the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
+
+#### Cartographer's Kit
+
+| Field | Value |
+|---|---|
+| Display name | Cartographer's Kit |
+| Prefab name | `SBPR_CartographersKit` |
+| Type | `ItemDrop`, **`ItemType.Utility` (= 18)** — the Utility slot (player's `m_utilityItem`), same slot as Megingjord / Wishbone. Coexists with any weapon / shield / Local Map; never a hand item (AT-KIT-COEXIST). |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
+| Recipe (craft) | Red Pigment ×10 + White Pigment ×10 + Blue Pigment ×10 + Black Pigment ×10 + Fine Wood ×4 → 1 (the **40-pigment cost IS the gate**; pigments referenced via `Pigments.Pigment{Red,White,Blue,Black}Name`, values `SBPR_Ink*`) |
+| Function | **Gates the personal auto-map's passive fog reveal.** Kit worn → walking reveals fog (vanilla `Minimap.UpdateExplore` runs); Kit absent → ZERO passive reveal (AT-KIT-GATE). The fog it accumulates is what gets imprinted at a Surveyor's Table. **NO discovery-flag system** (C10) — a normal recipe surfaced the vanilla way (`IsKnownMaterial`). |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructItemShell` builds the networked item skeleton (ZNetView + ZSyncTransform + Rigidbody + collider + ItemDrop with a FRESH SharedData) from scratch; NEVER clones a vanilla item (the pre-ADR Pigments/cairn-marker pattern). World-drop mesh grafted as a ZNetView-free cosmetic child off the vanilla `LeatherScraps` blueprint (`Assets.GraftVisualSubtree`, child `attach`). Inventory icon `cartographers_kit_v0.1.png` (v0.1 placeholder; icon is MANDATORY — the crafting UI indexes `m_icons[0]`). Utility items have no worn-body attach visual. Mesh/icon are visual-polish flags for Daniel's in-game pass. |
+| Patch surface | **Harmony Prefix on `Minimap.UpdateExplore(float, Player)`** (decomp :48005) — no-ops the personal walking-reveal fog write unless the local player wears the Kit. Gates ONLY `UpdateExplore` (the single personal-reveal entry), NOT `Explore` directly (also reached from shared-data merges that must work without the Kit). Equipped-Kit detection via public `Inventory.GetEquippedItems()` + `m_dropPrefab` name (`m_utilityItem` is protected). Client-only by construction (no Minimap on the dedicated server); fails OPEN on error. **Touches the same Minimap explore path the Local-Map viewer (t_cb831069) reads — one fog-write model, not forked.** |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 3, card t_65fcfe5c, 2026-06-10; merged to `integ/v2-cartography` via PR #102, awaiting Daniel's integ→v1 merge + in-game verify). **logs-green ≠ playable.** |
+| Source spec | `docs/v2/planning/requirements.md` §3 + `docs/v2/planning/cartography-impl-spec.md` §3 |
+
+> **v2 cartography tier status:** the **Surveyor's Table** (`piece_sbpr_surveyors_table`, #99),
+> **Local Map** + **forked map viewer** (`SBPR_LocalMap` / `MapViewer`, #101), and the
+> **Cartographer's Kit** (`SBPR_CartographersKit`, #102) are ALL implemented and merged onto
+> `integ/v2-cartography`. The branch awaits Daniel's in-game playtest + the final integ→v1
+> merge gate. **logs-green ≠ playable** until that pass.
+
+## Trailborne v2 (Black Forest) — Marker Signs / WorldPins
+
+> v2 cartography tier. These four Marker Sign pieces are the **WorldPin substrate**
+> the tier consumes (the Surveyor's Table edits WorldPins; the Local Map renders them).
+> Design lock: `docs/design/marker-signs-worldpin.md`; impl spec:
+> `docs/v2/planning/marker-signs-impl-spec.md`. Shipped in build-order milestones:
+> **M1 = the four pieces + tag + spade wiring + SpecCheck (this entry)**; the Shift+E
+> pin/unpin gesture + the WorldPin projection/reconcile engine are gated follow-ups
+> (see the impl card t_0c7b782d review-required handoff — the durable cross-player
+> unpin needs a server-authoritative scan/RPC the spec deferred to the cartography
+> Table card).
+
+### Pieces
+
+#### Marker Signs (POI / Mining / Shelter / Portal)
+
+| Field | Value |
+|---|---|
+| Display name | Marker: Point of Interest / Marker: Mining / Marker: Shelter / Marker: Portal |
+| Prefab name | `piece_sbpr_marker_poi` / `piece_sbpr_marker_mining` / `piece_sbpr_marker_shelter` / `piece_sbpr_marker_portal` — **save/wire contract, do NOT rename** (placed markers store these as the ZDO-keyed pin identity). Four distinct pieces, NOT one piece with a type selector (Q3). |
+| Type | `Piece` (Sign variant — carries a vanilla `Sign` so the paint/text panel + interaction stack apply) |
+| Mod | Trailborne (v2) |
+| Biome tier | Black Forest (v2 cartography tier) |
+| Craft station | None to place — on the **Trailblazer's Spade build menu** ('Trail' tab, Pillar 1: Spade never Hammer). `Piece.m_craftingStation = null`. |
+| Recipe | 2 Wood each (placed cost; same fieldcraft tier as the Painted Sign — the map pin is the value-add, not a costlier recipe). |
+| Function | A buildable trail marker that, on **Shift+use**, pins/unpins itself on the player's map with a **custom type-coded marker icon** (magnifying glass / pickaxe / tent / circle). The pin is a durable, ZDOID-keyed WorldPin that disappears when the sign is destroyed — including destroyed while its zone is unloaded / the placer is offline (derive-by-scan reconcile). Primary use (E) opens a dedicated reference panel showing the marker icon, name, pin state, and a Pin/Unpin button. |
+| Visual notes | **ADDITIVE construction (ADR-0006, AT-PIN-ADR0006)** — `new GameObject()` + `AddComponent` of Piece + WearNTear + ZNetView(`m_persistent=true`) + Sign + `MarkerSignTag` + a root BoxCollider. The board plank + 2m post are grafted by **reading** the vanilla `sign` / `wood_pole2` mesh+material references (NOT an Instantiate-then-strip of those ZNetView-bearing prefabs). A minimal additive world-space TMP widget is built and bound to `Sign.m_textWidget` so the vanilla Sign poll has a widget to write into (a null widget would NRE). First cut: **piece build-icon art = the marker icon art** (Daniel: "for now, just make the piece art the icon art"); the "icon overlaid on the piece art" is v2.1 polish. Placeholder glyph PNGs in `assets/icons/items/marker_{poi,mining,shelter,portal}_v0.1.png` (regenerable at the same filename via `scripts/gen_marker_icons_v01.py`). Board/post seat heights are v0.2+ visual polish (design §1.2 — silhouette not load-bearing for M1). |
+| Patch surface | Registration via `MarkerSigns.RegisterPrefabs` (Registrar fan-out) + ODB resource rebuild + spade-table add in `Trailblazing`. `SignInteractPatch` recognises `MarkerSignTag`: **primary E → dedicated `MarkerSignPanel`** (icon + name + pin-state + Pin/Unpin button — NOT the pigment `SignPaintPanel`, which hard-requires a `SignTag` and has no marker colors); **Shift+E (`alt==true`) → toggle `SBPR_Pinned` + project/remove the WorldPin** (fast path). WorldPin engine in `WorldPins.cs` (`AddPin save:false` + `m_icon` override + derive-by-scan reconcile); triggers in `WorldPinReconcilePatches.cs` (`Minimap.SetMapMode` map-open, throttled `Minimap.Update` tick, `Minimap.Awake` stale-projection reset). Destroy hook = `MarkerSignTag` subscribes `WearNTear.m_onDestroyed` (public `Action`, no Harmony) → `WorldPins.OnMarkerDestroyed`. `SignPanelInputBlock` widened to gate on either panel (`AnyOpen`). |
+| ZDO fields | `SBPR_MarkerType` (string: poi/mining/shelter/portal), `SBPR_Pinned` (bool), `SBPR_PinIconColor` + `SBPR_PinTextColor` (RESERVED, unused first cut — Q1 defers per-pin color; reserved so the fast-follow needs no ZDO migration). Owner-write via ZNetView. |
+| Status | **M1+M2+M3 IMPLEMENTED** (card t_0c7b782d): 4 additive pieces + tag + spade wiring + SpecCheck +4 rows (M1); WorldPin projection + derive-by-scan reconcile engine + triggers (M2); Shift+E pin/unpin gesture + dedicated MarkerSignPanel + WearNTear destroy hook (M3). Build 0/0. **logs-green ≠ playable** — AT-MARK-1/2, AT-PIN-PERSIST, AT-PIN-DESTROY-LOADED/DURABLE, AT-PIN-ADR0006, AT-PILLAR-2 close only on Daniel's in-game check. **MVP scope:** renders to the player-centered minimap circle (v1 nerfs the full map); the 1000 m disc-bound, server-authoritative-RPC variant is deferred to the cartography viewer cards (both currently archived/triage). |
+| Source spec | `docs/design/marker-signs-worldpin.md` + `docs/v2/planning/marker-signs-impl-spec.md` |
+
+### Patched vanilla entities (v2)
+
+- **Minimap (WIRED, M2/M3, card t_0c7b782d)** — the WorldPin projection calls `Minimap.AddPin(..., save:false)` + overrides `PinData.m_icon` with the custom marker sprite (a `save:false` projection so vanilla never persists our pins), reconciled by a derive-by-scan over live marker-sign ZDOs (`ZDOMan.GetAllZDOsWithPrefabIterative`). Trigger postfixes: `Minimap.SetMapMode` (map-open full reconcile), throttled `Minimap.Update` (periodic tick), `Minimap.Awake` (stale-projection reset for fresh-map rebuild). Renders to the player-centered minimap circle in the v1 MVP (no disc bound); the 1000 m disc-bound, server-authoritative-scan variant is deferred to the cartography viewer cards.
+
+---
+
 ## Trailborne v1.1 (planned, not yet specced)
 
 - Ember Lamps
@@ -195,7 +311,7 @@ Each entry has:
 ## Future SBPR mods (not yet specced)
 
 - **Guardian Stones** family — server worldbuilding (separate mod, separate spec)
-- **Surveyor's Table** + **Local Maps** + **Cartographer's Kit** (Trailborne v2 — now SPECCED; see `docs/design/cartography-v2.md` and `docs/v2/planning/`)
+- **Local Maps** + **Cartographer's Kit** (Trailborne v2 cartography — SPECCED, see `docs/v2/planning/`; the **Surveyor's Table** of this tier is now IMPLEMENTED — see the "Trailborne v2 (Black Forest)" section above)
 - **Real Tents** (Trailborne v2)
 - **Pocket Portal / Twisted Portal** (Trailborne v3+)
 - **Iron Compass** (Trailborne v3+, optional)

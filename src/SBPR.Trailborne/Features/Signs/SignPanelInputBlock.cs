@@ -34,13 +34,22 @@ namespace SBPR.Trailborne.Features.Signs
     /// </summary>
     public static class SignPanelInputBlock
     {
+        // True while EITHER SBPR sign panel is open — the Painted Sign paint/text panel OR
+        // the Marker Sign reference panel (v2, card t_0c7b782d) — OR the forked bounded map
+        // VIEWER (v2 cartography, card t_cb831069). All are full-screen uGUI surfaces that
+        // must block character/camera input and free the cursor identically.
+        internal static bool AnyOpen =>
+            SignPaintPanel.IsOpen
+            || MarkerSignPanel.IsOpen
+            || SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen;
+
         [HarmonyPatch(typeof(Player), "TakeInput")]
         public static class TakeInputPatch
         {
             [HarmonyPostfix]
             private static void Postfix(ref bool __result)
             {
-                if (SignPaintPanel.IsOpen) __result = false;
+                if (AnyOpen) __result = false;
             }
         }
 
@@ -55,7 +64,7 @@ namespace SBPR.Trailborne.Features.Signs
             [HarmonyPostfix]
             private static void Postfix(ref bool __result)
             {
-                if (SignPaintPanel.IsOpen) __result = false;
+                if (AnyOpen) __result = false;
             }
         }
 
@@ -65,7 +74,7 @@ namespace SBPR.Trailborne.Features.Signs
             [HarmonyPostfix]
             private static void Postfix()
             {
-                if (!SignPaintPanel.IsOpen) return;
+                if (!AnyOpen) return;
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
             }

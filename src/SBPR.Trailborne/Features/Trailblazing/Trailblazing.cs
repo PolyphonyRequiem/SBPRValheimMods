@@ -16,6 +16,12 @@ namespace SBPR.Trailborne.Features.Trailblazing
     // And for Cairns — the v0.2.2 hotfix moves the four cairn pieces onto the spade
     // PieceTable instead of the hammer, so we need the Cairns TYPE for CairnName().
     using Cairns = SBPR.Trailborne.Features.Cairns.Cairns;
+    // And for the Surveyor's Table (v2 cartography, t_2715661d) — a Spade-placed piece
+    // like Signs/Cairns, so we need the type for SurveyorsTable.TableName.
+    using SurveyorsTable = SBPR.Trailborne.Features.Cartography.SurveyorsTable;
+    // And for MarkerSigns — the v2 marker pieces live on the spade 'Trail' tab too,
+    // so we need the MarkerSigns TYPE for its prefab-name table.
+    using MarkerSigns = SBPR.Trailborne.Features.MarkerSigns.MarkerSigns;
 
     /// <summary>
     /// M3 content: Trailblazer's Spade real path/replant behavior, plus the
@@ -433,6 +439,16 @@ namespace SBPR.Trailborne.Features.Trailblazing
             AddSpadePieceByName(zns, table, Cairns.CairnName("white"));
             AddSpadePieceByName(zns, table, Cairns.CairnName("blue"));
             AddSpadePieceByName(zns, table, Cairns.CairnName("black"));
+            // v2 cartography (t_2715661d): the Surveyor's Table is Spade-placed, never the
+            // Hammer (design Pillar 1). PieceCategory.Misc like every spade piece, so it
+            // renders in the single 'Trail' tab (EnsureCategory guards drift).
+            AddSpadePieceByName(zns, table, SurveyorsTable.TableName);
+            // v2 Marker Signs — four additive marker pieces on the same 'Trail' tab
+            // (Pillar 1: Spade, never Hammer). Prefabs were registered in the earlier
+            // RegisterPrefabs pass, so they resolve by name here (same guarantee the
+            // Sign/Cairn wiring above relies on).
+            foreach (var mk in MarkerSigns.MarkerTypes)
+                AddSpadePieceByName(zns, table, mk.PrefabName);
 
             drop.m_itemData.m_shared.m_buildPieces = table;
             // Derive the count + name list from the live table rather than a hardcoded

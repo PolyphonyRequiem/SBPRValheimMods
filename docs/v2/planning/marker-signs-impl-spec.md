@@ -53,6 +53,14 @@ piece entries** (all new, all build pieces — no item recipes):
 
 ## 1. The four Marker Sign pieces — additive construction
 
+> **STATUS (M1+M2+M3 IMPLEMENTED, card t_0c7b782d):** the four additive pieces +
+> `MarkerSignTag` + spade wiring + SpecCheck +4 rows (M1), the WorldPin projection +
+> derive-by-scan reconcile engine + triggers (M2, §3), and the Shift+E pin/unpin gesture
+> + dedicated `MarkerSignPanel` + WearNTear destroy hook (M3, §4) are all built and
+> compile 0/0. The §1.4 panel shows the marker icon (via the dedicated panel — see the
+> §1.4 scope correction). **logs-green ≠ playable**: every AT closes only on Daniel's
+> in-game check.
+
 **Lands in:** `Features/MarkerSigns/MarkerSigns.cs` (registration + the type table) and
 `Features/MarkerSigns/MarkerSignTag.cs` (the per-instance MonoBehaviour). New feature
 folder `Features/MarkerSigns/` (mirror the vertical-slice layout of
@@ -138,13 +146,28 @@ ADR-0006. Build each marker piece additively:
 ### 1.4 The panel-icon-for-reference (AT-MARK-1)
 
 Daniel: "add the icon into the UI for reference." The marker's icon sprite shows in
-the paint/text panel when you interact (primary E) with a marker sign, so the player
-sees which marker type this is. Reuse the existing `SignPaintPanel` (`Features/Signs/
-SignPaintPanel.cs`) and add a single `Image` element bound to
-`MarkerSignTag.MarkerIcon`. **First cut: piece build-icon art = the marker icon art**
-(Daniel: "for now, just make the piece art the icon art") — set `piece.m_icon =
+the panel when you interact (primary E) with a marker sign, so the player sees which
+marker type this is. **First cut: piece build-icon art = the marker icon art** (Daniel:
+"for now, just make the piece art the icon art") — set `piece.m_icon =
 LoadPngAsSprite(iconFile)`. The "icon overlaid bottom-right on the piece art" is v2.1
 polish, explicitly out of scope.
+
+> **🔴 SCOPE CORRECTION (M3 impl, card t_0c7b782d) — do NOT reuse `SignPaintPanel`.** This
+> §1.4 originally said "reuse the existing `SignPaintPanel` and add a single `Image`
+> element bound to `MarkerSignTag.MarkerIcon`." That premise is wrong on contact with the
+> code: `SignPaintPanel.Open()` **hard-requires a `SignTag`** (`SignPaintPanel.cs:119-120`
+> early-returns without one) and its entire 807-line surface is the Painted Sign's
+> **pigment + text editor** (color swatches, pigment-discovery gating, `CommitPaint`) —
+> none of which applies to a marker (Q1 defers per-pin color; a marker has NO paint
+> colors). A marker carries `MarkerSignTag`, not `SignTag`, so routing it through
+> `SignPaintPanel` silently no-ops. The implemented design is a **dedicated, self-contained
+> `Features/Signs/MarkerSignPanel.cs`**: the marker icon (square reference image) + nice
+> name + pin-state line + a Pin/Unpin button (same toggle as the Shift+E fast gesture,
+> surfaced as a discoverable affordance) + Close. It reuses the SHARED `VanillaUISkin`
+> (already factored out of the paint panel) for the native wood look and degrades to flat
+> colors if the skin donor is absent — and it touches **nothing** in the shipping Painted
+> Sign UI. `SignPanelInputBlock` was widened (`AnyOpen`) so the cursor/input handling
+> covers both panels identically.
 
 ### 1.5 Acceptance criteria
 - **AT-MARK-1** — four Marker Sign entries on the Spade 'Trail' tab; each places like
@@ -190,6 +213,23 @@ re-apply on spawn).
   avoids.**
 
 ## 3. The WorldPin projection + render (the substrate)
+
+> **STATUS (M2 IMPLEMENTED, card t_0c7b782d):** the projection primitive (`AddPin
+> save:false` + `m_icon` override) and the derive-by-scan reconcile engine are built in
+> `Features/MarkerSigns/WorldPins.cs` and compile 0/0. Triggers
+> (`Features/MarkerSigns/WorldPinReconcilePatches.cs`): `Minimap.SetMapMode` (map-open →
+> full reconcile), throttled `Minimap.Update` (periodic tick), and `Minimap.Awake`
+> (drops the stale projection so it rebuilds onto the new map — the AT-PIN-PERSIST guard
+> on fresh client join / server restart). **MVP scope correction (v1, see §3.2):** the
+> v1 build nerfs the full M-key map, so the live render target is the player-centered
+> MINIMAP CIRCLE; the reconcile uses an UNBOUNDED client-side loaded-zone scan (no disc
+> clip). The 1000 m disc-bound, SERVER-authoritative-RPC variant is the cartography
+> viewer's job — and both cartography cards (t_38f9c77a / t_7b616020) are NOT in flight
+> (archived / triage), so that path is a documented deferral. The public surface
+> (`Reconcile(boundCenter, boundRadius)`, `ProjectPinnedNow`, `RemoveProjected`,
+> `OnMarkerDestroyed`, `ResetForNewMap`) is the seam the viewer will consume — one pin
+> model, not forked. **logs-green ≠ playable**: AT-MARK-2 / AT-PIN-PERSIST close only on
+> Daniel's in-game check.
 
 **Lands in:** `Features/MarkerSigns/WorldPins.cs` (the projection/reconcile engine) —
 or, if the cartography cards land first, **this is shared code** that should live
@@ -264,6 +304,15 @@ marker-sign ZDOs and diff against the client-local projected map:
 - `[hold]` PR; logs-green ≠ playable.
 
 ## 4. Shift+E gesture + destroy hook (the wiring)
+
+> **STATUS (M3 IMPLEMENTED, card t_0c7b782d):** `SignInteractPatch` now branches on the
+> tag — a `MarkerSignTag` with `alt==true` (Shift+E) toggles `SBPR_Pinned` (owner-write)
+> and projects/removes the WorldPin via the fast path; `alt==false` opens the dedicated
+> `MarkerSignPanel` (§1.4 correction below). The destroy hook is the `MarkerSignTag`'s
+> `WearNTear.m_onDestroyed` subscription calling `WorldPins.OnMarkerDestroyed` (public
+> Action, NO Harmony patch; NOT Unity OnDestroy). `SignPanelInputBlock` was widened to
+> gate on EITHER panel (`AnyOpen`). Build 0/0. **logs-green ≠ playable**:
+> AT-PIN-DESTROY-LOADED / AT-PIN-DESTROY-DURABLE close only on Daniel's in-game check.
 
 ### 4.1 Wire Shift+E into the existing `SignInteractPatch`
 

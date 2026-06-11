@@ -5,6 +5,8 @@ using SBPR.Trailborne.Features.Trailblazing;
 using SBPR.Trailborne.Features.Pigments;
 using SBPR.Trailborne.Features.Signs;
 using SBPR.Trailborne.Features.Cairns;
+using SBPR.Trailborne.Features.Cartography;
+using SBPR.Trailborne.Features.MarkerSigns;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -61,6 +63,10 @@ namespace SBPR.Trailborne.Runtime
                 Pigments.RegisterPrefabs(__instance);
                 Signs.RegisterPrefabs(__instance);
                 Cairns.RegisterPrefabs(__instance);
+                SurveyorsTable.RegisterPrefabs(__instance);
+                LocalMap.RegisterPrefabs(__instance);
+                CartographersKit.RegisterPrefabs(__instance);
+                MarkerSigns.RegisterPrefabs(__instance);
 
                 znetSceneDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -114,7 +120,14 @@ namespace SBPR.Trailborne.Runtime
                 Trailblazing.DoObjectDBWiring(ZNetScene.instance);
                 Pigments.DoObjectDBWiring(ZNetScene.instance);
                 Signs.DoObjectDBWiring(ZNetScene.instance);
+                MarkerSigns.DoObjectDBWiring(ZNetScene.instance);
                 Cairns.DoObjectDBWiring(ZNetScene.instance);
+                SurveyorsTable.DoObjectDBWiring(ZNetScene.instance);
+                LocalMap.DoObjectDBWiring(ZNetScene.instance);
+                // Cartographer's Kit recipe consumes the four pigments — Pigments.DoObjectDBWiring
+                // (above) has already registered the pigment items into ObjectDB, so BuildReq
+                // resolves them here. MUST stay after Pigments.
+                CartographersKit.DoObjectDBWiring(ZNetScene.instance);
 
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 

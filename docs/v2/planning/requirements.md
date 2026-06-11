@@ -25,6 +25,11 @@ no north). Three interlocking pieces:
 
 ## 1. Surveyor's Table (placed station)
 
+> **IMPL (2026-06-10, card t_2715661d):** built additively, build 0/0, SpecCheck row added
+> — see `cartography-impl-spec.md` §1 IMPL STATUS for the two flagged build-card deviations
+> (interactable-vs-Switch; viewer is the downstream card t_7b616020). `[hold]` PR; in-game
+> verify pending. The bullets below remain the locked behavioural target.
+
 - A Black-Forest-tier piece, placed via the **Trailblazer's Spade build menu** (never
   the Hammer — design Pillar 1).
 - **Built additively (ADR-0006)** — `new GameObject()` + `Piece`/`WearNTear`/`ZNetView`
@@ -56,6 +61,17 @@ no north). Three interlocking pieces:
   hard gate. *(This resolution reverses the proposed lean; flagged for review.)*
 
 ## 2. Local Map (two-handed equippable artifact)
+
+> **IMPL (2026-06-10, card t_cb831069, engineer-ui):** built FULL (not MVP) — the item +
+> equip/torch patch + binding controller + the forked bounded viewer (`MapViewer`) +
+> Table-mode pin removal + the WorldPins-seam consumption. Build 0/0; SpecCheck row 2
+> added; isolated dedicated-server boot is clean (SpecCheck "✓ All 22 recipes match",
+> PatchCheck "✓ All 15 patch classes registered", 0 SBPR exceptions). See
+> `cartography-impl-spec.md` §2 IMPL STATUS for the two flagged design clarifications
+> (nomap forces a standalone overlay + the Map-button activate path) and the per-AT table
+> in the PR handoff. `[hold]` PR off `integ/v2-cartography`; **logs-green ≠ playable** — the
+> in-game pixel render + equip feel are Daniel's F9/Map-key/in-hand checks. The bullets
+> below remain the locked behavioural target.
 
 ### Acquisition + binding
 - A craftable **item**, **blank when crafted** — carries no map data until **imprinted

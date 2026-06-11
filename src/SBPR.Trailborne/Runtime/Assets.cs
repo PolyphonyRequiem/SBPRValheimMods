@@ -52,6 +52,88 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Create a fresh empty GameObject parented under the inactive prefab holder, so
+        /// no <c>Awake</c> fires while a feature module assembles its components on it
+        /// (the same discipline <see cref="ClonePrefab"/> + <see cref="ConstructPieceShell"/>
+        /// use). Returns null only if the holder can't be created (never, in practice).
+        /// ADR-0006: the additive entry point for a feature that wants full control over
+        /// which components it adds, rather than the fixed skeleton ConstructPieceShell bakes.
+        /// </summary>
+        public static GameObject NewHolderObject(string name)
+        {
+            var h = GetHolder();
+            var go = new GameObject(name);
+            go.transform.SetParent(h.transform, worldPositionStays: false);
+            return go;
+        }
+
+        /// <summary>
+        /// ADDITIVELY graft a vanilla prefab's VISUAL mesh as a fresh child of
+        /// <paramref name="dst"/> — by READING the blueprint's <c>MeshFilter.sharedMesh</c>
+        /// + <c>MeshRenderer.sharedMaterials</c> references and attaching them to a NEW
+        /// GameObject (with the donor child's local TRS), NOT by Instantiating the
+        /// blueprint. Reading a shared mesh/material reference off a vanilla prefab is
+        /// explicitly permitted by ADR-0006 ("Copying ... a shared mesh onto our own
+        /// constructed GameObject is reference, not inheritance"); we never Instantiate the
+        /// ZNetView-bearing donor, so there is no init-ZDO window to orphan.
+        ///
+        /// Finds the first non-empty MeshFilter under <paramref name="blueprint"/> whose
+        /// GameObject name contains <paramref name="meshChildHint"/> (case-insensitive), or
+        /// the first mesh anywhere if the hint is null/empty. Returns the grafted child, or
+        /// null if the blueprint has no matching mesh (logged once). The grafted child
+        /// carries ONLY MeshFilter + MeshRenderer — no collider, no ZNetView, no script.
+        /// </summary>
+        public static GameObject? GraftMeshFromBlueprint(
+            GameObject? blueprint, GameObject dst, string childName, string? meshChildHint = null)
+        {
+            if (blueprint == null || dst == null) return null;
+
+            MeshFilter? srcMf = null;
+            foreach (var mf in blueprint.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf == null || mf.sharedMesh == null) continue;
+                if (string.IsNullOrEmpty(meshChildHint) ||
+                    mf.gameObject.name.IndexOf(meshChildHint, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    srcMf = mf;
+                    break;
+                }
+            }
+            // Fall back to the first mesh of any name if the hint matched nothing.
+            if (srcMf == null)
+            {
+                foreach (var mf in blueprint.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (mf != null && mf.sharedMesh != null) { srcMf = mf; break; }
+                }
+            }
+            if (srcMf == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftMeshFromBlueprint: blueprint '{blueprint.name}' has no mesh to graft " +
+                    $"(child '{childName}' will be empty). Visual will be bare — still functional.");
+                return null;
+            }
+
+            var child = new GameObject(childName);
+            child.transform.SetParent(dst.transform, worldPositionStays: false);
+            // Preserve the donor mesh-child's local transform relative to the donor ROOT,
+            // so the plank/post lands where it does on the vanilla prefab.
+            var srcT = srcMf.transform;
+            var blueT = blueprint.transform;
+            child.transform.localPosition = blueT.InverseTransformPoint(srcT.position);
+            child.transform.localRotation = Quaternion.Inverse(blueT.rotation) * srcT.rotation;
+            child.transform.localScale    = srcT.lossyScale;
+
+            var mf2 = child.AddComponent<MeshFilter>();
+            mf2.sharedMesh = srcMf.sharedMesh;     // reference, not a copy — clean-room safe
+            var mr2 = child.AddComponent<MeshRenderer>();
+            var srcMr = srcMf.GetComponent<MeshRenderer>();
+            if (srcMr != null) mr2.sharedMaterials = srcMr.sharedMaterials;  // reference array
+            return child;
+        }
+
+        /// <summary>
         /// Clone a registered prefab from ZNetScene under a new name.
         /// Caller is responsible for adding the clone back into ZNetScene + ObjectDB.
         /// </summary>
@@ -791,6 +873,63 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Graft a vanilla prefab's VISUAL mesh subtree onto <paramref name="dst"/> as a
+        /// purely-cosmetic child, ADDITIVE / clean-room safe (ADR-0001 + ADR-0006). Reads
+        /// the donor via <see cref="ZNetScene.GetPrefab"/> (fires no Awake), instantiates a
+        /// COPY of the named visual child (e.g. the cartographytable's <c>new</c> LODGroup
+        /// subtree), strips any gameplay/networking components off the copy
+        /// (<see cref="StripToDecorative"/> removes ZNetView/Piece/WearNTear/Collider), and
+        /// parents it under <paramref name="dst"/>. Instantiating a ZNetView-free subtree
+        /// wakes no ZDO, so there is nothing to orphan — the same safe graft pattern
+        /// <see cref="GraftTorchFire"/> / <see cref="GraftGhostOnly"/> use. We read the base
+        /// game's own asset to build our piece's look; reading an asset is reference, not
+        /// cloning — never the subtractive Instantiate-the-whole-networked-prefab anti-pattern.
+        ///
+        /// Returns the grafted visual GameObject (parented at the local position/rotation/
+        /// scale the donor child had), or null if the donor or the named child is missing
+        /// (caller decides how loud to be; the piece still works, just without that visual).
+        /// </summary>
+        public static GameObject? GraftVisualSubtree(string donorPrefabName, string visualChildName,
+                                                     GameObject dst, string graftName)
+        {
+            if (dst == null) return null;
+            var zns = ZNetScene.instance;
+            if (zns == null)
+            {
+                Plugin.Log.LogWarning($"[Trailborne] GraftVisualSubtree('{donorPrefabName}'): no ZNetScene.");
+                return null;
+            }
+            var donor = zns.GetPrefab(donorPrefabName);
+            if (donor == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftVisualSubtree: donor prefab '{donorPrefabName}' not found; " +
+                    $"'{dst.name}' will have no grafted visual.");
+                return null;
+            }
+            var src = donor.transform.Find(visualChildName);
+            if (src == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftVisualSubtree: donor '{donorPrefabName}' has no '{visualChildName}' child " +
+                    $"(vanilla structure changed?); '{dst.name}' will have no grafted visual.");
+                return null;
+            }
+
+            var copy = UnityEngine.Object.Instantiate(src.gameObject, dst.transform);
+            copy.name = graftName;
+            copy.transform.localPosition = src.localPosition;
+            copy.transform.localRotation = src.localRotation;
+            copy.transform.localScale    = src.localScale;
+            // Belt-and-braces: the visual subtree should carry no networking/gameplay, but
+            // a donor could nest one (a Switch, a collider). Strip anything that would make
+            // the cosmetic copy interactive / networked / separately destructible.
+            StripToDecorative(copy);
+            copy.SetActive(true);
+            return copy;
+        }
+
+        /// <summary>
         /// Construct a networked build-piece SHELL from scratch — ADR-0006 additive
         /// construction, the replacement for clone-then-strip. Returns a fresh
         /// GameObject parented under the inactive holder (so its Awake has NOT fired),
@@ -899,6 +1038,100 @@ namespace SBPR.Trailborne.Runtime
                     $"[Trailborne] ConstructPieceShell: reference donor '{referenceDonorName}' not found; " +
                     "piece will have no hit/destroy/place effects (still functional, just silent).");
             }
+
+            return go;
+        }
+
+        /// <summary>
+        /// Construct a networked ITEM-DROP SHELL from scratch — ADR-0006 additive
+        /// construction, the item analogue of <see cref="ConstructPieceShell"/>. Returns a
+        /// fresh GameObject parented under the inactive holder (so its Awake has NOT fired),
+        /// carrying ONLY the skeleton a dropped/equippable vanilla item needs:
+        /// <see cref="ZNetView"/> + <see cref="ZSyncTransform"/> + <see cref="Rigidbody"/> +
+        /// a <see cref="BoxCollider"/> on the "item" physics layer + an <see cref="ItemDrop"/>
+        /// whose <c>m_itemData.m_shared</c> is a FRESH <see cref="ItemDrop.ItemData.SharedData"/>
+        /// (name/description/type/icon set by the caller). The caller adds the visual mesh
+        /// child + any feature MonoBehaviour and registers the prefab in ZNetScene/ObjectDB.
+        ///
+        /// 🔴 Why this exists (ADR-0006): the pre-ADR item features (Pigments, cairn markers)
+        /// clone a vanilla consumable (Coins) and overwrite its SharedData fields. That is the
+        /// subtractive clone-then-strip pattern ADR-0006 retires — the donor drags whatever
+        /// components/SharedData IronGate ships on Coins, and we inherit landmines we don't
+        /// control. Here we AddComponent only what we intend, exactly like the Surveyor's
+        /// Table piece. The one item-specific subtlety the decomp forces: <c>ItemDrop.Awake</c>
+        /// only auto-populates <c>m_itemData.m_shared</c> from the prefab when
+        /// <c>Application.isEditor</c> (assembly_valheim ItemDrop.Awake); at runtime the live
+        /// instance shares the PREFAB's SharedData by reference. So an additive item MUST set
+        /// <c>m_shared</c> on the prefab itself — a null SharedData would NRE the moment the
+        /// item is inspected (tooltip/craft/equip). We new one here so the caller never trips
+        /// that. SharedData's own field initializers give every EffectList / list a non-null
+        /// default, so the equip path (which fires <c>m_equipEffect</c>) is NRE-safe too.
+        ///
+        /// REFERENCE (not clone): nothing is instantiated. The vanilla item layer index is
+        /// read via <c>LayerMask.NameToLayer("item")</c> (the layer every vanilla ItemDrop
+        /// lives on; confirmed in assembly_valheim — autopickup/interact masks key on "item").
+        /// Networking fields match vanilla item norms (non-persistent ZDO is wrong for a
+        /// dropped item — vanilla items ARE persistent so a dropped Kit survives relog; we set
+        /// persistent + Default type + syncs).
+        ///
+        /// Returns null only if ZNetScene isn't up (logged) — the caller skips registration.
+        /// </summary>
+        public static GameObject? ConstructItemShell(string name)
+        {
+            var zns = ZNetScene.instance;
+            if (zns == null)
+            {
+                Plugin.Log.LogError("[Trailborne] ConstructItemShell called with no ZNetScene.");
+                return null;
+            }
+
+            // Parent under the inactive holder BEFORE adding components so no Awake fires
+            // during construction (ItemDrop.Awake touches ObjectDB.GetItemPrefab + RPC
+            // registration — must run only once the prefab is instantiated as a real drop).
+            var holder = GetHolder();
+            var go = new GameObject(name);
+            go.transform.SetParent(holder.transform, worldPositionStays: false);
+
+            // The vanilla "item" physics layer — autopickup, interact and item masks all key
+            // on it (assembly_valheim: m_autoPickupMask/m_itemMask = LayerMask.GetMask("item")).
+            // A dropped item on the Default layer would never be auto-picked-up. NameToLayer
+            // returns -1 if the project has no such layer; guard so we don't set a bad layer.
+            int itemLayer = LayerMask.NameToLayer("item");
+            if (itemLayer >= 0) go.layer = itemLayer;
+
+            // ZNetView — the networked identity. Vanilla items are PERSISTENT (a dropped item
+            // survives a relog) with a Default object type; not distant.
+            var nview = go.AddComponent<ZNetView>();
+            nview.m_persistent = true;
+            nview.m_type = ZDO.ObjectType.Default;
+            nview.m_distant = false;
+
+            // ZSyncTransform — vanilla items carry it (Wishbone/Coins blueprint: ZNetView +
+            // ZSyncTransform + ItemDrop + Rigidbody). Position sync only; items don't sync scale.
+            var zsync = go.AddComponent<ZSyncTransform>();
+            zsync.m_syncPosition = true;
+            zsync.m_syncRotation = true;
+            zsync.m_syncScale = false;
+
+            // Rigidbody — a dropped item is a physics body. Vanilla ItemDrop.Awake sets
+            // maxDepenetrationVelocity = 1f on it; mirror that. Mass/drag left at Unity
+            // defaults (cosmetic — the item only tumbles briefly on drop).
+            var body = go.AddComponent<Rigidbody>();
+            body.maxDepenetrationVelocity = 1f;
+
+            // Collider — needed for the autopickup OverlapSphere + interact raycast. A small
+            // unit box; the caller may resize to the visual footprint.
+            var box = go.AddComponent<BoxCollider>();
+            box.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+            // ItemDrop + a FRESH SharedData (the ADR-0006 + decomp-forced step explained above).
+            var drop = go.AddComponent<ItemDrop>();
+            drop.m_itemData = new ItemDrop.ItemData
+            {
+                m_stack = 1,
+                m_quality = 1,
+                m_shared = new ItemDrop.ItemData.SharedData(),
+            };
 
             return go;
         }
