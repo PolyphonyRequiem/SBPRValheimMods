@@ -331,6 +331,40 @@ state."*
   no SpecCheck change. Full buildable detail (root cause, route (a) vs (b), patch shape,
   wording, key-token correctness, ATs) is in the impl spec **§4A**.
 
+### 6.2 Namable markers → the pin label (ENHANCEMENT, card t_62af5802, 2026-06-11)
+
+**Origin.** Daniel, v0.2.19-playtest, 2026-06-11: *"the new marker signs should be
+namable via a textbox, and that textbox should map to the name of the pin.
+(dynamically ideally)."* The M1–M3 build shipped the marker panel deliberately
+read-only (icon + type name + pin state + Pin/Unpin), and every pin of a type carried
+the SAME static label (`def.PinLabel`). This adds player-authored names.
+
+**The three design calls (the *why*; the buildable *how* is impl-spec §7):**
+
+- **The name is a distinct concept from the sign's board text.** A marker carries a
+  vanilla `Sign` (so the interaction stack applies), but its board text and its map-pin
+  *label* are two different strings with two different audiences (the plank in the
+  world vs. the pin on the map). We give the pin name its own ZDO field
+  (`SBPR_PinName`) rather than overloading `Sign` text — so the two never have to be
+  the same string, and the marker panel stays the self-contained surface §1.4 already
+  made it. (Consistent with Pillar 2: the **name** carries the meaning, layered on top
+  of the **type** icon — still no pigment-color semantics.)
+- **"Dynamically ideally" = re-project on commit, not per-keystroke, and not "wait for
+  the scan."** A subtlety the originating card got wrong and that this design corrects:
+  the derive-by-scan reconcile (§4.2) does NOT relabel an already-projected pin — it
+  only adds new pins and removes gone ones. So writing the name and waiting for the
+  next reconcile would only refresh the label after a relog. The decision: on text
+  commit (Enter / focus-loss / panel close) write the ZDO **and** explicitly
+  re-project the pin (`RemoveProjected` + `ProjectPinnedNow`) so the editing player
+  sees the new label immediately, no relog. This honors "dynamically ideally" for the
+  player doing the naming; cross-client label propagation rides the same deferred
+  server-authoritative-scan path as the rest of the multiplayer WorldPin story (§4.2)
+  and is explicitly not solved here.
+- **Empty name → the type label, durably.** An un-named or whitespace-only marker (and
+  every marker placed before this feature existed) falls back to `def.PinLabel` — the
+  pin is never blank, and old placed markers read the fallback with no migration. The
+  `SBPR_PinName` key is a locked wire contract from its first PR (never rename).
+
 ## 7. Clean/dirty routing & scope
 
 - **Clean-side.** Reading vanilla `Minimap` / `PinData` / `ZDOMan` / `WearNTear`
@@ -352,6 +386,15 @@ state."*
 The 4 marker types; the Shift+E pin/unpin gesture; the WorldPin durable-id
 derive-by-scan reconcile; custom marker-icon rendering (`save:false` projection +
 `m_icon` override); the panel-icon-for-reference; additive 4-piece construction.
+
+> **ENHANCEMENT folded in 2026-06-11 (card t_62af5802):** marker signs are **namable
+> via a textbox in the panel, and that name drives the WorldPin's map label**. This was
+> NOT in the original lock (markers shipped read-only with a static per-type label); it
+> is a deliberate post-playtest addition by Daniel. The *why* + the dynamic-binding
+> decision are §6.2 below; the buildable *how* (the `SBPR_PinName` ZDO field, the
+> `InputField`, the two label-read sites, the commit-time re-projection) is
+> [`marker-signs-impl-spec.md §7`](../v2/planning/marker-signs-impl-spec.md). Per-pin
+> color is STILL out of scope (the reserved color fields stay reserved).
 
 ### Out of scope (raise, don't silently fold)
 - **Per-pin color** (icon tint + text color) — Q1 defers; reserve the ZDO fields,
