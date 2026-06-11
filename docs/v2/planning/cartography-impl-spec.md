@@ -65,6 +65,16 @@ checks are tallied separately in the boot summary line).
 > with both null (or both set) won't be checked. The Table is `Piece` only; the Local Map
 > and Kit are `Item` only. Match that shape.
 
+> **New wire-contract keys (issue 10, Table naming — §1.6/§2A.6).** Two persisted keys are
+> added; **neither touches the recipe manifest** (SpecCheck count unchanged), but both are save/wire
+> contracts — LOCK on first ship, NEVER rename (renaming orphans named Tables / named maps):
+> | Key | Carrier | Type | Meaning |
+> |---|---|---|---|
+> | `SBPR_TableName` | Surveyor's Table ZDO | string | the Table's player-given name (owner-write) |
+> | `sbpr_map_name` | Local Map `m_customData` | string | imprinted Table name stamped on the item |
+> Document each in the field-contract comment block of its owning file (`SurveyorTableTag` /
+> `LocalMap`), exactly as `sbpr_map_blob` / `SBPR_MarkerType` are documented today.
+
 ---
 
 ## 1. Surveyor's Table — placed station retaining a shared 1000 m survey
@@ -143,6 +153,123 @@ checks are tallied separately in the boot summary line).
   range (no `m_craftingStation` block message).
 - **AT-TABLE-WARD** — a Table inside a ward is read/write-locked to non-permitted players.
 - SpecCheck row 1 present; `[hold]` PR; logs-green ≠ playable.
+
+### 1.6 Table naming + name-gated binding (issue 10, 2026-06-11)
+
+> **Status: NEW DESIGN.** Daniel, v0.2.19-playtest: *"surveyors tables should be required to
+> be named prior to binding maps to them. The item name should bear that surveyors table name
+> and show the title while the map is open."* Adds a per-instance Table NAME, a naming GATE on
+> imprint, name inheritance onto the Local Map item (§2A.6), and a viewer title (§2B.1). Clean-side
+> (ADR-0001): vanilla `TextInput`/`TextReceiver` rename dialog + owner-write ZDO are base game.
+> **Daniel decision (2026-06-11, comment thread): this card is UNRELATED to the marker-namable
+> card (t_62af5802) — do NOT build a shared naming helper and do NOT couple them. Spec this
+> standalone.**
+
+**Lands in:** `Features/Cartography/SurveyorTableTag.cs` (name ZDO field + naming dialog + gate).
+
+#### 1.6.1 The Table name — a per-instance owner-write ZDO string
+- Add ONE new ZDO field on the Table, following the established wire-contract pattern already
+  in the file (the `RpcSurveyData` / `ZDOVars.s_data` discipline) and in `MarkerSignTag`
+  (`SBPR_MarkerType`/`SBPR_Pinned`):
+  - **`SBPR_TableName`** (string) — the Table's player-given name. Empty/absent = unnamed.
+- **Read:** `nview.GetZDO().GetString("SBPR_TableName", "")`. **Write (owner-authoritative):**
+  `if (!nview.IsOwner()) nview.ClaimOwnership(); nview.GetZDO().Set("SBPR_TableName", name);`
+  — the exact owner-claim shape `MarkerSignTag.WritePinned` uses (grounded against that file),
+  NOT a raw `m_nview` poke. Guard every read/write on a live ZDO so the placement GHOST (no ZDO)
+  is a no-op.
+- **Wire contract — LOCK + NEVER RENAME.** `SBPR_TableName` is a save/wire contract the moment
+  one Table is named in a live world; renaming the key orphans every named Table (same rule as
+  `SBPR_Ink*` / `s_data`). Document it in the field-contract comment block of `SurveyorTableTag`.
+
+#### 1.6.2 `GetHoverName` reflects the per-instance name
+- `SurveyorTableTag.GetHoverName()` (`:72-77`) currently returns the static `piece.m_name`
+  ("Surveyor's Table") for every instance. Change it to return the ZDO name when set, falling
+  back to `piece.m_name` when absent:
+  - named → e.g. `"Northern Outpost (Surveyor's Table)"` (name + base in parens, so the hover
+    still reads as a Table — implementer's exact format; Daniel verifies the read);
+  - unnamed → the existing `"Surveyor's Table"`.
+- The ward-gated `GetHoverText` affordance (`:80-93`) is unchanged except it now shows the named
+  hover name (it already calls `GetHoverName()`), and — when unnamed — its `[Use]` line states
+  the gate (see 1.6.4): e.g. `"[Use] Name this table"` instead of `"Survey here / review…"`.
+
+#### 1.6.3 The naming dialog — vanilla `TextInput`, no custom UI
+- Reuse the **vanilla rename dialog** the game already uses for Tamed animals, Portals, and Signs:
+  `TextInput.instance.RequestText(receiver, topic, charLimit)` where `receiver` implements the
+  vanilla **`TextReceiver`** interface (`string GetText()` / `void SetText(string)`). Grounded
+  against the decomp: `Tameable` (`assembly_valheim:27163`), `Sign` (`:121490`), and `TeleportWorld`
+  (`:122967`) all drive renaming exactly this way; `TextInput.RequestText` (`:54895`) queues the
+  receiver and shows the panel, and on confirm calls `receiver.SetText(typed)` (`:54888-54891`).
+  - **Implementer choice (both clean-side, both fine):** (a) make `SurveyorTableTag` itself
+    implement `TextReceiver` — `GetText()` returns the current `SBPR_TableName`, `SetText(name)`
+    owner-writes it (1.6.1); or (b) a tiny dedicated receiver object. (a) is simplest and matches
+    `Tameable`'s "the component is the receiver" shape. **Do NOT** build a bespoke uGUI text panel
+    — the card's `SignPaintPanel`/`MarkerSignPanel` references are heavier surfaces for color/icon
+    editing; the vanilla `TextInput` is the right, minimal tool for a single name string.
+  - **Topic + char limit:** a plain-English topic string (e.g. `"Name this Surveyor's Table"`,
+    NOT a custom `$token` — a custom `$piece_*` token leaks as a literal, the 2026-06-05 sign bug;
+    vanilla tokens like `$hud_rename` are fine if a suitable one exists, implementer confirms).
+    Char limit ~32 (Tameable uses 10, Sign uses its `m_characterLimit`; 32 gives room for a place
+    name). Confirm `TextInput`'s exact members live in the build assembly before wiring.
+- **`SetText` runs the censor + persists owner-side**, then refreshes the hover. (Vanilla passes
+  rename text through `CensorShittyWords.FilterUGC`; reproduce that on read or write so a named
+  Table can't display unfiltered UGC — grounded at `Tameable.GetText` `:27181` and the
+  `$item_crafter` censor `:58314`.)
+
+#### 1.6.4 The bind gate — no nameless imprints (AT-TABLENAME-2)
+- `Interact` (`:97-134`) currently always: ward-gate → `ContributeLocalSurvey` →
+  `ImprintCarriedLocalMaps` → open viewer. **Insert a name gate** so a Table with an empty
+  `SBPR_TableName` refuses to imprint and instead launches the naming dialog:
+  1. Ward gate (unchanged — `PrivateArea.CheckAccess`, denied players never reach naming).
+  2. **If `SBPR_TableName` is empty AND the user carries ≥1 blank/imprintable Local Map** (so
+     naming is only forced when there's actually a map to bind — an unnamed Table the player just
+     wants to *survey at* shouldn't nag): open the naming dialog (1.6.3), show a Center message
+     like `"Name this table before binding maps"`, and **return without imprinting** this Interact.
+     The next Interact (now named) proceeds to imprint. *(Implementer alternative, equally
+     acceptable: always prompt-to-name an unnamed Table on first Use regardless of carried maps —
+     Daniel verifies which feels right. The hard requirement is only that imprint NEVER happens
+     while the name is empty.)*
+  3. Always still allow `ContributeLocalSurvey` (surveying/recording is not name-gated — only
+     *binding maps to the item* is; an unnamed Table can still accumulate the shared survey).
+  4. Open the viewer as today (with the title — §2B.1).
+- **`ImprintCarriedLocalMaps` (`:217-247`) is the hard backstop:** make it read the Table name and
+  early-return (no imprint) when the name is empty, regardless of the `Interact` path — so even a
+  future caller can't produce a nameless bind. It already no-ops when the survey is empty; add the
+  same guard for an empty name. When it DOES imprint, it passes the Table name into
+  `LocalMap.Imprint` (§2A.6).
+
+### 1.7 Acceptance criteria — Table naming (issue 10; observable, close only on Daniel's in-game check)
+
+> The feature spans three files (`SurveyorTableTag` §1.6, `LocalMap` §2A.6, `MapViewer`/`CartographyViewer`
+> §2B.1). These named tests are the single source of truth for "done"; §2D points here.
+
+- **AT-TABLENAME-1** (named + persists) — A Surveyor's Table can be given a custom name via the
+  naming dialog (§1.6.3); the name persists per-instance across relog AND a dedicated-server restart
+  (owner-write `SBPR_TableName` ZDO). Its hover name reflects the custom name (§1.6.2).
+- **AT-TABLENAME-2** (bind gate) — Attempting to bind/imprint a Local Map at an UNNAMED Table is
+  refused (no `sbpr_map_name`/`sbpr_map_blob` written) and the player is prompted to name it first
+  (§1.6.4). Naming, then re-Using, imprints normally.
+- **AT-TABLENAME-3** (item bears the name) — After naming + imprinting, the Local Map ITEM's name in
+  inventory hover bears the Table's name (e.g. "Map: Northern Outpost"), distinguishable from other
+  bound maps in the same pack (§2A.6). Confirmed it is the TITLE, not just a tooltip body line.
+- **AT-TABLENAME-4** (field-view title) — Opening that Local Map's full view (equip + Map button)
+  shows the Table's name as an on-screen title (§2B.1).
+- **AT-TABLENAME-5** (Table-view title) — Opening the view at the Table itself (TableEdit mode) also
+  shows the Table's name as the title (§2B.1).
+- **AT-TABLENAME-6** (standalone, NOT shared with markers) — per Daniel's 2026-06-11 decision, the
+  Table naming flow is implemented standalone (vanilla `TextInput`); it does NOT build or depend on a
+  shared naming helper with the marker-namable card (t_62af5802). *(Supersedes the card's original
+  AT-TABLENAME-6 "consistency with the marker mechanism" — Daniel ruled them unrelated.)*
+- **AT-TABLENAME-7** (no orphan) — adding `SBPR_TableName` / `sbpr_map_name` does NOT orphan existing
+  placed Tables or already-crafted/imprinted maps: a Table with no name key reads "Surveyor's Table"
+  and an imprint-without-name (pre-1.6 map, or the gate disabled) shows the vanilla "Local Map" title.
+  The display patches are pure pass-throughs when the key is absent.
+- **AT-TABLENAME-8** (patch registered) — every new Harmony patch (the §2A.6b name-display
+  Postfix(es)) is handed to `harmony.PatchAll(typeof(...))` in `Plugin.Awake()` and passes `PatchCheck`
+  at boot (the t_564f695a "unregistered patch ships dead" lesson). No new patch is needed for §1.6/§2B.1
+  (ZDO + `TextInput` + viewer-label are non-Harmony); only §2A.6b adds patch surface.
+- SpecCheck impact: **none** (naming/UI behavior, no recipe rows — §0 manifest count unchanged).
+  `[hold]` PR; logs-green ≠ playable — Daniel confirms in-game: name a table, bind a map, see the name
+  on the item + as the viewer title.
 
 ---
 
@@ -244,6 +371,73 @@ with the Table via the `CartographyViewer` seam).
   build). **Fallback if absent:** a ZDO-backed "map case" carrier. The blob is the §2C
   windowed format, so one format serves item + Table + viewer.
 
+#### 2A.6 Item name inheritance — the Local Map item bears the Table's name (issue 10, AT-TABLENAME-3)
+
+> **Status: NEW DESIGN.** The imprinted Local Map item's NAME must bear the Table's name so a
+> player carrying several bound maps can tell them apart in inventory. Pairs with §1.6.
+
+**⚠️ The card's `m_crafterName` hypothesis is WRONG — corrected here against the decomp.** The
+card's open question proposes carrying the per-instance name via `ItemData.m_customData["crafterName"]`
+/ the crafter path. That does **not** make the name show as the item's title. Grounded findings
+(`assembly_valheim` decomp — clean-side per ADR-0001):
+
+1. **The inventory hover TITLE is `m_shared.m_name`, full stop.** `InventoryGrid.CreateItemTooltip`
+   (`:40890`) — the sole inventory-grid hover-title path — calls
+   `tooltip.Set(item.m_shared.m_name, item.GetTooltip(), m_tooltipAnchor)` (`:40892`). The world-drop
+   hover `ItemDrop.GetHoverName()` (`:58937`) and the equip/craft titles (`:42460`, `:42844`,
+   `:138558`) ALL read `m_shared.m_name`. There is **no per-instance display-name field** in vanilla.
+2. **`m_crafterName` is NOT the title — it's a separate tooltip BODY line.** `ItemData.GetTooltip`
+   appends `"\n$item_crafter: <color=orange>{crafterName}</color>"` (`:58314`) — the "Crafted by Foo"
+   line. Stamping the Table name there would show `Crafted by: Northern Outpost` under a still-generic
+   "Local Map" title. Wrong surface.
+3. **You CANNOT just set `item.m_shared.m_name` either.** `m_shared` is a `[Serializable] SharedData`
+   shared **by reference** across all instances of a prefab, and it is **NOT a per-instance field**:
+   `ItemData.Clone()` is `MemberwiseClone()` (`:58025-58027`) which copies the `m_shared` *reference*
+   (not a deep copy — only `m_customData` is deep-copied, `:58028`). On load, `Inventory.AddItem`
+   `Instantiate`s the item from the prefab (`:57499`) and restores ONLY the per-instance fields —
+   stack/durability/equipped/quality/variant/crafterID/crafterName/**customData**/worldLevel/pickedUp
+   (`:57508-57517`); **`m_name` is never among them** — it always comes from the prefab's shared data.
+   So writing `item.m_shared.m_name` would (a) rename EVERY Local Map + the prefab template in the
+   live session (shared reference), and (b) not survive anyway (the next spawn reads the prefab's
+   name). Hard no.
+4. **`m_customData` IS the only per-instance, save-surviving store** — `Clone()` deep-copies it
+   (`:58028`), and `Inventory.AddItem` round-trips it through the player-profile ZPackage (`:57515`,
+   `m_itemData.m_customData = customData`). The repo already relies on this for `sbpr_map_blob`/`sbpr_map_bound`.
+
+**Locked mechanism (two coupled pieces):**
+
+- **(a) Persist the per-instance name in `m_customData`.** `LocalMap.Imprint` (`LocalMap.cs:199-214`)
+  gains a `string tableName` parameter and writes a new key alongside the blob:
+  - **`sbpr_map_name`** (`m_customData` key) = the Table's name (already censored at the Table per
+    §1.6.3). LOCK + never rename — same wire-contract rule as `sbpr_map_blob`. `SurveyorTableTag.
+    ImprintCarriedLocalMaps` passes `GetTableName()` into every `Imprint` call (§1.6.4).
+  - Add `LocalMap.TryGetName(item, out string name)` (mirrors `TryGetBoundOrigin`) reading that key.
+- **(b) Surface that name as the item's displayed title via a scoped Harmony patch.** Because the
+  title is hard-wired to `m_shared.m_name`, the ONLY clean way to show a per-instance name is to
+  intercept the name-display seam and substitute our `m_customData` value **for our item only**:
+  - **Primary seam (inventory hover, the title Daniel sees):** a Harmony **Postfix on the private
+    `InventoryGrid.CreateItemTooltip(ItemDrop.ItemData, UITooltip)`** (`:40890`) — when the item is a
+    Local Map (tag/prefab-name guard, the existing `LocalMapItemTag` check) AND carries `sbpr_map_name`,
+    rewrite the tooltip's topic/title to that name. Confirm `UITooltip`'s title field at build
+    (`UITooltip` lives in `assembly_guiutils`, not in this repo's `assembly_valheim` decomp dump —
+    patch its `Set(...)` or set `m_topic`/the title TMP field; the engineer verifies the member).
+    *Implementer alternative if `CreateItemTooltip` proves awkward to patch: Postfix
+    `ItemDrop.ItemData.GetTooltip` to inject the name as a prominent `m_subtitle`-style first line.
+    Lower fidelity (title stays "Local Map") — only if (b)-primary is blocked; Daniel verifies.*
+  - **Secondary seam (world-drop + transfer hover, nice-to-have):** Postfix `ItemDrop.GetHoverName()`
+    (`:58937`) with the same guard so a dropped bound map names itself on the ground too.
+  - **Scope discipline:** every patch guards on the `LocalMapItemTag` (or prefab-name) + presence of
+    `sbpr_map_name`, so it is a pure pass-through for every other item — it never touches vanilla
+    titles. Register it in `Plugin.Awake()` via `harmony.PatchAll(typeof(...))` and it WILL be caught
+    by `PatchCheck` if forgotten (the t_564f695a lesson — an unregistered patch ships dead).
+- **Name format (Daniel to confirm — recommend a light prefix):** the displayed name reads as a map,
+  e.g. **`"Map: Northern Outpost"`**. Implementer can store the bare name in `sbpr_map_name` and apply
+  the `"Map: "` prefix at display time (so the prefix can change without re-imprinting), OR store the
+  formatted string. Recommend storing bare + prefixing at display. *(This is the card's open-Q on bare
+  vs prefixed — recommended answer: light `"Map: "` prefix, applied at display.)*
+- **Blank maps are unaffected:** a map with no `sbpr_map_name` (never imprinted) shows the vanilla
+  "Local Map" title — the patch is a pass-through. (AT-TABLENAME-7 no-orphan.)
+
 ### 2B — The forked viewer (productionize the spike's proof)
 
 > **⚠️ RENDER PATH SUPERSEDED (2026-06-11, issue 6 → §2E).** Bullet 1 below originally
@@ -288,6 +482,32 @@ with the Table via the `CartographyViewer` seam).
   the **Use key (E) while equipped (§2F)**, and does not rely on vanilla
   `Minimap.SetMapMode(Large)` or the "Map" button. (Issue-7 correction: the earlier "Map
   button repurposed under nomap" open path is replaced — see §2F.)
+
+#### 2B.1 Viewer title — the Table name shows while the map is open (issue 10, AT-TABLENAME-4/5)
+
+> **Status: NEW DESIGN.** When a map view is open, the Table's name shows as a title on-screen —
+> for BOTH the field Local-Map view (the imprinted map's name) and the Table-at-the-Table view.
+
+- **Thread the name into the viewer via `MapViewRequest`.** Add one field to the request struct
+  (`CartographyViewer.cs`, the `MapViewRequest` struct `:67-74`):
+  - **`string Title;`** — the display name to show. Producers set it:
+    - **Table view** (`SurveyorTableTag.Interact` `:124-132`): `Title = GetTableName()` (§1.6.1).
+    - **Field Local-Map view** (`LocalMapController.OpenFullView`/`RefreshOpenView`
+      `LocalMap­Controller.cs:152-176`): `Title = LocalMap.TryGetName(map, …) ? name : ""` (§2A.6a).
+  - Empty `Title` → render no title element (an unnamed Table's view, or a pre-1.6 imprinted map).
+- **Render a title label in the viewer canvas.** `MapViewer.EnsureCanvas` (`MapViewer.cs:463-516`)
+  builds the overlay; add a `Text`/`TMP` label anchored **top-center** of the bounded map square
+  (above the frame `:489-496`), set from `_req.Title` in `Render()` (`:123-135`). Use the viewer's
+  existing dark-Norse palette (`CFrame`/parchment) so it reads as a map cartouche.
+- **🔗 Placement coordination with the exit prompt (t_e2cc8183 / §2F, PR #108).** That card adds a
+  **bottom-center** `"[Esc] Close map"` exit prompt to the same canvas. **No collision by design:
+  title = TOP-center, exit prompt = BOTTOM-center.** This is a hard placement contract — whichever
+  of the two lands second must honor it. If PR #108 (§2F) has not merged when THIS card's impl
+  starts, the implementer adds only the top-center title and leaves the bottom band for §2F; if it
+  has merged, confirm the title sits above the map frame and the prompt below. (Both cards touch
+  `MapViewer.cs` — same-file coordination note, mirrors the §2E/§2F dependency already recorded.)
+- **One viewer, both modes:** the title element is mode-agnostic — `FieldReadOnly` shows the map's
+  imprinted name, `TableEdit` shows the live Table name. No second code path.
 
 ### 2C — Fog storage format (the over-provisioning fix, C2-corrected)
 - The fog is a **small array windowed to the 1000 m disc at the player auto-map's NATIVE
@@ -335,6 +555,9 @@ with the Table via the `CartographyViewer` seam).
 - **AT-LMAP-OPEN-1…6** (issue 7 correction, 2026-06-11) — the equipped Local Map opens its
   viewer on the **Use key (E)**, not the "Map" button; no double-map stacking; an on-screen
   prompt shows the open key. See **§2G** for the named criteria + the locked input model.
+- **AT-TABLENAME-1…8** (issue 10, 2026-06-11) — Table naming + name-gated binding + item-name
+  inheritance + viewer title; see **§1.7** for the named criteria. (§2A.6 item-name + §2B.1
+  viewer-title are the item/viewer-side halves of that feature.)
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)

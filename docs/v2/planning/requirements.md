@@ -30,6 +30,14 @@ no north). Three interlocking pieces:
 > (interactable-vs-Switch; viewer is the downstream card t_7b616020). `[hold]` PR; in-game
 > verify pending. The bullets below remain the locked behavioural target.
 
+> **ENHANCEMENT (2026-06-11, issue 10, card t_326f4e82):** a Surveyor's Table must be **named
+> before it will bind/imprint maps**; the imprinted Local Map item bears that name; the open map
+> view shows it as a title. New behaviour, not yet implemented — buildable detail in
+> `cartography-impl-spec.md` §1.6 (Table naming + bind-gate), §2A.6 (item-name inheritance), §2B.1
+> (viewer title), §1.7 (AT-TABLENAME-1..8). Daniel ruled this UNRELATED to the marker-namable card
+> (t_62af5802) — no shared naming helper. Adds two locked wire keys (`SBPR_TableName`,
+> `sbpr_map_name`); no recipe-manifest change.
+
 - A Black-Forest-tier piece, placed via the **Trailblazer's Spade build menu** (never
   the Hammer — design Pillar 1).
 - **Built additively (ADR-0006)** — `new GameObject()` + `Piece`/`WearNTear`/`ZNetView`
