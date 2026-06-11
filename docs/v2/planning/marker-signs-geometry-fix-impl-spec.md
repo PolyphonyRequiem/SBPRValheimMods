@@ -1,3 +1,9 @@
+---
+title: "Marker Signs — geometry fix (board standoff + crown anchor + post-foot seat)"
+status: current
+purpose: "Buildable implementation spec for the marker-sign geometry fix (card t_69f3b4f8): crown-anchored board + side-face standoff + post-foot ground seat for all four marker pieces, with the shared tuning constants + math + foot-collider extracted into Runtime/SignGeometry.cs so the Painted Sign and the markers can never drift again. Authored by the architect spec-pass from the v0.2.19-playtest bug report. Implementer = engineer-systems."
+---
+
 # Marker Signs — geometry fix (board standoff + crown anchor + post-foot seat)
 
 **Status:** SPEC (ratify → implement). Architect-authored 2026-06-11 from bug card
