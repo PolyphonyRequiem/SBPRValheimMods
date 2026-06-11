@@ -116,6 +116,15 @@ ADR-0006. Build each marker piece additively:
   polish call. The load-bearing requirement is a placeable, interactable sign body
   that carries a `Sign` (for the panel) + a `ZNetView` (for the ZDO).
 
+> **🔴 DEFERRAL LIFTED (2026-06-11, card `t_69f3b4f8`).** The "silhouette is a v0.2+
+> polish call" shortcut shipped a board embedded in the post and a post foot sunk into
+> the ground (Daniel playtest, v0.2.19-playtest). The seat/standoff/foot geometry is now
+> load-bearing and promoted to the shared correct path. **Implement per
+> `docs/v2/planning/marker-signs-geometry-fix-impl-spec.md`** — crown-anchored board +
+> side-face standoff + post-foot seat, with the tuning constants + math + foot-collider
+> factored into `Runtime/SignGeometry.cs` so the Painted Sign and the markers can never
+> drift again.
+
 > **Why keep a `Sign` component?** The existing `SignInteractPatch` keys on
 > `Sign.Interact`, and the panel + text label reuse the vanilla `Sign` text widget.
 > Putting `Sign` on the marker piece lets us reuse the whole Painted-Sign interaction
