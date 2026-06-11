@@ -317,6 +317,16 @@ namespace SBPR.Trailborne
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapEquipPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapBootstrapPatch));
 
+            // v2 Cartographer's Kit — the auto-mapping GATE (card t_65fcfe5c, impl-spec §3.2).
+            // Prefix on Minimap.UpdateExplore(float, Player): no-ops the personal walking-reveal
+            // fog write unless the local player wears the Cartographer's Kit in the Utility slot.
+            // Minimap.Update calls UpdateExplore unconditionally every frame (decomp :47056), so
+            // fog accumulates even under v1's server-side nomap config — this gate makes that
+            // accumulation Kit-dependent (AT-KIT-GATE). Client-only by construction: the dedicated
+            // server has no Minimap, so UpdateExplore never runs there. The nested patch class is
+            // registered explicitly so the PatchCheck watchdog sees it wove a method.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.CartographersKit.UpdateExploreGate));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be

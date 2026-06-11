@@ -297,6 +297,27 @@ with the Table via the `CartographyViewer` seam).
 
 ## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping
 
+> **IMPL STATUS (2026-06-10, card t_65fcfe5c, engineer-systems):** built additively on
+> branch `feat/cartographers-kit-t_65fcfe5c` off `integ/v2-cartography`; build 0/0
+> (`TreatWarningsAsErrors` ON); SpecCheck row 3 added; code + spec + manifest + dataset
+> move together (this PR). **Construction:** new `Assets.ConstructItemShell` (the ADR-0006
+> item analogue of `ConstructPieceShell`) builds the networked item skeleton (ZNetView +
+> ZSyncTransform + Rigidbody + collider + ItemDrop with a FRESH `SharedData`) from scratch —
+> it does NOT clone a vanilla item (the pre-ADR Pigments/cairn-marker pattern). World-drop
+> mesh grafted off the vanilla `LeatherScraps` blueprint. **The gate is exactly §3.2's hook:**
+> a Harmony **Prefix on `Minimap.UpdateExplore(float, Player)`** returns `false` (skips the
+> fog write) unless the local player wears the Kit. **Spike claim VERIFIED against the decomp:**
+> `Minimap.Update` calls `UpdateExplore` *unconditionally* every frame (`:47056`), BEFORE any
+> map-mode/`Game.m_noMap` check, so personal fog accumulates even under v1's server-side nomap
+> config — gating `UpdateExplore` is the correct, sufficient boundary. **One detection
+> deviation flagged for review:** `Player.m_utilityItem` is `protected`, so the Kit is detected
+> via the PUBLIC `Inventory.GetEquippedItems()` + `m_dropPrefab` name (the same pair vanilla
+> uses at `VisEquipment` wiring, `:14158`) rather than reading `m_utilityItem` — same intended
+> boundary, public API. **Coupling note for the viewer card (t_cb831069):** this gate controls
+> whether vanilla writes `m_explored` at all; the viewer READS that same `m_explored` window.
+> One fog-write model — the Kit is the write-gate, the viewer is the reader; not forked.
+> **logs-green ≠ playable — Daniel verifies AT-KIT-* in-game.**
+
 **Lands in:** `Features/Cartography/CartographersKit.cs` (item + recipe + the gate patch).
 **Card:** `t_c871efec` (engineer-systems). Smaller / lower-risk than the viewer.
 **Depends on:** this spec (recipe already locked; confirm the gate hook).

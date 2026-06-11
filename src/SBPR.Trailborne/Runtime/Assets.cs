@@ -1041,5 +1041,99 @@ namespace SBPR.Trailborne.Runtime
 
             return go;
         }
+
+        /// <summary>
+        /// Construct a networked ITEM-DROP SHELL from scratch — ADR-0006 additive
+        /// construction, the item analogue of <see cref="ConstructPieceShell"/>. Returns a
+        /// fresh GameObject parented under the inactive holder (so its Awake has NOT fired),
+        /// carrying ONLY the skeleton a dropped/equippable vanilla item needs:
+        /// <see cref="ZNetView"/> + <see cref="ZSyncTransform"/> + <see cref="Rigidbody"/> +
+        /// a <see cref="BoxCollider"/> on the "item" physics layer + an <see cref="ItemDrop"/>
+        /// whose <c>m_itemData.m_shared</c> is a FRESH <see cref="ItemDrop.ItemData.SharedData"/>
+        /// (name/description/type/icon set by the caller). The caller adds the visual mesh
+        /// child + any feature MonoBehaviour and registers the prefab in ZNetScene/ObjectDB.
+        ///
+        /// 🔴 Why this exists (ADR-0006): the pre-ADR item features (Pigments, cairn markers)
+        /// clone a vanilla consumable (Coins) and overwrite its SharedData fields. That is the
+        /// subtractive clone-then-strip pattern ADR-0006 retires — the donor drags whatever
+        /// components/SharedData IronGate ships on Coins, and we inherit landmines we don't
+        /// control. Here we AddComponent only what we intend, exactly like the Surveyor's
+        /// Table piece. The one item-specific subtlety the decomp forces: <c>ItemDrop.Awake</c>
+        /// only auto-populates <c>m_itemData.m_shared</c> from the prefab when
+        /// <c>Application.isEditor</c> (assembly_valheim ItemDrop.Awake); at runtime the live
+        /// instance shares the PREFAB's SharedData by reference. So an additive item MUST set
+        /// <c>m_shared</c> on the prefab itself — a null SharedData would NRE the moment the
+        /// item is inspected (tooltip/craft/equip). We new one here so the caller never trips
+        /// that. SharedData's own field initializers give every EffectList / list a non-null
+        /// default, so the equip path (which fires <c>m_equipEffect</c>) is NRE-safe too.
+        ///
+        /// REFERENCE (not clone): nothing is instantiated. The vanilla item layer index is
+        /// read via <c>LayerMask.NameToLayer("item")</c> (the layer every vanilla ItemDrop
+        /// lives on; confirmed in assembly_valheim — autopickup/interact masks key on "item").
+        /// Networking fields match vanilla item norms (non-persistent ZDO is wrong for a
+        /// dropped item — vanilla items ARE persistent so a dropped Kit survives relog; we set
+        /// persistent + Default type + syncs).
+        ///
+        /// Returns null only if ZNetScene isn't up (logged) — the caller skips registration.
+        /// </summary>
+        public static GameObject? ConstructItemShell(string name)
+        {
+            var zns = ZNetScene.instance;
+            if (zns == null)
+            {
+                Plugin.Log.LogError("[Trailborne] ConstructItemShell called with no ZNetScene.");
+                return null;
+            }
+
+            // Parent under the inactive holder BEFORE adding components so no Awake fires
+            // during construction (ItemDrop.Awake touches ObjectDB.GetItemPrefab + RPC
+            // registration — must run only once the prefab is instantiated as a real drop).
+            var holder = GetHolder();
+            var go = new GameObject(name);
+            go.transform.SetParent(holder.transform, worldPositionStays: false);
+
+            // The vanilla "item" physics layer — autopickup, interact and item masks all key
+            // on it (assembly_valheim: m_autoPickupMask/m_itemMask = LayerMask.GetMask("item")).
+            // A dropped item on the Default layer would never be auto-picked-up. NameToLayer
+            // returns -1 if the project has no such layer; guard so we don't set a bad layer.
+            int itemLayer = LayerMask.NameToLayer("item");
+            if (itemLayer >= 0) go.layer = itemLayer;
+
+            // ZNetView — the networked identity. Vanilla items are PERSISTENT (a dropped item
+            // survives a relog) with a Default object type; not distant.
+            var nview = go.AddComponent<ZNetView>();
+            nview.m_persistent = true;
+            nview.m_type = ZDO.ObjectType.Default;
+            nview.m_distant = false;
+
+            // ZSyncTransform — vanilla items carry it (Wishbone/Coins blueprint: ZNetView +
+            // ZSyncTransform + ItemDrop + Rigidbody). Position sync only; items don't sync scale.
+            var zsync = go.AddComponent<ZSyncTransform>();
+            zsync.m_syncPosition = true;
+            zsync.m_syncRotation = true;
+            zsync.m_syncScale = false;
+
+            // Rigidbody — a dropped item is a physics body. Vanilla ItemDrop.Awake sets
+            // maxDepenetrationVelocity = 1f on it; mirror that. Mass/drag left at Unity
+            // defaults (cosmetic — the item only tumbles briefly on drop).
+            var body = go.AddComponent<Rigidbody>();
+            body.maxDepenetrationVelocity = 1f;
+
+            // Collider — needed for the autopickup OverlapSphere + interact raycast. A small
+            // unit box; the caller may resize to the visual footprint.
+            var box = go.AddComponent<BoxCollider>();
+            box.size = new Vector3(0.5f, 0.5f, 0.5f);
+
+            // ItemDrop + a FRESH SharedData (the ADR-0006 + decomp-forced step explained above).
+            var drop = go.AddComponent<ItemDrop>();
+            drop.m_itemData = new ItemDrop.ItemData
+            {
+                m_stack = 1,
+                m_quality = 1,
+                m_shared = new ItemDrop.ItemData.SharedData(),
+            };
+
+            return go;
+        }
     }
 }
