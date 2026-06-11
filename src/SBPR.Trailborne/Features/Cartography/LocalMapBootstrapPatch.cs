@@ -25,6 +25,11 @@ namespace SBPR.Trailborne.Features.Cartography
         private static void Postfix(Minimap __instance)
         {
             if (__instance == null) return;
+
+            // Register the forked viewer (idempotent) so CartographyViewer.Open routes to a
+            // real render instead of the graceful "viewer not installed" fallback.
+            MapViewer.EnsureRegistered();
+
             if (__instance.GetComponent<LocalMapController>() == null)
             {
                 __instance.gameObject.AddComponent<LocalMapController>();
