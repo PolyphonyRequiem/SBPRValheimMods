@@ -197,6 +197,7 @@ re-apply on spawn).
 |---|---|---|
 | `SBPR_MarkerType` | string | the marker type key (`poi`/`mining`/`shelter`/`portal`). Usually derivable from the prefab name, but stored so a scan can read it off the ZDO without a prefab→type map. |
 | `SBPR_Pinned` | bool (int 0/1) | is this marker currently pinned on the placer's map? Toggled by Shift+E. |
+| `SBPR_PinName` | string | **the player's custom name for this marker (ENHANCEMENT, card t_62af5802, §7).** Empty/unset = fall back to the type's `PinLabel`. Drives the WorldPin's on-map label. Owner-write, same pattern as `SBPR_Pinned`. A new wire contract — lock it, never rename (a rename orphans the names on every placed marker). |
 | `SBPR_PinIconColor` | string | **RESERVED, unused in first cut** (Q1 defers color). Empty = default. Reserve the key now so the fast-follow doesn't need a ZDO migration. |
 | `SBPR_PinTextColor` | string | **RESERVED, unused in first cut.** Same. |
 
@@ -208,6 +209,11 @@ re-apply on spawn).
   defaults false (a freshly built marker sign is NOT pinned until the player presses
   Shift+E — confirm with Daniel if he'd rather auto-pin on place; the card's wording
   "Shift+E should pin or unpin" implies explicit, so default false).
+
+> **ENHANCEMENT (card t_62af5802):** a fifth field — `SBPR_PinName` (string) — was added
+> to make markers namable, driving the WorldPin's map label. Full spec in **§7**. Read it
+> alongside this section: the read/write accessors mirror `ReadPinned`/`WritePinned`, and
+> the label-read change lands in `WorldPins` (two sites, §7.3).
 
 ### 2.2 Lifecycle hooks on the tag
 
@@ -587,6 +593,7 @@ Notes the implementer MUST honor:
 | Portal marker | `piece_sbpr_marker_portal` | build piece |
 | Marker-type ZDO field | `SBPR_MarkerType` | ZDO string |
 | Pinned-state ZDO field | `SBPR_Pinned` | ZDO bool |
+| Pin custom-name ZDO field | `SBPR_PinName` | ZDO string (custom label; §7) |
 | Pin icon-color (reserved) | `SBPR_PinIconColor` | ZDO string (unused first cut) |
 | Pin text-color (reserved) | `SBPR_PinTextColor` | ZDO string (unused first cut) |
 | Marker sprites | `assets/icons/items/marker_{poi,mining,shelter,portal}_v0.1.png` | PNG |
@@ -597,3 +604,215 @@ Notes the implementer MUST honor:
 > `SBPR_Ink*`). The `_v0.1` suffix on sprite filenames matches the existing
 > convention (`ink_red_v0.1.png`, `cairn_marker_v0.1.png`) so art can be revved
 > without a code change at the same filename.
+
+## 7. ENHANCEMENT: namable markers → custom WorldPin label (card t_62af5802)
+
+> **STATUS: SPEC-LOCKED, NOT YET BUILT** (architect spec-pass, card t_62af5802,
+> 2026-06-11). Routed to `engineer-systems`. This section ADDS a feature the M1–M3
+> build intentionally omitted: the marker shipped read-only with a STATIC per-type
+> pin label. Daniel's 2026-06-11 v0.2.19-playtest ask: *"the new marker signs should
+> be namable via a textbox, and that textbox should map to the name of the pin.
+> (dynamically ideally)."* Three pieces wire together — a textbox in the panel, a
+> `SBPR_PinName` ZDO field, and a label-read + re-project in `WorldPins`.
+
+### 7.1 Decision A — UI route: self-contained `InputField` in `MarkerSignPanel`
+
+**LOCKED: route (a) — add a uGUI `InputField` directly to `MarkerSignPanel`.** NOT
+route (b) (reuse the vanilla `Sign` text-edit path / the Painted Sign machinery).
+Rationale, grounded in the code:
+
+- **The marker name is NOT the sign's board text.** They are two distinct strings
+  with two distinct destinations: the board text (vanilla `Sign.GetText`/`SetText`,
+  ZDO key `text`) is what's painted on the plank in the world; the *pin name* is the
+  map-label. Conflating them (route b) would make the in-world plank and the map pin
+  always show the same string — which Daniel did not ask for and which forecloses
+  ever showing a short pin label with longer board prose (or vice-versa). Keep them
+  orthogonal: a dedicated `SBPR_PinName` field, edited in our own panel.
+- **`MarkerSignPanel` already owns the interact surface** (`SignInteractPatch.cs:79`
+  routes primary-E to it) and **already has the input plumbing**: `SignPanelInputBlock`
+  gates on `MarkerSignPanel.IsOpen` (`SignPanelInputBlock.cs:43`), so character/camera
+  input is blocked and the cursor is freed while the panel is open — an `InputField`
+  there is clickable and typeable for free, no new patches.
+- **The `InputField` recipe already exists**, proven, in `SignPaintPanel.MakeInputField`
+  (`SignPaintPanel.cs:685-743`): a skinned `Image` background (VanillaUISkin frame
+  sprite + flat fallback), a text component, a placeholder, `input.characterLimit`,
+  `lineType`. The implementer adapts that helper into `MarkerSignPanel` (the marker
+  panel keeps its own small UI-primitive helpers per its `:265` doc note — copy the
+  `MakeInputField` shape rather than cross-referencing the paint panel's private one).
+- Route (b)'s only claimed advantage was "reuses proven text-commit + ZDO-write code."
+  But the marker's commit target is a NEW ZDO key (`SBPR_PinName`), not the vanilla
+  `Sign` text — so route (b) reuses *less* than it appears (we'd still write our own
+  ZDO field) while *coupling* the pin name to the board text. Route (a) is the cleaner
+  separation and the marker panel is the natural home.
+
+### 7.2 Decision B — persistence: `SBPR_PinName` owner-write, mirrors `ReadPinned`/`WritePinned`
+
+Add to `MarkerSignTag` (`Features/MarkerSigns/MarkerSignTag.cs`), copying the EXACT
+owner-write shape of `ReadPinned`/`WritePinned` (`:120-138`):
+
+```csharp
+/// <summary>Current custom pin name from the ZDO ("" on the ghost / no ZDO / unset).</summary>
+public string ReadPinName()
+{
+    if (nview == null || nview.GetZDO() == null) return "";
+    return nview.GetZDO().GetString(MarkerSigns.ZdoPinName, "");
+}
+
+/// <summary>Owner-write the custom pin name (already trimmed/capped by the caller).
+/// Returns false if the ZDO isn't ready (ghost). Mirrors WritePinned's owner-claim.</summary>
+public bool WritePinName(string name)
+{
+    if (nview == null || nview.GetZDO() == null) return false;
+    if (!nview.IsOwner()) nview.ClaimOwnership();
+    nview.GetZDO().Set(MarkerSigns.ZdoPinName, name ?? "");
+    return true;
+}
+```
+
+- Add the constant in `MarkerSigns.cs` next to the others (`:34-37`):
+  `public const string ZdoPinName = "SBPR_PinName"; // string: player's custom pin label`
+  and extend the `MarkerSignTag` `:11-21` ZDO-field doc block to list it as a LOCKED
+  wire contract (never rename). **This is the AT-MARKER-NAME-6 contract.**
+- Empty string is the canonical "unset" sentinel (matches `GetString(..., "")`), so an
+  existing placed marker that never wrote a name reads `""` cleanly — no NRE, no
+  orphan, the fallback (§7.4) takes over (AT-MARKER-NAME-5/6).
+
+### 7.3 Decision C — the label read (TWO sites, not one) + the fallback
+
+The card body flagged ONE label-derivation site (`ProjectPin` :284). **There are TWO,
+and both must change** or the cartography viewer will show a different label than the
+minimap:
+
+1. **`WorldPins.ProjectPin`** (`WorldPins.cs:284`):
+   `string label = def != null ? def.PinLabel : "Marker";`
+2. **`WorldPins.CollectInDiscPins`** (`WorldPins.cs:259`) — the cartography-viewer
+   collector, identical static-label line.
+
+Both must prefer the per-instance name with a type-label fallback. Because the
+reconcile/collect paths read raw ZDOs (no live `MarkerSignTag` in hand), read the
+field straight off the ZDO there:
+
+```csharp
+string custom = zdo.GetString(MarkerSigns.ZdoPinName, "");
+string label  = !string.IsNullOrEmpty(custom)
+                ? custom
+                : (def != null ? def.PinLabel : "Marker");
+```
+
+`ProjectPin` is also called from the fast path `ProjectPinnedNow(tag)` (`:150`), which
+HAS the live tag — pass the resolved name through (e.g. add an optional
+`string? overrideLabel = null` param to `ProjectPin`, computed by the caller from
+`tag.ReadPinName()`), so the fast path and the scan path agree. **Centralize the
+fallback in one helper** (e.g. `ResolveLabel(string custom, MarkerType? def)`) so the
+two sites can't drift. This satisfies AT-MARKER-NAME-3 and AT-MARKER-NAME-5.
+
+### 7.4 Decision D — "dynamically ideally": the corrected re-projection model
+
+> **🔴 ARCHITECT CORRECTION — the card body's dynamic premise is WRONG against the
+> code, and it's load-bearing.** The card says *"once the name lives in the ZDO, the
+> NEXT reconcile pass picks it up automatically."* **It does not.** `WorldPins.Reconcile`
+> only ADDS pins that aren't already projected (`if (!Projected.ContainsKey(id))`,
+> `:106`) and REMOVES pins whose sign is gone. It **never updates an already-projected
+> pin's label** — the comment at `:103-105` ("Already projected? Leave it") is explicit.
+> And `Projected` only clears on `Minimap.Awake → ResetForNewMap` (relog / world
+> reload), NOT on a map close/open. So if we only write the ZDO and wait for reconcile,
+> a renamed pin's label would update **only after a relog** — exactly what
+> AT-MARKER-NAME-4 forbids. The dynamic update MUST be an explicit re-projection on
+> commit.
+
+**Locked trigger model** (defines AT-MARKER-NAME-4):
+
+- **Commit point = text-commit, not per-keystroke.** Per-keystroke ZDO writes fight the
+  scan-based model and spam owner-claims; live-on-keystroke is explicitly overkill (the
+  card's own open question agrees). Commit on: `InputField.onEndEdit` (focus loss / Enter),
+  the panel's existing Close button, and Escape-to-close. One write per commit.
+- **On commit, in `MarkerSignPanel`:**
+  1. Read the field, trim + cap (§7.5). If unchanged from `_tag.ReadPinName()`, no-op.
+  2. `_tag.WritePinName(name)` (owner-write ZDO).
+  3. **Re-project NOW if pinned** so the label refreshes live without a relog:
+     ```
+     if (_tag.ReadPinned())
+     {
+         WorldPins.RemoveProjected(_tag.GetZdoId());  // drop the stale-label pin
+         WorldPins.ProjectPinnedNow(_tag);            // re-add with the new label
+     }
+     ```
+     `RemoveProjected` then `ProjectPinnedNow` is the minimal "update an existing pin"
+     primitive given the current add/remove-only projection map — it's idempotent and
+     already CLIENT-ONLY (no-ops without a Minimap). If the marker is NOT pinned, just
+     persist the name; it will be used when the player next pins it.
+- **Floor vs stretch (both satisfied by the above):** the AT floor is "live on map-open";
+  the stretch is "live immediately." The explicit re-project on commit delivers the
+  **stretch** for the editing client (the pin label changes the instant you commit, map
+  open or not). The periodic `Minimap.Update` reconcile tick (3 s, `WorldPinReconcilePatches.cs:35`)
+  and map-open reconcile do NOT relabel existing pins, so OTHER clients (multiplayer) see
+  the new label on their next *fresh* projection of that sign — i.e. after their `Projected`
+  entry is dropped (relog / they unpin-repin / the sign leaves+re-enters their scan). That
+  multiplayer-propagation gap is **acceptable and out of scope** for this card (markers are
+  primarily the placer's own pins; cross-client label sync rides the same deferred
+  server-authoritative-scan path as the rest of the WorldPin multiplayer story, design §4.2).
+  Document it; don't try to solve it here.
+
+> **Optional polish (implementer's call, not required):** if you want the periodic tick
+> to also relabel existing pins cheaply, `Reconcile` could compare the live ZDO's
+> `SBPR_PinName` against the projected `PinData.m_name` and re-project on mismatch. This
+> closes the multiplayer-propagation gap for the price of one string compare per pinned
+> sign per tick. **Not required for any AT here** — ship the commit-time re-projection
+> first; flag this as a follow-up only if Daniel wants live cross-client relabel.
+
+### 7.5 Decision E — length cap + sanitization
+
+- **Cap: 32 characters.** Vanilla map pin labels are short; the WorldPin label renders
+  on the minimap where a long string overflows. 32 is generous for "North iron node",
+  "Daniel's base", etc. Enforce BOTH on the `InputField` (`input.characterLimit = 32`)
+  AND at commit (`name = name.Trim(); if (name.Length > 32) name = name.Substring(0, 32);`)
+  so a programmatic or pasted over-long value can't bypass the field cap.
+- **Single-line.** `input.lineType = InputField.LineType.SingleLine` (a pin label is one
+  line — unlike the paint panel's multiline board text). Enter commits (fires `onEndEdit`).
+- **Trim leading/trailing whitespace** at commit. An all-whitespace name trims to `""`
+  → treated as unset → falls back to the type label (AT-MARKER-NAME-5). No other
+  sanitization needed: the string flows to `Minimap.AddPin`'s `name` (a plain label,
+  same path vanilla uses for user-typed pin names), so there's no injection surface.
+- Placeholder text in the empty field: the type's `PinLabel` (e.g. "Point of Interest")
+  so the player sees what the default will be if they leave it blank.
+
+### 7.6 Acceptance criteria (refines the card's AT-MARKER-NAME-1…6)
+
+- **AT-MARKER-NAME-1** — the marker panel shows an editable textbox; typing a name and
+  closing/reopening the panel shows the same name (ZDO-persisted).
+- **AT-MARKER-NAME-2** — the custom name survives a server restart / relog (owner-write
+  ZDO, same durability as `SBPR_Pinned`).
+- **AT-MARKER-NAME-3** — a pinned marker's WorldPin label on the map shows the custom
+  name, not the static type label (BOTH `ProjectPin` and `CollectInDiscPins` updated).
+- **AT-MARKER-NAME-4 (dynamic)** — editing the name and committing (Enter / focus-loss /
+  Close) updates the pin label **without a relog** for the editing client, via the
+  explicit `RemoveProjected` + `ProjectPinnedNow` re-projection (§7.4). ("Live on
+  map-open" floor is exceeded; "live immediately" stretch is met for the local client.)
+- **AT-MARKER-NAME-5 (fallback)** — an un-named (or whitespace-only) marker shows the
+  type's `PinLabel`, never an empty pin label.
+- **AT-MARKER-NAME-6 (ZDO contract)** — `SBPR_PinName` is documented as a locked wire
+  field (no rename); an existing placed marker with no name written reads the fallback
+  cleanly (no orphan / NRE).
+- **SpecCheck impact: NONE.** `SBPR_PinName` is a ZDO wire field, not a recipe row. The
+  +4 build-piece manifest entries (§0) are unchanged — adding a string ZDO key does not
+  touch `SpecCheck.cs`. (Document the key in the `MarkerSignTag` field-contract comment
+  so it's never renamed; that's the only code-comment obligation.)
+- **logs-green ≠ playable** — closes only when Daniel types a name in-game and sees it on
+  the map pin.
+
+### 7.7 Where the work lands + the spec-and-code-together obligation
+
+| Concern | File | Change |
+|---|---|---|
+| Textbox UI | `Features/Signs/MarkerSignPanel.cs` | add an `InputField` (adapt `MakeInputField`), seed from `ReadPinName()` on open, commit on `onEndEdit`/Close/Escape → `WritePinName` + re-project if pinned |
+| ZDO field + accessors | `Features/MarkerSigns/MarkerSignTag.cs` | `ReadPinName`/`WritePinName`; extend the `:11-21` field-contract doc block |
+| ZDO key constant | `Features/MarkerSigns/MarkerSigns.cs` | `ZdoPinName = "SBPR_PinName"` next to `:34-37` |
+| Label read (×2) | `Features/MarkerSigns/WorldPins.cs` | prefer `SBPR_PinName` over `def.PinLabel` in `ProjectPin` (`:284`) AND `CollectInDiscPins` (`:259`); thread an override-label through the `ProjectPinnedNow` fast path; centralize the fallback |
+| Spec (this doc) | `docs/v2/planning/marker-signs-impl-spec.md` | §7 (this section) + §0/§2.1/§6 field rows |
+| Design lock | `docs/design/marker-signs-worldpin.md` | naming UX + dynamic-binding decision (the why) |
+| Dataset | `docs/datasets/PIECES_AND_CRAFTABLES.md` | marker `Function` + `ZDO fields` rows note the namable field |
+
+Per AGENTS.md the implementer moves the code AND these spec rows in the SAME PR. No
+`SpecCheck.cs` change (no recipe impact). The reserved color fields
+(`SBPR_PinIconColor`/`SBPR_PinTextColor`) remain out of scope — do NOT fold the pin
+icon/color "more pin art" `/queue` item into this card.

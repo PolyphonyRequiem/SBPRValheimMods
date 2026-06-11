@@ -192,6 +192,12 @@ no north). Three interlocking pieces:
 - **Pin removal** is allowed when viewing a Surveyor's Table (operates on shared data);
   the field Local-Map view is read-only.
 - Pins render only within the 1000 m disc.
+- **Marker-Sign WorldPins are namable** (ENHANCEMENT, card t_62af5802): the marker panel
+  has a textbox; the typed name drives that pin's map label (empty → the type label).
+  See [`../../design/marker-signs-worldpin.md §6.1`](../../design/marker-signs-worldpin.md)
+  and [`marker-signs-impl-spec.md §7`](marker-signs-impl-spec.md). The name lives in the
+  `SBPR_PinName` ZDO field on the marker sign (a wire contract, not a recipe row — no
+  SpecCheck impact).
 
 ## 5. Scope + build order
 
