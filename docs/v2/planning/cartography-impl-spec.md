@@ -210,11 +210,21 @@ with the Table via the `CartographyViewer` seam).
   weapons.
 
 #### 2A.4 Binding durability (D1 / C3)
+
+> **⚠️ OPEN PATH SUPERSEDED (2026-06-11, issue 7 → §2F).** The §2 IMPL STATUS banner above
+> and the last bullet below originally said the Local Map's full view is ACTIVATED by the
+> vanilla **"Map" button** ("otherwise dead under nomap"). Daniel's v0.2.19-playtest proves
+> that premise FALSE: the playtest world is `nomap=OFF`, where vanilla's M-key map is fully
+> alive, so binding our viewer to "Map" stacks both surfaces. **§2F is now the authoritative
+> open-input path** — the viewer opens on the **Use key (E)** while equipped, off the "Map"
+> button entirely. Read §2F before touching the open trigger.
+
 - **Minimap binding is durable while the item sits in inventory** (equipped or not) and
   **reverts to no-map the instant the item leaves inventory** (dropped/traded/destroyed).
   Hook inventory-changed; when no `SBPR_LocalMap` instance remains, drop the binding.
 - **Full-screen view requires the map actively EQUIPPED** (two hands). Carrying it keeps
-  the minimap bound; only equipping opens the full viewer.
+  the minimap bound; only an equipped map can be opened — **opened by the Use key (E), NOT
+  the "Map" button (§2F, issue-7 correction).**
 
 #### 2A.5 Imprint + per-instance storage
 - **Imprint** happens at a Surveyor's Table (§1): blank map → a **snapshot** of the
@@ -250,9 +260,10 @@ with the Table via the `CartographyViewer` seam).
   computed in map coords — **NOT** `Minimap.ClampToScreenEdge` (:34731), which is a
   screen-space ping clamp and the wrong precedent. (The spike sketches this; full polish
   here.)
-- Must work / degrade gracefully under v1's map nerf (no M-key full map): the fork owns
-  its own open/close, it does not rely on vanilla `Minimap.SetMapMode(Large)` being
-  reachable by the M key.
+- Must work / degrade gracefully under v1's map nerf: the fork owns its own open/close on
+  the **Use key (E) while equipped (§2F)**, and does not rely on vanilla
+  `Minimap.SetMapMode(Large)` or the "Map" button. (Issue-7 correction: the earlier "Map
+  button repurposed under nomap" open path is replaced — see §2F.)
 
 ### 2C — Fog storage format (the over-provisioning fix, C2-corrected)
 - The fog is a **small array windowed to the 1000 m disc at the player auto-map's NATIVE
@@ -291,7 +302,200 @@ with the Table via the `CartographyViewer` seam).
   unequip → weapon + shield return clean.
 - **AT-MAP-TORCH** — map + left-hand torch coexist (lit map at night); still can't block or
   attack.
+- **AT-LMAP-OPEN-1…6** (issue 7 correction, 2026-06-11) — the equipped Local Map opens its
+  viewer on the **Use key (E)**, not the "Map" button; no double-map stacking; an on-screen
+  prompt shows the open key. See **§2F** for the named criteria + the locked input model.
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
+
+---
+
+### 2F — Local Map open input (issue 7 design correction, 2026-06-11)
+
+> **Status: DESIGN CORRECTION.** Supersedes the "the vanilla **'Map' button** activates the
+> full view (dead under nomap, so the fork repurposes it)" open path asserted in the §2 IMPL
+> STATUS banner, §2A.4, §2B, and the code comments at `LocalMapController.cs:79-86` /
+> `MapViewer.cs:391-394` / `LocalMapController.cs:14-16`. The fork SHELL, binding state machine,
+> imprint, torch exception, and render (§2E) are all UNCHANGED and correct — **only the OPEN
+> TRIGGER changes.** Reported by Daniel, v0.2.19-playtest, in game. Clean-side (ADR-0001).
+
+**What Daniel reported (verbatim):** *"local map doesn't seem usable with left or right click.
+Just appears to be a hoe :P. M pulls up the local map on top of the global map which is weird."*
+
+**The decisive RE finding — the card's premise was inverted.** The whole "Map button is dead
+under nomap, repurpose it" design rests on a false reading of vanilla. Verified against the
+decomp (`assembly_valheim`, `Minimap.cs`):
+
+- `Minimap.SetMapMode(MapMode mode)` (`:961-999`) clamps `mode = MapMode.None` **only when
+  `Game.m_noMap == true`** (`:963-966`), which sets BOTH `m_largeRoot.SetActive(false)` AND
+  `m_smallRoot.SetActive(false)` (`:976-977`). So `Game.m_noMap` does not "kill only the M
+  map" — **it kills the minimap circle too.**
+- `Minimap.Update` (`:604`) fires the `ZInput.GetButtonDown("Map")` → `SetMapMode` toggle
+  inside the modal gate at `:593` (`!Chat.HasFocus && !Console.IsVisible && !TextInput.IsVisible
+  && !Menu.IsActive && !InventoryGui.IsVisible`).
+- **Therefore the "Map" button is dead *only* when `Game.m_noMap == true* — and in that world
+  there is no minimap either.** Daniel sees a minimap circle AND a global map opening on M.
+  That combination is **only possible when `Game.m_noMap == false` (`nomap=OFF`)**, where
+  vanilla's M-key Large map is fully alive.
+
+**Two coupled defects fall out of that one inverted premise:**
+
+1. **Open-trigger collision (the "M opens local-map-on-top-of-global-map" defect).**
+   `LocalMapController.cs:86` opens our viewer on `ZInput.GetButtonDown("Map")`. Under
+   `nomap=OFF` that SAME press also drives vanilla's `Minimap.Update` Small→Large toggle →
+   both surfaces appear. The fork was wired for a world (`nomap=ON`) the playtest isn't using.
+
+2. **The v1 "no M-key full map" baseline was specced but never built.** The locked v1 baseline
+   (`PARKED-2026-06-03.md:20`, `requirements.md:10`, `design/cartography-v2.md:21-26`) is:
+   `nomap=ON` → no map at all; `nomap=OFF` (default) → **minimap only, no M-key full map**. But
+   "minimap-only-without-the-M-map" is **not a vanilla state** — vanilla gives you both or
+   neither (per the decomp above). Delivering it requires an SBPR patch that clamps vanilla's
+   Large map. **No such patch exists in `src/`** (audited: the only `Minimap` prefixes are the
+   Cartographer's Kit `UpdateExplore` gate and the equip patch; the rest are reconcile
+   postfixes). So under `nomap=OFF` vanilla's full M-map leaks — exactly what Daniel sees.
+
+**The "just a hoe" half is INTENDED and stays.** The click-suppression (`LocalMap.cs:112-121`
+empties `m_attack`/`m_secondaryAttack` → `HavePrimaryAttack`/`HaveSecondaryAttack` false) is
+**correct** (AT-MAP-BLOCKCLEAR). The item is not supposed to attack. The fix is to give it a
+working, discoverable OPEN action — not to restore clicks.
+
+#### 2F.1 LOCKED open input — the Use key (E) while equipped
+
+**Route (a) from the card is locked. Routes (b) "gate vanilla's M" and (c) "a new bind" are
+rejected** (rationale below).
+
+- **Open gesture:** while a Local Map is **equipped** (two hands), pressing the **Use key**
+  (`ZInput.GetButtonDown("Use")` / `"JoyUse"` — the same input vanilla routes to
+  `Player.Interact`, decomp `Player.cs:806`) opens the bounded viewer in `FieldReadOnly` mode.
+  This is the SAME open gesture the Surveyor's Table uses (`Switch.Interact`/Use → open viewer,
+  §1.4) — one consistent "Use to read the map" model across both surfaces.
+- **Collision-free by construction:** the Use key is NOT the "Map" button, so pressing it never
+  drives vanilla's `Minimap.Update` map toggle. Vanilla's M continues to do whatever it does in
+  the world's nomap config, independently; our viewer never rides it. (AT-LMAP-OPEN-2/3.)
+- **Toggle + close:** while the viewer is open, **Use** (or the §2-exit card t_e2cc8183's
+  Escape handling) closes it. The controller already self-closes on unequip and when the map
+  leaves inventory — keep those. Replace the `GetButtonDown("Map")` edge at
+  `LocalMapController.cs:86` with a `GetButtonDown("Use")` edge under the same
+  `_mapEquipped && _equippedMap != null && !tableViewOwnsViewer` guard.
+
+**Use-key interaction discipline (the one real hazard — must be handled):**
+
+- **Do not let one Use press both open the viewer AND interact with a hovered world object.**
+  Vanilla `Player.Update` (`:806`) sends Use → `Interact(m_hovering, …)` when something is
+  hovered. The Local-Map open path must only fire when the press is NOT being consumed by a
+  world interaction — i.e. gate our open on **`Player.m_localPlayer.GetHoverObject() == null`**
+  (public accessor, decomp `Player.cs:4055`) so standing in front of a door/Table/chest and
+  pressing E still interacts with it, and only opens the map on an otherwise-idle Use press.
+  This mirrors how a Local Map at a Surveyor's Table should still **Use the Table** (survey +
+  imprint), not pop the field viewer — the Table is the hovered object, so our open suppresses
+  and the Table's `Interact` wins. (AT-LMAP-OPEN-3, AT-LMAP-TABLE-COEXIST.)
+- **Suppress while a modal SBPR UI / text input is up.** Reuse the existing
+  `SignPanelInputBlock.AnyOpen` check (it already covers `CartographyViewer.IsViewerOpen`) plus
+  the vanilla `TextInput.IsVisible()` / `InventoryGui.IsVisible()` guards, so opening text
+  fields or the inventory doesn't trip a map-open. (The controller's `Update` runs every frame;
+  keep its existing graphics-client guard.)
+- **Implementer's-choice mechanism, equivalent outcomes:** either (i) keep reading `ZInput`
+  directly in `LocalMapController.Update` with the hover-null guard above (smallest change,
+  matches the current controller shape), or (ii) route through a `Humanoid.UseItem` /
+  Interact-side hook on the equipped item. (i) is recommended — it's the minimal delta to the
+  existing polled controller and avoids a new Harmony surface. Whichever is chosen, the
+  hover-null + modal-suppress discipline is mandatory.
+
+**Why not (b) "keep Map, gate vanilla's M":** it requires a reliable Harmony clamp on vanilla's
+map-open under `nomap=OFF` — which is the very "no M-key full map" nerf that was specced but
+never built (defect 2). That's a **separate, larger design decision** (see §2F.3) about whether
+v1's intended nerf ships at all; do NOT smuggle it in through the Local Map's open path. Moving
+off "Map" entirely makes the Local Map correct **regardless of how that nerf question lands.**
+
+**Why not (c) "a new dedicated bind":** a brand-new keybind is undiscoverable without a rebind
+UI and duplicates the "Use to read" affordance the Table already establishes. The Use key is
+the consistent, already-bound, prompt-backed gesture.
+
+#### 2F.2 The equipped prompt (so it doesn't read as an inert hoe)
+
+- While a Local Map is **equipped**, show an on-screen hint: **`[<$KEY_Use>] $piece_readmap`**
+  (or plain "Open map") rendered through `Localization.instance.Localize` so the bound-key
+  token resolves to the player's actual key (e.g. "E") — the **same rebind-correct pattern**
+  `SurveyorTableTag.GetHoverText` / `CairnInteractable` use (`$KEY_Use` localizes; a CUSTOM
+  `$piece_*` token would leak as a literal — the 2026-06-05 sign-bug lesson). `$piece_readmap`
+  is a **vanilla** token (decomp `MapTable.cs:34`), so it localizes; if a fuller string is
+  wanted, keep the `$KEY_Use` token and put the rest in plain English.
+- **Placement:** a HUD hint while the map is equipped (not a hover-text — the map is a held
+  item, not a hovered piece). Bottom-center is consistent with the viewer's own exit prompt
+  (t_e2cc8183 adds "[Esc] Close map" while the viewer is open); the equipped-prompt and the
+  open-viewer-prompt are mutually exclusive (one says how to open, the other how to close).
+  Implementer picks the exact HUD surface; the bound-key token + equipped-only visibility are
+  the locked requirements. (AT-LMAP-OPEN-4.)
+- **Coordinate with t_7816c0b0 / t_e2cc8183** on token wording so all three cartography prompts
+  read consistently.
+
+#### 2F.3 The deferred question — does v1's "no M-key full map" nerf actually ship? (NOT this card)
+
+This card makes the Local Map correct on `nomap=OFF` **without** depending on the nerf. But the
+playtest exposed that **vanilla's full M-map is currently reachable**, which contradicts the v1
+baseline's "no M-key full map." Two coherent end-states, and **Daniel must call it** (it is a
+gameplay-pillar decision, not an implementation detail):
+
+- **(I) Ship the nerf:** add the missing SBPR patch that clamps vanilla `Minimap.SetMapMode`
+  Large→Small (or gates the `:604` toggle) under `nomap=OFF`, so M only ever opens the minimap,
+  never the full world map. This is what the locked v1 baseline says should already be true. The
+  Local Map (Use-key) is unaffected either way.
+- **(II) Drop/relax the nerf:** accept that under `nomap=OFF` players have vanilla's full M-map,
+  and the Local Map is an *additional* bounded artifact. Re-word the v1 baseline + requirements
+  to match reality.
+
+**This card does NOT implement either** — it routes the Local Map off "Map" so it's correct in
+both. If Daniel wants (I), that's a **separate card** (clean-side; a `Minimap.SetMapMode` clamp,
+the same hook the WorldPin reconcile already postfixes). Flagged here, surfaced as the card's
+open question, NOT silently chosen.
+
+#### 2F.4 Files touched + clean/dirty
+
+- **`LocalMapController.cs`** — replace the `GetButtonDown("Map")` open edge (`:86`) with a
+  `GetButtonDown("Use")` edge guarded by `GetHoverObject() == null` + the modal-suppress check;
+  fix the false-premise comments (`:14-16`, `:79-86`).
+- **`MapViewer.cs`** — the `:391-394` comment asserting "vanilla Minimap's M/ESC handling, which
+  is dead under nomap" is the same false premise; correct it. (The Escape close itself is the
+  t_e2cc8183 exit card's surface — coordinate; this card only fixes the OPEN trigger + the
+  comment.)
+- **`LocalMap.cs`** — no code change to the item; the click-suppression stays (intended). Add
+  the equipped prompt via the controller or a small HUD hook (implementer's choice per §2F.2).
+- **Clean-side (ADR-0001):** reading `ZInput`, `Player.GetHoverObject()`, vanilla `$KEY_Use` /
+  `$piece_readmap` tokens, and the vanilla `Minimap` decomp is all base-game. No third-party mod
+  code. No SpecCheck impact (input/UI behavior, not a recipe row).
+
+#### 2F.5 Acceptance tests (named, observable — close only on Daniel's in-game check)
+
+- **AT-LMAP-OPEN-1** — with the Local Map equipped, pressing **Use (E)** on an otherwise-idle
+  press opens its bounded viewer. It WORKS and is discoverable.
+- **AT-LMAP-OPEN-2** — opening the Local Map viewer does NOT also open vanilla's map; no
+  double-map stacking on any single input.
+- **AT-LMAP-OPEN-3** — pressing **M** (vanilla's map, in whatever state the world's nomap config
+  leaves it) does NOT open our viewer; pressing **Use** while hovering a world object interacts
+  with that object (door/chest/Table), NOT the map. The two input paths are non-colliding.
+- **AT-LMAP-OPEN-4** — an on-screen prompt (bound-key token, e.g. "[E] Open map") is visible
+  while the Local Map is equipped and not-yet-open, so it never reads as an inert hoe.
+- **AT-LMAP-OPEN-5** (intended behavior preserved) — LMB/RMB still do no attack/block
+  (AT-MAP-BLOCKCLEAR holds; click-suppression is correct and unchanged).
+- **AT-LMAP-OPEN-6** — closing the viewer is clean (pairs with t_e2cc8183: Escape closes without
+  leaking the game menu; Use also toggles it shut). Same `MapViewer` engine.
+- **AT-LMAP-TABLE-COEXIST** — standing at a Surveyor's Table with a Local Map equipped and
+  pressing Use **surveys + imprints at the Table** (Table is the hovered object), and does NOT
+  pop the field viewer over the Table view.
+- logs-green ≠ playable — Daniel confirms in-game: equipped map opens on Use, no global-map
+  overlap, prompt visible.
+
+**Shared-file coordination (viewer-UX cluster).** This card (open), **t_e2cc8183** (Table-viewer
+Escape exit + prompt), and **t_c90f4d8c**/§2E (vanilla-cartography render) all touch
+`MapViewer.cs` + the viewer input model. They are one coherent input/UX problem. **Routing
+recommendation:** sequence them onto ONE engineer-ui worker (or strictly serialize the PRs) so
+they don't conflict on `MapViewer.cs`. Suggested order: §2E render (largest, already specced via
+PR #107) → t_e2cc8183 exit → this open-input card, OR fold all three into a single viewer-UX
+implementation card. The architect (this card) flags the coupling; the merge sequencing is
+Daniel's call at review.
+
+**Implementation card:** to be routed to `engineer-ui` (owns `MapViewer.cs` +
+`LocalMapController.cs`), as a child of this card on approve. **SpecCheck impact: none.** Spec +
+code move together in that PR.
 
 ---
 
