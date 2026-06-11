@@ -235,6 +235,13 @@ with the Table via the `CartographyViewer` seam).
 > bounding, fixed zoom, and edge-arrow below are all UNCHANGED and still correct; only the
 > per-pixel paint is replaced. Read §2E before touching the render.
 
+> **⚠️ EXIT UX ADDED (2026-06-11, issue 7 → §2F).** §2B specced the viewer's own open/close
+> path but never nailed down the *exit* UX. Two gaps closed in **§2F**: (1) Escape closes the
+> viewer **and** leaks into vanilla's pause menu the same frame — fixed by gating `Menu.Show`
+> through the shared `SignPanelInputBlock` so Escape "just works"; (2) no on-screen exit
+> prompt — add a bottom-center "[Esc] Close map" label. Read §2F before touching the viewer's
+> input handling or canvas build.
+
 > **The spike (`t_e8bbbe48`) is the source of truth for the render path.** Build §2B
 > against its findings doc — especially the confirmed `m_pixelSize` and which RawImage
 > path renders cleanly. Everything below is the spec the spike validates; if the spike
@@ -302,6 +309,9 @@ with the Table via the `CartographyViewer` seam).
 - **AT-TABLEMAP-1…7** (issue 6 correction, 2026-06-11) — the viewer must render vanilla
   cartography (biome/height/forest/water), not a two-color fog mask; see **§2E** for the
   named criteria + the locked route.
+- **AT-VIEWEXIT-1…7** (issue 7, 2026-06-11) — the viewer must exit cleanly: Escape closes it
+  WITHOUT also opening the pause menu, and a bottom-center "[Esc] Close map" prompt is visible;
+  see **§2F** for the named criteria + the locked `Menu.Show`-prefix route.
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
@@ -429,6 +439,175 @@ are committed; no third-party mod code is touched.
 **Implementation card:** routed to `engineer-ui` (owns `MapViewer.cs`, built it under
 t_cb831069), as a child of the issue-6 card. **SpecCheck impact: none** (render behavior, not a
 recipe row). Spec + code move together in that PR.
+
+---
+
+### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
+
+> **Status: BUG + small UX gap.** Reported by Daniel, v0.2.19-playtest, in game. Closes a gap
+> §2B left open (the viewer owns its open/close path but the *exit UX* — menu suppression +
+> discoverability — was never nailed down). The fork **SHELL, render (§2E), bounding, zoom,
+> overlay are all UNCHANGED** — this adds an input-gate hook + one UI label. Applies to BOTH the
+> Surveyor's Table view (TableEdit) and the shared field Local-Map view (FieldReadOnly) — one
+> `MapViewer`. Clean-side (ADR-0001). **SpecCheck impact: none** (input/UI, no recipe row).
+
+**What Daniel reported (verbatim):** *"issue 7 no clear mechanism to exit the surveyor's table
+map viewing mode. escape does exit, but also pulls up the game menu. There should be a prompt at
+the bottom for how to exit, or escape should 'just work' without opening the game menu."*
+
+#### 2F.1 Two defects, and a correction to the card's premise
+
+**Defect 1 — Escape closes the viewer AND opens the vanilla pause menu the same frame.**
+`MapViewer.Update` (`MapViewer.cs:387-399`) does `if (Input.GetKeyDown(KeyCode.Escape)) Close();`.
+The viewer closes — but the *same* Escape keypress also reaches vanilla's menu handler that
+frame, so the pause menu opens too.
+
+The vanilla gate, grounded (decompiled `assembly_valheim.dll`, `Menu.Update`):
+
+```
+// Menu.Update, the "menu not already visible" branch (decomp):
+bool flag = !InventoryGui.IsVisible() && !Minimap.IsOpen() && !Console.IsVisible()
+         && !TextInput.IsVisible() && !ZNet.instance.InPasswordDialog()
+         && !ZNet.instance.InConnectingScreen() && !StoreGui.IsVisible()
+         && !Hud.IsPieceSelectionVisible() && !UnifiedPopup.IsVisible()
+         && !PlayerCustomizaton.IsBarberGuiVisible() && !Hud.InRadial();
+if ((ZInput.GetKeyDown(KeyCode.Escape) || /* JoyMenu… */) && flag && !Chat.instance.m_wasFocused)
+    Show();
+```
+
+Vanilla opens the pause menu on Escape **only when `flag` is true** — i.e. when *no* recognized
+modal UI is up. Our viewer is a standalone uGUI overlay that satisfies **none** of those
+predicates, so from `Menu`'s view nothing is open → `flag` stays true → Escape does double duty.
+
+> **⚠️ The card's premise is half-wrong — corrected here (verified on `SignPanelInputBlock.cs`).**
+> The card states the viewer *"does NOT route through `SignPanelInputBlock` or any equivalent."*
+> **It already does.** `SignPanelInputBlock.AnyOpen` (`:41-44`) reads
+> `SignPaintPanel.IsOpen || MarkerSignPanel.IsOpen || CartographyViewer.IsViewerOpen` — the
+> viewer was wired in at build (card t_cb831069). All three `SignPanelInputBlock` patches
+> (`Player.TakeInput`, `PlayerController.TakeInput`, `GameCamera.UpdateMouseCapture` — `:46-81`)
+> already fire while the viewer is open. So the viewer is NOT missing character-input blocking,
+> camera-look freeze, or cursor release — those work. **The single real gap is that none of those
+> three seams touch the Escape→`Menu.Show` path.** That gate is what leaks.
+>
+> **Second correction: `MarkerSignPanel`/`SignPaintPanel` are NOT a working reference to copy —
+> they have the *identical* leak.** Both also raw-poll `Input.GetKeyDown(KeyCode.Escape)` in their
+> own `Update` (`MarkerSignPanel.cs:96`, `SignPaintPanel.cs:144`) and both route through the same
+> `AnyOpen` that does *not* suppress `Menu.Show`. The reason the leak wasn't reported on the sign
+> panels is incidental (they're smaller, dismissed faster, less obviously "modal"). The fix below
+> closes the leak for **all three SBPR modal UIs at once** via the shared helper — which is also
+> why AT-VIEWEXIT-5 is "fix the panels too," not "make the viewer match the panels."
+
+**Defect 2 — no on-screen exit prompt exists.** Nothing in `EnsureCanvas`/`Render`
+(`MapViewer.cs:463-516`) builds an instructional label. The overlay shows map + pins + player
+marker but never tells the player how to leave.
+
+#### 2F.2 Fix Defect 1 — suppress `Menu.Show` while any SBPR modal UI is open (Daniel's route a)
+
+Daniel's preferred outcome is *"Escape just works"* — the viewer closes and the menu does NOT
+open. Realize it by making the **shared** `SignPanelInputBlock` also gate the one seam it
+currently misses: vanilla's pause-menu open.
+
+**Seam = `Menu.Show()` (Harmony Prefix, skip-original when `AnyOpen`).** Grounded choice:
+
+- `Menu.Show()` is a **single parameterless public instance method** (decomp `Menu.cs:212`); its
+  **only internal caller is the Escape/JoyMenu gate** in `Menu.Update` (decomp `:366`). Prefixing
+  it to early-return (skip original) while `SignPanelInputBlock.AnyOpen` is true cleanly prevents
+  the pause menu from opening on the same Escape that closes our viewer — **without** consuming the
+  keystroke globally or touching any other input path.
+- **Why a `Menu.Show` prefix and NOT the `Minimap.IsOpen()` predicate (rejected route):** making
+  our viewer report through `Minimap.IsOpen()` would satisfy `flag`, but `Minimap.IsOpen()` is
+  referenced in **~10 vanilla gates** (build placement, crafting, interact, camera, attach-point —
+  verified by grep over the decompiled assembly). Hooking it to return true while our overlay is up
+  would silently alter all of them (e.g. suppress build/craft input) → wide, surprising blast
+  radius. `Menu.Show` has exactly one caller and one effect. **Lock: `Menu.Show` prefix.**
+- **Scope is self-clearing (AT-VIEWEXIT-3).** The gate keys on `AnyOpen`, which is false the moment
+  the viewer/panel closes. The very Escape that closes the viewer is swallowed for the menu *that
+  frame*; the *next* Escape (viewer now closed → `AnyOpen` false → prefix passes through) opens the
+  menu normally. We never permanently eat Escape.
+- **Unify, don't fork.** Add the prefix as a **fourth nested patch container inside
+  `SignPanelInputBlock`** (e.g. `MenuOpenSuppressPatch`), gated on the same `AnyOpen`. This is the
+  "one shared SBPR modal-input path" the card recommends — and because `AnyOpen` already includes
+  all three surfaces, it fixes the viewer **and** the sibling `MarkerSignPanel`/`SignPaintPanel`
+  Escape→menu leak in the same stroke (AT-VIEWEXIT-5), with zero new per-surface code.
+
+**Registration (load-bearing — the PatchCheck lesson).** Each nested `[HarmonyPatch]` container
+must be handed to `harmony.PatchAll(typeof(...))` individually in `Plugin.Awake()` — exactly as the
+existing three `SignPanelInputBlock.*` containers are (`Plugin.cs:258-260`). A new nested patch that
+is authored but never registered compiles, ships, and silently does nothing; `Runtime/PatchCheck.cs`
+will ERROR-log it at boot, but the engineer must add the `PatchAll` line so it's actually woven.
+
+**Server-safe by construction.** `AnyOpen` is false on a dedicated server (no local Player → no
+panel/viewer ever opens), so the prefix is pure pass-through there — same inertness discipline as the
+existing three patches (`SignPanelInputBlock.cs:30-33`).
+
+**Keep the viewer's own `Close()` on Escape** (`MapViewer.cs:395-398`) — that's the half that
+works. The new prefix only stops the *menu* from also opening. (Equivalent for the panels'
+`Hide()`.) Belt-and-suspenders note for the implementer: the `Menu.Show` prefix is the load-bearing
+fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one clean seam, not two.
+
+#### 2F.3 Fix Defect 2 — exit prompt label in the viewer canvas
+
+- Add a bottom-center `Text` label to the viewer's canvas (built once in `EnsureCanvas`, parented
+  to `_root` so it toggles with the overlay), e.g. **"[Esc] Close map"**.
+- **Prompt key token — literal `[Esc]`, NOT a `$KEY_` bound-key token (corrects the card's open
+  question).** The card recommends a bound-key token "for rebind-correctness, consistent with
+  t_7816c0b0." **That is wrong for THIS key:** Escape in vanilla is a **hardcoded
+  `KeyCode.Escape`** (23 call-sites across the decompiled assembly, including the `Menu` gate
+  itself) — it is **never** registered as a rebindable `ZInput` button, so there is no `$KEY_`
+  token that resolves to it and no rebind to stay correct against. A `$KEY_…` here would leak as a
+  literal unresolved token (the exact 2026-06-05 bug `CairnInteractable.cs:58-65` documents). Use
+  the literal `[Esc]`. The `$KEY_` token idiom remains correct for **bindable** actions (e.g. the
+  `$KEY_Use` interact prompt on `SurveyorTableTag.cs:92`).
+- **TableEdit mode — surface the pin-removal affordance too.** In TableEdit the viewer already
+  does left-click-removes-pin (`MapViewer.cs:404`, gated on `_req.Mode == TableEdit && PinEditor != null`).
+  Extend the prompt line in that mode only, e.g. **"[Esc] Close map    [Left-click] Remove pin"**.
+  FieldReadOnly mode shows just the close hint (no pin editing there). The click verb is a bindable
+  action — if a token is used for it, `$KEY_Use`-style localization via `Localization.instance.Localize`
+  is the correct idiom (mirror `CairnInteractable.cs:58-65`); plain "[Left-click]" is also acceptable
+  since left-click for UI interaction isn't a Trailborne-rebound action.
+- **Skin/degrade like the panels.** Reuse the shared `VanillaUISkin.Font` and a flat-color fallback
+  (same discipline as `MarkerSignPanel`/`SignPaintPanel`), so the label wears the native look and
+  degrades gracefully if the skin donor is absent. Visual polish (placement, size, drop-shadow) is
+  Daniel's in-game call.
+
+#### 2F.4 Acceptance tests (named, observable — close only on Daniel's in-game check)
+
+- **AT-VIEWEXIT-1** — With the Surveyor's Table viewer open, Escape CLOSES the viewer and does
+  **NOT** open the pause menu.
+- **AT-VIEWEXIT-2** — A clear exit prompt is visible while the viewer is open (bottom-center,
+  e.g. "[Esc] Close map").
+- **AT-VIEWEXIT-3** — After Escape closes the viewer, a **subsequent** Escape opens the pause menu
+  normally (suppression is scoped to while-a-modal-is-open; Escape is never permanently eaten).
+- **AT-VIEWEXIT-4** — Same clean exit for the field **Local-Map** viewer (shared `MapViewer`
+  engine), both prompt and menu-suppression.
+- **AT-VIEWEXIT-5** (consistency) — `MarkerSignPanel`'s Escape (`:96`) and `SignPaintPanel`'s
+  Escape (`:144`) likewise no longer leak the pause menu — fixed in the same pass via the shared
+  `SignPanelInputBlock` gate (they share the identical pre-fix leak; this is a fix, not a
+  match-the-reference).
+- **AT-VIEWEXIT-6** (no regression) — The viewer's own inputs still work while open: TableEdit
+  left-click pin removal (`:404`), pin display, player marker, edge-arrow. Menu suppression must
+  not block the viewer's interactions. The new `Menu.Show` prefix must NOT suppress the pause menu
+  during normal play when no SBPR modal is open (`AnyOpen` false → pass-through).
+- **AT-VIEWEXIT-7** (registration) — `PatchCheck` reports the new nested patch container as
+  registered at boot (no UNREGISTERED PATCH CLASS error) — i.e. `Plugin.Awake()` actually
+  `PatchAll`'d it.
+- logs-green ≠ playable — Daniel confirms in-game: Escape closes cleanly with no menu pop, and the
+  exit prompt is visible.
+
+#### 2F.5 Routing + dependency note
+
+- **Clean-side → `engineer-ui`** (owns `MapViewer.cs` + the sign panels + `SignPanelInputBlock`).
+  Hooking `Menu.Show` / vanilla input gates is base-game (ADR-0001, fair game); no third-party mod
+  code.
+- **Lands in:** `Features/Signs/SignPanelInputBlock.cs` (new nested `Menu.Show` prefix container),
+  `Plugin.cs` (its `PatchAll` registration), `Features/Cartography/MapViewer.cs` (exit-prompt
+  label in `EnsureCanvas` + mode-aware text). No `SurveyData`/wire change.
+- **Shares `MapViewer.cs` with the issue-6 render card (§2E).** Both edit the viewer. They are
+  **separable** (this touches `EnsureCanvas`'s UI build + an input patch; §2E touches `PaintFog`/the
+  render material) but if both run concurrently they will both modify `MapViewer.cs`. **Sequence
+  recommendation:** land §2E (render) first or assign **both to the same `engineer-ui` worker** so
+  the exit-prompt label and the material-reuse render land without a merge conflict on the same
+  file. Note the dependency on the implementation card.
 
 ---
 
