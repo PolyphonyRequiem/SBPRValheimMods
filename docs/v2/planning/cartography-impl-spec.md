@@ -631,6 +631,11 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
   the player's live personal fog over the static imprint snapshot; without the Kit, no passive
   reveal; the snapshot stays static in storage. See **§2I** for the named criteria + the locked
   shroud-source route (rides §2E.1).
+- **AT-PIN-LABEL-1…5** (issue #11, 2026-06-12) — pinned marker signs render their **text label**
+  (custom `SBPR_PinName`, else the type label) next to the icon on the held Local Map; labels stay
+  screen-upright as the map rotates (counter-rotated with the icon), unnamed/empty pins fall back
+  cleanly, and the label never blocks the TableEdit click. See **§2K** for the named criteria +
+  the locked `Text`-child route. (Rides §2H.1's `CounterRotatePins`.)
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
@@ -1596,7 +1601,10 @@ spec).** The held Local Map behaves like the personal minimap it is meant to *be
 4. **Pins ride the rotation for POSITION, counter-rotate their ICON for readability.** Parent pins
    to the rotating container so they stay world-anchored as it spins; then set each pin's own
    `localRotation` to **-containerRotation** so the icon sprite stays screen-upright (never
-   upside-down). The current fork has no pin text, so icon-upright is the whole job (AT-LMAP-ROT-3).
+   upside-down). *(Originally this fork had no pin text. **Now corrected (issue #11 → §2K,
+   2026-06-12):** pin **labels** were added in #124's wake; they are rendered as a `Text` **child**
+   of each pin GameObject, so the SAME `CounterRotatePins` that rights the icon also rights the
+   label — no extra rotation code. See §2K.)* (AT-LMAP-ROT-3.)
 5. **Edge arrow points at the TABLE when the table is off-view.** Under player-centring, when the
    player is outside the 1000 m disc the player is at centre and the **table** is the off-screen
    target — clamp a direction arrow toward the bound origin at the view edge. This is *more*
@@ -2109,6 +2117,155 @@ both are mid-flight in `MapViewer.cs`. **SpecCheck impact: none.** Spec + code m
 > `TryImprintSlot`.
 
 ---
+### 2K — Pin labels on the held Local Map (issue #11, 2026-06-12, card t_424f38be)
+
+> **Status: BUG — MISSING RENDER LEG.** Reported by Daniel 2026-06-12 (v0.2.22-playtest):
+> *"issue 11: markers pin labels don't appear on the local map."* Pinned marker signs show their
+> **icon** on the bounded viewer but not their **text label** — the name set via the namable-markers
+> feature (`SBPR_PinName`, shipped #124, §7). The label data reaches the viewer; there is simply no
+> render path for it. This rides the same rotating pin overlay as §2H.1 but is a **separate
+> label-rendering change, not orientation** (the §2H.1 routing note already carved #11 out).
+> Clean-side (ADR-0001): our own uGUI text on our own overlay; vanilla read only. **SpecCheck
+> impact: none** (render/presentation, no recipe row). Spec + code move together in the impl PR.
+
+#### 2K.1 Located root cause (grounded — verified against `origin/v1`)
+
+The label string is carried end-to-end **into** the viewer and then dropped at the last step:
+
+1. **Data is present.** `SurveyPin.Name` (`Features/Cartography/SurveyData.cs:37`) holds the
+   resolved label. The live-scan source populates it via the centralized resolver:
+   `WorldPins.CollectInDiscPins` builds `new SurveyPin(label, …)` where
+   `label = ResolveLabel(zdo.GetString(SBPR_PinName), def)` (`Features/MarkerSigns/WorldPins.cs:262-263`).
+   `ResolveLabel` (`WorldPins.cs:363-367`) is: custom name if non-blank → else the marker type's
+   `PinLabel` (`MarkerSigns.cs:71`, e.g. "Mining"/"Portal"/"Shelter"/"Point of Interest") → else
+   `"Marker"`. Imprinted **snapshot** pins (`survey.Pins`) carry whatever name was saved on the
+   vanilla pin (may be empty). So every marker-sign pin arrives with a non-empty `Name`; generic
+   snapshot pins may arrive with an empty one.
+2. **Render drops it.** `MapViewer.SpawnPinMarker(pin, anchored)`
+   (`Features/Cartography/MapViewer.cs:529-548`) creates a `GameObject("pin")`, adds a single
+   `RawImage` for the icon, sizes/positions it — and **never reads `pin.Name`.** No `Text` is ever
+   created for a pin. Labels exist in data with no render leg in the bounded viewer. **That is the
+   whole bug.**
+
+#### 2K.2 🔒 LOCKED ROUTE — add a `Text` CHILD to the existing pin GameObject
+
+Augment `SpawnPinMarker` to parent a `Text` label **under the same `go`** that holds the icon. The
+GameObject is already the unit that pins, positions, counter-rotates, and clears — so a child
+inherits all four for free. Concretely, after the icon is built (`MapViewer.cs:529-548`):
+
+```
+// after: _pinObjects.Add(go);  (the Text is a CHILD of go, NOT a sibling on _overlayLayer)
+if (!string.IsNullOrWhiteSpace(pin.Name))
+{
+    var labelGo = new GameObject("pinLabel");
+    labelGo.transform.SetParent(go.transform, false);     // child of the pin → rides + counter-rotates with it
+    var txt = labelGo.AddComponent<Text>();
+    txt.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");   // SAME font as §2B.1 title / §2F exit prompt
+    txt.fontSize = PinLabelFontPx;                         // new const ~14 (annotation scale, below the 26/34 prompt/title)
+    txt.alignment = TextAnchor.UpperCenter;                // sits centred BELOW the icon
+    txt.color = new Color(1f, 0.95f, 0.8f, 0.97f);         // parchment-cream, matches title/exit prompt
+    txt.horizontalOverflow = HorizontalWrapMode.Overflow;  // single line, no mid-word clip
+    txt.verticalOverflow   = VerticalWrapMode.Overflow;
+    txt.raycastTarget = false;                             // never eat the TableEdit left-click-remove ray
+    txt.text = pin.Name;
+    var lrt = txt.rectTransform;
+    lrt.anchorMin = lrt.anchorMax = new Vector2(0.5f, 0.5f);
+    lrt.pivot = new Vector2(0.5f, 1f);                     // top-centre pivot → grows downward
+    lrt.anchoredPosition = new Vector2(0f, -(PinIconPx * 0.5f + 2f)); // just under the icon (PinIconPx=22, :72)
+    // legibility over the §2E.1 composite (Outline precedent: MarkerSignPanel.cs:467-469):
+    var outline = labelGo.AddComponent<Outline>();
+    outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
+    outline.effectDistance = new Vector2(1.5f, -1.5f);
+}
+```
+
+**Why a CHILD and not a sibling — the load-bearing design point.** §2H.1 keeps pin **icons**
+screen-upright under map rotation via `CounterRotatePins` (`MapViewer.cs:717-722`), which sets each
+pin **GameObject's** `localRotation = -containerRotation`. A label parented to that GameObject
+therefore counter-rotates **with the icon, automatically** — its world rotation is
+`container(+Z) · go(-Z) = identity` (screen-upright) and its local `(0, -Y)` offset resolves to a
+fixed screen-space position **below** the icon at every heading. **No new counter-rotation code is
+needed, and `CounterRotatePins` does not change.** In the `TableEdit` (Surveyor's Table) view, the
+interior never rotates (`ApplyFieldOrientation` early-returns at identity), so the label is upright
+there too with no special-casing. `ClearPinObjects` (`MapViewer.cs:809-813`) destroys `go`, which
+takes the child label with it — lifecycle is automatic; `_pinObjects` is unchanged.
+
+**Both views get labels by construction.** `SpawnPinMarker` is shared by `FieldReadOnly` and
+`TableEdit`, so labels render in the held map AND the table-editing surface. This is desirable —
+the table is the pin-management surface (left-click remove), where reading names matters most —
+and it costs nothing extra. `raycastTarget = false` guarantees the label never intercepts the
+TableEdit removal click.
+
+**Add one const** beside `PinIconPx` (`MapViewer.cs:72`): `private const float PinLabelFontPx = 14f;`.
+
+#### 2K.3 Unnamed pins (resolves the card's third AT) — one rule, no branching
+
+The single guard `if (!string.IsNullOrWhiteSpace(pin.Name))` delivers BOTH required behaviours,
+because `ResolveLabel` already did the fallback upstream:
+
+- An **unnamed marker sign** arrives with `Name` = its type label ("Mining", "Portal", …), so it
+  renders that type label. (Daniel's card allows "type label **or** no label"; type label is
+  chosen because it is free — already in the data — and a typed marker reads better as "Mining"
+  than blank.)
+- A **genuinely empty** name (a generic snapshot pin with no name) renders **no** label — no empty
+  box, no stray outline. This also satisfies the §7 blank-name contract (AT-MARKER-NAME-5): a
+  blank name never paints an empty label.
+
+> **Clutter is an in-game calibration knob, NOT a v1 mechanism.** Many unnamed markers would each
+> show a type label; vanilla allows pin-name overlap and does not de-clutter, and our disc is
+> bounded, so v1 **matches vanilla: render every non-empty label, allow overlap.** If Daniel finds
+> the type-label-on-every-unnamed-marker noisy in-game, the cheap follow-up is to gate
+> *type-label-only* labels (i.e. require a custom name) behind a config flag defaulting to show —
+> **flagged, not built.** Do not add label collision-avoidance / LOD for this fix.
+
+#### 2K.4 Files touched + clean/dirty
+
+- `src/SBPR.Trailborne/Features/Cartography/MapViewer.cs` — augment `SpawnPinMarker` (one block) +
+  one new `PinLabelFontPx` const. No change to `CounterRotatePins`, `ClearPinObjects`, the pin
+  collection, or the projection math. **Clean-side** (ADR-0001): our own `Text` on our own overlay,
+  reusing the in-repo `VanillaUISkin.Font` + `Outline` patterns. Vanilla read only — see the cite
+  below; no decompiled IronGate source copied, no third-party mod code.
+- `docs/v2/planning/cartography-impl-spec.md` — this §2K + the §2H b4 correction + the §2D pointer
+  (spec + code move together, AGENTS.md).
+
+> **Vanilla reference (ADR-0001 fair-game read, NOT copied).** Vanilla renders pin names from a
+> separate `TMP_Text` prefab (`Minimap.CreateMapNamePin`, decomp `:47226`) gated on map zoom
+> (`pin.m_name.Length > 0 && m_largeZoom < m_showNamesZoom`, decomp `:47863`). Two deliberate
+> deviations for our bounded viewer: (a) our viewer is **fixed-zoom** (AT-MAP-FIXEDZOOM), so the
+> zoom gate is N/A — labels are simply always-on for named pins; (b) we use legacy
+> `UnityEngine.UI.Text` (not `TMP_Text`) to match the viewer's existing title/exit-prompt text
+> stack (`MapViewer.cs:1059-1094`) and the shared `VanillaUISkin.Font`, rather than introducing a
+> second text pipeline. Behaviour adapted from the game we mod; implementation is our own.
+
+#### 2K.5 Acceptance tests (named, observable — close only on Daniel's in-game check)
+
+- **AT-PIN-LABEL-1 (card AT 1)** — a **named** pinned marker sign shows its label text positioned
+  next to (just below) its icon on the held Local Map.
+- **AT-PIN-LABEL-2 (card AT 2 / #2 counter-rotate)** — as the held map rotates to heading, pin
+  labels stay **screen-upright and legible** (never upside-down, never mirrored), riding the same
+  counter-rotation as the icons; the label stays anchored just below its icon at every heading.
+- **AT-PIN-LABEL-3 (card AT 3)** — an **unnamed** marker sign falls back to its **type label**
+  ("Mining"/"Portal"/"Shelter"/"Point of Interest") cleanly; a pin with a genuinely empty name
+  shows **no** label and **no** empty box/outline.
+- **AT-PIN-LABEL-4 (legibility)** — labels are readable over the §2E.1 composite (biome/water/
+  relief) via the dark outline + parchment fill; they reuse the viewer's existing font + tint so
+  they read as part of the same map UI as the title/exit prompt.
+- **AT-PIN-LABEL-5 (no regression / table view)** — pin **icon** position + icon-upright behaviour
+  (AT-LMAP-TC-3/-4) is unchanged; the label renders in BOTH the held map and the Surveyor's Table
+  (TableEdit) view, and `raycastTarget=false` means the label never blocks the TableEdit
+  left-click-remove gesture.
+- logs-green ≠ playable — Daniel confirms in-game that named marker pins show their labels and stay
+  readable as the map turns.
+
+#### 2K.6 Routing
+
+- **Clean-side → `engineer-ui`** (owns `MapViewer.cs` + the viewer cluster). This is a small,
+  self-contained addition to `SpawnPinMarker` on top of §2E.1 (render) + §2H.1 (the rotating pin
+  overlay it rides). Route it to the SAME worker holding the viewer cluster, **after** §2H.1 lands
+  (the label rides the counter-rotation `CounterRotatePins` provides). Folded into the combined
+  viewer-cluster impl child as STEP 3 (render → orientation → labels).
+- **SpecCheck impact: none.** Spec + code move together in the PR.
 
 
 ## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping
