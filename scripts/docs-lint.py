@@ -6,7 +6,9 @@ Checks (see docs/decisions + the sbpr-docs-conventions skill):
   1. TWO-FILE RULE   — every docs/ subfolder has both README.md and index.md.
   2. STATUS FIELD    — content docs carry a frontmatter `status:` from the
                        allowed vocabulary. (Scaffolding README/index/TEMPLATE
-                       are exempt — their role is implicit.)
+                       are exempt — their role is implicit.) `idea` is the
+                       pre-spec capture tier (named, not yet specced); it sits
+                       below `proposed` and is promoted once mechanics are locked.
   3. NO BROKEN LINKS — every relative .md link in any doc resolves on disk.
 
 Exit non-zero on any violation. Used by .github/workflows/docs.yml and runnable
@@ -18,7 +20,7 @@ import os, re, sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS = os.path.join(REPO, "docs")
 
-ALLOWED_STATUS = {"current", "living", "historical", "superseded", "template", "accepted", "proposed"}
+ALLOWED_STATUS = {"idea", "current", "living", "historical", "superseded", "template", "accepted", "proposed"}
 # Files exempt from the status-field requirement (structural scaffolding).
 STATUS_EXEMPT = {"README.md", "index.md"}
 

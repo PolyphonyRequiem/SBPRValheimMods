@@ -25,7 +25,9 @@ Machine-readable manifest of the documentation tree.
 - Every folder carries both `README.md` (prose orientation) and `index.md` (this manifest format).
 - Version directories use semver (`v0.1.0/`), never date stamps.
 - Content docs carry a frontmatter `status:` field for freshness — one of
-  `current`, `living`, `historical`, `superseded` (ADRs use `accepted`/`proposed`).
+  `idea`, `current`, `living`, `historical`, `superseded` (ADRs use `accepted`/`proposed`).
+  `idea` is the pre-spec capture tier: a feature named but not yet specced (no mechanics
+  locked, no impl card, no SpecCheck row) — promote to a real design doc when fleshed out.
 - Load-bearing decisions are recorded as ADRs in [`decisions/`](decisions/).
 - All of the above is machine-enforced by `scripts/docs-lint.py` (CI: `.github/workflows/docs.yml`).
 - The full convention is encoded in the `sbpr-docs-conventions` Hermes skill.
