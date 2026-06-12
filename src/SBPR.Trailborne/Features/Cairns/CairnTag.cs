@@ -398,7 +398,7 @@ namespace SBPR.Trailborne.Features.Cairns
         //     jitter — the "zigs and zags on the spot" is random flutter competing with streaming.
         public const float DefaultBannerWidthZ            = 0.18f;  // ribbon WIDTH, m (Z) — narrower → reads as a tail/sock, not a square flag
         public const float DefaultBannerDropY             = 1.15f;  // tail LENGTH, m (Y) — longer than the old 0.892 square drape → a streaming tail
-        public const float DefaultBannerMountHeight       = 0.70f;  // mount (pinned end) height above the pile crown, m — elevates the tether so the tail free-falls past the cairn while clearing T1 ground at rest
+        public const float DefaultBannerMountHeight       = 0.20f;  // mount (pinned end) height above the pile crown, m — elevates the tether so the tail free-falls past the cairn while clearing T1 ground at rest. Lowered 0.70→0.20 (issue 12, t_0e97ec16): Daniel wanted the banner TOP ~0.5 m lower; 0.70−0.50=0.20 stays positive (mount still ~0.20 m above crown, no clamp). Tune live around 0.20.
         public const float DefaultBannerOffsetXZ          = 0.30f;  // lateral nudge off the pile centre (clears the flame)
         public const float DefaultBannerWindMult          = 1.0f;   // directional multiplier (vanilla GlobalWind default; intensity response already confirmed at 1.0)
         public const float DefaultBannerWindRandomFactor  = 0.25f;  // omnidirectional jitter (LOWER than vanilla 0.5 → directional streaming dominates)
