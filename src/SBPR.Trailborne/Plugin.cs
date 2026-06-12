@@ -70,6 +70,15 @@ namespace SBPR.Trailborne
         // ── DIAGNOSTIC (card t_7de074f3 — ATTEMPT #6 Step 1) ──
         internal static ConfigEntry<bool>  BannerDiagnostic       = null!;  // attach the BannerDiagnostic runtime probe (default ON for this diagnostic build)
 
+        // ── Cartography: NoMap enforcement (card t_2f9fc470, impl-spec §3.5.3) ──
+        // The escape hatch for the mod-owned global-map disable. Default ON (enforced):
+        // the mod sets GlobalKeys.NoMap server-side at world load so the cartography tier
+        // (Surveyor's Table / Local Map / Cartographer's Kit) is the only map. Set false
+        // ONLY to let the vanilla global map coexist (debug / non-cartography server). The
+        // Mistlands tier advancement lifts NoMap independently of this flag. Read by
+        // NoMapEnforcer.ShouldEnforceNoMap; the boot-log fires either way (the honesty rule).
+        internal static ConfigEntry<bool>  EnforceNoMap           = null!;  // set in Awake via Config.Bind
+
         private void Awake()
         {
             Log = Logger;
@@ -239,6 +248,20 @@ namespace SBPR.Trailborne
                 "inert like the prior 5 attempts assumed it wasn't?), and whether the rest pose hangs down or " +
                 "stands up. Grep the client log for '[BannerDiag]'. Set false once the failure mode is known.");
 
+            // ── Cartography: NoMap enforcement (card t_2f9fc470, impl-spec §3.5.3) ───
+            // Daniel's directive is "this mod should just disable it" → default ON, enforced.
+            // ONE optional escape hatch so a future server operator / debug session can opt
+            // out without a recompile. NoMapEnforcer.ShouldEnforceNoMap reads this; the loud
+            // boot-log line fires either way (AT-NOMAP-BOOTLOG — the premise is never silent).
+            EnforceNoMap = Config.Bind(
+                "Cartography",
+                "SBPR_EnforceNoMap",
+                true,
+                "When true (default), the mod disables the vanilla global map by setting GlobalKeys.NoMap " +
+                "server-side at world load — the cartography tier's enforced precondition. Set false ONLY to " +
+                "let the vanilla global map coexist (debug / non-cartography server). The Mistlands tier " +
+                "advancement lifts NoMap independently of this flag.");
+
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
@@ -326,6 +349,17 @@ namespace SBPR.Trailborne
             // server has no Minimap, so UpdateExplore never runs there. The nested patch class is
             // registered explicitly so the PatchCheck watchdog sees it wove a method.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.CartographersKit.UpdateExploreGate));
+
+            // v2 NoMap enforcement — the cartography tier's enforced precondition (card
+            // t_2f9fc470, impl-spec §3.5). Server-only Postfix on ZNet.LoadWorld (the same
+            // proven post-WorldSetup seam as LegacyTerrainOpZdoCleanup, ⭐6): sets
+            // GlobalKeys.NoMap server-side by default so the vanilla global map is disabled
+            // and the cartography tier is the only map. Built as a LIFTABLE gate
+            // (ShouldEnforceNoMap) so a future Mistlands advancement re-enables it; the
+            // SBPR_EnforceNoMap config is the escape hatch. Idempotent + fail-loud-non-fatal.
+            // Registered here so the PatchCheck watchdog sees it wove a method (the exact
+            // dead-patch class it exists to catch).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.NoMapEnforcer));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
