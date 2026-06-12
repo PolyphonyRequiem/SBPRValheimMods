@@ -495,8 +495,10 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 > Map is a **fixed-window, TABLE-centred, circular, rotate-to-heading** minimap: the player
 > marker moves within a static disc and is hidden + edge-arrowed when outside it; only the
 > circular interior rotates (the bezel/frame is fixed); there is **no** north indicator. The
-> Surveyor's Table / TableEdit view keeps the north-up, table-centred, square behaviour described
-> here. Bounding/shroud (1000 m around the table) and fixed zoom are UNCHANGED. **Read §2H.1
+> Surveyor's Table / TableEdit view ALSO rotates-to-heading now (issue #1, Daniel-locked
+> 2026-06-12 — no north-up lock anywhere) but keeps its fuller table-centred **square** extent for
+> pin-editing visibility, with no north indicator either. Bounding/shroud (1000 m around the table)
+> and fixed zoom are UNCHANGED. **Read §2H.1
 > before touching the held-map orientation**, and route §2E + §2H.1 to the SAME worker (they
 > co-define the same RawImage). *(The superseded §2H "player-centred + free-rotate" model shipped
 > in v0.2.22 and was rejected — see the §2H.1 supersession note for why.)*
@@ -623,8 +625,10 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 - **AT-LMAP-TC-1…6** (issues #2/#3/#4/#9 re-lock, 2026-06-12) — the held Local Map is a
   fixed-window, **TABLE-centred**, circular, rotate-to-heading minimap: no pan (#4); player marker
   at true table-relative position, hidden + edge-arrow when off-disc (#3); fixed bezel, only the
-  interior rotates (#2); circular form (#9); no north indicator. The Table view stays north-up +
-  square. See **§2H.1** for the named criteria + the locked route. *(Supersedes AT-LMAP-ROT-1…5 /
+  interior rotates (#2); circular form (#9); no north indicator. The Table view (TableEdit) ALSO
+  rotates-to-heading now (issue #1, Daniel-locked 2026-06-12 — no north-up lock anywhere) but keeps
+  its fuller **square** extent for pin-editing visibility, with no north indicator either. See
+  **§2H.1** for the named criteria + the locked route. *(Supersedes AT-LMAP-ROT-1…5 /
   the player-centred §2H — see the §2H.1 supersession map.)*
 - **AT-LMAP-LIVE-1…6** (issue 5, 2026-06-12) — with the Cartographer's Kit worn, travelling
   visibly grows the held map (the FieldReadOnly shroud recedes along the player's path) by OR-ing
@@ -792,6 +796,20 @@ exit prompt, and §2H rotate/center are all untouched.
   edge arrow still align (AT-TABLEMAP-4/7).
 - logs-green ≠ playable — Daniel confirms in-game the local map looks like the real map, bounded.
 
+> **✅ IMPL STATUS (2026-06-12, card t_e0e8c7a9, engineer-ui).** BUILT. The GPU-material-copy path
+> (`TryRenderVanillaCartography`, `_mapMaterial`, `_revealTex`, the `_MainTex`/`_FogTex`/`_zoom`/
+> `_pixelSize`/`_mapCenter` shader uniforms, `uvRect` framing) is **DELETED** from `MapViewer.cs`.
+> The new `CartographyComposer.Compose(IBiomeSampler, palette, window, …)` (new file
+> `Features/Cartography/CartographyComposer.cs`) is a pure CPU function: per window cell it samples
+> `WorldGenerator.GetBiome`/`GetBiomeHeight` (via `WorldGeneratorSampler.Live`), maps biome→color
+> (vanilla `GetPixelColor` table, read live off `Minimap.instance` with literal fallback), renders
+> `height < 30 m` as a depth-ramped water tone (AT-RENDER-WATER), and applies a NE hillshade from
+> the height field (AT-RENDER-RELIEF). `MapViewer.TryComposeCartography` bakes it ONCE into a cached
+> `Texture2D` per Render and overlays the unchanged shroud mask; `PaintFog` stays as the
+> `WorldGenerator.instance == null` fallback. `SurveyData` wire is untouched (AT-RENDER-REGRESSION).
+> Build 0/0. **The §2E.2 preview PNGs (same composer source) are the AT-RENDER-PREVIEW evidence,
+> pending Daniel's sign-off before merge.** Logs-green ≠ playable — Daniel confirms in-game.
+
 #### 2E.2 — Headless preview harness (Daniel-requested: PNG captures before ship)
 
 > **Status: NEW — verification leg.** This box is a headless dedicated server (no GPU client), which
@@ -822,6 +840,28 @@ exit prompt, and §2H rotate/center are all untouched.
   water, biome color, and relief are all visible in one frame.
 - **This harness is reusable** for every future cartography render change — it converts "logs green"
   into "here's what it looks like," closing the gap that let §2E ship blind.
+
+> **✅ IMPL STATUS (2026-06-12, card t_e0e8c7a9, engineer-ui).** The harness is BUILT and the
+> preview PNGs are produced. **Route P1 (port the math headless) was empirically REJECTED, Route
+> P2 (real WorldGenerator) built instead — engineer's escalation call per the spec's "fall back to
+> P2 if P1 drift proves unfixable" clause.** Concretely:
+> - **Why P1 is dead (not just risky):** a standalone .NET probe linking the real `assembly_valheim.dll`
+>   confirmed `WorldGenerator.GetBiome`/`GetBiomeHeight` bottom out in `DUtils.PerlinNoise` →
+>   **`UnityEngine.Mathf.PerlinNoise`, a Unity NATIVE engine method (ECall)**. Under bare .NET it
+>   throws `SecurityException: ECall methods must be packaged into a system module` (and even
+>   `World`'s ctor hits `UnityEngine.Random.Range`, another ECall). A faithful P1 would therefore
+>   have to reimplement Unity's exact Perlin gradient tables — the precise drift trap this section
+>   warns against — so "P1 drift is unfixable" is proven, not assumed.
+> - **What P2 is:** a throwaway BepInEx plugin (`tools/cartography-preview/`, NOT shipped) that
+>   links the **shipped `CartographyComposer` source** and runs it against the live `WorldGenerator`
+>   on a Harmony postfix of `WorldGenerator.Initialize`, inside the dedicated server's Unity runtime
+>   (the proven worldgen-spike bootstrap). It writes PNGs with a **pure-C# encoder** (no Unity
+>   Texture / GPU) so it works headless. Because it links the *same* composer source, **preview ==
+>   ship by construction** — exactly the §2E.2 guarantee.
+> - **Result:** 3 PNGs rendered at Daniel's playtest seed (`ForTheWort`, numeric `-756187396`),
+>   spanning meadows/black-forest, mountains (relief), and shorelines (water) — water, biome color,
+>   and hillshade relief all visible. **Pending Daniel's AT-RENDER-PREVIEW sign-off before the
+>   in-game change merges** (the impl PR is blocked review-required with the PNG paths attached).
 
 > **Status: DESIGN CORRECTION (ORIGINAL §2E, 2026-06-11 — SUPERSEDED by §2E.1 above on the render
 > route; retained for history).** Supersedes the "paint our own two-color texture" render
@@ -1463,14 +1503,22 @@ rotate-to-heading minimap.** Point by point:
    rides the rotation, and (like the pins, §2H b4) its icon counter-rotates so it never appears to
    spin (`CounterRotatePins`).
 
-6. **Surveyor's Table (TableEdit) view is UNCHANGED — north-up, table-centred, square, static
-   frame.** A placed Table has no heading; you stand at it and read a stable shared-editing
-   surface. Switch purely on the existing `MapViewerMode` flag: `FieldReadOnly` → fixed-window +
-   table-centred + circular + rotate-to-heading (this section); `TableEdit` → today's north-up +
-   table-centred + square behaviour, byte-for-byte. This also confirms the answer to issue #1's
-   candidate-B reading: the Table *map view* is north-up **by design** (not a bug); issue #1, if
-   it means placement-ghost rotation, is a separate `Piece.m_canRotate` build property, out of
-   scope here.
+6. **Surveyor's Table (TableEdit) view ALSO rotates-to-heading — table-centred (issue #1, Daniel
+   re-locked 2026-06-12, REVERSES the earlier "north-up" line).** Issue #1's candidate-A (placement
+   ghost `Piece.m_canRotate`) was decomp-falsified (it defaults true); the real issue is
+   candidate-B — the Table *map view* was north-locked — and Daniel wants it **CHANGED, not
+   wontfix**. A north-locked table view was a **free, reliable North reference** any time the player
+   stood at a table, which defeats the no-North design pillar (the swamp Iron Compass is the *earned*
+   orientation tool). So the table view now rotates-to-heading exactly like the held map, closing
+   the free-North hole. Concretely: `ApplyFieldOrientation` STOPS hard-resetting
+   `_mapContainer.localRotation = identity` in TableEdit and applies the same `MapRotationSign *
+   cameraYaw` rotation. The table is table-centred and the player stands at it (≈ centre), so the
+   rotation is clean about centre (no orbit issue). **What stays table-specific:** the TableEdit view
+   keeps its **fuller square extent** (no circular clip) for pin-editing visibility — a circular clip
+   can hide edge pins you're trying to manage — and keeps left-click pin removal; only its
+   *orientation* changes. **No north indicator on the table view either** (same no-North rule). Switch
+   on the existing `MapViewerMode` flag: both modes rotate-to-heading; `FieldReadOnly` adds the
+   fixed circular bezel + the marker hide/edge-arrow, `TableEdit` stays square + keeps pin editing.
 
 **Net change vs. shipped §2H.** This is a **simplification**, not added complexity: delete the
 player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticOverlay` +
@@ -1498,8 +1546,12 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
   north-up mode, or any orienting aid anywhere on the held Local Map.
 - **AT-LMAP-TC-6 (no regression)** — AT-MAP-BOUND (1000 m reveal), AT-MAP-FIXEDZOOM, the §2E.1
   CPU-composite render, pin position+icon-upright behaviour, the §2F exit prompt, and the §2G open
-  input are unchanged; the Surveyor's Table (TableEdit) view stays north-up + table-centred +
-  square + static-frame, byte-for-byte.
+  input are unchanged. The Surveyor's Table (TableEdit) view stays table-centred + **square** +
+  keeps left-click pin removal — but now **rotates-to-heading** like the held map (issue #1), with
+  **no** north indicator.
+- **AT-TABLEVIEW-ROT-1 (issue #1)** — opening the Surveyor's Table view and turning the player
+  rotates the table map to heading (it is **no longer north-locked**); there is **no** North
+  indicator/compass rose on the table view; left-click pin removal still works while rotated.
 - logs-green ≠ playable — Daniel confirms in-game.
 
 **Supersession map (old §2H ATs → this section).** AT-LMAP-ROT-1 (free-rotate) → restated in
