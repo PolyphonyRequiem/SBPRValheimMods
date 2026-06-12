@@ -61,8 +61,21 @@ namespace SBPR.Trailborne.Features.Cartography
         // windowed format, identical to what the Table persists, so one format serves
         // item + Table + viewer. BoundKey carries the bound-origin world coord (redundant
         // with the blob's OriginX/Z, kept as a fast "is this map imprinted?" probe).
+        //
+        // NameKey (issue 10, §2A.6) carries the imprinting Table's NAME so the item's
+        // displayed title can bear it (e.g. "Map: Northern Outpost") — surfaced by the
+        // scoped LocalMapNamePatch postfix. Stored BARE (no "Map: " prefix); the prefix is
+        // applied at display time so it can change without re-imprinting. All three keys are
+        // save/wire contracts — LOCK + never rename (a rename orphans every imprinted map's
+        // stored data, same rule as the prefab name). m_customData is the ONLY per-instance,
+        // save-surviving store (m_shared is shared by reference across instances — §2A.6).
         public const string MapBlobKey = "sbpr_map_blob";
         public const string BoundKey   = "sbpr_map_bound";
+        public const string NameKey    = "sbpr_map_name";
+
+        // Display prefix for an imprinted map's title (§2A.6) — applied at render time by the
+        // name patch, NOT stored, so it can change without re-imprinting every placed map.
+        public const string NameDisplayPrefix = "Map: ";
 
         private const string IconFile = "local_map_v0.1.png"; // optional; falls back to no icon
 
@@ -194,10 +207,15 @@ namespace SBPR.Trailborne.Features.Cartography
         /// Imprint a blank/old Local Map with a SNAPSHOT (not a live link, §2A.5) of the
         /// given Table survey. Stores Base64(Utils.Compress(survey.Serialize())) in the
         /// item's m_customData under <see cref="MapBlobKey"/>, plus the bound-origin coord
-        /// under <see cref="BoundKey"/>. Returns true on success. The blob is the §2C
-        /// windowed format — identical to the Table's, so the viewer reads one format.
+        /// under <see cref="BoundKey"/>, plus the imprinting Table's NAME under
+        /// <see cref="NameKey"/> (§2A.6 — so the item's title bears the Table name). The
+        /// name is stored BARE (no "Map: " prefix); the prefix is applied at display time.
+        /// An empty/null <paramref name="tableName"/> writes no name key (a pre-1.6 / unnamed
+        /// imprint shows the vanilla "Local Map" title — AT-TABLENAME-7 no-orphan). Returns
+        /// true on success. The blob is the §2C windowed format — identical to the Table's,
+        /// so the viewer reads one format.
         /// </summary>
-        public static bool Imprint(ItemDrop.ItemData item, SurveyData survey, Vector3 boundOrigin)
+        public static bool Imprint(ItemDrop.ItemData item, SurveyData survey, Vector3 boundOrigin, string? tableName = null)
         {
             if (item == null || survey == null) return false;
             try
@@ -205,6 +223,8 @@ namespace SBPR.Trailborne.Features.Cartography
                 byte[] compressed = Utils.Compress(survey.Serialize());
                 item.m_customData[MapBlobKey] = Convert.ToBase64String(compressed);
                 item.m_customData[BoundKey]   = $"{boundOrigin.x:R};{boundOrigin.z:R}";
+                if (!string.IsNullOrEmpty(tableName))
+                    item.m_customData[NameKey] = tableName;
                 return true;
             }
             catch (Exception e)
@@ -266,6 +286,24 @@ namespace SBPR.Trailborne.Features.Cartography
             if (survey != null)
             {
                 origin = new Vector3(survey.OriginX, 0f, survey.OriginZ);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Read the imprinted Table NAME off a Local Map instance (§2A.6), or false if the
+        /// map is blank / was imprinted before naming existed (no <see cref="NameKey"/>).
+        /// The returned name is BARE (no "Map: " prefix) — apply <see cref="NameDisplayPrefix"/>
+        /// at display time. Mirrors <see cref="TryGetBoundOrigin"/>. Pure read; never throws.
+        /// </summary>
+        public static bool TryGetName(ItemDrop.ItemData item, out string name)
+        {
+            name = string.Empty;
+            if (item == null || item.m_customData == null) return false;
+            if (item.m_customData.TryGetValue(NameKey, out var stored) && !string.IsNullOrEmpty(stored))
+            {
+                name = stored;
                 return true;
             }
             return false;

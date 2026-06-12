@@ -165,6 +165,18 @@ checks are tallied separately in the boot summary line).
 > card (t_62af5802) — do NOT build a shared naming helper and do NOT couple them. Spec this
 > standalone.**
 
+> **IMPL STATUS (2026-06-12, card t_41482aa3, engineer-ui):** built on branch
+> `feat/table-naming-t_41482aa3` off `v1` (after the §2E/§2F/§2G/§2H viewer overhaul PR #123
+> merged, as sequenced). Build 0 warn / 0 err. `SurveyorTableTag` now implements `TextReceiver`,
+> carries the `SBPR_TableName` owner-write ZDO (read censored via `CensorShittyWords.FilterUGC`
+> like vanilla `Tameable.GetText`), reflects the name in `GetHoverName`/`GetHoverText`, and gates
+> `Interact`: an unnamed Table launches the vanilla `TextInput.RequestText(this, "$hud_rename", 32)`
+> rename dialog instead of imprinting, and `ImprintCarriedLocalMaps` hard-returns on an empty name
+> (the §1.6.4 backstop). Implementer choice taken: **always prompt-to-name an unnamed Table on Use**
+> (the spec-sanctioned alternative — keeps the §1.6.2 unnamed hover "[Use] Name this table" literally
+> true). Surveying stays un-gated. SpecCheck/manifest unchanged (no recipe rows). **logs-green ≠
+> playable — Daniel verifies in-game (AT-TABLENAME-1/2, §1.7).**
+
 **Lands in:** `Features/Cartography/SurveyorTableTag.cs` (name ZDO field + naming dialog + gate).
 
 #### 1.6.1 The Table name — a per-instance owner-write ZDO string
@@ -376,6 +388,21 @@ with the Table via the `CartographyViewer` seam).
 > **Status: NEW DESIGN.** The imprinted Local Map item's NAME must bear the Table's name so a
 > player carrying several bound maps can tell them apart in inventory. Pairs with §1.6.
 
+> **IMPL STATUS (2026-06-12, card t_41482aa3, engineer-ui):** built; build 0/0.
+> **(a)** `LocalMap.Imprint` gained an optional `string tableName` param and stamps the bare
+> name into the new `sbpr_map_name` `m_customData` key (LOCK, never rename); `SurveyorTableTag.
+> ImprintCarriedLocalMaps` passes `GetTableName()` (only when named). `LocalMap.TryGetName(item,
+> out name)` mirrors `TryGetBoundOrigin`. **(b)** Two scoped Harmony postfixes in the new
+> `LocalMapNamePatch.cs` (both registered in `Plugin.Awake` → caught by `PatchCheck`, AT-TABLENAME-8):
+> `LocalMapTooltipNamePatch` (Postfix on private `InventoryGrid.CreateItemTooltip` → overwrites
+> `UITooltip.m_topic`, the title, **verified at build: `m_topic` is the rendered title field in
+> `assembly_guiutils`**) and `LocalMapHoverNamePatch` (Postfix on `ItemDrop.GetHoverName` →
+> rewrites `__result`, the world-drop hover). **Guard = presence of the `sbpr_map_name` key**
+> (chosen over `m_dropPrefab`, which is `[NonSerialized]` and unreliable on loaded items); pure
+> pass-through otherwise (AT-TABLENAME-7). **Name format: light `"Map: "` prefix applied at display
+> time (stored bare)** — the spec's recommended answer to the open-Q; **Daniel confirms the prefix
+> in-game.** **logs-green ≠ playable — AT-TABLENAME-3.**
+
 **⚠️ The card's `m_crafterName` hypothesis is WRONG — corrected here against the decomp.** The
 card's open question proposes carrying the per-instance name via `ItemData.m_customData["crafterName"]`
 / the crafter path. That does **not** make the name show as the item's title. Grounded findings
@@ -494,6 +521,16 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 
 > **Status: NEW DESIGN.** When a map view is open, the Table's name shows as a title on-screen —
 > for BOTH the field Local-Map view (the imprinted map's name) and the Table-at-the-Table view.
+
+> **IMPL STATUS (2026-06-12, card t_41482aa3, engineer-ui):** built on the finished §2E/§2F/§2G/§2H
+> `MapViewer` canvas (PR #123); build 0/0. Added `string? Title` to `MapViewRequest`. `MapViewer`
+> gained a `_titleLabel` (`Text`, bold, parchment-cream — same `VanillaUISkin.Font` as the §2F exit
+> prompt) created in `EnsureCanvas` anchored **TOP-centre**, and an `UpdateTitle()` called each
+> `Render()` that shows it from `_req.Title` (hidden when empty → AT-TABLENAME-7 no-orphan).
+> **Placement contract honoured: title = TOP-centre, §2F exit prompt = BOTTOM-centre — no overlap.**
+> Producers: `SurveyorTableTag.Interact` sets `Title = GetTableName()` (Table view); `LocalMapController.
+> OpenFullView`/`RefreshOpenView` set `Title = LocalMap.TryGetName(map)` (field view). One mode-agnostic
+> code path. **logs-green ≠ playable — AT-TABLENAME-4/5 are F9/in-view checks Daniel confirms.**
 
 - **Thread the name into the viewer via `MapViewRequest`.** Add one field to the request struct
   (`CartographyViewer.cs`, the `MapViewRequest` struct `:67-74`):
