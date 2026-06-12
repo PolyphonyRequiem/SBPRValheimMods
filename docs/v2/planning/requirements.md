@@ -185,6 +185,35 @@ no north). Three interlocking pieces:
   as a separate item — but for now it stays distinct. Keep the coupling loose so
   folding it in later is cheap.
 
+## 3.5 NoMap precondition (the mod disables the global map by default) — ✅ LOCKED (Daniel, 2026-06-11, card t_8c9abf6f)
+
+The entire tier above assumes there is **no vanilla global map** — that's the whole reason
+the forked bounded viewer exists. v1's design treated `nomap=ON` as a *server-config
+assumption* (see [`../../design/cartography-v2.md`](../../design/cartography-v2.md) §0). That
+assumption was **never enforced by the mod**, so on a fresh/local world the full vanilla
+global map (M key) is live and the cartography tier competes with a free full-world map. This
+section closes that gap.
+
+- **The mod disables the global map BY DEFAULT.** It sets `GlobalKeys.NoMap` server-side at
+  world load (`Game.m_noMap` true → the vanilla map UI is forced off). The mod owns its own
+  premise — it does not rely on a host having run `nomap` by hand. Daniel: *"Disable the
+  global map by default. We will enable it again in the Mistlands tier advancement, but this
+  mod should just disable it."*
+- **Server-authoritative + auto-propagated.** Setting the key server-side pushes it to every
+  joining client automatically (vanilla `SendGlobalKeys`), and it persists with the world. No
+  client-side mod action, no per-client config.
+- **LIFTABLE, not permanent.** The disable is built behind a gate so a future **Mistlands tier
+  advancement** can re-enable the global map (a single `RemoveGlobalKey(GlobalKeys.NoMap)`).
+  Build the gate now; the Mistlands *trigger* is future scope. Do NOT hardcode an
+  unconditional permanent NoMap.
+- **Honesty:** the mod logs a loud, greppable boot line stating it set/holds NoMap — the
+  lesson of this bug is that a silent unenforced premise shipped false; never again.
+- **Config:** default ON, enforced (per Daniel's directive). One optional config off-switch
+  for debug / non-cartography servers; the boot-log fires either way.
+- Buildable detail (hook, liftability seam, decomp grounding, ATs):
+  [`cartography-impl-spec.md §3.5`](cartography-impl-spec.md). **SpecCheck impact: none**
+  (global-key behaviour, not a recipe row).
+
 ## 4. Pins
 
 - **Per-pin explicit sharing** (the model in [`../../design/pin-sharing.md`](../../design/pin-sharing.md)):
@@ -233,6 +262,12 @@ item/gating cards layer on top.
   ZERO fog.
 - **AT-KIT-RECIPE** — the Kit crafts from 10×(R/W/B/K) + 4 Fine Wood at the Explorer's
   Bench, surfaced as a normal recipe (no discovery flag).
+- **AT-NOMAP-1** — on a world with the mod (fresh/local included), the vanilla global map (M)
+  is disabled by default; no host has to run `nomap` by hand. (Full AT-NOMAP-2..6 +
+  AT-NOMAP-BOOTLOG in [`cartography-impl-spec.md §3.5.5`](cartography-impl-spec.md).)
+- **AT-NOMAP-LIFTABLE** — the disable is gated so a future Mistlands advancement can
+  re-enable the global map (`RemoveGlobalKey(GlobalKeys.NoMap)`); verified now by toggling the
+  gate condition / config. The Mistlands trigger is future scope; the liftability seam exists now.
 - **AT-PIN-SHARE** — per-pin opt-in sharing works; a non-shared pin stays private.
 - logs-green ≠ playable: every AT closes only on Daniel's in-game check.
 

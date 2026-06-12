@@ -19,18 +19,28 @@ purpose: "DRAFT design spec for the v2 Black Forest cartography system. Grounded
   the 0.2.x polish line) is locked. Not started; zero map code exists in `src/`
   today (greenfield).
 - **The v1 map baseline this builds on (locked, `requirements.md` Q1.2 / A1.2):**
-  - `nomap=ON` (server) → no map at all.
+  - `nomap=ON` → no global map at all (only the minimap circle survives, see below).
   - `nomap=OFF` (default) → **minimap circle ONLY**, freely rotating, **no north
     indicator, no M-key full map**.
   - The vanilla **Cartography Table is nerfed**: existing ones lose function, new
     ones can't be built.
+  - **⚠️ PREMISE CORRECTION (2026-06-11, card t_8c9abf6f):** the `nomap=ON` line above was
+    written as a *server-config assumption* — and **nothing in the mod enforced it.** On a
+    fresh/local world `GlobalKeys.NoMap` is NOT set unless a host runs `nomap` by hand, so the
+    full vanilla global map was silently live and the whole "no map → earn bounded local maps"
+    premise shipped false. **This is now FIXED: the mod sets `GlobalKeys.NoMap` server-side by
+    DEFAULT** (a liftable gate for the future Mistlands re-enable). NoMap is no longer an
+    assumed precondition — it is a mod-owned, enforced one. See
+    [`../v2/planning/requirements.md §3.5`](../v2/planning/requirements.md) and
+    [`../v2/planning/cartography-impl-spec.md §3.5`](../v2/planning/cartography-impl-spec.md).
 - **Design pillars this must honor** (`design/design-pillars.md`): Pillar 1 — trail
   tools are peers, placed by the Spade, not the Hammer. Pillar 2 — **color
   semantics are emergent**; never hard-code "blue = water." Cartography UI/tooltips
   must not assign meanings to pigment colors.
 - **The headline tension (read before designing):** v1 deliberately removed the
-  full-screen map. A cartography system that "reveals the map" has nowhere vanilla
-  to draw it. **How a Local Map is *viewed* is the central open question** (§6,
+  full-screen map (and as of card t_8c9abf6f the mod *enforces* that removal by default — it
+  no longer depends on a server config). A cartography system that "reveals the map" has
+  nowhere vanilla to draw it. **How a Local Map is *viewed* is the central open question** (§6,
   Q-CART-1) — every other mechanic hangs off that answer.
 
 ## 1. The system in one paragraph
