@@ -609,8 +609,15 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
   composite. See AT-RENDER-* below.)**
 - **AT-RENDER-WATER/BIOME/RELIEF/NOMAP-INTACT/PREVIEW/REGRESSION** (issue 10, 2026-06-12) — the
   bounded viewer must show water + biome color + relief like the vanilla map (not flat land +
-  shroud), via the §2E.1 CPU composite, verified by a §2E.2 headless preview PNG before ship; see
-  **§2E.1** for the named criteria + the re-locked route.
+  shroud). **(Render route RE-CORRECTED AGAIN 2026-06-12, issue 10 re-correction → §2E.3: the CPU
+  composite copies the map's DATA but drops the parchment/cloud/haze LOOK, which is the GPU display
+  shader. The deliverable is the styled parchment look via vanilla's real material, windowed — see
+  AT-PARCHMENT-* below. The §2E.1 CPU route is the Q4 fallback only.)**
+- **AT-PARCHMENT-1/2/3/PREVIEW/REGRESSION** (issue 10 re-correction, 2026-06-12) — the held Local
+  Map must render with vanilla's **parchment paper + cloud/haze + fog feathering** (the real map
+  LOOK), not flat biome fills; bounded to the 1000 m disc with our shroud; nomap intact; verified by
+  a **GPU-rendered** preview signed off by Daniel (not a CPU preview); PR #137's orientation/label
+  work preserved. See **§2E.3** for the named criteria + Q1–Q4 route decision.
 - **AT-VIEWEXIT-1…7** (issue 7, 2026-06-11) — the viewer must exit cleanly: Escape closes it
   WITHOUT also opening the pause menu, and a bottom-center "[Esc] Close map" prompt is visible;
   see **§2F** for the named criteria + the locked `Menu.Show`-prefix route.
@@ -666,6 +673,16 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 > material-copy LOCKED ROUTE in the rest of §2E (kept below for history).
 
 #### 2E.1 — Render root-cause correction + CPU-composite re-lock (issue 10, 2026-06-12, card t_14c34abe)
+
+> **🔴 RENDER ROUTE RE-CORRECTED AGAIN (2026-06-12, issue 10 re-correction → §2E.3, card t_77c7e54b).**
+> §2E.1's **decomp is correct and reused** (WorldGenerator public + deterministic; nomap doesn't gate
+> generation; the bake is pure CPU). But §2E.1's **conclusion** — "avoid the GPU shader, rebuild the
+> composite on the CPU" — is **superseded by §2E.3**: the CPU composite reproduces `_MainTex` (flat
+> biome fills) and **structurally cannot produce the parchment/cloud/haze LOOK Daniel asked for**,
+> because that styling lives in the display shader, not the data. §2E.1 over-corrected from "the
+> headless worker can't drive the shader" to "we can't use the shader." **Read §2E.3 before touching
+> the render leg.** The CPU route (below) survives only as the Q4 fallback IF a GPU probe proves the
+> real shader genuinely cannot be driven — and even then must be upgraded to approximate the styling.
 
 > **Status: BUG/DESIGN — ROOT-CAUSE CORRECTION + RE-LOCK.** Supersedes the §2E "reuse a COPY of
 > `Minimap.instance.m_mapImageLarge.material`" LOCKED ROUTE. Reported by Daniel, v0.2.22-playtest:
@@ -792,7 +809,218 @@ exit prompt, and §2H rotate/center are all untouched.
   edge arrow still align (AT-TABLEMAP-4/7).
 - logs-green ≠ playable — Daniel confirms in-game the local map looks like the real map, bounded.
 
+#### 2E.3 — Render route RE-CORRECTION: the parchment LOOK is the GPU shader, not the data (issue 10 re-correction, 2026-06-12, card t_77c7e54b)
+
+> **Status: BUG/DESIGN — ROOT-CAUSE RE-CORRECTION (render route only).** Supersedes the §2E.1
+> *conclusion* ("rebuild the composite on the CPU, avoid the shader") — NOT its decomp. §2E.1's
+> findings (`WorldGenerator` is public + deterministic; `nomap` does not gate generation; the bake
+> is pure CPU) are correct and reused verbatim below. What §2E.1 got wrong is the **leap from "the
+> headless build worker can't drive the shader" to "we can't use the shader."** Reported by Daniel,
+> v0.2.20 → v0.2.22-playtest, repeatedly: *"copy the map and tweak/remove features … Where is the
+> shroud? Where's the cloud layer shaders hazing the map up? I'm still deeply confused why we don't
+> just have the parchment look."* **SpecCheck impact: none** (render behavior, not a recipe row).
+
+##### 🔴 The acceptance criterion that fell through twice (write this in stone)
+
+"Copy the map" means **the vanilla map LOOK**: the parchment paper texture, the cloud/haze layer,
+the soft fog/shroud feathering, the muted colour grade. Reproducing biome colours + water +
+hillshade on the CPU (what §2E.1 / PR #137 does) copies the map's *input data* and drops the
+styling. **If the result doesn't read as "the vanilla map, cropped," it is not done.** Daniel's
+eyeball is the judge — not a logs-green build, not a CPU-preview PNG.
+
+##### Why the styling is the shader, and the CPU composite structurally cannot reach it (grounded)
+
+`GenerateWorldMap` (`Minimap.cs:1639-1682`) bakes **only flat data** into the four textures:
+`GetPixelColor(biome)` solid fills into `_MainTex` (`:1659`), the forest/ocean mask into `_MaskTex`
+(`:1660`), raw height into `_HeightTex` (`:1661-1665`), exploration into `_FogTex` (separately). The
+parchment paper, the cloud/haze layer, the fog feathering, and the muted grade are in **none** of
+the four textures — and the `Minimap` class wires **no** parchment-background `Image` and **no**
+cloud `RawImage` (the only `m_clouds` in the decomp is `EnvMan.m_clouds`, the world sky — `EnvMan.cs:71`).
+By elimination, the "look of the map" is produced by the **custom shader on
+`m_mapImageLarge.material`** (instantiated `:431`, four textures bound `:435-438`), composited with
+`_mapCenter` / `_pixelSize` / `_zoom` / `_SharedFade` (`CenterMap :1025-1027`). **A CPU re-color of
+`GetPixelColor` output reproduces exactly `_MainTex` — i.e. exactly the flat fills Daniel keeps
+rejecting. It can never produce the parchment look, because that look is downstream of the data, in
+the shader the CPU path bypasses.** This is the conflation that produced two near-misses.
+
+##### Q1 — is vanilla's STYLED `m_mapImageLarge.material` drivable into our bounded RawImage?
+
+This is the question §2E *originally* tried (PR #123) and §2E.1 abandoned. The original framing code
+(`MapViewer.TryRenderVanillaCartography`, PR #123 `69bf922`) drove **two windowing mechanisms at
+once**: it set `RawImage.uvRect` (`uv.center = (cx+0.5)/textureSize`, `uv.width = Size/textureSize`)
+**and** the shader uniforms (`_mapCenter = origin`, `_pixelSize = 200/zoom`, `_zoom = zoom`). The
+vanilla map drives both too (`CenterMap :1007-1034`) — but with `_mapCenter`/`_pixelSize` and the
+`uvRect` kept in lockstep by `WorldToMapPoint` (`:1496-1503`). The §2E copy almost certainly broke
+that lockstep (the uvRect was computed from cell indices while the uniforms used world metres at a
+mismatched `zoom`), so the shader sampled an empty / off-window region → blank → `PaintFog`
+fallback → the flat land+shroud Daniel saw (#10). **That is a calibration bug, not proof the shader
+"can't" be driven.** Candidate causes to settle empirically, in priority order:
+
+1. **(a) Framing double-transform** — `uvRect` vs `_mapCenter`/`_pixelSize`/`_zoom` unit mismatch.
+   Most likely. The fix is to understand which mechanism the shader actually samples through and
+   drive **only that one** consistently to frame the bound origin's window. (Vanilla itself uses
+   *both*, in lockstep — so the most faithful route is to copy `CenterMap`'s exact math, not invent
+   our own.)
+2. **(b) `_FogTex` reveal override wrong** — if our reveal-all 1×1 `_FogTex` is mis-bound the whole
+   frame reads shrouded. (The §2E code bound a 1×1 R=G=1 texture; verify the shader treats that as
+   "explored everywhere," not "fog everywhere.")
+3. **(c) Detached-quad render setup** — the shader may need a camera / canvas / keyword state our
+   isolated `RawImage` lacks. Lower probability (it's a UI-canvas shader), but a GPU probe settles it.
+4. **(d) Material-copy drops a keyword** — `Instantiate(material)` copies keywords, but verify no
+   `EnableKeyword` is applied elsewhere per-frame.
+
+There is a **second structural possibility** the decomp cannot rule out and the GPU probe must also
+settle: the parchment/cloud may be **not in the shader's authored textures at all, but in separate
+UI sprites that are children of `m_largeRoot`** (set up in the scene/prefab, invisible to the
+decompiled C#). If so, copying `m_mapImageLarge.material` would **not** carry the parchment/cloud,
+because they are sibling GameObjects under the root that `nomap` disables (`SetMapMode :976-977`). The
+probe distinguishes the two: if a bare material-copy on a test quad renders parchment+cloud → the
+styling is in the material (route Q3 works as-is); if it renders only biome data → the styling is
+separate sprites we must also replicate (a heavier Q3, flagged).
+
+##### Q2 — the verification environment (the thing that caused the blind ship) — GROUNDED on this box
+
+**This box structurally cannot settle Q1**, for a sharper reason than "headless":
+
+- **No Valheim CLIENT is installed.** Only the dedicated server (Steam app **896660**, anonymous) is
+  present (`worldgen-spike/server/`, `niflheim/data/`). The client (app **892970**) is not on disk
+  anywhere on RequiemSoul (verified: no `valheim.x86_64`, no `appmanifest_892970.acf`).
+- **The map display shader is absent from every install here.** A `strings` scan of all
+  `valheim_server_Data/*.assets` returns **zero** hits for `Custom/Map` / `_mapCenter` / `_FogTex` /
+  `_HeightTex` (while UI/TMP shaders — `UI/Default`, `TextMeshPro/Distance Field` — are present). The
+  dedicated-server build **strips the map render shader** (it never renders, gated at
+  `Minimap.Update :552` `graphicsDeviceType == Null`). The styling asset does not exist on this box
+  to render, preview, or even link against.
+- The previous "§2E.2 preview" (PR #137) ran the **dedicated server** (`-nographics -batchmode`,
+  `run-preview.sh`) and CPU-composited `WorldGenerator` data. **That harness can never show the
+  shader styling** — it has neither a GPU client nor the shader. A CPU-preview signing off a
+  GPU-shader render is exactly the preview≠ship mismatch that burned §2E. **Do not reuse it for this
+  route.**
+
+Corrected framing: the box is **not** GPU-incapable (it has an Intel Alder Lake-N iGPU, a working
+`/dev/dri/renderD128`, an active X11 session, and an llvmpipe software-GL fallback that renders
+shaders pixel-correctly). The blocker is the **missing client + missing shader asset**, not missing
+silicon. That changes the menu of verification routes:
+
+- **🔵 Route V-A — Daniel runs a throwaway in-client probe on HIS machine (RECOMMENDED, fastest).**
+  Daniel already runs a real GPU client with the shader. A ~30-line throwaway BepInEx mod
+  (spec'd in §2E.3-probe below) instantiates a copy of `m_mapImageLarge.material` onto a test
+  `RawImage` under nomap, drives `CenterMap`'s exact framing for a known world window, renders to a
+  `RenderTexture`, and `EncodeToPNG`s it. Daniel hands back the PNG. This **settles Q1 definitively**
+  (both the framing AND the in-shader-vs-separate-sprite question) with zero infra cost. One round trip.
+- **🔵 Route V-B — install the Valheim CLIENT on RequiemSoul (durable, but Steam-auth friction).**
+  The box can run the client (iGPU or llvmpipe under the live X session, or `xvfb`). The cost: app
+  892970 is **not** anonymous — it requires Daniel's Steam credentials / a licensed login, which an
+  autonomous worker cannot supply. If Daniel green-lights this, it gives a permanent on-box GPU
+  verification leg for all future cartography renders (the real preview==ship harness §2E asked for).
+  Recommend doing this **after** V-A confirms the route is worth the setup.
+- **🔴 Route V-C — verify-in-game only, ship behind Daniel's explicit override.** Honest fallback if
+  V-A/V-B are declined: state plainly that the shader render is verifiable **only** in Daniel's live
+  client, and ship the §2E.3 render behind a "verify-in-game" gate with no PNG pre-sign-off. This
+  re-accepts the blind-ship risk that produced #10 — call it out, don't paper over it.
+
+**Recommendation: V-A first** (settle Q1 cheaply on Daniel's client), then V-B if the route proves
+out and Daniel wants on-box verification going forward. Do **not** silently ship a GPU render
+verified only by a CPU preview.
+
+##### Q3 — IF Q1 proves the styled material IS drivable: the render route
+
+Replace **only** PR #137's CPU `CartographyComposer` render leg with the styled-material-windowed
+render (the original §2E instinct, framing-fixed and GPU-verified). **Keep everything else PR #137
+built** — these are correct and wanted regardless of which render wins:
+
+- table-centred no-pan orientation (§2H.1, #4),
+- fixed circular bezel + interior-only rotation (§2H.1, #2/#9),
+- off-disc marker hide + edge arrow (#3),
+- both-views-rotate / no-North (#1 fold-in),
+- pin labels (§2J/§2K, #11),
+- the §2H/§2F/§2G open/exit/transform model.
+
+Render leg changes:
+1. Instantiate a **copy** of `m_mapImageLarge.material` (never mutate the live one — keeps nomap/UI
+   intact, AT-RENDER-NOMAP-INTACT). Bind it to the viewer's cartography `RawImage`.
+2. Frame the bound origin's window by **copying `CenterMap`'s exact math** (`:1007-1034`): set
+   `uvRect.center = WorldToMapPoint(origin)`, `uvRect.width/height` from the disc span, and
+   `_mapCenter`/`_pixelSize`/`_zoom` in the same lockstep vanilla uses — do **not** invent an
+   independent framing.
+3. Shroud: layer **our** 1000 m disc fog mask (`BoundedMapMath.BuildWindowedFog`, unchanged) OVER
+   the styled cartography. **Open question (Q-shroud below)**: whether to also keep vanilla's own
+   `_FogTex`/cloud haze beneath our shroud, or override `_FogTex` reveal-all and supply 100% of the
+   edge feathering ourselves.
+4. `SurveyData` wire format UNCHANGED (cartography sampled live from the live material; no ZDO change).
+
+##### Q4 — IF Q1 proves the material genuinely CANNOT be driven (real GPU-tested negative)
+
+Only then is the CPU composite (PR #137) the honest fallback — but it must be **upgraded to approximate
+the parchment styling**, not shipped as flat biome fills: a paper-texture overlay, a cloud/haze layer,
+fog feathering, and a muted colour grade, composited over the §2E.1 biome/water/relief data.
+**Asset constraint (clean-room):** we may **read** vanilla's paper/cloud textures locally to match the
+look, but must **not commit** them (IronGate copyright, repo `AGENTS.md`). The parchment/cloud overlays
+must be **original or CC0/MIT-licensed** art, authored to resemble — not extracted from — the vanilla
+map. Flag the asset-sourcing cost to Daniel; it is non-trivial and is why Q3 (reuse the real shader) is
+strongly preferred over Q4 (re-author the styling).
+
+##### 🔧 §2E.3-probe — the throwaway in-client Q1 probe (spec, not shipped code)
+
+A disposable BepInEx plugin, run once on a GPU client under nomap, that answers Q1 with a PNG. NOT part
+of the shipped mod; lives in `tools/` or a scratch dir; never merged. Behaviour:
+
+1. On a hotkey, guard `Minimap.instance?.m_mapImageLarge?.material != null` (bail with a log if the
+   map hasn't generated — walk around once to trigger `GenerateWorldMap`, or call the public
+   `Minimap.instance.ForceRegen()` `:532` which bakes the textures with no GPU/camera gate).
+2. `var mat = Object.Instantiate(Minimap.instance.m_mapImageLarge.material);` — copy, never the live one.
+3. Build a 1024×1024 `RenderTexture`; a throwaway `RawImage` (or `Graphics.Blit` with `mat`) using the
+   copy; drive `CenterMap`'s exact framing for a known world centre (e.g. spawn `(0,0)`) and a ~2000 m
+   span.
+4. `ReadPixels` → `EncodeToPNG` → write to disk; log the path.
+5. **Capture two probes:** (A) bare material-copy with vanilla's live `_FogTex` (shows whether
+   parchment+cloud appear at all = in-shader vs separate-sprite); (B) with reveal-all `_FogTex` +
+   framing driven (shows whether the framing math lands the right window). Compare against an
+   unmodified vanilla large-map screenshot at the same centre.
+
+If (A) shows parchment+cloud → styling is in the material → Q3 route is GO. If (A) shows only biome
+data → styling is separate sprites → Q3 is heavier (replicate sprites too), or Q4. If (B) lands the
+window correctly → the framing is solved; if not, iterate the `CenterMap`-copy math until it does.
+
+##### 2E.3 acceptance tests (named, observable — Daniel's eyeball is the judge)
+- **AT-PARCHMENT-1** — the held Local Map renders with vanilla's parchment paper texture + cloud/haze
+  + fog feathering (the real map LOOK), not flat biome fills. **Headline; closes only on Daniel's
+  in-game / GPU-preview judgment.**
+- **AT-PARCHMENT-2** — water, biomes, relief all present (carries AT-RENDER-WATER/BIOME/RELIEF) AND
+  styled like vanilla, not raw.
+- **AT-PARCHMENT-3** — bounded to the 1000 m disc with OUR shroud; nomap stays in force (live
+  material/roots never mutated — subsumes AT-RENDER-NOMAP-INTACT).
+- **AT-PARCHMENT-PREVIEW** — a **GPU-rendered** preview PNG (Q2 route V-A/V-B) of the STYLED output,
+  signed off by Daniel before in-game ship. The preview MUST use the same render path as ship (no
+  CPU-preview-for-a-GPU-render mismatch).
+- **AT-PARCHMENT-REGRESSION** — PR #137's orientation / circular / label / no-North behaviour
+  preserved exactly (AT-LMAP-* / AT-TABLEVIEW-ROT-1 / AT-PIN-LABEL-* all still hold).
+- logs-green ≠ playable — Daniel confirms in-game it looks like the cropped vanilla map.
+
+##### Disposition of PR #137 (do NOT merge as-is)
+PR #137 is ON HOLD (Daniel, 2026-06-12). Its **non-render** work is GOOD and wanted; its **render
+leg** (CPU `CartographyComposer`) is what this section may replace. Do NOT merge #137 until Q1/Q2
+resolve — either (Q3) swap its render for the real styled material, or (Q4) upgrade its CPU render to
+the parchment look. The orientation/label work salvages onto whichever render wins.
+
+##### Open questions for Daniel (the decisions that prevent a third blind ship)
+- **Q-verify:** which Q2 route — **V-A** (Daniel runs the throwaway probe on his client, recommended),
+  **V-B** (install the licensed client on RequiemSoul; needs Daniel's Steam auth), or **V-C**
+  (verify-in-game only, explicit override)?
+- **Q-shroud:** keep vanilla's native `_FogTex`/cloud haze beneath our 1000 m disc shroud (more
+  "vanilla map" feel at the disc edge), or override it and supply all feathering ourselves (cleaner
+  bounded disc, less vanilla haze)? Affects how much of `_FogTex` we keep vs replace in Q3 step 3.
+
 #### 2E.2 — Headless preview harness (Daniel-requested: PNG captures before ship)
+
+> **🔴 SCOPED-DOWN by §2E.3 (2026-06-12, card t_77c7e54b).** This CPU/headless harness can ONLY
+> preview the §2E.1 CPU composite (biome/water/relief data) — it has **no GPU client and not even
+> the map display shader on disk** (the dedicated-server build strips it; verified zero `_FogTex`/
+> `_mapCenter` strings in `valheim_server_Data/*.assets`). It therefore **cannot** verify the
+> §2E.3 styled-shader render Daniel actually wants — a CPU preview of a GPU render is the exact
+> preview≠ship mismatch that burned §2E. For the §2E.3 route, use the **GPU** verification routes in
+> §2E.3 Q2 (V-A: Daniel's client probe; V-B: licensed client on RequiemSoul) instead. This harness
+> stays useful only if the Q4 CPU fallback is ever taken.
 
 > **Status: NEW — verification leg.** This box is a headless dedicated server (no GPU client), which
 > is exactly why §2E shipped blind. The fix: make the cartography compositor **GPU-free and
