@@ -122,6 +122,7 @@ namespace SBPR.Trailborne.Features.Cartography
         private Material?  _mapMaterial;    // INSTANTIATED COPY of vanilla's map material (never vanilla's live one)
         private RawImage? _playerMarker;    // reused player dot/arrow
         private RawImage? _tableArrow;      // §2H field-mode: arrow toward the bound Table when player is off-disc
+        private Text? _exitPrompt;          // §2F: bottom-center "[Esc] Close map" (+ TableEdit pin hint)
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
 
         // ── Live request state ──────────────────────────────────────────────────────────
@@ -178,6 +179,10 @@ namespace SBPR.Trailborne.Features.Cartography
                 PaintFog(survey); // graceful degradation → the old explored/shroud two-color fill
 
             RebuildOverlay(survey);
+
+            // §2F.3: mode-aware exit prompt text. FieldReadOnly shows just the close hint;
+            // TableEdit also surfaces the left-click pin-removal affordance.
+            UpdateExitPrompt();
 
             // §2H: in FieldReadOnly, centre the view on the player + rotate to heading. In
             // TableEdit this is a no-op (identity rotation, zero offset) → unchanged north-up
@@ -908,6 +913,24 @@ namespace SBPR.Trailborne.Features.Cartography
 
         // ── Canvas / overlay construction (SignPaintPanel idiom) ─────────────────────────
 
+        /// <summary>
+        /// §2F.3: set the exit-prompt text for the current mode. FieldReadOnly shows only the
+        /// close hint; TableEdit also surfaces the left-click pin-removal affordance (that mode
+        /// is the only one where MapViewer wires the pin-removal click — MapViewer.Update). The
+        /// "[Esc]" key is a hardcoded literal (NOT a $KEY_ token — Escape is never a rebindable
+        /// ZInput button); the "[Left-click]" verb is likewise a plain literal (UI left-click
+        /// isn't a Trailborne-rebound action). Localized so the trailing word tokens (if any)
+        /// resolve; the bracketed keys stay literal.
+        /// </summary>
+        private void UpdateExitPrompt()
+        {
+            if (_exitPrompt == null) return;
+            string raw = _req.Mode == MapViewerMode.TableEdit
+                ? "[<color=yellow><b>Esc</b></color>] Close map     [<color=yellow><b>Left-click</b></color>] Remove pin"
+                : "[<color=yellow><b>Esc</b></color>] Close map";
+            _exitPrompt.text = Localization.instance != null ? Localization.instance.Localize(raw) : raw;
+        }
+
         private void EnsureCanvas()
         {
             if (_root != null) return;
@@ -997,6 +1020,30 @@ namespace SBPR.Trailborne.Features.Cartography
             stRt.pivot = new Vector2(0.5f, 0.5f);
             stRt.sizeDelta = Vector2.zero;
             _staticOverlay = staticGo;
+
+            // §2F.3 exit prompt: a bottom-centre instructional label parented to _root (so it
+            // toggles with the overlay). Literal "[Esc]" — NOT a $KEY_ token: Escape is a
+            // hardcoded KeyCode.Escape in vanilla, never a rebindable ZInput button, so a
+            // $KEY_ token would leak as an unresolved literal (the 2026-06-05 sign-bug lesson).
+            // Mode-aware text is set in Render() ([Left-click] Remove pin in TableEdit only).
+            // Wears the shared VanillaUISkin.Font, degrading to Arial like the sign panels.
+            var promptGo = new GameObject("exitPrompt");
+            promptGo.transform.SetParent(_root.transform, false);
+            _exitPrompt = promptGo.AddComponent<Text>();
+            _exitPrompt.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            _exitPrompt.fontSize = 26;
+            _exitPrompt.alignment = TextAnchor.LowerCenter;
+            _exitPrompt.color = new Color(1f, 0.95f, 0.8f, 0.95f);
+            _exitPrompt.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _exitPrompt.verticalOverflow = VerticalWrapMode.Overflow;
+            _exitPrompt.raycastTarget = false;
+            var prRt = _exitPrompt.rectTransform;
+            prRt.anchorMin = new Vector2(0.5f, 0f);
+            prRt.anchorMax = new Vector2(0.5f, 0f);
+            prRt.pivot = new Vector2(0.5f, 0f);
+            prRt.anchoredPosition = new Vector2(0f, 40f); // bottom-centre
+            prRt.sizeDelta = new Vector2(1200f, 48f);
 
             _root.SetActive(false);
         }

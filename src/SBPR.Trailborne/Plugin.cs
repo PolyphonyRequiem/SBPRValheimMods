@@ -281,6 +281,13 @@ namespace SBPR.Trailborne
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.TakeInputPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.PlayerControllerTakeInputPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MouseCapturePatch));
+            // §2F (issue 7, card t_23b950ee): a Menu.Show skip-original prefix gated on
+            // SignPanelInputBlock.AnyOpen, so the Escape that closes our map viewer / sign
+            // panel does NOT also open the vanilla pause menu the same frame (AT-VIEWEXIT-1).
+            // Fourth nested container in SignPanelInputBlock — MUST be registered here or it
+            // ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch
+            // lesson). Self-clearing + server-safe (AnyOpen false → pass-through).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MenuOpenSuppressPatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content
             // actually craftable/buildable on a joined client (task

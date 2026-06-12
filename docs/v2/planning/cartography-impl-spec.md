@@ -715,6 +715,25 @@ recipe row). Spec + code move together in that PR.
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
+> **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
+> The §2F LOCKED route is BUILT. Defect 1 (Escape opens the pause menu too): a new
+> `SignPanelInputBlock.MenuOpenSuppressPatch` — a `[HarmonyPatch(typeof(Menu), "Show", new Type[0])]`
+> skip-original PREFIX (`return !AnyOpen`) — stops `Menu.Show()` from opening the pause menu while
+> any SBPR modal is up. Registered in `Plugin.Awake()` right after the other three
+> `SignPanelInputBlock.*` containers, so `PatchCheck` sees it woven (AT-VIEWEXIT-7). Because
+> `AnyOpen` already covers both sign panels + the viewer, it fixes the identical leak on
+> MarkerSignPanel / SignPaintPanel in the same stroke (AT-VIEWEXIT-5). Self-clearing (next Escape
+> after close → `AnyOpen` false → pass-through → menu opens normally, AT-VIEWEXIT-3); server-safe
+> (`AnyOpen` false on a dedicated server). Defect 2 (no exit prompt): a bottom-centre `Text` label
+> built in `MapViewer.EnsureCanvas` (parented to `_root`, toggles with the overlay), mode-aware via
+> `UpdateExitPrompt` — `[Esc] Close map` in FieldReadOnly, `+ [Left-click] Remove pin` in TableEdit.
+> Literal `[Esc]` (NOT a `$KEY_` token — Escape is hardcoded `KeyCode.Escape`, never a rebindable
+> ZInput button). Wears `VanillaUISkin.Font` (degrades to Arial). The viewer's own `Close()` on
+> Escape is kept (the half that works). `Menu.Show()` verified as a single parameterless public
+> instance method on `class Menu` (decomp :45762; the `Show(bool)` at :43050 is `JoinCode`, a
+> different class). Build 0/0. **NOT YET PLAYTESTED — Daniel confirms in-game: Escape closes cleanly
+> with no menu pop, exit prompt visible, next Escape opens the menu normally.**
+
 > **Status: BUG + small UX gap.** Reported by Daniel, v0.2.19-playtest, in game. Closes a gap
 > §2B left open (the viewer owns its open/close path but the *exit UX* — menu suppression +
 > discoverability — was never nailed down). The fork **SHELL, render (§2E), bounding, zoom,
