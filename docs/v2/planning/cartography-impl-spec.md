@@ -572,6 +572,23 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
 
+> **✅ IMPL STATUS (2026-06-11, t_95039708 → branch `impl/tablemap-vanilla-render-t_95039708`).**
+> The §2E LOCKED ROUTE is BUILT in `MapViewer.cs`: the two-color `PaintFog` is no longer the
+> primary render — `TryRenderVanillaCartography` instantiates a COPY of
+> `Minimap.instance.m_mapImageLarge.material`, binds a reveal-all `_FogTex`, drives
+> `uvRect`/`_zoom`/`_pixelSize`/`_mapCenter` to frame the bound origin's fog window (the same
+> `BoundedMapMath` `WindowSpec` the fog + pins use → aligned by construction), and overlays OUR
+> survey fog as a shroud mask. The boxy `CFrame` border is removed (AT-ISSUE1-BORDER). `PaintFog`
+> is kept as the mandated graceful-degradation fallback (Minimap not generated yet). Build is
+> clean (0 warn / 0 err). **NOT YET PLAYTESTED — the in-client shader micro-spike below could not
+> be run by the headless build worker (no GPU; map textures gate on `graphicsDeviceType != Null`,
+> decomp `Minimap.Update :47034`). The decomp RE was re-verified line-by-line; the one
+> unconfirmable piece is the GPU shader's exact `uvRect`↔`_mapCenter`/`_pixelSize` sampling.
+> Daniel's in-game playtest IS the §2E-mandated spike + the merge gate.** If the material can't be
+> driven, the calibration constant (`zoom = Size/textureSize`, `_pixelSize = 200/zoom`) is the
+> single knob to tune; if it can't be driven at all, the fallback already keeps the viewer
+> functional (two-color) rather than blank.
+
 > **Status: DESIGN CORRECTION.** Supersedes the "paint our own two-color texture" render
 > path of §2B bullet 1 / the spike. The fork **SHELL** (own Canvas + open/close path, fixed
 > zoom, fixed-radius shroud, pin + player-marker overlay, polar edge-arrow) is UNCHANGED and
@@ -697,6 +714,25 @@ t_cb831069), as a child of the issue-6 card. **SpecCheck impact: none** (render 
 recipe row). Spec + code move together in that PR.
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
+
+> **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
+> The §2F LOCKED route is BUILT. Defect 1 (Escape opens the pause menu too): a new
+> `SignPanelInputBlock.MenuOpenSuppressPatch` — a `[HarmonyPatch(typeof(Menu), "Show", new Type[0])]`
+> skip-original PREFIX (`return !AnyOpen`) — stops `Menu.Show()` from opening the pause menu while
+> any SBPR modal is up. Registered in `Plugin.Awake()` right after the other three
+> `SignPanelInputBlock.*` containers, so `PatchCheck` sees it woven (AT-VIEWEXIT-7). Because
+> `AnyOpen` already covers both sign panels + the viewer, it fixes the identical leak on
+> MarkerSignPanel / SignPaintPanel in the same stroke (AT-VIEWEXIT-5). Self-clearing (next Escape
+> after close → `AnyOpen` false → pass-through → menu opens normally, AT-VIEWEXIT-3); server-safe
+> (`AnyOpen` false on a dedicated server). Defect 2 (no exit prompt): a bottom-centre `Text` label
+> built in `MapViewer.EnsureCanvas` (parented to `_root`, toggles with the overlay), mode-aware via
+> `UpdateExitPrompt` — `[Esc] Close map` in FieldReadOnly, `+ [Left-click] Remove pin` in TableEdit.
+> Literal `[Esc]` (NOT a `$KEY_` token — Escape is hardcoded `KeyCode.Escape`, never a rebindable
+> ZInput button). Wears `VanillaUISkin.Font` (degrades to Arial). The viewer's own `Close()` on
+> Escape is kept (the half that works). `Menu.Show()` verified as a single parameterless public
+> instance method on `class Menu` (decomp :45762; the `Show(bool)` at :43050 is `JoinCode`, a
+> different class). Build 0/0. **NOT YET PLAYTESTED — Daniel confirms in-game: Escape closes cleanly
+> with no menu pop, exit prompt visible, next Escape opens the menu normally.**
 
 > **Status: BUG + small UX gap.** Reported by Daniel, v0.2.19-playtest, in game. Closes a gap
 > §2B left open (the viewer owns its open/close path but the *exit UX* — menu suppression +
@@ -863,6 +899,23 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
   the exit-prompt label and the material-reuse render land without a merge conflict on the same
   file. Note the dependency on the implementation card.
 ### 2G — Local Map open input (issue 7 design correction, 2026-06-11)
+
+> **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
+> The §2G LOCKED open input is BUILT in `LocalMapController.cs`: the `GetButtonDown("Map")` open
+> edge is replaced by `GetButtonDown("Use") || GetButtonDown("JoyUse")`, gated through
+> `CanOpenOnUse(player)` — opens ONLY on an idle Use press (`player.GetHoverObject() == null`, so a
+> hovered Table/door/chest interaction wins — AT-LMAP-TABLE-COEXIST) and is suppressed while any
+> modal is up (`TextInput.IsVisible()` / `InventoryGui.IsVisible()` / `SignPanelInputBlock.AnyOpen`).
+> The toggle-CLOSE path is intentionally ungated so the open field viewer is always dismissible
+> with Use. The equipped HUD prompt (`UpdateEquippedPrompt` → a client-only bottom-centre overlay)
+> shows `[<$KEY_Use>] $piece_readmap` (vanilla tokens, localized — rebind-correct, mirrors the
+> MapTable :114046 idiom) only while equipped + the field viewer is closed (mutually exclusive with
+> §2F's "[Esc] Close map"). The inverted-premise comments in `LocalMapController.cs` + the
+> `MapViewer.cs` Escape comment are corrected. The "just a hoe" LMB/RMB click-suppression is
+> untouched (intended — AT-LMAP-OPEN-5). No `Minimap`-clamp nerf smuggled in (§2G.3 deferred —
+> Daniel's separate call). Build 0/0. **NOT YET PLAYTESTED — Daniel confirms in-game: Use opens, no
+> double-map, hover-interaction wins, prompt visible.** Vanilla APIs verified vs the decomp
+> (`ZInput.GetButtonDown("Use")` :16116, `Player.GetHoverObject()` :14699, `$piece_readmap` :114046).
 
 > **Status: DESIGN CORRECTION.** Supersedes the "the vanilla **'Map' button** activates the
 > full view (dead under nomap, so the fork repurposes it)" open path asserted in the §2 IMPL
@@ -1053,6 +1106,24 @@ code move together in that PR.
 ---
 
 ### 2H — Free-rotate the held Local Map (issue 8 design correction, 2026-06-11)
+
+> **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
+> The §2H LOCKED ROUTE (P2 player-centred minimap, route-1 transform rotation) is BUILT in
+> `MapViewer.cs` on top of §2E. A new `_mapContainer` pivot node wraps the §2E
+> cartography/shroud/pins as one rigid unit; in `FieldReadOnly` `ApplyFieldOrientation` offsets
+> that unit by `-WorldToMapRectUnclamped(player)` (player → screen centre) and rotates the
+> container by `MapRotationSign * cameraYaw` each FRAME (driven from `Update`, not the 0.25 s
+> `Refresh` — §2H b6). The player marker is a static square moved to a never-rotated
+> `_staticOverlay` at dead centre (Daniel-locked: no facing indicator); pins counter-rotate their
+> icons to stay upright (`CounterRotatePins`); the off-disc indicator (`UpdateTableArrow`) points
+> at the bound Table from the rotating container. `TableEdit` resets rotation+offset to identity,
+> so the Surveyor's Table view is byte-for-byte the pre-§2H north-up table-centred behaviour.
+> Build 0/0. **NOT YET PLAYTESTED — the rotation SENSE (`MapRotationSign`, first guess `+1f`) and
+> camera-vs-body-yaw choice are BUILD-CALIBRATED in-client per §2H b2; Daniel's playtest tunes the
+> one constant if the map turns the wrong way.** Implementation note: player-centring is realized
+> as a rigid TRANSFORM offset of the whole §2E unit (not by re-driving the shader `_mapCenter` to
+> the player) — the survey fog/shroud is table-anchored, so a transform offset keeps cartography +
+> shroud + pins aligned by construction; re-framing only the shader would desync the shroud mask.
 
 > **Status: DESIGN CORRECTION + UNDER-SPECIFIED-POINT RESOLUTION.** Reported by Daniel,
 > v0.2.19-playtest: *"local map does not rotate freely but rather is north fixed."* The fork

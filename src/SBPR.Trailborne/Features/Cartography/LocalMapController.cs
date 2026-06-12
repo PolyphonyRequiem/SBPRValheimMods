@@ -32,6 +32,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace SBPR.Trailborne.Features.Cartography
 {
@@ -52,12 +53,23 @@ namespace SBPR.Trailborne.Features.Cartography
         public static LocalMapController? Instance { get; private set; }
 
         private void Awake() => Instance = this;
-        private void OnDestroy() { if (Instance == this) Instance = null; }
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+            if (_promptRoot != null) UnityEngine.Object.Destroy(_promptRoot);
+        }
 
         // Cached state from the throttled inventory poll (read every frame for the input
         // edge-check below, refreshed on the poll cadence).
         private ItemDrop.ItemData? _equippedMap;
         private bool _mapEquipped;
+
+        // §2G.2 equipped HUD prompt ("[E] Open map"). A client-only screen-overlay canvas,
+        // built lazily, toggled with the equipped+not-open state. Bottom-centre, consistent
+        // with the viewer's own "[Esc] Close map" exit prompt (§2F).
+        private GameObject? _promptRoot;
+        private Text? _promptText;
+        private bool _promptShown;
 
         private void Update()
         {
@@ -76,18 +88,35 @@ namespace SBPR.Trailborne.Features.Cartography
             bool tableViewOwnsViewer = CartographyViewer.IsViewerOpen
                                        && CartographyViewer.CurrentMode == MapViewerMode.TableEdit;
 
-            // ── EVERY-FRAME: the Map-button activate/dismiss edge (a one-frame GetButtonDown
-            //    would be missed by the throttled poll). Equipping BINDS the map; it does NOT
-            //    auto-pop the overlay — the player ACTIVATES the full view with the vanilla
-            //    "Map" button (dead under nomap, so the fork repurposes it as its own open
-            //    path — spec §2B). ZInput.GetButtonDown("Map") is the exact call vanilla
-            //    Minimap.Update uses (decomp :616), confirmed-real. The viewer also self-closes
-            //    on Escape (its own Update). ──
-            if (_mapEquipped && _equippedMap != null && !tableViewOwnsViewer && ZInput.GetButtonDown("Map"))
+            // ── EVERY-FRAME: the open/dismiss edge (a one-frame GetButtonDown would be missed
+            //    by the throttled poll). Equipping BINDS the map; it does NOT auto-pop the
+            //    overlay — the player ACTIVATES the full view with the USE key (E) while
+            //    equipped (§2G, issue-7 correction).
+            //
+            //    🔴 §2G LOCKED OPEN INPUT — the Use key, NOT the "Map" button. The old design
+            //    repurposed vanilla's "Map" button assuming it was dead under nomap; that
+            //    premise was INVERTED (decomp: the "Map" button is dead only when Game.m_noMap
+            //    is true, and in that world there's no minimap either — but Daniel's playtest
+            //    runs nomap=OFF, where M opens vanilla's full map, so binding our viewer to
+            //    "Map" stacked both surfaces). The Use key never drives vanilla's Minimap
+            //    toggle, so our open is collision-free by construction (AT-LMAP-OPEN-2/3).
+            //
+            //    Use-key discipline (§2G): only open on an OTHERWISE-IDLE Use press —
+            //      • GetHoverObject() == null  → standing at a door/chest/Table, Use interacts
+            //        with THAT (the Table's survey+imprint wins — AT-LMAP-TABLE-COEXIST), not
+            //        the map.
+            //      • !AnyModalOpen             → a text field / inventory / a sign panel
+            //        swallow the press instead of tripping a map-open.
+            //    The CLOSE (toggle-shut) path is NOT gated by those — our own open viewer
+            //    must always be dismissible with Use even though it satisfies the modal check.
+            if (_mapEquipped && _equippedMap != null && !tableViewOwnsViewer
+                && (ZInput.GetButtonDown("Use") || ZInput.GetButtonDown("JoyUse")))
             {
-                if (CartographyViewer.IsViewerOpen && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly)
-                    CloseFullView("map button toggle");
-                else
+                bool ourFieldViewOpen = CartographyViewer.IsViewerOpen
+                                        && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly;
+                if (ourFieldViewOpen)
+                    CloseFullView("use key toggle");          // always allow close
+                else if (CanOpenOnUse(player))                // open only on an idle press
                     OpenFullView(_equippedMap);
             }
 
@@ -127,6 +156,98 @@ namespace SBPR.Trailborne.Features.Cartography
             if (mapEquipped && CartographyViewer.IsViewerOpen
                 && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly)
                 RefreshOpenView(equippedMap!);
+
+            // §2G.2: the equipped HUD prompt ("[E] Open map") so a held map never reads as an
+            // inert hoe. Shown only while a map is EQUIPPED and the field viewer is NOT open
+            // (the open-prompt and the viewer's own "[Esc] Close map" exit prompt are mutually
+            // exclusive). Refreshed on the poll cadence — cheap, no need every frame.
+            bool fieldViewOpen = CartographyViewer.IsViewerOpen
+                                 && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly;
+            UpdateEquippedPrompt(mapEquipped && !fieldViewOpen);
+        }
+
+        /// <summary>
+        /// §2G use-key discipline: only open the map on an OTHERWISE-IDLE Use press.
+        /// Returns false (suppress the open) when the player is hovering an interactable
+        /// (Use should interact with THAT — door/chest/Table — AT-LMAP-TABLE-COEXIST) or when
+        /// any modal UI / text input is up (a sign panel, the inventory, a text field, or our
+        /// own viewer/panels swallow the press). Mirrors vanilla's own Use gating
+        /// (Player.Update → Interact(m_hovering) at decomp :16116).
+        /// </summary>
+        private static bool CanOpenOnUse(Player player)
+        {
+            // Hovering a world object → that interaction wins (the Table's survey+imprint, a
+            // door, a chest). GetHoverObject() is the public accessor (decomp Player :14699).
+            if (player.GetHoverObject() != null) return false;
+
+            // Modal suppression: vanilla text input / inventory, plus our own SBPR modal UIs
+            // (sign panels + the map viewer) via the shared SignPanelInputBlock.AnyOpen.
+            if (TextInput.IsVisible() || InventoryGui.IsVisible()) return false;
+            if (SBPR.Trailborne.Features.Signs.SignPanelInputBlock.AnyOpen) return false;
+
+            return true;
+        }
+
+        // ── §2G.2 equipped HUD prompt ("[<$KEY_Use>] $piece_readmap") ───────────────────
+
+        /// <summary>
+        /// Show/hide the equipped-map open prompt. Built lazily on first show. The key token is
+        /// the VANILLA <c>$KEY_Use</c> bound-key token + the vanilla <c>$piece_readmap</c>
+        /// string (decomp MapTable :114046 uses exactly "$KEY_Use $piece_readmap"), localized
+        /// through <c>Localization.instance.Localize</c> so the token resolves to the player's
+        /// real key (e.g. "E") and stays rebind-correct — the proven CairnInteractable /
+        /// SurveyorTableTag idiom. A CUSTOM $piece_* token would leak as a literal (the
+        /// 2026-06-05 sign-bug lesson), so we reuse vanilla tokens only.
+        /// </summary>
+        private void UpdateEquippedPrompt(bool show)
+        {
+            if (show == _promptShown && _promptRoot != null) return;
+            _promptShown = show;
+
+            if (!show)
+            {
+                if (_promptRoot != null) _promptRoot.SetActive(false);
+                return;
+            }
+
+            EnsurePromptCanvas();
+            if (_promptRoot != null) _promptRoot.SetActive(true);
+        }
+
+        private void EnsurePromptCanvas()
+        {
+            if (_promptRoot != null) return;
+
+            _promptRoot = new GameObject("SBPR_LocalMapPrompt");
+            UnityEngine.Object.DontDestroyOnLoad(_promptRoot);
+            var canvas = _promptRoot.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 4000; // above the HUD, below the open viewer (5000)
+            var scaler = _promptRoot.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+
+            var txtGo = new GameObject("promptText");
+            txtGo.transform.SetParent(_promptRoot.transform, false);
+            _promptText = txtGo.AddComponent<Text>();
+            _promptText.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            _promptText.fontSize = 26;
+            _promptText.alignment = TextAnchor.LowerCenter;
+            _promptText.color = new Color(1f, 0.95f, 0.8f, 0.95f);
+            _promptText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _promptText.verticalOverflow = VerticalWrapMode.Overflow;
+            _promptText.raycastTarget = false;
+            // Vanilla $KEY_Use → the player's bound Use key; $piece_readmap → "Read map".
+            string raw = "[<color=yellow><b>$KEY_Use</b></color>] $piece_readmap";
+            _promptText.text = Localization.instance != null ? Localization.instance.Localize(raw) : raw;
+
+            var rt = _promptText.rectTransform;
+            rt.anchorMin = new Vector2(0.5f, 0f);
+            rt.anchorMax = new Vector2(0.5f, 0f);
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.anchoredPosition = new Vector2(0f, 90f); // bottom-centre, clear of the hotbar
+            rt.sizeDelta = new Vector2(900f, 48f);
         }
 
         // ── Open / close the full-screen bounded viewer on the imprinted snapshot ─────

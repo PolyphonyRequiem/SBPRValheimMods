@@ -79,5 +79,41 @@ namespace SBPR.Trailborne.Features.Signs
                 Cursor.visible = true;
             }
         }
+
+        /// <summary>
+        /// §2F (issue 7): suppress vanilla's pause-menu open while ANY SBPR modal UI is up, so
+        /// the Escape that closes our viewer / sign panel does NOT also pop the game menu the
+        /// same frame.
+        ///
+        /// Seam = <c>Menu.Show()</c> — a single parameterless public instance method (decomp
+        /// <c>Menu.cs:45762</c>) whose ONLY internal caller is the Escape/JoyMenu gate in
+        /// <c>Menu.Update</c>. A skip-original prefix (gated on <see cref="AnyOpen"/>) cleanly
+        /// stops the menu from opening WITHOUT consuming the keystroke globally or touching any
+        /// other input path. Chosen over hooking <c>Minimap.IsOpen()</c> (which feeds ~10
+        /// vanilla gates — build/craft/interact/camera — and would have a wide blast radius);
+        /// <c>Menu.Show</c> has exactly one caller and one effect.
+        ///
+        /// Self-clearing (AT-VIEWEXIT-3): the gate keys on <see cref="AnyOpen"/>, false the
+        /// moment the viewer/panel closes. The very Escape that closes the viewer is swallowed
+        /// for the menu THAT frame; the next Escape (AnyOpen now false → prefix passes through)
+        /// opens the menu normally. Escape is never permanently eaten.
+        ///
+        /// Because <see cref="AnyOpen"/> already covers all three SBPR surfaces (both sign
+        /// panels + the map viewer), this one prefix fixes the identical Escape→menu leak on
+        /// MarkerSignPanel / SignPaintPanel in the same stroke (AT-VIEWEXIT-5). Server-safe:
+        /// AnyOpen is always false on a dedicated server (no local Player), so it's pure
+        /// pass-through there.
+        /// </summary>
+        [HarmonyPatch(typeof(Menu), "Show", new Type[0])]
+        public static class MenuOpenSuppressPatch
+        {
+            [HarmonyPrefix]
+            private static bool Prefix()
+            {
+                // Return false → skip Menu.Show's original body (the menu does not open) while
+                // any SBPR modal UI is up. Return true → normal vanilla behaviour.
+                return !AnyOpen;
+            }
+        }
     }
 }
