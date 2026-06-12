@@ -51,6 +51,15 @@ code + spec + SpecCheck move together). The card that touches `SpecCheck.cs` fir
 also update the class's `LOCKED SOURCE` comment to cite `docs/v2/planning/requirements.md`
 alongside the v0.1.0 source, and generalize the "v0.1.0 locked manifest" wording.
 
+**Asset-renderability is now part of the watchdog (icon-crash fix, C1).** `SpecCheck.Run()`
+additionally asserts that every SBPR item recipe's resolved `ItemDrop` has its real icon
+loaded — concretely that `m_icons[0]` is **not** the shared `Assets.FallbackIcon`
+placeholder. This closes the "server-green recipes, client-icon-missing" divergence that
+hid the Kit no-cost crash: an additive item with no loaded icon shows the magenta fallback
+and the server now logs `ICON MISSING` at boot instead of silently shipping a crash. This
+is an **asset check, not a recipe row** — the recipe-manifest count is unchanged (the icon
+checks are tallied separately in the boot summary line).
+
 > **Drift-watchdog gotcha:** `SpecCheck.Run()` iterates `Manifest.Where(s => s.Piece !=
 > null)` for build pieces and `s.Item != null` for item recipes — a new `RecipeSpec`
 > with both null (or both set) won't be checked. The Table is `Piece` only; the Local Map
@@ -649,6 +658,17 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
 - **NO discovery-flag system (C10).** It's a normal recipe surfaced the vanilla way
   (`IsKnownMaterial` — appears once the player has encountered its ingredients). The
   40-pigment cost IS the gate. Do **not** build any "discovered all 4 pigments" tracking.
+- **Loadable icon is a HARD requirement, not cosmetic.** The Kit is the only
+  additively-constructed item (`Assets.ConstructItemShell`, fresh `SharedData` → empty
+  default `m_icons`). Vanilla `ItemDrop.GetIcon()` (`ItemDrop.cs:623-625`) indexes
+  `m_icons[m_variant]` with no bounds guard, so an empty `m_icons` throws
+  `IndexOutOfRangeException` in the crafting panel on selection and aborts the cost repaint
+  (the "no cost, inherits the previous selection" symptom). `ConstructItemShell` MUST
+  guarantee a non-empty `m_icons` via a shared fallback sprite (`Assets.FallbackIcon`, a
+  code-generated magenta placeholder — no disk dependency) so a missing icon degrades to a
+  visible placeholder, never a crash. The Kit ships `cartographers_kit_v0.1.png`; if it
+  fails to load, the item shows the magenta fallback and SpecCheck logs `ICON MISSING` at
+  server boot.
 
 ### 3.2 The auto-mapping gate (the whole point)
 - **With the Kit in the Utility slot, walking reveals fog; without it, ZERO passive
@@ -672,6 +692,11 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
   a Table); with the Kit, it accumulates normally.
 
 ### 3.3 Acceptance criteria (spec §6; close only on Daniel's in-game check)
+- **AT-KIT-ICON** — On a CLIENT, selecting the Kit in the Explorer's Bench renders an icon
+  and its full cost panel (10× each pigment R/W/B/K + 4 FineWood) with **no exception** in
+  `LogOutput.log` at selection time. Deleting the Kit's icon PNG and rebooting yields the
+  magenta placeholder icon + an intact cost panel (never a panel crash) AND a
+  `[Trailborne/SpecCheck] ICON MISSING` ERROR at server boot. Restoring the PNG → green.
 - **AT-KIT-GATE** — Kit worn → walking reveals fog; Kit absent → walking reveals ZERO fog.
 - **AT-KIT-RECIPE** — crafts from 10×(R/W/B/K) + 4 FineWood at the Explorer's Bench,
   surfaced as a normal recipe (no discovery flag).

@@ -20,6 +20,17 @@ namespace SBPR.Trailborne.Runtime
     /// nobody re-read the spec on every change. Now the server screams
     /// the moment drift appears.
     ///
+    /// ASSET-RENDERABILITY (added with the v0.2.x Kit icon-crash fix, C1): the
+    /// watchdog now also asserts that every SBPR item recipe's resolved
+    /// <c>ItemDrop</c> has a real, loaded <c>m_icons[0]</c> — specifically that it
+    /// is NOT the shared <c>Assets.FallbackIcon</c> placeholder. Additively-built
+    /// items (<c>Assets.ConstructItemShell</c>) pre-seed that magenta fallback so a
+    /// missing icon PNG degrades to "ugly, never crash" instead of throwing in the
+    /// crafting panel; this check is what then SCREAMS at server boot that the real
+    /// PNG didn't ship — closing the "server-green recipes, client-side icon crash"
+    /// blind spot that hid the Cartographer's Kit no-cost bug. It is an asset check,
+    /// not a recipe row, so the recipe-manifest count is unchanged.
+    ///
     /// LOCKED SOURCE: docs/v0.1.0/planning/requirements.md
     /// (lines 170-222, 318-323) for the Meadows manifest;
     /// docs/v2/planning/requirements.md §1/§3 + docs/v2/planning/cartography-impl-spec.md §0
@@ -135,6 +146,8 @@ namespace SBPR.Trailborne.Runtime
 
             int errors = 0;
             int checks = 0;
+            int iconChecks = 0;   // asset-renderability assertions (C1); counted separately so the
+                                  // recipe-manifest tally stays a pure recipe count.
 
             // ── Item recipes ──
             foreach (var spec in Manifest.Where(s => s.Item != null))
@@ -160,6 +173,11 @@ namespace SBPR.Trailborne.Runtime
                     LogDrift(spec.Item, "crafting station", spec.Station, stationName, ref errors);
 
                 CompareResources(spec.Item, spec.Resources, found.m_resources, ref errors);
+
+                // C1: assert the real icon loaded (not the shared fallback). found.m_item is the
+                // resolved ItemDrop. See CheckIcon — this is the recurrence guard for the Kit
+                // no-cost crash (server-green recipe, client-side empty-icon throw).
+                CheckIcon(spec.Item, found.m_item, ref errors, ref iconChecks);
             }
 
             // ── Build pieces ──
@@ -202,6 +220,9 @@ namespace SBPR.Trailborne.Runtime
                 {
                     var expected = new[] { R("LeatherScraps", 2), R("FineWood", 1), R(pigment, 1) };
                     CompareResources(markerName, expected, markerRecipe.m_resources, ref errors);
+                    // C1: cairn markers are CLONE items (donor icon), so this normally passes —
+                    // it catches any future additive marker that forgets its icon.
+                    CheckIcon(markerName, markerRecipe.m_item, ref errors, ref iconChecks);
                 }
 
                 // Cairn piece resources
@@ -244,9 +265,9 @@ namespace SBPR.Trailborne.Runtime
             }
 
             if (errors == 0)
-                Plugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest.");
+                Plugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest; {iconChecks} item icon(s) loaded (no fallback placeholders).");
             else
-                Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} checks. See above.");
+                Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} recipe + {iconChecks} icon checks. See above.");
         }
 
         private static void CompareResources(string? itemName, Req[] expected, Piece.Requirement[] actual, ref int errors)
@@ -293,6 +314,47 @@ namespace SBPR.Trailborne.Runtime
             Plugin.Log.LogError(
                 $"[Trailborne/SpecCheck] DRIFT — {item}: {field} expected '{expected}', registered '{actual}'.");
             errors++;
+        }
+
+        /// <summary>
+        /// C1 asset-renderability assertion: the resolved item's real icon actually loaded.
+        /// Two failure modes, both ERROR:
+        ///   1. STRUCTURAL — m_icons is empty or m_icons[0] is null. Catches any future additive
+        ///      path that forgets to seed the fallback (would re-open the crafting-UI crash).
+        ///   2. FALLBACK — m_icons[0] is the shared Assets.FallbackIcon placeholder (reference
+        ///      identity, via Unity's overloaded ==). Means the item's real PNG did NOT load and it
+        ///      is wearing the magenta placeholder. The crafting UI is crash-safe (the fallback is
+        ///      why) but the item has no real icon — ship the PNG.
+        /// CLONE items whose own PNG failed show the DONOR's sprite (non-null, non-fallback) and so
+        /// pass — that is correct and intended (a clone showing its donor icon is cosmetic, never
+        /// crashed). There is deliberately no per-item "expected icon" map; the fallback-identity
+        /// check is the exact resolution for the CRASH blind spot, which only additive items had.
+        /// </summary>
+        private static void CheckIcon(string? itemName, ItemDrop? drop, ref int errors, ref int iconChecks)
+        {
+            iconChecks++;
+
+            var icons = drop?.m_itemData?.m_shared?.m_icons;
+            if (icons == null || icons.Length == 0 || icons[0] == null)
+            {
+                Plugin.Log.LogError(
+                    $"[Trailborne/SpecCheck] ICON MISSING (structural): {itemName} has an empty or null " +
+                    "m_icons — the crafting UI would throw on selection. An additive item must seed " +
+                    "Assets.FallbackIcon in ConstructItemShell; a clone must inherit a donor icon.");
+                errors++;
+                return;
+            }
+
+            // Reference identity (Unity's overloaded ==): is the item still wearing the shared
+            // fallback placeholder? If so, its real PNG never loaded.
+            if (icons[0] == Assets.FallbackIcon)
+            {
+                Plugin.Log.LogError(
+                    $"[Trailborne/SpecCheck] ICON MISSING: {itemName} is showing the fallback placeholder " +
+                    "— its real icon PNG did not load (missing from the plugin folder?). The crafting UI " +
+                    "is crash-safe (fallback) but the item has no real icon. Ship the PNG.");
+                errors++;
+            }
         }
     }
 }

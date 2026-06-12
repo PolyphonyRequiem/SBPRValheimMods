@@ -80,9 +80,12 @@ namespace SBPR.Trailborne.Features.Cartography
         public const int FineWoodCost    = 4;
 
         // Icon shipped in the modpack plugin folder (assets/icons/items/*.png copied by
-        // scripts/pack-modpack.sh). An item with an EMPTY m_icons array crashes the crafting
-        // UI (decomp :42263 indexes m_icons[0]) and is unpickable (:13391) — so an icon is
-        // mandatory, not cosmetic. v0.1 placeholder per the icon-asset doctrine.
+        // scripts/pack-modpack.sh). The real icon is a HARD requirement, not cosmetic — but it
+        // is no longer a crash risk: ConstructItemShell pre-seeds a shared magenta fallback into
+        // m_icons so a missing PNG degrades to a visible placeholder, never an IndexOutOfRange in
+        // the crafting UI (vanilla GetIcon indexes m_icons[0] with no bounds guard). If this PNG
+        // fails to load, the ERROR below + SpecCheck's C1 boot check are the loud signals that the
+        // real icon didn't ship. v0.1 placeholder per the icon-asset doctrine.
         private const string IconFile = "cartographers_kit_v0.1.png";
 
         // ───────────────────────────────────────────────
@@ -131,13 +134,16 @@ namespace SBPR.Trailborne.Features.Cartography
                 }
                 else
                 {
-                    // An empty icon array crashes the crafting menu (decomp :42263) — fail
-                    // LOUD here rather than ship a UI-crashing item. The item still registers;
-                    // SpecCheck will still validate the recipe, but Daniel must see this.
+                    // ConstructItemShell already pre-seeded a magenta fallback into m_icons, so a
+                    // missing icon degrades to a visible placeholder and the crafting UI does NOT
+                    // crash (it no longer leaves m_icons empty). Keep this ERROR as the loud human
+                    // signal that the real PNG didn't ship; SpecCheck's C1 boot check is the
+                    // server-side backstop for the same condition. The item still registers and is
+                    // craftable — it just wears the placeholder until the PNG is restored.
                     Plugin.Log.LogError(
                         $"[Trailborne/Cartography] {KitName}: icon '{IconFile}' did NOT load " +
-                        "(missing from plugin folder?). The crafting UI indexes m_icons[0] and will " +
-                        "throw when this recipe is selected. Ship the PNG in assets/icons/items/.");
+                        "(missing from plugin folder?). The item is crash-safe (shows the magenta " +
+                        "fallback placeholder) but has no real icon. Ship the PNG in assets/icons/items/.");
                 }
             }
 

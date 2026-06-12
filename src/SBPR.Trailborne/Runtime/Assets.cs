@@ -39,6 +39,37 @@ namespace SBPR.Trailborne.Runtime
             }
         }
 
+        private static Sprite? _fallbackIcon;   // lazy static cache; one shared instance (see FallbackIcon)
+        /// <summary>
+        /// A guaranteed-loadable, code-generated placeholder sprite (no disk dependency, so the
+        /// guarantee holds even if the modpack ships zero PNGs). Deliberately a vivid magenta so a
+        /// fallback is VISUALLY OBVIOUS in-game ("this item's real icon didn't load") and trivially
+        /// identity-checkable by SpecCheck. Lazily created; one shared instance so reference (==)
+        /// identity comparison works for the SpecCheck icon-load assertion (C1).
+        ///
+        /// Why this exists: <see cref="ConstructItemShell"/> news a fresh SharedData whose
+        /// <c>m_icons</c> defaults to the vanilla empty array. Vanilla
+        /// <c>ItemDrop.ItemData.GetIcon()</c> indexes <c>m_icons[m_variant]</c> with no bounds
+        /// guard, so an additively-constructed item with an empty <c>m_icons</c> throws
+        /// IndexOutOfRangeException in the crafting panel on selection. Pre-seeding this fallback
+        /// makes a missing icon degrade to a visible placeholder, never a crash.
+        /// </summary>
+        public static Sprite FallbackIcon
+        {
+            get
+            {
+                if (_fallbackIcon == null)
+                {
+                    var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                    tex.SetPixel(0, 0, Color.magenta);
+                    tex.Apply();
+                    _fallbackIcon = Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 100f);
+                    _fallbackIcon.name = "SBPR_FallbackIcon";
+                }
+                return _fallbackIcon;
+            }
+        }
+
         private static GameObject? holder;   // lazy static cache; genuinely null until first GetHolder()
         private static GameObject GetHolder()
         {
@@ -1132,6 +1163,16 @@ namespace SBPR.Trailborne.Runtime
                 m_quality = 1,
                 m_shared = new ItemDrop.ItemData.SharedData(),
             };
+
+            // Crash-safe by construction: a fresh SharedData defaults m_icons to the vanilla empty
+            // array, and vanilla ItemDrop.GetIcon() indexes m_icons[m_variant] with NO bounds guard
+            // (assembly_valheim ItemDrop.ItemData.GetIcon), so selecting an empty-icon item in the
+            // crafting panel throws IndexOutOfRangeException and aborts the cost repaint. Pre-seed a
+            // shared magenta fallback so EVERY additively-constructed item degrades to a visible
+            // placeholder, never a crash. A real icon (if it loads) overwrites this later; if it
+            // doesn't, SpecCheck's icon-load assertion (C1) screams at boot because m_icons[0] is
+            // still this shared FallbackIcon instance.
+            drop.m_itemData.m_shared.m_icons = new[] { FallbackIcon };
 
             return go;
         }
