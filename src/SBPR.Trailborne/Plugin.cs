@@ -269,6 +269,14 @@ namespace SBPR.Trailborne
             // placed sign opens the custom combined Paint+Text uGUI panel instead of the
             // vanilla text dialog. Replaces the retired apply-ink-item paint gesture.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignInteractPatch));
+            // v2 Marker-sign hover hint (card t_7816c0b0, impl-spec §4A): postfix on
+            // Sign.GetHoverText that APPENDS a state-aware "[Shift+E] Pin/Unpin from map"
+            // line on OUR markers only (MarkerSignTag gate), flipping with ReadPinned().
+            // Markers fall through to Sign.GetHoverText (Sign is the first-added Hoverable,
+            // §4A.1), so we augment the method that already fires. Append-not-replace keeps
+            // the vanilla [Use] line; ward-gated like vanilla. MUST be registered here or it
+            // ships dead and PatchCheck ERRORs at boot (the unregistered-patch lesson).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignHoverTextPatch));
             // Re-pin OUR sign's letter colour after the vanilla Sign.UpdateText ~2 Hz poll
             // (bug t_f8eff6d0): the poll reconstructs m_textWidget after our paint-time apply
             // and drops the letter tint, so a colour-only repaint left the letters on their

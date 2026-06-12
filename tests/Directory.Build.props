@@ -1,0 +1,13 @@
+<Project>
+  <!-- Deliberately does NOT import the repo-root Directory.Build.props.
+       MSBuild walks up and stops at the FIRST Directory.Build.props it finds, so
+       this file shields everything under tests/ from the root's SbprValidateSdkPaths
+       target, which hard-errors unless the Valheim managed-assembly path is set.
+
+       The hover-hint self-test compiles ONLY the pure (Unity-free) helper
+       SignHoverHintText.cs and references no game/BepInEx assemblies, so it must not
+       inherit that requirement — it has to run headless in CI and on any dev box
+       without the Valheim SDK fetched. The shipping mod project at
+       src/SBPR.Trailborne/ lives in a sibling subtree and still finds the root props
+       unchanged, so this override does not affect the mod build. -->
+</Project>

@@ -393,13 +393,18 @@ if (wnt != null) wnt.m_onDestroyed += OnSignDestroyed;
 
 ## 4A. State-aware hover hint — "[Shift+E] Pin/Unpin" (card t_7816c0b0)
 
-> **STATUS: SPEC, not yet implemented.** The Shift+E gesture (§4.1) shipped and works,
-> but it is **invisible in-world** — a placed marker sign shows only the vanilla `Sign`
-> hover text (its typed text + the primary `[Use]` line), giving no hint that Shift+E
-> pins/unpins it and no indication of the current pin state. Daniel, v0.2.19-playtest:
+> **STATUS: IMPLEMENTED** (card t_7816c0b0, this PR). Shipped as a `[HarmonyPostfix]` on
+> `Sign.GetHoverText` in `src/SBPR.Trailborne/Features/Signs/SignHoverTextPatch.cs` (registered
+> in `Plugin.cs` beside `SignInteractPatch`), with the pure gate+wording decision factored into
+> `SignHoverHintText.cs` and a headless regression self-test under `tests/` (AT-MARKER-HINT-1/2/3/5/6
+> + -WARD). Build 0 warn / 0 err. **logs-green ≠ playable:** the ATs close on Daniel's in-game check
+> that the hint appears and flips with pin state. Background (the original problem): the Shift+E
+> gesture (§4.1) shipped and works, but was **invisible in-world** — a placed marker sign showed only
+> the vanilla `Sign` hover text (its typed text + the primary `[Use]` line), giving no hint that
+> Shift+E pins/unpins it and no indication of the current pin state. Daniel, v0.2.19-playtest:
 > *"sign posts should have hint text when looked at that state Shift + E to pin/unpin
-> depending on the tracked state."* This section specs the missing **hover-text surface
-> only**; the gesture, the `SBPR_Pinned` ZDO, and `ReadPinned()` already exist.
+> depending on the tracked state."* This section specs the **hover-text surface only**; the gesture,
+> the `SBPR_Pinned` ZDO, and `ReadPinned()` already existed.
 
 ### 4A.1 Why the marker falls through to vanilla `Sign.GetHoverText` (root cause, decomp-grounded)
 
