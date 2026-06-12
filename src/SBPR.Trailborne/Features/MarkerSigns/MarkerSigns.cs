@@ -158,12 +158,15 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             var go = Assets.NewHolderObject(m.PrefabName);
 
             // ── Root collider: a build piece needs one for placement raycasts + hits.
-            //    Sized to the vanilla sign board AABB (1.0 x 0.55 x 0.089), lifted to the
-            //    board height so the interact ray hits the plank. Exact seat/standoff is a
-            //    v0.2+ polish call (design §1.2 — silhouette is not load-bearing for M1). ──
+            //    Sized to the vanilla sign board AABB (1.0 x 0.55 x 0.12 — a slightly
+            //    padded interact box; the real plank depth is ~0.089). Its CENTER is
+            //    retargeted onto the relocated board by SeatMarkerGeometry below, so the E
+            //    ray hits the plank wherever the seat stands it off (card t_cc093d04). The
+            //    seed center is the eventual crown-anchored board height (~1.65 m) so the
+            //    box is sane even if the seat degrades (missing blueprint). ──
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(1.0f, 0.55f, 0.12f);
-            box.center = new Vector3(0f, BoardLocalY, 0f);
+            box.center = new Vector3(0f, 1.65f, 0f);
 
             // ── ZNetView: the networked identity (persistent — the WorldPin durability
             //    rests on the sign's ZDO being persistent, design §3). ──
@@ -173,9 +176,11 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             nview.m_distant = false;
 
             // ── Visual (additive mesh-reference graft, NOT a clone): a standing post and
-            //    a board plank lifted to readable height. Both read shared mesh/material
-            //    refs off the blueprints — permitted by ADR-0006. ──
-            GraftPost(poleBlueprint, go);
+            //    a board plank. Both read shared mesh/material refs off the blueprints —
+            //    permitted by ADR-0006. The meshes are grafted at their blueprint-relative
+            //    local positions; SeatMarkerGeometry below plants the post foot at y=0 and
+            //    crown-anchors + stands the board off the post side face. ──
+            GameObject? post  = GraftPost(poleBlueprint, go);
             GameObject? board = GraftBoard(signBlueprint, go);
 
             // ── Sign: reuse the vanilla Sign component so SignInteractPatch + the paint
@@ -233,7 +238,156 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             tag.MarkerType = m.Key;
             tag.MarkerIcon = icon;
 
+            // ── Seat geometry (card t_cc093d04, spec §2): plant the post foot at root y=0,
+            //    crown-anchor the board, stand it off the post's near SIDE face, retarget
+            //    the root interact collider onto the relocated board, and add a SignGeometry
+            //    post-foot ground collider so the placed marker seats flush. Runs LAST so the
+            //    board's TMP canvas (parented under it at BuildTextWidget) follows the board
+            //    move automatically. Shares the Painted Sign's tuning + math + foot collider
+            //    via Runtime/SignGeometry — the markers can never drift from the sign again. ──
+            SeatMarkerGeometry(go, box, post, board);
+
             return go;
+        }
+
+        /// <summary>
+        /// Seat the additively-built marker like the playtested Painted Sign (card
+        /// t_cc093d04, spec §2): plant the post foot at root y=0, crown-anchor the board to
+        /// the planted pole top, stand the board off the post's near SIDE face, retarget the
+        /// root interact <see cref="BoxCollider"/> onto the relocated board, and add a
+        /// post-foot ground collider so the placement ghost seats off the FOOT (y≈0), not the
+        /// crown-lifted interact box. Uses the shared <see cref="SignGeometry"/> constants +
+        /// math + foot collider; the construction WALK is the marker's own (additive named
+        /// children), distinct from the sign's clone-and-move-root-group walk (spec §1).
+        ///
+        /// MEASUREMENT FRAME — the load-bearing detail. <see cref="Assets.GraftMeshFromBlueprint"/>
+        /// flattens the donor's mesh-child TRS onto the SINGLE grafted child
+        /// (<c>SBPR_MarkerBoard</c> / <c>SBPR_MarkerPost</c>), baking the donor's scale into
+        /// that child's own <c>localScale</c>. So measuring a child in ITS OWN frame would do
+        /// an identity round-trip and report the raw unit-cube <c>Cube_Cube_Material</c>
+        /// (~1×1×1) — useless. We therefore measure every extent in the ROOT (<paramref name="go"/>)
+        /// frame via <see cref="Assets.MeasureLocalExtent(GameObject,Transform,int,out float,out float)"/>
+        /// / <see cref="Assets.MeasureLocalFootY"/> / <see cref="Assets.MeasureLocalTopY"/>,
+        /// which transform the mesh's 8 AABB corners through the child's real TRS into root
+        /// space, revealing the true ~1.0 × 0.55 × 0.089 m plank and ~2 m post. (This is the
+        /// same reason Signs.cs measures in sign-root space.)
+        /// </summary>
+        private static void SeatMarkerGeometry(GameObject go, BoxCollider box, GameObject? post, GameObject? board)
+        {
+            if (go == null) return;
+            var rootT = go.transform;
+
+            // No post → nothing to anchor to. Leave the board at its grafted height (the
+            // seeded root collider center already gives a sane interact box) and skip the
+            // foot collider; the marker is still placeable + pinnable (degraded visual only).
+            if (post == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/MarkerSigns] {go.name}: no post grafted; skipping seat " +
+                    "(board left at grafted height, no foot collider).");
+                return;
+            }
+
+            // (1) Plant the post foot at root y=0 (pivot-robust). Measure the grafted post's
+            //     foot + top in ROOT space (NOT the post's own frame — see the measurement-
+            //     frame note above: a self-frame measure would identity-collapse to the raw
+            //     unit cube), then shift the post child so its measured foot lands at root 0
+            //     and centre it on X/Z (matching the sign's planted-at-X/Z=0 model). The
+            //     planted crown ≈ 2.0 m for the 2m wood_pole2.
+            Assets.MeasureLocalExtent(post, rootT, 1, out float poleFootY, out float poleTopY);
+            post.transform.localPosition = new Vector3(
+                0f, post.transform.localPosition.y - poleFootY, 0f);
+            float plantedPoleCrownY = poleTopY - poleFootY;
+
+            // No board → post is planted + foot-collidered, but there's nothing to anchor.
+            if (board == null)
+            {
+                SignGeometry.AddPostFootGroundCollider(rootT, post, "SBPR_MarkerPostFoot");
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/MarkerSigns] {go.name}: no board grafted; post planted + foot collider " +
+                    "added, board standoff skipped.");
+                return;
+            }
+
+            // (2) Crown-anchor the board: lift it so its TOP sits just under the planted
+            //     crown (shared SignGeometry.CrownAnchorLift, floored at 0). Board top is
+            //     measured in ROOT space (same flatten caveat as the post).
+            Assets.MeasureLocalExtent(board, rootT, 1, out float boardFootY, out float boardTopY);
+            float lift = SignGeometry.CrownAnchorLift(boardTopY, plantedPoleCrownY);
+
+            // (3) Lateral standoff onto the post's near SIDE face. Measure the REAL grafted
+            //     plank + post thickness in ROOT space (NOT the 0.12 collider literal) along
+            //     the board's THINNEST horizontal axis; the standoff magnitude is the shared
+            //     SignGeometry.LateralStandoff (½post + ½board + kiss gap).
+            Assets.MeasureLocalExtent(board, rootT, 0, out float boardMinX, out float boardMaxX);
+            Assets.MeasureLocalExtent(board, rootT, 2, out float boardMinZ, out float boardMaxZ);
+            float boardExtentX = boardMaxX - boardMinX;
+            float boardExtentZ = boardMaxZ - boardMinZ;
+            int normalAxis = (boardExtentX <= boardExtentZ) ? 0 : 2;
+            float boardMin_n = (normalAxis == 0) ? boardMinX : boardMinZ;
+            float boardMax_n = (normalAxis == 0) ? boardMaxX : boardMaxZ;
+            float boardThickness = boardMax_n - boardMin_n;
+            float boardCenter_n  = 0.5f * (boardMin_n + boardMax_n);
+
+            Assets.MeasureLocalExtent(post, rootT, normalAxis, out float postMin_n, out float postMax_n);
+            float postThickness = postMax_n - postMin_n;
+            float postCenter_n  = 0.5f * (postMin_n + postMax_n); // ≈0 (post at X/Z=0), but measured
+
+            // (4) Outward direction (the #73-class facing decision — spec §2.6, highest
+            //     pitfall risk; AT-MARKER-GEO-6 closes ONLY on Daniel's in-game check).
+            //     The marker builds its OWN world-space TMP canvas at board-local
+            //     (0, 0, -0.07) — just past the plank's -Z face — so the text reads from the
+            //     board's -Z side, i.e. the readable normal is the board's LOCAL -Z (the
+            //     same orientation the playtested Painted Sign ends up with after its #73
+            //     180° flip: the donor's readable normal is OPPOSITE the canvas forward).
+            //     We pick `dir` so the board stands off on the side its readable face already
+            //     points, making the text face AWAY from the post (post behind the board) —
+            //     equivalent to the sign's place-then-flip, but folded into the side choice
+            //     since we only TRANSLATE the board (its canvas keeps orientation).
+            //
+            //     ⚠ IN-GAME VERIFY (AT-MARKER-GEO-6): if the text faces INTO the post on any
+            //     of the four pieces, flip the sign of `dir` on the line below (the single
+            //     load-bearing toggle) — the standoff/crown math is unaffected.
+            Transform faceT = board.transform;
+            foreach (var tmp in board.GetComponentsInChildren<TMPro.TMP_Text>(true))
+            {
+                if (tmp != null) { faceT = tmp.transform; break; }
+            }
+            // Readable normal = board/canvas LOCAL -Z (text sits on the -Z side), in root space.
+            Vector3 readableNormalRoot = rootT.InverseTransformDirection(-faceT.forward);
+            int dir = (readableNormalRoot[normalAxis] < 0f) ? -1 : 1;
+
+            // (5) Apply lift + standoff to the board child. The TMP canvas is parented under
+            //     the board, so it follows automatically (no separate move).
+            float standoff = SignGeometry.LateralStandoff(postThickness, boardThickness);
+            float targetBoardCenter_n = postCenter_n + dir * standoff;
+            float lateralDelta_n = targetBoardCenter_n - boardCenter_n;
+            Vector3 boardDelta = Vector3.zero;
+            boardDelta[normalAxis] = lateralDelta_n;
+            boardDelta.y += lift;
+            board.transform.localPosition += boardDelta;
+
+            // (6) Retarget the root interact collider onto the RELOCATED board, or E raycasts
+            //     empty air where the board used to be. Center on the moved board's measured
+            //     centroid in root space (after the move). Depth axis keeps the padded 0.12.
+            Assets.MeasureLocalExtent(board, rootT, 0, out float bMinX, out float bMaxX);
+            Assets.MeasureLocalExtent(board, rootT, 1, out float bMinY, out float bMaxY);
+            Assets.MeasureLocalExtent(board, rootT, 2, out float bMinZ, out float bMaxZ);
+            box.center = new Vector3(
+                0.5f * (bMinX + bMaxX),
+                0.5f * (bMinY + bMaxY),
+                0.5f * (bMinZ + bMaxZ));
+
+            // (7) Foot-seat collider so the placement ghost seats off the post foot (y≈0),
+            //     not the crown-lifted root interact collider (the #68 bury). Neutralised on
+            //     the PLACED instance by MarkerSignTag.Awake → SignGeometry.NeutralizeFootColliderIfPlaced.
+            SignGeometry.AddPostFootGroundCollider(rootT, post, "SBPR_MarkerPostFoot");
+
+            Plugin.Log.LogInfo(
+                $"[Trailborne/MarkerSigns] Seated {go.name}: post foot→y=0, crown→{plantedPoleCrownY:F2}m, " +
+                $"board lifted {lift:F2}m; standoff axis={(normalAxis == 0 ? "X" : "Z")} dir={(dir < 0 ? "-" : "+")}, " +
+                $"post={postThickness:F3}m board={boardThickness:F3}m → board centre {boardCenter_n:F3}→{targetBoardCenter_n:F3}m " +
+                $"(Δ{lateralDelta_n:F3}m, kiss ε={SignGeometry.KissEpsilon:F3}m).");
         }
 
         // ───────────────────────────────────────────────
@@ -268,20 +422,23 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         // NOT Instantiate-then-strip; ADR-0006 line 84-86)
         // ───────────────────────────────────────────────
 
-        // Board centre height (sign-local metres). The vanilla sign board is a small
-        // placard; on a free-standing trail marker we lift it to readable height near the
-        // top of the 2m post. Exact value is v0.2+ visual polish (design §1.2 — the
-        // silhouette is explicitly not load-bearing for M1); ~1.6m ≈ player eye height.
-        private const float BoardLocalY = 1.6f;
-        // Post extends from the ground up; the vanilla wood_pole2 is a centre-pivot 2m
-        // cube mesh, so to plant its foot at y=0 we lift it by ~1m. Visual polish.
-        private const float PostLocalY = 1.0f;
+        // ── Seat geometry (card t_cc093d04): the board is crown-anchored to the planted
+        //    pole top, stood off onto the post's near SIDE face, and the post foot is
+        //    planted at root y=0 with a SignGeometry foot collider so the placed marker
+        //    seats flush. All of it is MEASURED at runtime (SeatMarkerGeometry below), not
+        //    driven by magic constants — see spec §2. The former BoardLocalY/PostLocalY seat
+        //    constants are gone (they shipped the board embedded in the post + the foot
+        //    ~1.3m underground — the v0.2.19-playtest bug). GraftBoard/GraftPost now graft
+        //    the meshes at their blueprint-relative local positions and let SeatMarkerGeometry
+        //    compute the seat. ──
 
         /// <summary>
         /// Graft the board plank as an additive child: read the vanilla sign's board
-        /// mesh/material references (NOT an Instantiate of the sign) and lift the plank to
-        /// readable height. Returns the board child (so the text widget can parent to it),
-        /// or null if the blueprint is missing.
+        /// mesh/material references (NOT an Instantiate of the sign). Returns the board
+        /// child (so the text widget can parent to it + the seat step can move it), or null
+        /// if the blueprint is missing. Seat (crown anchor + side-face standoff) is applied
+        /// later by <see cref="SeatMarkerGeometry"/>; this just grafts the mesh at its
+        /// blueprint-relative local position.
         /// </summary>
         private static GameObject? GraftBoard(GameObject? signBlueprint, GameObject dst)
         {
@@ -293,32 +450,24 @@ namespace SBPR.Trailborne.Features.MarkerSigns
                 return null;
             }
             // The sign's visible plank is a Cube_Cube_Material mesh under 'New/wood_pole (1)'.
-            var board = Assets.GraftMeshFromBlueprint(signBlueprint, dst, "SBPR_MarkerBoard", "pole");
-            if (board != null)
-            {
-                var lp = board.transform.localPosition;
-                board.transform.localPosition = new Vector3(lp.x, BoardLocalY, lp.z);
-            }
-            return board;
+            // Grafted at its blueprint-relative TRS; SeatMarkerGeometry positions it.
+            return Assets.GraftMeshFromBlueprint(signBlueprint, dst, "SBPR_MarkerBoard", "pole");
         }
 
         /// <summary>Graft the 2m wood pole as an additive decorative post (mesh-reference,
-        /// not a clone) and plant its foot at the ground.</summary>
-        private static void GraftPost(GameObject? poleBlueprint, GameObject dst)
+        /// not a clone). Returns the post child so <see cref="SeatMarkerGeometry"/> can plant
+        /// its foot at the ground + measure its crown/thickness, or null if the blueprint is
+        /// missing.</summary>
+        private static GameObject? GraftPost(GameObject? poleBlueprint, GameObject dst)
         {
             if (poleBlueprint == null)
             {
                 Plugin.Log.LogWarning(
                     "[Trailborne/MarkerSigns] Pole blueprint missing; marker placed without a post " +
                     "(board visual only).");
-                return;
+                return null;
             }
-            var post = Assets.GraftMeshFromBlueprint(poleBlueprint, dst, "SBPR_MarkerPost", "New");
-            if (post != null)
-            {
-                var lp = post.transform.localPosition;
-                post.transform.localPosition = new Vector3(0f, PostLocalY, 0f);
-            }
+            return Assets.GraftMeshFromBlueprint(poleBlueprint, dst, "SBPR_MarkerPost", "New");
         }
 
         /// <summary>

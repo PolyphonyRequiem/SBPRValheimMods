@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using SBPR.Trailborne.Runtime;
 
 namespace SBPR.Trailborne.Features.MarkerSigns
 {
@@ -52,6 +53,14 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         {
             nview = GetComponent<ZNetView>();
             wnt   = GetComponent<WearNTear>();
+
+            // Disable the post-foot ground collider on the PLACED instance so it can't steal
+            // the marker's E / Shift+E raycast — the root interact collider (retargeted onto
+            // the board by SeatMarkerGeometry) stays the sole hit target. NO-OP on the
+            // placement ghost (no ZDO), which still needs the foot collider enabled to seat
+            // the post flush. Shared verbatim with the Painted Sign via SignGeometry (card
+            // t_cc093d04) — AT-MARKER-GEO-7.
+            SignGeometry.NeutralizeFootColliderIfPlaced(this, nview);
 
             // On a placed instance, the ZDO is the source of truth for the marker type;
             // fall back to the template default (set at registration) when the ZDO hasn't
