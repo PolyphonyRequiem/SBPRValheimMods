@@ -358,14 +358,12 @@ namespace SBPR.Trailborne.Features.Cairns
         //
         // Locked harness routing: white → B; black/blue/red → A.
         //
-        // 🔧 COLLAPSE-TO-WINNER (the follow-up card, after Daniel picks in-world): this is a
-        // ONE-LINE edit, by design.
-        //   • Daniel picks Option B (shader-wave) for all colors → make this contain ALL four:
-        //         new() { "white", "black", "blue", "red" }   (then delete the now-dead Option-A path)
-        //   • Daniel picks Option A (Cloth windsock) for all colors → make this EMPTY:
-        //         new HashSet<string>()                          (then delete the now-dead Option-B path)
-        // Until that pick, BOTH paths ship so the comparison exists in-world.
-        private static readonly HashSet<string> ShaderWaveColors = new HashSet<string> { "white" };
+        // 🔧 COLLAPSE-TO-WINNER — RESOLVED 2026-06-11: Daniel picked **Option A (Cloth windsock)**
+        // for ALL colors ("windsocky"). Per the one-line design above, this set is now EMPTY, so
+        // every color routes to BuildClothWindsock (Option A). The Option-B shader-wave path
+        // (BuildShaderWaveBanner) is now dormant (no color reaches it); a follow-up cleanup card
+        // may delete the dead Option-B path — left in place for now as a trivial revert point.
+        private static readonly HashSet<string> ShaderWaveColors = new HashSet<string>();
 
         // ── WINDSOCK tunables (card t_4a4a9706 — supersedes the A-prime square-drape seating) ──
         //
