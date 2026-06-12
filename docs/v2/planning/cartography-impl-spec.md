@@ -1071,6 +1071,24 @@ code move together in that PR.
 
 ### 2H — Free-rotate the held Local Map (issue 8 design correction, 2026-06-11)
 
+> **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
+> The §2H LOCKED ROUTE (P2 player-centred minimap, route-1 transform rotation) is BUILT in
+> `MapViewer.cs` on top of §2E. A new `_mapContainer` pivot node wraps the §2E
+> cartography/shroud/pins as one rigid unit; in `FieldReadOnly` `ApplyFieldOrientation` offsets
+> that unit by `-WorldToMapRectUnclamped(player)` (player → screen centre) and rotates the
+> container by `MapRotationSign * cameraYaw` each FRAME (driven from `Update`, not the 0.25 s
+> `Refresh` — §2H b6). The player marker is a static square moved to a never-rotated
+> `_staticOverlay` at dead centre (Daniel-locked: no facing indicator); pins counter-rotate their
+> icons to stay upright (`CounterRotatePins`); the off-disc indicator (`UpdateTableArrow`) points
+> at the bound Table from the rotating container. `TableEdit` resets rotation+offset to identity,
+> so the Surveyor's Table view is byte-for-byte the pre-§2H north-up table-centred behaviour.
+> Build 0/0. **NOT YET PLAYTESTED — the rotation SENSE (`MapRotationSign`, first guess `+1f`) and
+> camera-vs-body-yaw choice are BUILD-CALIBRATED in-client per §2H b2; Daniel's playtest tunes the
+> one constant if the map turns the wrong way.** Implementation note: player-centring is realized
+> as a rigid TRANSFORM offset of the whole §2E unit (not by re-driving the shader `_mapCenter` to
+> the player) — the survey fog/shroud is table-anchored, so a transform offset keeps cartography +
+> shroud + pins aligned by construction; re-framing only the shader would desync the shroud mask.
+
 > **Status: DESIGN CORRECTION + UNDER-SPECIFIED-POINT RESOLUTION.** Reported by Daniel,
 > v0.2.19-playtest: *"local map does not rotate freely but rather is north fixed."* The fork
 > SHELL, bounding, fixed zoom, the §2E cartography render, pins, and the edge arrow are all

@@ -72,6 +72,22 @@ namespace SBPR.Trailborne.Features.Cartography
         private const float PinIconPx       = 22f;  // pin marker size on screen
         private const float PlayerMarkerPx  = 26f;
 
+        // ── §2H free-rotate (held Local Map / FieldReadOnly only) ─────────────────────
+        // The held map free-rotates with the player's heading (forward = up), is centred on
+        // the PLAYER (not the bound Table), and pins a static square marker at dead centre
+        // (§2H P2 "player-centred minimap"). The Surveyor's Table (TableEdit) view is
+        // unaffected — it stays north-up + table-centred (§2H "Table view").
+        //
+        // 🔴 BUILD-CALIBRATED SIGN (§2H bullet 2). The exact rotation sense + whether
+        // camera-yaw or body-yaw reads better cannot be confirmed on a headless build worker
+        // (no GPU, no live camera) — the same discipline that locked m_pixelSize in the
+        // UI-fork spike. Vanilla rotates its NORTH-UP marker by -cameraYaw
+        // (UpdatePlayerMarker: m_smallMarker.rotation = Euler(0,0,-eulerAngles.y)); rotating
+        // the MAP so forward = up is the opposite sense, so the first guess is +cameraYaw.
+        // If the map turns the wrong way in-game, flip this one constant to -1f. This is the
+        // single calibration knob Daniel's playtest tunes (Option A, 2026-06-11).
+        private const float MapRotationSign = 1f;
+
         // ── §2E vanilla-cartography render constants ──────────────────────────────────
         // Shader uniform names on vanilla's map material (Minimap.Start :46916-46919,
         // CenterMap :47506-47514 — decomp-verified). We reuse a COPY of that material.
@@ -94,15 +110,18 @@ namespace SBPR.Trailborne.Features.Cartography
         // ── UI refs ───────────────────────────────────────────────────────────────────
         private GameObject? _root;          // the whole overlay (toggled active)
         private Canvas? _canvas;
+        private RectTransform? _mapContainer; // §2H: rotates by heading in FieldReadOnly (identity in TableEdit)
         private RawImage? _mapImage;        // the CARTOGRAPHY layer (vanilla map material copy; 2-color fallback)
         private RawImage? _shroudImage;     // the disc+survey shroud mask layered OVER the cartography
         private RectTransform? _mapRect;    // the map square (pins/markers parent to this)
         private GameObject? _overlayLayer;  // pins + player marker + edge arrow live here
+        private GameObject? _staticOverlay;  // §2H: never-rotated layer hosting the centred player marker
         private Texture2D? _tex;            // fallback 2-color fog texture
         private Texture2D? _shroudTex;      // the alpha shroud-mask texture (lit→clear, shroud→opaque)
         private Texture2D? _revealTex;      // 1×1 force-explored override for the copy's _FogTex
         private Material?  _mapMaterial;    // INSTANTIATED COPY of vanilla's map material (never vanilla's live one)
         private RawImage? _playerMarker;    // reused player dot/arrow
+        private RawImage? _tableArrow;      // §2H field-mode: arrow toward the bound Table when player is off-disc
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
 
         // ── Live request state ──────────────────────────────────────────────────────────
@@ -159,6 +178,12 @@ namespace SBPR.Trailborne.Features.Cartography
                 PaintFog(survey); // graceful degradation → the old explored/shroud two-color fill
 
             RebuildOverlay(survey);
+
+            // §2H: in FieldReadOnly, centre the view on the player + rotate to heading. In
+            // TableEdit this is a no-op (identity rotation, zero offset) → unchanged north-up
+            // table-centred view. Applied on every Render AND every frame from Update() (so
+            // rotation tracks heading at frame rate, not the 0.25 s survey refresh — §2H b6).
+            ApplyFieldOrientation(survey);
         }
 
         /// <summary>
@@ -445,12 +470,44 @@ namespace SBPR.Trailborne.Features.Cartography
             float wy = (py - cy) + half;
             if (wx < 0 || wy < 0 || wx >= size || wy >= size) return false;
 
-            float edge = _mapRect.sizeDelta.x;
-            float cell = edge / size;
-            // Center of the cell, relative to the rect's centered pivot.
-            anchored = new Vector2((wx + 0.5f) * cell - edge / 2f,
-                                   (wy + 0.5f) * cell - edge / 2f);
+            anchored = MapRectAnchor(wx, wy, size);
             return true;
+        }
+
+        /// <summary>
+        /// §2H: the anchored map-rect position of a world point WITHOUT the window-bounds
+        /// rejection that <see cref="WorldToMapRect"/> applies. The projection is linear
+        /// (cell deltas × on-screen cell size), so it extrapolates cleanly past the window
+        /// edge — needed for player-centring when the held map's player has walked beyond the
+        /// table-centred window (the table arrow then points back). Returns the same value as
+        /// WorldToMapRect for in-window points.
+        /// </summary>
+        private Vector2 WorldToMapRectUnclamped(Vector3 world, SurveyData survey)
+        {
+            if (_mapRect == null) return Vector2.zero;
+            float pixelSize = survey.PixelSize > 0f ? survey.PixelSize : 64f;
+            int textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
+            int size = survey.Size;
+
+            int cx = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, textureSize);
+            int cy = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, textureSize);
+            int px = BoundedMapMath.WorldToCellX(world.x, pixelSize, textureSize);
+            int py = BoundedMapMath.WorldToCellY(world.z, pixelSize, textureSize);
+
+            int half = (size - 1) / 2;
+            float wx = (px - cx) + half;
+            float wy = (py - cy) + half;
+            return MapRectAnchor(wx, wy, size);
+        }
+
+        /// <summary>Shared core: window-cell (wx,wy) → anchored px relative to the rect's
+        /// centered pivot. North = up (matches the bottom-up texture copy).</summary>
+        private Vector2 MapRectAnchor(float wx, float wy, int size)
+        {
+            float edge = _mapRect!.sizeDelta.x;
+            float cell = edge / size;
+            return new Vector2((wx + 0.5f) * cell - edge / 2f,
+                               (wy + 0.5f) * cell - edge / 2f);
         }
 
         // ── Overlay element construction ─────────────────────────────────────────────────
@@ -498,15 +555,57 @@ namespace SBPR.Trailborne.Features.Cartography
         private static Color PinTint(SurveyPin pin)
             => pin.Checked ? new Color(0.5f, 0.8f, 0.5f, 1f) : new Color(0.95f, 0.85f, 0.4f, 1f);
 
-        // ── Player marker / edge arrow (full polish in M-C) ──────────────────────────────
+        // ── Player marker / edge arrow ───────────────────────────────────────────────────
 
         private void UpdatePlayerMarker(SurveyData survey, Vector3 origin, float radius)
+        {
+            // §2H: the held Local Map (FieldReadOnly) is player-centred — the marker is a
+            // STATIC square at dead centre on the never-rotated static overlay, and the world
+            // rotates underneath it (Daniel-locked: no facing indicator). The Surveyor's Table
+            // (TableEdit) keeps the original table-centred behaviour: the marker rides the
+            // (un-rotated, un-offset) overlay at the player's projected offset from the table,
+            // edge-clamped to the disc when the player is outside it.
+            if (_req.Mode == MapViewerMode.FieldReadOnly)
+            {
+                UpdatePlayerMarkerFieldCentred();
+                return;
+            }
+            UpdatePlayerMarkerTableCentred(survey, origin, radius);
+        }
+
+        /// <summary>
+        /// §2H FieldReadOnly: player marker is a static featureless square at dead centre of
+        /// the static (never-rotated) overlay. Forward = up is carried by the rotating world
+        /// beneath it (AT-LMAP-ROT-2). No edge arrow here — the off-disc indicator points at
+        /// the TABLE and rides the rotating overlay (UpdateTableArrow), per §2H bullet 5.
+        /// </summary>
+        private void UpdatePlayerMarkerFieldCentred()
+        {
+            EnsurePlayerMarker(staticLayer: true);
+            if (_playerMarker == null) return;
+            var player = Player.m_localPlayer;
+            if (player == null) { _playerMarker.gameObject.SetActive(false); return; }
+
+            _playerMarker.gameObject.SetActive(true);
+            var rt = _playerMarker.rectTransform;
+            rt.anchoredPosition = Vector2.zero;          // dead centre
+            rt.localRotation = Quaternion.identity;       // static square, no facing (Daniel)
+            rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
+            _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f);
+        }
+
+        /// <summary>
+        /// Original TableEdit player marker / edge arrow (unchanged behaviour). The marker
+        /// shows at its real map position when inside the disc, or — when outside — as a
+        /// direction arrow polar-clamped to the shroud radius (AT-MAP-EDGEARROW).
+        /// </summary>
+        private void UpdatePlayerMarkerTableCentred(SurveyData survey, Vector3 origin, float radius)
         {
             if (_overlayLayer == null || _mapRect == null) return;
             var player = Player.m_localPlayer;
             if (player == null) { if (_playerMarker != null) _playerMarker.gameObject.SetActive(false); return; }
 
-            EnsurePlayerMarker();
+            EnsurePlayerMarker(staticLayer: false);
             if (_playerMarker == null) return;
             _playerMarker.gameObject.SetActive(true);
 
@@ -545,17 +644,151 @@ namespace SBPR.Trailborne.Features.Cartography
             }
         }
 
-        private void EnsurePlayerMarker()
+        /// <summary>
+        /// §2H bullet 1+2: drive the FieldReadOnly view's player-centring offset + heading
+        /// rotation each frame. The cartography/shroud/pins ride <see cref="_mapRect"/> inside
+        /// <see cref="_mapContainer"/>; offsetting the map by -playerAnchor puts the PLAYER at
+        /// the container origin (= screen centre = rotation pivot), and rotating the container
+        /// by the camera yaw turns the world so forward = up. TableEdit resets both to identity
+        /// (north-up, table-centred) so its view is byte-for-byte the pre-§2H behaviour.
+        /// Per §2H bullet 6 this runs at frame rate (from Update), not the 0.25 s refresh.
+        /// </summary>
+        private void ApplyFieldOrientation(SurveyData survey)
         {
-            if (_playerMarker != null || _overlayLayer == null) return;
-            var go = new GameObject("playerMarker");
-            go.transform.SetParent(_overlayLayer.transform, false);
-            _playerMarker = go.AddComponent<RawImage>();
-            _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f);
-            var rt = _playerMarker.rectTransform;
+            if (_mapContainer == null || _mapRect == null) return;
+
+            if (_req.Mode != MapViewerMode.FieldReadOnly)
+            {
+                // Table view: no rotation, no player-centring offset (unchanged).
+                _mapContainer.localRotation = Quaternion.identity;
+                _mapRect.anchoredPosition = Vector2.zero;
+                return;
+            }
+
+            var player = Player.m_localPlayer;
+            if (player == null) return;
+
+            // 1) Player-centring offset: shift the map so the player's projected anchor lands
+            //    at the container origin. The projection is unclamped (the player may be far
+            //    from the table → beyond the window), so it extrapolates linearly.
+            Vector3 ppos = player.transform.position;
+            Vector2 playerAnchor = WorldToMapRectUnclamped(ppos, survey);
+            _mapRect.anchoredPosition = -playerAnchor;
+
+            // 2) Heading rotation. Camera yaw is the member vanilla's own marker reads
+            //    (UpdatePlayerMarker: Utils.GetMainCamera().transform.rotation). If the camera
+            //    isn't up yet, keep the last orientation rather than throw/blank (§2H "Graceful
+            //    degradation"). The rotation SENSE is build-calibrated (MapRotationSign).
+            var cam = Utils.GetMainCamera();
+            if (cam == null) return;
+            float camYaw = cam.transform.eulerAngles.y;
+            float rotZ = MapRotationSign * camYaw;
+            _mapContainer.localRotation = Quaternion.Euler(0f, 0f, rotZ);
+
+            // 3) Pins ride the rotation for POSITION (they're under the container), but
+            //    counter-rotate each icon so it stays screen-upright (§2H bullet 4 / AT-LMAP-ROT-3).
+            CounterRotatePins(rotZ);
+
+            // 4) Off-disc indicator: when the player is outside the 1000 m disc the TABLE is
+            //    the off-screen target — show an arrow toward it at the view edge (§2H b5 /
+            //    AT-LMAP-ROT-4). Lives under the rotating container, so its bearing composes
+            //    with the container rotation automatically.
+            UpdateTableArrow(survey, ppos);
+        }
+
+        /// <summary>§2H bullet 4: keep pin icons upright while the map rotates. Each pin rides
+        /// the rotating container for POSITION; setting its own localRotation to the negative
+        /// of the container's Z cancels the spin so the icon never goes upside-down. A no-op
+        /// (identity) in TableEdit where rotZ is 0.</summary>
+        private void CounterRotatePins(float containerZ)
+        {
+            var counter = Quaternion.Euler(0f, 0f, -containerZ);
+            foreach (var go in _pinObjects)
+                if (go != null) go.transform.localRotation = counter;
+        }
+
+        /// <summary>
+        /// §2H bullet 5 (FieldReadOnly): when the player is outside the bound 1000 m disc, the
+        /// player sits at screen-centre and the bound Table is off-view — show a direction
+        /// arrow at the view edge pointing toward the Table. Built lazily under the rotating
+        /// container so the bearing composes with the heading rotation (AT-LMAP-ROT-4). Hidden
+        /// when the player is inside the disc.
+        /// </summary>
+        private void UpdateTableArrow(SurveyData survey, Vector3 playerPos)
+        {
+            if (_mapContainer == null || _mapRect == null) return;
+
+            Vector3 origin = _req.BoundOrigin;
+            float radius = _req.RadiusMeters > 0f ? _req.RadiusMeters : survey.RadiusMeters;
+            float dx = playerPos.x - origin.x, dz = playerPos.z - origin.z;
+            bool outside = (dx * dx + dz * dz) > radius * radius;
+
+            if (!outside)
+            {
+                if (_tableArrow != null) _tableArrow.gameObject.SetActive(false);
+                return;
+            }
+
+            EnsureTableArrow();
+            if (_tableArrow == null) return;
+
+            // Direction player→table in the UNROTATED map-pixel frame (the container rotation
+            // is applied by the parent, so we work pre-rotation here).
+            Vector2 playerAnchor = WorldToMapRectUnclamped(playerPos, survey);
+            Vector2 tableAnchor  = WorldToMapRectUnclamped(origin, survey);
+            Vector2 toTable = tableAnchor - playerAnchor;
+            if (toTable.sqrMagnitude < 1e-4f) { _tableArrow.gameObject.SetActive(false); return; }
+            Vector2 dir = toTable.normalized;
+
+            // Clamp to a ring just inside the view square (player at centre).
+            float edgeRadius = _mapRect.sizeDelta.x * 0.45f;
+            var rt = _tableArrow.rectTransform;
+            rt.anchoredPosition = dir * edgeRadius;
+            float ang = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg; // sprite points +X by default
+            rt.localRotation = Quaternion.Euler(0f, 0f, ang);
+            _tableArrow.gameObject.SetActive(true);
+        }
+
+        private void EnsureTableArrow()
+        {
+            if (_tableArrow != null || _mapContainer == null) return;
+            var go = new GameObject("tableArrow");
+            go.transform.SetParent(_mapContainer.transform, false);
+            _tableArrow = go.AddComponent<RawImage>();
+            _tableArrow.raycastTarget = false;
+            _tableArrow.color = new Color(1f, 0.5f, 0.2f, 1f); // off-disc / "table that way"
+            var rt = _tableArrow.rectTransform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
+        }
+
+        private void EnsurePlayerMarker(bool staticLayer)
+        {
+            Transform? parent = staticLayer ? _staticOverlay?.transform : _overlayLayer?.transform;
+            if (parent == null) return;
+
+            if (_playerMarker == null)
+            {
+                var go = new GameObject("playerMarker");
+                go.transform.SetParent(parent, false);
+                _playerMarker = go.AddComponent<RawImage>();
+                _playerMarker.raycastTarget = false;
+                _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f);
+                var rt = _playerMarker.rectTransform;
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
+            }
+            else if (_playerMarker.transform.parent != parent)
+            {
+                // Mode changed (field ↔ table): move the marker to the right layer. The static
+                // layer never rotates (field centre marker); the overlay layer rides the map
+                // (table offset marker).
+                _playerMarker.transform.SetParent(parent, false);
+                _playerMarker.rectTransform.anchoredPosition = Vector2.zero;
+                _playerMarker.rectTransform.localRotation = Quaternion.identity;
+            }
         }
 
         private void ClearPinObjects()
@@ -602,6 +835,17 @@ namespace SBPR.Trailborne.Features.Cartography
             // the field view structurally cannot remove pins.
             if (_req.Mode == MapViewerMode.TableEdit && _req.PinEditor != null && Input.GetMouseButtonDown(0))
                 TryRemovePinAtCursor();
+
+            // §2H: drive the held-map free-rotate + player-centring at FRAME RATE (not the
+            // 0.25 s survey Refresh — at 4 Hz rotation would visibly stutter, §2H bullet 6).
+            // No-op in TableEdit (identity rotation, zero offset). Cheap: a camera-yaw read +
+            // a transform set; the heavy fog/pin rebuild stays on Refresh.
+            if (_req.Mode == MapViewerMode.FieldReadOnly)
+            {
+                var survey = _req.Survey;
+                if (survey != null && survey.Fog != null && survey.Size > 0)
+                    ApplyFieldOrientation(survey);
+            }
         }
 
         /// <summary>
@@ -684,12 +928,28 @@ namespace SBPR.Trailborne.Features.Cartography
             bgRt.anchorMin = Vector2.zero; bgRt.anchorMax = Vector2.one;
             bgRt.offsetMin = Vector2.zero; bgRt.offsetMax = Vector2.zero;
 
+            // §2H rotation container: a centred, zero-size pivot node. The cartography +
+            // shroud + pins (the "world" layer) are its children, so rotating IT rotates the
+            // whole map about screen-centre. In FieldReadOnly it spins with the player's
+            // heading (forward = up); in TableEdit it stays identity (north-up). Because its
+            // pivot is screen-centre and the field offset puts the PLAYER at screen-centre,
+            // rotation is about the player (AT-LMAP-ROT-1/2).
+            var containerGo = new GameObject("mapContainer");
+            containerGo.transform.SetParent(_root.transform, false);
+            _mapContainer = containerGo.AddComponent<RectTransform>();
+            _mapContainer.anchorMin = _mapContainer.anchorMax = new Vector2(0.5f, 0.5f);
+            _mapContainer.pivot = new Vector2(0.5f, 0.5f);
+            _mapContainer.sizeDelta = Vector2.zero;
+
             // The cartography layer: a RawImage that shows a COPY of the vanilla map material
             // (§2E) — biome/height/forest/water — or the 2-color fallback texture. No boxy
             // frame behind it (AT-ISSUE1-BORDER): the bounded disc + shroud ring IS the edge,
             // matching the vanilla map's soft framing rather than a hard SBPR rectangle.
+            // Parented to the rotation container; its anchoredPosition is the §2H player-
+            // centring offset (0 in TableEdit → table-centred; -playerAnchor in FieldReadOnly
+            // → player at centre).
             var mapGo = new GameObject("cartography");
-            mapGo.transform.SetParent(_root.transform, false);
+            mapGo.transform.SetParent(_mapContainer.transform, false);
             _mapImage = mapGo.AddComponent<RawImage>();
             _mapRect = _mapImage.rectTransform;
             _mapRect.anchorMin = _mapRect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -708,14 +968,30 @@ namespace SBPR.Trailborne.Features.Cartography
             shRt.anchorMin = Vector2.zero; shRt.anchorMax = Vector2.one; // stretch to the cartography rect
             shRt.offsetMin = Vector2.zero; shRt.offsetMax = Vector2.zero;
 
-            // Overlay layer (pins + markers) sits on top of BOTH the cartography and the shroud
-            // (added last → highest child). Same rect + center as the map.
+            // Overlay layer (pins + the field-mode table arrow) sits on top of BOTH the
+            // cartography and the shroud (added last → highest child). It rides the cartography
+            // rigidly, so pins stay world-anchored under rotation + the player-centring offset
+            // (AT-LMAP-ROT-3). Same rect + center as the map.
             _overlayLayer = new GameObject("overlay");
             _overlayLayer.transform.SetParent(mapGo.transform, false);
             var ovRt = _overlayLayer.AddComponent<RectTransform>();
             ovRt.anchorMin = ovRt.anchorMax = new Vector2(0.5f, 0.5f);
             ovRt.pivot = new Vector2(0.5f, 0.5f);
             ovRt.sizeDelta = Vector2.zero; // children anchor to center, position in px
+
+            // §2H static overlay: a centred, zero-size, NEVER-rotated node that hosts the
+            // player marker. In FieldReadOnly the player marker is a static square pinned at
+            // dead centre while the world rotates underneath (Daniel-locked: no facing
+            // indicator). In TableEdit the player marker is projected to its real offset from
+            // the table here (the static layer == screen-centre == table-centre when the world
+            // layer has zero offset + identity rotation, so TableEdit is unchanged).
+            var staticGo = new GameObject("staticOverlay");
+            staticGo.transform.SetParent(_root.transform, false);
+            var stRt = staticGo.AddComponent<RectTransform>();
+            stRt.anchorMin = stRt.anchorMax = new Vector2(0.5f, 0.5f);
+            stRt.pivot = new Vector2(0.5f, 0.5f);
+            stRt.sizeDelta = Vector2.zero;
+            _staticOverlay = staticGo;
 
             _root.SetActive(false);
         }
