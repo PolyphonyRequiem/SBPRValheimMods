@@ -111,10 +111,11 @@ namespace SBPR.Trailborne.Runtime
             // ── v2 Black-Forest cartography (impl spec §0 row 2; card t_cb831069) ──
             // Local Map — TwoHandedWeapon item, crafted blank at the Explorer's Bench,
             // imprinted at a Surveyor's Table. LOCKED per docs/v2/planning/requirements.md §2
-            // + cartography-impl-spec.md §0/§2A.1: DeerHide ×1 + FineWood ×1, amount 1.
+            // + cartography-impl-spec.md §0/§2A.1: DeerHide ×2 + FineWood ×4, amount 1.
+            // Issue 9 (Daniel, 2026-06-11 playtest): bumped from 1+1 to 2+4.
             new RecipeSpec {
                 Item = "SBPR_LocalMap", Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] { R("DeerHide", 1), R("FineWood", 1) }
+                Resources = new[] { R("DeerHide", 2), R("FineWood", 4) }
             },
 
             // ── v2 Black-Forest cartography (impl spec §0 row 3; card t_65fcfe5c) ──

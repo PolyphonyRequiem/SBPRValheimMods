@@ -4,7 +4,7 @@
 //  The SBPR_LocalMap item: a craftable, TwoHandedWeapon-slot "map you hold" that
 //  is BLANK when crafted and only carries survey data once imprinted at a
 //  Surveyor's Table (§2A.5). This file owns:
-//    • the item prefab + recipe (DeerHide x1 + FineWood x1 @ Explorer's Bench),
+//    • the item prefab + recipe (DeerHide x2 + FineWood x4 @ Explorer's Bench),
 //    • the ItemType=TwoHandedWeapon lock + attack suppression (AT-MAP-BLOCKCLEAR),
 //    • PER-INSTANCE storage of the windowed survey snapshot in the ItemData's
 //      m_customData dictionary (verified to round-trip Inventory.Save/Load AND the
@@ -50,10 +50,11 @@ namespace SBPR.Trailborne.Features.Cartography
         // of the Hoe's tool behaviour survives — only its renderable held model.
         private const string SourceHeldTool = "Hoe";
 
-        // Recipe — LOCKED (impl spec §0 row 2 / §2A.1). DeerHide x1 + FineWood x1, amount 1,
+        // Recipe — LOCKED (impl spec §0 row 2 / §2A.1). DeerHide x2 + FineWood x4, amount 1,
         // crafted at the Explorer's Bench (NOT the Surveyor's Table).
-        public const int DeerHideCost = 1;
-        public const int FineWoodCost = 1;
+        // Issue 9 (Daniel, 2026-06-11 playtest): bumped from 1+1 to 2+4.
+        public const int DeerHideCost = 2;
+        public const int FineWoodCost = 4;
 
         // m_customData keys for the per-instance imprinted survey snapshot (§2A.5). The
         // value of MapBlobKey is Base64(Utils.Compress(SurveyData.Serialize())) — the §2C

@@ -630,7 +630,7 @@ MVP-critical, not optional:
    Path Lamp). *This reverses the earlier "lean: yes" — placing the Spade tool is
    bench-gated, but placing pieces via the Spade menu is not, and a field survey post
    shouldn't need base proximity.*
-3. **Local Map recipe** — ✅ **LOCKED:** Deer Hide ×1 + Fine Wood ×1. **Crafted at the
+3. **Local Map recipe** — ✅ **LOCKED:** Deer Hide ×2 + Fine Wood ×4. **Crafted at the
    Explorer's Bench, NOT the Surveyor's Table.** *This reverses the earlier "lean: at
    the Table" — a `CraftingStation`'s `Interact` opens the crafting GUI (:56135), which
    would collide with the Table's map-viewer-on-Use. The Table-coupling the design wants
