@@ -228,6 +228,14 @@ checks are tallied separately in the boot summary line).
   `$item_crafter` censor `:58314`.)
 
 #### 1.6.4 The bind gate — no nameless imprints (AT-TABLENAME-2)
+
+> **⚠️ SUPERSEDED TRIGGER (2026-06-12, issue 6, §2I).** The imprint *trigger* below ("Use the
+> Table → ... → `ImprintCarriedLocalMaps` imprints ALL carried maps") is **replaced** by the §2I
+> look-at-table + hotbar-number gesture (imprint THE one map in the pressed slot). The **name gate
+> itself is unchanged and still binding** — imprint (now via `TryImprintSlot`, §2I.4) still hard-
+> refuses while `SBPR_TableName` is empty. Read §2I for the current trigger; the name-gate logic
+> here remains the spec of record. Use (E) still launches the rename dialog on an unnamed Table.
+
 - `Interact` (`:97-134`) currently always: ward-gate → `ContributeLocalSurvey` →
   `ImprintCarriedLocalMaps` → open viewer. **Insert a name gate** so a Table with an empty
   `SBPR_TableName` refuses to imprint and instead launches the naming dialog:
@@ -1149,6 +1157,13 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
 > double-map, hover-interaction wins, prompt visible.** Vanilla APIs verified vs the decomp
 > (`ZInput.GetButtonDown("Use")` :16116, `Player.GetHoverObject()` :14699, `$piece_readmap` :114046).
 
+> **⚠️ FOLLOW-UP (2026-06-12, issue 6, §2I).** Daniel's v0.2.22 playtest found this §2G open
+> gesture **intermittently dies** after imprinting at the Table or pinning a marker sign (recovers
+> after re-using the Table). Root cause: the open-suppression gate (`CanOpenOnUse` →
+> `SignPanelInputBlock.AnyOpen`) can latch on a stale `CartographyViewer.IsViewerOpen` because the
+> viewer tracked open-state in a side bool that desyncs from its canvas. Fix + the imprint-trigger
+> redesign (look-at-table + hotbar#) are specced in **§2I** — read it alongside this section.
+
 > **Status: DESIGN CORRECTION.** Supersedes the "the vanilla **'Map' button** activates the
 > full view (dead under nomap, so the fork repurposes it)" open path asserted in the §2 IMPL
 > STATUS banner, §2A.4, §2B, and the code comments at `LocalMapController.cs:79-86` /
@@ -1836,6 +1851,264 @@ along your path. If the shroud still doesn't move with a confirmed-equipped Kit,
   lands (the live overlay paints into that composite's shroud layer; sequencing it first would build
   against a render that's being replaced).
 - **SpecCheck impact: none** (render behaviour, no recipe row). Spec + code move together in the PR.
+
+
+### 2I — E-to-open reliability + imprint redesign to look-at-table + hotbar# (issue 6, 2026-06-12)
+
+> **Status: BUG-FIX + DESIGN CORRECTION.** Two coupled changes to the §2G open model and the
+> §1.6.4 imprint trigger, reported together by Daniel (v0.2.22-playtest, in game). **Part A** is a
+> bug: the §2G "[E] open map" intermittently dies and only recovers after re-using the Table.
+> **Part B** is the locked enhancement: replace the auto/Use imprint with an explicit
+> *look-at-the-Table + press the hotbar number of the Local Map you want to imprint* gesture.
+> They are coupled because the present auto-imprint-on-Use is one of the paths that can leave the
+> open-input gate latched (Part A), and Part B removes that ambiguity by construction. Clean-side
+> (ADR-0001): everything below reads/patches the base game only (`ZInput`, `Player.UseHotbarItem`,
+> `Inventory.GetItemAt`, `Player.GetHoverObject`) — verified against the `assembly_valheim` decomp.
+> **SpecCheck/recipe manifest impact: none** (input + interaction behaviour, no recipe rows).
+
+**What Daniel reported (verbatim):** *"issue 6: for some reason, the 'press E to open the map'
+stopped working. Either after copying from the map station, or after pinning a marker sign.
+Seemed to start working again after using the table again. We should make copy to a map require
+you to look at the table and press the number associated with the hotkey bar map you want to
+imprint upon."*
+
+#### 2I.1 PART A — root cause: the §2G open-input gate is a multi-flag latch (grounded)
+
+The §2G open fires from `LocalMapController.Update` (`LocalMapController.cs:112-121`) only when
+**both** of these hold:
+
+1. `!tableViewOwnsViewer` — where `tableViewOwnsViewer = CartographyViewer.IsViewerOpen &&
+   CurrentMode == TableEdit` (`:88-89`); and
+2. `CanOpenOnUse(player)` returns true (`:119`), which is **false** whenever any of
+   (`GetHoverObject() != null`) `||` `TextInput.IsVisible()` `||` `InventoryGui.IsVisible()` `||`
+   **`SignPanelInputBlock.AnyOpen`** (`:177-189`).
+
+`SignPanelInputBlock.AnyOpen` (`SignPanelInputBlock.cs:41-44`) is the OR of **three independent
+modal flags**:
+
+```
+AnyOpen = SignPaintPanel.IsOpen
+        || MarkerSignPanel.IsOpen
+        || CartographyViewer.IsViewerOpen
+```
+
+**If any one of those flags is stuck `true`, E-to-open silently stays dead** — and so does the
+"[E] Open map" prompt's usefulness, because the field viewer never opens. That single fact
+explains both of Daniel's triggers and the "recovers after using the Table" tell:
+
+- **"After copying from the map station" (imprint at the Table):** the Table opens the viewer in
+  `TableEdit` (`SurveyorTableTag.Interact:177-186`). While that view is up,
+  `CartographyViewer.IsViewerOpen` is true → `AnyOpen` true **and** `tableViewOwnsViewer` true →
+  E-open is correctly suppressed. The defect is in the **teardown**: `MapViewer` tracks open-state
+  in a **standalone bool `_open`** (`MapViewer.cs:131-132`), flipped in `Open()`/`Close()`. Every
+  *other* SBPR modal derives `IsOpen` from `_root.activeSelf` (`MarkerSignPanel.cs:38`,
+  `SignPaintPanel.cs:55`), which **cannot desync** from the actual GameObject state. The viewer's
+  bool **can**: any close path that deactivates the root (or any frame where `Close()` is skipped
+  while the canvas is hidden, e.g. a scene/route change, an exception thrown out of `Render()`
+  after `_open=true` on `:142-143`, or an Escape consumed by a different handler) leaves `_open`
+  reading `true` while nothing is on screen. The result: `IsViewerOpen` stays latched → `AnyOpen`
+  stays latched → E-open is dead. **Re-using the Table** calls `CartographyViewer.Open()` →
+  `MapViewer.Open()` which re-asserts `_open=true` + `_root.SetActive(true)`, and the subsequent
+  Escape close runs `Close()` cleanly → `_open=false`. That is *exactly* the "started working
+  again after using the table again" recovery.
+- **"After pinning a marker sign":** primary **E** on a marker opens `MarkerSignPanel`
+  (`SignInteractPatch.cs:79`). `MarkerSignPanel.IsOpen` keys on `_root.activeSelf`, and its only
+  dismiss paths (Escape / Close button / destroyed-sign) all route through `Hide()` which
+  `SetActive(false)` (`MarkerSignPanel.cs:129-139`). This flag is **structurally sound** — but it
+  feeds the same `AnyOpen`. If the panel is closed by any path that does **not** run `Hide()`
+  (e.g. the host GameObject deactivated by a scene transition while the panel was open, or the
+  *Shift+E fast-pin* path interacting with panel lifecycle), `activeSelf` could read stale.
+  Daniel's "after pinning a marker sign" maps to the **Shift+E** fast-pin gesture
+  (`SignInteractPatch.cs:47-69`), which does NOT open the panel at all — so the suspicion here is
+  weaker than the viewer-bool path. **(OPEN — route to RE/engineer:** reproduce whether
+  `MarkerSignPanel.IsOpen` can read `true` after a Shift+E pin with no panel ever shown; the most
+  likely real culprit for *both* triggers is the viewer `_open` latch, with the marker path a
+  secondary contributor or a red herring. The fix below hardens **all three** flags so the spec
+  is correct regardless of which trigger reproduces.)
+
+**Why now (regression window):** both PR #123 (the new §2G Use-key open + the standalone-bool
+`MapViewer`) and PR #126 (table-naming, which re-routes `Interact` and threads a title into the
+viewer) **landed in v0.2.22** — the exact build Daniel reports. The latch surface is new code.
+
+#### 2I.2 PART A — the fix: make viewer open-state authoritative, and self-heal the gate
+
+Two locked requirements; an implementer's-choice on mechanism within them.
+
+1. **`MapViewer.IsOpen` MUST track the actual canvas, not a side bool.** Derive it from the root,
+   the same discipline the sign panels use:
+   ```csharp
+   public bool IsOpen => _root != null && _root.activeSelf;
+   ```
+   and drop the `_open` field (or keep it strictly as a cache that is *never* the source of truth).
+   This makes `CartographyViewer.IsViewerOpen` un-latchable: if the overlay isn't on screen, the
+   gate reads closed. (Same change kills the `Refresh()`/`Update()` `if (!_open) return` early-outs
+   cleanly — gate them on `IsOpen`.)
+2. **The §2G open-suppression gate MUST be self-healing — never trust a modal flag that has no
+   visible surface.** Even with (1), defend in depth: in `CanOpenOnUse` (and/or the
+   `SignPanelInputBlock.AnyOpen` getter), a flag should only suppress when its owning surface is
+   *actually* displayed. The marker/paint panels already meet this (they key on `activeSelf`); the
+   requirement is that **no SBPR modal contributes to `AnyOpen` via a bool that can outlive its
+   GameObject.** Audit all three; convert any side-bool to an `activeSelf`/instance-liveness check.
+
+**Implementer's-choice mechanism, equivalent outcomes (pick the minimal one that satisfies 1+2):**
+- (i) The §2I.1-named change: `MapViewer.IsOpen => _root.activeSelf`, delete `_open`. Smallest
+  delta; fixes the one demonstrated latch. **Recommended.**
+- (ii) Additionally harden `SignPanelInputBlock.AnyOpen` to re-derive each contributor from its
+  panel's live `activeSelf` (belt-and-suspenders; covers a future side-bool regression).
+
+No new Harmony surface is required for Part A. **Do NOT** "fix" this by adding a watchdog that
+force-closes the viewer on a timer, or by removing the modal-suppress from §2G (that suppress is
+correct — a real open panel must eat the Use press); the bug is a *stale* flag, not the gate logic.
+
+#### 2I.3 PART B — locked imprint trigger: look at the Table + press the target map's hotbar number
+
+**Replaces** the §1.6.4 "Use the Table → contribute + imprint ALL carried Local Maps" trigger with
+an explicit, disambiguated gesture (Daniel's locked enhancement):
+
+> **While looking at (hovering) a named Surveyor's Table, press the hotbar number key (1–8) of the
+> Local Map slot you want to imprint. That one map — and only that one — is imprinted with the
+> Table's current survey.**
+
+This removes the auto-imprint-on-Use ambiguity (which map got the survey when you carried
+several?) and decouples imprint from the viewer-open press that fed Part A.
+
+**The input seam (decomp-verified — clean-side):** vanilla `Player.Update` reads
+`ZInput.GetButtonDown("Hotbar1".."Hotbar8")` and calls `Player.UseHotbarItem(n)`
+(`Player.cs` decomp `:888-919`); `UseHotbarItem(int index)` resolves the item via
+`m_inventory.GetItemAt(index - 1, 0)` and `UseItem(...)`s it (`:2471-2478`). The whole hotbar
+block runs only when `TakeInput()` is true (`:781`, gate at `:2461` — false while any vanilla
+modal/menu/chat is up). **A Harmony prefix on `Player.UseHotbarItem(int)`** is therefore the exact,
+collision-free capture point:
+
+```
+[HarmonyPatch(typeof(Player), nameof(Player.UseHotbarItem))]   // (int index)
+prefix(Player __instance, int index):
+    if __instance != Player.m_localPlayer: return true            // only the local player
+    table = HoveredSurveyorTable(__instance)                      // GetHoverObject()→GetComponentInParent<SurveyorTableTag>()
+    if table == null: return true                                 // not looking at a Table → vanilla hotbar use
+    item = __instance.GetInventory().GetItemAt(index - 1, 0)      // SAME slot vanilla would use (row 0 = hotbar)
+    handled = table.TryImprintSlot(item)                          // §2I.4 refusal-aware imprint of THIS map
+    return !handled                                               // handled → skip vanilla UseItem (don't "equip" the map); else fall through
+```
+
+- **`HoveredSurveyorTable`** reuses the §2G hover idiom: `player.GetHoverObject()` (public accessor,
+  decomp `Player.cs:4055`) → `GetComponentInParent<SurveyorTableTag>()`. Looking at the Table is the
+  gate; standing near it is not enough (consistent with how vanilla Use targets the hovered piece).
+- **Slot mapping is vanilla-faithful:** hotbar number `n` → `GetItemAt(n-1, 0)` — row 0 is the
+  hotbar, so "press 3" imprints whatever sits in hotbar slot 3, exactly the item vanilla's
+  `UseHotbarItem(3)` would have actioned. No custom slot math.
+- **Why prefix `UseHotbarItem` and not raw `GetButtonDown("HotbarN")`:** the single method covers
+  all 8 keys + the gamepad radial's hotbar use, runs already inside vanilla's `TakeInput` gate, and
+  lets us *consume* the press (return false) so the map isn't also "used"/equipped by vanilla in the
+  same frame. Reading `ZInput` directly in the controller would duplicate the 8-key plumbing and
+  miss the consume.
+- **Coexistence with §2G:** the Local Map open gesture is **Use (E) while equipped**; the imprint
+  gesture is **a hotbar number while hovering the Table**. Different inputs, different preconditions
+  — no collision. Surveying-by-Use on the Table is unchanged (see §2I.4).
+
+#### 2I.4 PART B — Table interaction split, refusals, and feedback
+
+The Table's `Interact` (Use/E) and the new hotbar-imprint split responsibilities cleanly:
+
+- **Use (E) on the Table — unchanged contribute + name-gate + open viewer**, MINUS the imprint
+  step. `SurveyorTableTag.Interact` keeps: ward gate → `ContributeLocalSurvey` (survey/record is
+  NOT name-gated, §1.6.4.3) → if unnamed, launch the rename dialog and return (§1.6.4) → open the
+  TableEdit viewer with the title (§2B.1). **Remove the `ImprintCarriedLocalMaps(user)` call** from
+  the Use path — imprint no longer rides Use.
+- **Hotbar number while hovering the Table — the new imprint** (`TryImprintSlot(item)`), with these
+  refusals (each gives Center-message feedback; no silent no-op):
+  - **Table unnamed** → refuse: `"Name this table before binding maps"` (preserves the §1.6.4 bind
+    gate — `ImprintCarriedLocalMaps`'s empty-name backstop is now enforced per-slot here). Imprint
+    never happens while the name is empty (the hard requirement, unchanged).
+  - **Ward access denied** → refuse with the vanilla `$piece_noaccess` (re-check
+    `PrivateArea.CheckAccess` — never trust the gesture to have gated).
+  - **Slot empty / not a Local Map** → refuse: `"Hold a Local Map in that slot to imprint it"`.
+    (Guard with the existing `LocalMapItemTag`/prefab-name check — the same `IsLocalMap` idiom.)
+  - **Table has no survey yet** → refuse: `"This table has nothing surveyed yet"` (mirrors the
+    existing `shared.IsEmpty` no-op, now surfaced as feedback).
+  - **Success** → imprint THAT ONE slot's map via `LocalMap.Imprint(item, shared, origin,
+    GetTableName())` (snapshot + bound-origin + name, §2A.5/§2A.6, unchanged), and confirm:
+    `"Local Map imprinted: <table name>"`. Consume the press (return false from the prefix) so the
+    map is not also equipped/used by vanilla.
+- **`ImprintCarriedLocalMaps` is retired as a Use-path step** but its per-map core (the name +
+  empty-survey backstops + the `LocalMap.Imprint` call) is **reused by `TryImprintSlot`** for a
+  single item. Keep the hard backstops; just drive them one slot at a time.
+- **Hover affordance (so the gesture is discoverable):** extend the Table's named-state
+  `GetHoverText` (`SurveyorTableTag.cs:117-125`) to add a line like
+  `"[1-8] Imprint that Local Map"` (plain English; the bracketed digits are literal, not a
+  `$KEY_*` token — the hotbar keys are not a single rebindable Trailborne action). The unnamed-Table
+  hover keeps its `"[Use] Name this table"` line (binding still blocked until named).
+
+#### 2I.5 Files touched + clean/dirty
+
+- **`MapViewer.cs`** — `IsOpen => _root != null && _root.activeSelf`; remove/neutralize the `_open`
+  side bool; re-gate `Refresh`/`Update` early-outs on `IsOpen` (Part A fix 1).
+- **`SignPanelInputBlock.cs`** — (if mechanism (ii)) re-derive each `AnyOpen` contributor from its
+  panel's live state so no side-bool can latch the gate (Part A fix 2). No change to the three
+  Harmony patch bodies.
+- **`SurveyorTableTag.cs`** — remove the `ImprintCarriedLocalMaps(user)` call from the `Interact`
+  Use path; add `TryImprintSlot(ItemDrop.ItemData? item)` (the refusal-aware single-map imprint,
+  §2I.4) reusing the existing name/ward/empty-survey backstops; add the `[1-8] Imprint` hover line.
+- **`SurveyorTableHotbarImprintPatch.cs`** (NEW) — the `Player.UseHotbarItem(int)` prefix (§2I.3).
+  Register it in `Plugin.Awake()` via `harmony.PatchAll(typeof(...))` so **`PatchCheck` catches it
+  at boot** (the t_564f695a "unregistered patch ships dead" lesson — mandatory).
+- **`LocalMapController.cs` / `CanOpenOnUse`** — no logic change required if Part A fix 1 lands
+  (the gate becomes correct once `IsViewerOpen` can't latch); optionally tighten per fix 2.
+- **Clean-side (ADR-0001):** `ZInput`, `Player.UseHotbarItem`, `Player.GetHoverObject`,
+  `Inventory.GetItemAt`, `PrivateArea.CheckAccess`, vanilla `$piece_noaccess` token — all base
+  game. No third-party mod code. **No SpecCheck/recipe-manifest impact** (input/interaction, not a
+  recipe row). Spec + code move together in the impl PR.
+
+#### 2I.6 Acceptance criteria (named, observable — close only on Daniel's in-game check)
+
+- **AT-LMAP-OPEN-RELIABLE-1 (Part A — imprint trigger)** — After imprinting at a Surveyor's Table
+  (§2I.3 hotbar gesture) and walking away, equipping the Local Map and pressing **Use (E)** opens
+  the field viewer **every time** — no dead-E state, no need to re-use the Table to "wake it up".
+- **AT-LMAP-OPEN-RELIABLE-2 (Part A — marker-sign trigger)** — After pinning/unpinning a marker
+  sign (both the **E** panel path and the **Shift+E** fast path) and closing any panel, **Use (E)**
+  on an equipped Local Map opens the field viewer reliably. The §2G modal-suppress still correctly
+  blocks E-open *while* a panel is genuinely on screen.
+- **AT-LMAP-OPEN-RELIABLE-3 (no false latch)** — `CartographyViewer.IsViewerOpen` reads `false`
+  whenever the viewer overlay is not visible on screen (it is derived from the canvas, not a side
+  bool). Verifiable via a one-line debug log on the gate, or by the absence of any dead-E episode
+  across a play session that opens/closes the Table view, the field view, and both sign panels
+  repeatedly.
+- **AT-IMPRINT-HOTBAR-1 (Part B — the gesture)** — Looking at a **named** Table and pressing the
+  hotbar number of a slot holding a **blank Local Map** imprints THAT map (it now reads as bound:
+  bears the Table name + opens to the Table's survey), and **only** that map — other carried blank
+  maps stay blank.
+- **AT-IMPRINT-HOTBAR-2 (Part B — wrong slot refused)** — Pressing a hotbar number for a slot that
+  is empty or holds a non-Local-Map item, while looking at the Table, is **safely refused** with a
+  Center message and changes nothing (the slot's item is NOT consumed/used/equipped).
+- **AT-IMPRINT-HOTBAR-3 (Part B — name gate preserved)** — The same gesture at an **unnamed** Table
+  is refused with `"Name this table before binding maps"`; no `sbpr_map_blob`/`sbpr_map_name` is
+  written (the §1.6.4 bind gate holds, now enforced at the per-slot imprint).
+- **AT-IMPRINT-HOTBAR-4 (Part B — Use no longer imprints)** — Using (E) the named Table
+  contributes the survey + opens the TableEdit view but **does not** imprint any carried map; only
+  the §2I.3 hotbar gesture imprints. (Confirms the auto-imprint ambiguity that fed Part A is gone.)
+- **AT-IMPRINT-HOTBAR-5 (discoverable)** — A named Table's hover text shows the `[1-8] Imprint that
+  Local Map` affordance; an unnamed Table still shows `[Use] Name this table`.
+- **AT-IMPRINT-HOTBAR-6 (no vanilla collision)** — While NOT looking at a Surveyor's Table, hotbar
+  number keys behave **exactly** as vanilla (use/equip the slot item). The imprint behaviour only
+  triggers while the Table is hovered.
+- logs-green ≠ playable — **Daniel confirms in-game** (Part A reliability across all triggers +
+  Part B gesture, refusals, and the Use-no-longer-imprints split).
+
+**Implementation routing.** One `engineer-ui` worker owns the cartography UI surface
+(`MapViewer.cs` / `SurveyorTableTag.cs` / the new hotbar patch). Route §2I as a **single** impl
+card (child of THIS spec card) — Part A and Part B touch the same files and the same interaction
+model and would collide if split (the v0.2.20 `MapViewer.cs` lesson). **Sequence after** the
+in-flight §2H orientation card (`t_05e702ee`) and the §2E.1 render card (`t_14c34abe`) land, since
+both are mid-flight in `MapViewer.cs`. **SpecCheck impact: none.** Spec + code move together.
+
+> **Note — supersedes the §1.6.4 / §2A.5 imprint *trigger*, not the imprint *mechanism*.** The
+> snapshot format, bound-origin, name-stamp, and all per-instance storage (§2A.5/§2A.6) are
+> UNCHANGED. Only *what fires the imprint* moves from "Use the Table (imprints all carried maps)"
+> to "hover the Table + press the target map's hotbar number (imprints that one)". The §1.6.4 name
+> gate and the `LocalMap.Imprint` backstops are preserved, now enforced per-slot in
+> `TryImprintSlot`.
+
+---
 
 
 ## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping
