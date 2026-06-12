@@ -32,7 +32,7 @@ v0.1.0 Meadows manifest. These three features add **+3 entries** (all new):
 | # | Manifest entry | Kind | Resources | Station |
 |---|---|---|---|---|
 | 1 | `piece_sbpr_surveyors_table` | build piece | Wood-Fine ×10, Bronze ×2, DeerHide ×4, BoneFragments ×8 | (place via Spade menu; `m_craftingStation = null`) |
-| 2 | `SBPR_LocalMap` | item recipe (amount 1) | DeerHide ×1, FineWood ×1 | `piece_sbpr_explorers_bench` |
+| 2 | `SBPR_LocalMap` | item recipe (amount 1) | DeerHide ×2, FineWood ×4 | `piece_sbpr_explorers_bench` |
 | 3 | `SBPR_CartographersKit` | item recipe (amount 1) | InkRed ×10, InkWhite ×10, InkBlue ×10, InkBlack ×10, FineWood ×4 | `piece_sbpr_explorers_bench` |
 
 **Resource prefab-name caveats (must match vanilla / existing SBPR consts, or SpecCheck
@@ -307,7 +307,7 @@ with the Table via the `CartographyViewer` seam).
 
 #### 2A.1 Item + recipe (LOCKED)
 - A craftable `ItemDrop` named `SBPR_LocalMap`, **blank when crafted** (no map data).
-- **Recipe:** DeerHide ×1 + FineWood ×1, amount 1, **crafted at the Explorer's Bench**
+- **Recipe:** DeerHide ×2 + FineWood ×4, amount 1, **crafted at the Explorer's Bench**
   (`m_craftingStation = piece_sbpr_explorers_bench` via
   `RecipeHelpers.FindStation(Trailhead.ExplorersBenchName)` — the existing pattern in
   `Pigments.cs:143`, `Cairns.cs:268`). NOT crafted at the Surveyor's Table.

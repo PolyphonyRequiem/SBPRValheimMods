@@ -90,7 +90,7 @@ no north). Three interlocking pieces:
 ### Acquisition + binding
 - A craftable **item**, **blank when crafted** — carries no map data until **imprinted
   at a Surveyor's Table** (binds to that Table as its 1000 m origin).
-- **Recipe — ✅ LOCKED:** Deer Hide ×1 + Fine Wood ×1 (cheap; a blank rolled leather
+- **Recipe — ✅ LOCKED:** Deer Hide ×2 + Fine Wood ×4 (a blank rolled leather
   on a dowel — you craft many). **Crafted at the Explorer's Bench**, NOT the Surveyor's
   Table. Rationale (reverses the earlier "craft at the Table" lean): a vanilla
   `CraftingStation` *is* an `Interactable` whose `Interact` opens the crafting GUI
