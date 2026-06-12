@@ -473,6 +473,70 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 - **Blank maps are unaffected:** a map with no `sbpr_map_name` (never imprinted) shows the vanilla
   "Local Map" title — the patch is a pass-through. (AT-TABLENAME-7 no-orphan.)
 
+#### 2A.7 Tooltip combat-row suppression (issue 7, display-only)
+
+**Problem (Daniel, 2026-06-12 v0.2.22-playtest):** *"issue 7: the map has stats like block, parry
+force, etc. what? 😛"* The Local Map's tooltip shows weapon combat stats.
+
+**Root cause (grounded against `assembly_valheim` decomp, clean-side per ADR-0001).** `ItemType =
+TwoHandedWeapon` (§2A.2) is the decisive lock for the equip / block-clear / torch discipline and
+**must stay**. But that type routes the item through the weapon `case` of the tooltip **body
+builder** `ItemDrop.ItemData.GetTooltip(ItemData, int, bool, float, int)`:
+- `AddHandedTip` (runs before the `switch`) appends `$item_twohanded` for any two-handed type — **always**.
+- The weapon `case` emits the damage block, `$item_staminause` (`m_attack.m_attackStamina > 0`),
+  `AddBlockTooltip` (`$item_parrybonus` from `m_timedBlockBonus > 1`, `$item_parryadrenaline` from
+  `m_perfectBlockAdrenaline > 0`, plus the two block rows gated `> 1f`), `$item_knockback`
+  (`m_attackForce > 0`), and `$item_backstab` (`m_backstabBonus > 1`).
+
+Zeroing `m_blockPower` / `m_deflectionForce` in `LocalMap.cs` only suppresses the **two block rows**
+(both gated `> 1f`); every other weapon field the donor (`Hoe`) carries still leaks. Per-field
+zeroing is whack-a-mole — the clean fix is to suppress the **whole** weapon section for our item.
+
+**Locked fix — display-only Harmony Postfix (NOT an `ItemType` change).**
+- **Seam:** `LocalMapTooltipCombatStripPatch`, a Postfix on the **public static** overload
+  `ItemDrop.ItemData.GetTooltip(ItemData, int, bool, float, int)` (disambiguated by an explicit
+  `Type[]` in `[HarmonyPatch]`). The instance `GetTooltip(int)` delegates to this static overload
+  and the crafting UI calls it directly, so **one patch covers every surface** — inventory hover,
+  crafting hover, and the equip / world-drop hover. This is the tooltip **body** (`item.GetTooltip()`),
+  distinct from the **title** seam `LocalMapTooltipNamePatch` hooks (`InventoryGrid.CreateItemTooltip`
+  → `m_topic`, §2A.6b).
+- **Behavior:** for our item, **rebuild** a clean body — `m_shared.m_description` + a `$item_weight`
+  line — and overwrite `ref __result`. Rebuild (not regex-strip): `$item_twohanded` is appended
+  *before* the weight line, so post-hoc truncation can't remove it cleanly. Do **not** transiently
+  mutate `m_shared.m_itemType` around the original call — `m_shared` is shared **by reference**
+  across every Local Map instance + the prefab template (§2A.6b), so mutating it is unsafe.
+- **Guard:** `item?.m_dropPrefab?.GetComponent<LocalMapItemTag>() != null` — the **tag**, NOT
+  `sbpr_map_name`. The tag catches **both** a blank crafted map AND an imprinted one (the name key
+  only exists once imprinted; a blank map would otherwise still leak weapon stats). `m_dropPrefab`
+  is reliably set on loaded-from-save items: `Inventory.Load` → `AddItem(name, …, customData, …)` →
+  `Instantiate(prefab)` → `ItemDrop.Awake` sets `m_itemData.m_dropPrefab = ObjectDB.GetItemPrefab(name)`
+  **unconditionally** (decomp `:58698`), before any ZNetView gating — the same guard the
+  equip / binding / table patches already use in-game.
+- **Registration / scope:** registered in `Plugin.Awake` beside the name patches so `PatchCheck`
+  confirms it wove a method (AT-MAP-TT-6). Pure pass-through for every other item (vanilla tooltips
+  byte-identical). **Client-only by nature:** `GetTooltip` dereferences `Player.m_localPlayer` (NPEs
+  server-side → never called there); the null-guard short-circuits regardless.
+
+**`ItemType` stays `TwoHandedWeapon`** — equip / block-clear / torch behavior (§2A.2/§2A.3) is
+untouched. **SpecCheck / drift manifest: no change** (display-only; no recipe / piece / station delta).
+
+**Acceptance tests:**
+- **AT-MAP-TT-1** (inventory hover) — a Local Map's tooltip shows NO combat rows: no
+  block / block-force, parry-bonus / parry-adrenaline, damage, knockback, backstab, stamina-use, nor
+  the `$item_twohanded` handed line. Description (+ weight) only.
+- **AT-MAP-TT-2** (all surfaces) — same clean tooltip in the crafting hover (Explorer's Bench recipe)
+  and the equip / world-drop hover — every surface fed by `GetTooltip`.
+- **AT-MAP-TT-3** (blank AND imprinted) — both a freshly-crafted blank map and an imprinted map show
+  the clean tooltip (guard is `LocalMapItemTag`, not `sbpr_map_name`).
+- **AT-MAP-TT-4** (no regression) — two-handed equip + open-on-E + block-clear + torch-exception all
+  preserved (`ItemType` unchanged; the fix touches no equip code).
+- **AT-MAP-TT-5** (scope / no-orphan) — pure pass-through for every non-map item; verify a real 2H
+  weapon (e.g. an axe) still shows its stats.
+- **AT-MAP-TT-6** (`PatchCheck`) — the postfix is registered in `Plugin.Awake` and logs it wove a
+  method at boot (no dead patch).
+- **AT-MAP-TT-7** (logs-green ≠ playable) — Daniel confirms in-game the map tooltip is clean, and
+  confirms the final line set (whether to keep the weight line).
+
 ### 2B — The forked viewer (productionize the spike's proof)
 
 > **⚠️ RENDER PATH SUPERSEDED (2026-06-11, issue 6 → §2E).** Bullet 1 below originally
