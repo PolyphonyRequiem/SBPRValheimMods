@@ -998,6 +998,43 @@ recipe row). Spec + code move together in that PR.
 > holds the rest of the viewer cluster (issues #1/#2/#3/#4/#9/#11 — all touch `MapViewer.cs`),
 > **render-first** (the CPU composite is the foundation the orientation/overlay fixes ride on).
 
+#### 2E.3 — Selectable SHADER vs CPU render mode (issue 10 re-correction, 2026-06-12, in-client pick)
+
+> **✅ IMPL STATUS (2026-06-12, branch `feat/local-map-viewer-cluster-t_e0e8c7a9`).** The §2E.1
+> CPU composite reproduces only the map's flat biome DATA — Daniel's playtest (v0.2.22) confirmed
+> that is NOT "the parchment look." The parchment paper + cloud/haze + fog feathering live in
+> vanilla's GPU map DISPLAY SHADER on `Minimap.m_mapImageLarge.material`, NOT in the four data
+> textures it composites (decomp: `GenerateWorldMap` bakes only `GetPixelColor(biome)`→`_MainTex`
+> + mask/height/fog; nomap's `SetMapMode` only `SetActive(false)`s the roots, never the
+> shader/material). The shader render is **unverifiable on the headless build box** (Valheim gates
+> the texture bake on `graphicsDeviceType != Null`, Minimap.cs:552 — no GPU client here, and the
+> map display shader is absent from the dedicated-server payload), so rather than ship one render
+> blind a **THIRD time**, BOTH paths ship and Daniel picks the one that looks right on his GPU.
+>
+> **Two modes (`MapRenderMode`):**
+> - **`Shader` (DEFAULT)** — `MapViewer.TryRenderVanillaShader`: instantiate a COPY of vanilla's
+>   styled `m_mapImageLarge.material` (never mutate the live one → nomap intact), assign it to the
+>   cartography `RawImage`, and frame the bound 1000 m disc by driving `uvRect.center` +
+>   `_mapCenter` + `_pixelSize` (`200/zoom`) + `_zoom` in **lockstep** (vanilla `CenterMap`,
+>   Minimap.cs:1004-1034 — the inconsistent transform was the §2E v0.2.22 blank-render bug).
+>   Vanilla's native `_FogTex` haze stays live inside the disc; OUR survey fog is the hard 1000 m
+>   shroud cutoff on top (Daniel's "keep vanilla haze, all-shroud past 1000 m" lean — tunable).
+>   Silently falls back to `Cpu` if the styled material/`_MainTex` isn't generated (headless / pre-join).
+> - **`Cpu`** — the §2E.1 `TryComposeCartography` composite (biome+water+relief). Always renders,
+>   no parchment styling.
+>
+> `PaintFog` remains the final 2-color backstop. The orientation/circular-bezel/pin-label/no-North
+> work (§2H.1 etc.) is render-agnostic and unchanged — only the cartography PAINT step is mode-switched.
+>
+> **In-client toggle (`MapModeCommand`):** the `sbpr_mapmode` console command —
+> `sbpr_mapmode shader|cpu|toggle` (or no arg to print current) — switches live and force-redraws
+> an open viewer. Postfixes `Terminal.InitTerminal` (same hook as `bannerdiag`), registered via
+> `harmony.PatchAll(typeof(MapModeCommand))` so PatchCheck sees it woven.
+>
+> **AT-PARCHMENT-* close on Daniel's in-client pick.** Logs-green ≠ playable: the shader render is
+> COMPILE-VERIFIED ONLY here; the in-client toggle IS the verification. If `shader` renders blank
+> on his GPU, `sbpr_mapmode cpu` gives the working data look as the fallback while we tune the framing.
+
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
 > **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**

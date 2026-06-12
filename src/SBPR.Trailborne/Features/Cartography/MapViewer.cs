@@ -138,6 +138,7 @@ namespace SBPR.Trailborne.Features.Cartography
         private Texture2D? _tex;            // fallback 2-color fog texture
         private Texture2D? _shroudTex;      // the alpha shroud-mask texture (lit→clear, shroud→opaque)
         private Texture2D? _cartoTex;       // §2E.1: the CPU-composited cartography (biome+water+relief)
+        private Material?  _shaderMat;      // §2E.3: instantiated COPY of vanilla's styled map material (parchment mode)
         private Texture2D? _bezelTex;       // §2H.1: the circular bezel ring texture (built once)
         private RawImage? _playerMarker;    // reused player dot/arrow
         private Text? _exitPrompt;          // §2F: bottom-center "[Esc] Close map" (+ TableEdit pin hint)
@@ -193,7 +194,20 @@ namespace SBPR.Trailborne.Features.Cartography
             // no Minimap-material copy. Falls back to the legacy 2-color paint if WorldGenerator
             // isn't initialized yet (pre-join). PaintFog is retained as the mandatory
             // graceful-degradation path (§2E.1 bullet 7).
-            bool carto = TryComposeCartography(survey);
+            // §2E.3 TWO-MODE RENDER (Daniel picks in-client via `sbpr_mapmode`):
+            //   • Shader  → reuse a COPY of vanilla's STYLED map material (the parchment look:
+            //               paper + cloud/haze + fog feathering live in that GPU shader, NOT in
+            //               the data). Silently falls back to the CPU composite if the styled
+            //               material/textures aren't generated (headless build box, or pre-join).
+            //   • Cpu     → §2E.1 composite from public WorldGenerator data (biome+water+relief).
+            //               Always renders, but no parchment styling.
+            // PaintFog remains the final 2-color graceful-degradation backstop. Shader is the
+            // default so the first look is the parchment attempt (auto-fallback if unavailable).
+            bool carto = false;
+            if (MapRenderModeState.Current == MapRenderMode.Shader)
+                carto = TryRenderVanillaShader(survey);
+            if (!carto)
+                carto = TryComposeCartography(survey);
             if (!carto)
                 PaintFog(survey); // graceful degradation → the old explored/shroud two-color fill
 
@@ -313,6 +327,112 @@ namespace SBPR.Trailborne.Features.Cartography
             // (no boxy frame) and beyond-radius reads as shroud (AT-TABLEMAP-2). Same window.
             PaintShroudMask(survey);
 
+            return true;
+        }
+
+        /// <summary>
+        /// §2E.3 SHADER render — the parchment look. Reuse a COPY of vanilla's STYLED large-map
+        /// material (<c>Minimap.instance.m_mapImageLarge.material</c>), which carries the four
+        /// bound cartography textures (<c>_MainTex</c> biome / <c>_MaskTex</c> forest / <c>_HeightTex</c>
+        /// relief / <c>_FogTex</c> fog) AND the display shader that composites the paper texture,
+        /// cloud/haze, and fog feathering — i.e. the actual vanilla map LOOK. Drive the copy's
+        /// <c>_mapCenter</c>/<c>_zoom</c>/<c>_pixelSize</c> + the RawImage <c>uvRect</c> in LOCKSTEP
+        /// (vanilla <c>CenterMap</c>, Minimap.cs:1004-1034) to frame the bound origin's 1000&#160;m
+        /// disc at our fixed scale. OUR survey fog is then overlaid as the hard 1000&#160;m shroud
+        /// mask on top (vanilla's native <c>_FogTex</c> haze stays inside the disc — Daniel's
+        /// "keep vanilla haze, hard cutoff past 1000&#160;m" lean; tunable later).
+        ///
+        /// <para>We instantiate a COPY and never mutate vanilla's live material or its roots, so
+        /// nomap stays in force (AT-RENDER-NOMAP-INTACT). Returns <c>false</c> → caller falls back
+        /// to the CPU composite when the styled material/textures aren't generated: that happens on
+        /// a headless / GPU-less client (vanilla gates the bake on
+        /// <c>graphicsDeviceType != Null</c>, Minimap.cs:552) or pre-join. The blank-render bug the
+        /// ORIGINAL attempt (§2E, v0.2.22) hit was a uvRect↔uniform double-transform; this copies
+        /// CenterMap's lockstep exactly to avoid it.</para>
+        /// </summary>
+        private bool TryRenderVanillaShader(SurveyData survey)
+        {
+            var mm = Minimap.instance;
+            if (mm == null || mm.m_mapImageLarge == null || mm.m_mapImageLarge.material == null)
+                return false;
+
+            Material liveMat = mm.m_mapImageLarge.material;
+
+            // The styled material only carries a generated _MainTex on a GPU client that has run
+            // GenerateWorldMap (Minimap.cs:552 gates it on graphicsDeviceType != Null). No main
+            // texture → nothing to draw → fall back to the CPU composite cleanly.
+            Texture? mainTex = liveMat.GetTexture("_MainTex");
+            if (mainTex == null)
+                return false;
+
+            // Instantiate ONE persistent COPY of the styled material (inherits the 4 texture
+            // bindings + the shader by reference). Never touch vanilla's live material/roots.
+            if (_shaderMat == null)
+            {
+                try
+                {
+                    _shaderMat = UnityEngine.Object.Instantiate(liveMat);
+                    _shaderMat.name = "SBPR_BoundedMapMaterial(Clone)";
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: could not copy vanilla map material ({e.Message}); falling back to CPU composite.");
+                    _shaderMat = null;
+                    return false;
+                }
+            }
+
+            float pixelSize   = survey.PixelSize > 0f ? survey.PixelSize : 64f;   // world m per source cell
+            int   textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
+            int   size        = survey.Size;
+            Vector3 origin    = _req.BoundOrigin;
+
+            // Framing — vanilla CenterMap lockstep (Minimap.cs:1004-1034). WorldToMapPoint
+            // (Minimap.cs:1496-1501): mx = p.x/pixelSize + textureSize/2 (texture-pixel units),
+            // then /textureSize → 0..1 uv. The window's uv span (zoom) = our cell count /
+            // textureSize. uvRect.center, _mapCenter, _pixelSize, and _zoom MUST all be set
+            // consistently or the shader samples the wrong region → blank (the §2E bug).
+            float mx = origin.x / pixelSize + textureSize / 2f;
+            float my = origin.z / pixelSize + textureSize / 2f;
+            float uvCx = mx / textureSize;
+            float uvCy = my / textureSize;
+            float zoom = Mathf.Clamp((float)size / textureSize, 0.0001f, 1f); // uv span of our window
+
+            if (_mapImage != null)
+            {
+                _mapImage.material = _shaderMat;
+                _mapImage.texture  = mainTex;           // a valid main texture so the RawImage draws
+                _mapImage.color    = Color.white;
+                var uv = _mapImage.uvRect;
+                uv.width  = zoom;
+                uv.height = zoom;
+                uv.center = new Vector2(uvCx, uvCy);
+                _mapImage.uvRect = uv;
+            }
+
+            // Drive the shader uniforms on OUR copy in lockstep with the uvRect above
+            // (vanilla CenterMap :1024-1027). _pixelSize is the SHADER uniform (200/zoom), NOT the
+            // world pixelSize; _mapCenter is the bound origin in world space.
+            _shaderMat.SetFloat("_zoom", zoom);
+            _shaderMat.SetFloat("_pixelSize", 200f / Mathf.Max(zoom, 1e-4f));
+            _shaderMat.SetVector("_mapCenter", new Vector4(origin.x, origin.z, 0f, 0f));
+
+            // OUR hard 1000 m shroud mask on top (same window as the fog/pins). Vanilla's native
+            // _FogTex haze stays live inside the disc (left as-is in the copied material).
+            PaintShroudMask(survey);
+
+            return true;
+        }
+
+        /// <summary>
+        /// §2E.3: re-render the currently-open viewer in place (used by the <c>sbpr_mapmode</c>
+        /// console command so a mode switch is visible without reopening the map). Returns
+        /// <c>true</c> if the viewer was open and got redrawn.
+        /// </summary>
+        public bool RefreshIfOpen()
+        {
+            if (!_open) return false;
+            Render();
             return true;
         }
 
@@ -1128,6 +1248,7 @@ namespace SBPR.Trailborne.Features.Cartography
             if (_tex != null) UnityEngine.Object.Destroy(_tex);
             if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
             if (_cartoTex != null) UnityEngine.Object.Destroy(_cartoTex);
+            if (_shaderMat != null) UnityEngine.Object.Destroy(_shaderMat);
             if (_bezelTex != null) UnityEngine.Object.Destroy(_bezelTex);
             if (_instance == this) _instance = null;
         }
