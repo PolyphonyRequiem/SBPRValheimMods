@@ -592,7 +592,13 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
   attack.
 - **AT-TABLEMAP-1…7** (issue 6 correction, 2026-06-11) — the viewer must render vanilla
   cartography (biome/height/forest/water), not a two-color fog mask; see **§2E** for the
-  named criteria + the locked route.
+  named criteria + the locked route. **(Render route RE-LOCKED 2026-06-12, issue 10 → §2E.1:
+  the material-copy route failed in v0.2.22; superseded by a CPU-sampled `WorldGenerator`
+  composite. See AT-RENDER-* below.)**
+- **AT-RENDER-WATER/BIOME/RELIEF/NOMAP-INTACT/PREVIEW/REGRESSION** (issue 10, 2026-06-12) — the
+  bounded viewer must show water + biome color + relief like the vanilla map (not flat land +
+  shroud), via the §2E.1 CPU composite, verified by a §2E.2 headless preview PNG before ship; see
+  **§2E.1** for the named criteria + the re-locked route.
 - **AT-VIEWEXIT-1…7** (issue 7, 2026-06-11) — the viewer must exit cleanly: Escape closes it
   WITHOUT also opening the pause menu, and a bottom-center "[Esc] Close map" prompt is visible;
   see **§2F** for the named criteria + the locked `Menu.Show`-prefix route.
@@ -626,7 +632,174 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 > single knob to tune; if it can't be driven at all, the fallback already keeps the viewer
 > functional (two-color) rather than blank.
 
-> **Status: DESIGN CORRECTION.** Supersedes the "paint our own two-color texture" render
+> **🔴 SUPERSEDED (2026-06-12, issue 10 → §2E.1, card t_14c34abe).** The "material-copy"
+> render above SHIPPED and is what Daniel saw fail in v0.2.22: a flat "land color" + shroud,
+> i.e. the `PaintFog` fallback. Daniel locked a new approach (force-generate / sample vanilla's
+> own map data). **The architect decomp-pass below (§2E.1) REFUTES both the shipped approach's
+> premise AND the card's stated root cause, and re-locks the render on a CPU-sampled composite
+> that needs no GPU shader.** Read §2E.1 before touching the render — it supersedes the
+> material-copy LOCKED ROUTE in the rest of §2E (kept below for history).
+
+#### 2E.1 — Render root-cause correction + CPU-composite re-lock (issue 10, 2026-06-12, card t_14c34abe)
+
+> **Status: BUG/DESIGN — ROOT-CAUSE CORRECTION + RE-LOCK.** Supersedes the §2E "reuse a COPY of
+> `Minimap.instance.m_mapImageLarge.material`" LOCKED ROUTE. Reported by Daniel, v0.2.22-playtest:
+> the Local Map shows a flat land fill + shroud — no water, biomes, or relief. Daniel locked the
+> direction (*"force-generate vanilla's map texture even under nomap, then crop to the 1000 m
+> window"*) and asked for **Unity preview PNGs messaged to him before ship** (§2E.2). Clean-side:
+> reading + adapting vanilla `Minimap`/`WorldGenerator` is base-game, explicitly fair game (ADR-0001
+> + repo `AGENTS.md` "Hard constraints"). **SpecCheck impact: none** (render behavior, not a recipe row).
+
+**What Daniel reported (verbatim):** *"the local map doesn't show water, it doesn't show map
+features, it's just shroud and 'land color'. I told you to copy the look and feel of the global
+map, that clearly didn't happen. Please evaluate in depth. If you need to make a unity based
+testing project then so be it. You should be able to preview render exactly what this should look
+like in game and message me image captures."*
+
+##### The two competing root-cause claims — and what the decomp actually says
+
+The §2E shipped code assumed the four cartography textures are LIVE under nomap and tried to ride
+vanilla's GPU material. The issue-10 card swung the other way: it asserted the textures are **NEVER
+generated under nomap**, so `_MainTex == null` forces the `PaintFog` fallback. **Both framings are
+wrong on the generation question. Decomp-verified against `~/valheim/sbpr-corpus/subsystems/Minimap.cs`
+(line numbers below are that file; the full `assembly_valheim.decompiled.cs` uses a different
+numbering but identical logic):**
+
+- **`GenerateWorldMap()` has NO `m_noMap` gate.** `Minimap.Update()` (`Minimap.cs:540-568`) gates
+  the bake on exactly four conditions: not headless (`graphicsDeviceType != Null && GetMainCamera()
+  != null`, `:552`), `!m_hasGenerated` (`:556`), `WorldGenerator.instance != null` (`:558`), and no
+  cached PNG bake on disk (`!TryLoadMinimapTextureData()`, `:562`). **None of them is `m_noMap`.**
+- **`m_noMap` only toggles the UI roots, not generation.** `SetMapMode` (`:961-966`):
+  `if (Game.m_noMap) mode = MapMode.None;` → `m_largeRoot`/`m_smallRoot` `SetActive(false)`
+  (`:976-977`). It never touches the texture bake.
+- **Proof it already runs under nomap (no new spike needed):** `UpdateExplore` (`:575`) sits
+  *downstream* of the bake block (`:556-568`) in the same `Update()` — you cannot reach `:575`
+  without passing the bake. The Cartographer's Kit card (§3 IMPL STATUS) already PROVED in-game that
+  `UpdateExplore` runs under v1 nomap (*"personal fog accumulates even under server-side nomap"*).
+  Therefore the bake at `:564` necessarily runs too. **The textures ARE generated under nomap.**
+- **The bake is pure CPU and deterministic.** `GenerateWorldMap` (`:1639-1682`) loops the 256² grid
+  calling `WorldGenerator.instance.GetBiome(wx,wy)` + `GetBiomeHeight(...)`, then writes plain
+  `Texture2D`s via `SetPixels`/`Apply`. No GPU. `WorldGenerator.GetBiome`/`GetBiomeHeight` are
+  **public** (`assembly_valheim.decompiled.cs:130242/130399`) and deterministic from the world seed.
+  `WorldGenerator.Initialize(m_world)` runs on the JOINING CLIENT too — the client reads the server's
+  seed off the connect handshake and initializes worldgen (`assembly_valheim.decompiled.cs:67378-67384`,
+  the non-server branch). So a client on a dedicated nomap server has `WorldGenerator.instance != null`.
+
+**So why did Daniel see flat fill?** Not "textures don't exist." The failure is **downstream, in
+`TryRenderVanillaCartography` itself** — it depends on driving vanilla's **custom GPU map shader**
+(the four-texture composite + `_mapCenter`/`_pixelSize`/`_zoom` uniforms) through our own detached
+`RawImage` with hand-set uniforms. §2E's own IMPL STATUS flagged this exact piece as unverifiable on
+a headless worker and **shipped it blind** — the shader does not composite as hoped on our quad
+(wrong/zero output → effectively no main texture or a blank draw → `Render()` falls to `PaintFog`,
+the flat two-color fill). **The card's instinct (stop depending on vanilla's render, produce the
+composite ourselves) is RIGHT — but for the correct reason: not "the data is missing," but "don't
+fight the GPU shader; build the composite on the CPU from data we can read directly."**
+
+##### 🔒 LOCKED ROUTE (re-lock) — sample the composite on the CPU, never the GPU shader
+
+Build OUR own windowed RGBA32 cartography texture by replicating vanilla's *pixel* logic on the CPU,
+sampling only **public, deterministic** base-game data. This is the same family of operation §2E
+already endorsed (reuse the game we mod), minus the unverifiable GPU dependency.
+
+1. **Keep the entire fork shell + the §2H transform/orientation + the §2F/§2G input model. Replace
+   only the cartography-paint step** (`TryRenderVanillaCartography` + `PaintFog`'s role).
+2. **Source data — re-sample `WorldGenerator` directly (PRIMARY).** For each window cell, compute its
+   world centre (`BoundedMapMath.CellCenterWorldX/Z`, already cell-faithful to vanilla `WorldToPixel`),
+   then call `WorldGenerator.instance.GetBiome(wx,wy)` + `GetBiomeHeight(biome,wx,wy,out _)`. Map to
+   color by **replicating vanilla's tiny pixel functions** (clean-room-clean — it's our code adapting
+   base-game logic):
+   - **Biome base color** = `Minimap.GetPixelColor(biome)` (`:1754-1769`): a fixed biome→`Color` table.
+     The colors are public `Minimap` fields (`m_meadowsColor` etc., `:237+`); Ocean/unknown = white.
+   - **Water** = the height test in `GetMaskColor` (`:1722`): `height < 30f` is ocean
+     (`WorldGenerator.c_WaterLevel = 30f`, `assembly_valheim.decompiled.cs:96279`). Render those cells
+     as the map's water tone. This is the missing "water" Daniel reported (AT-RENDER-WATER).
+   - **Forest/mask stipple** = `GetMaskColor` (`:1719-1752`) per-biome rules (Meadows `InForest`,
+     BlackForest always, Plains/Mistlands forest-factor, Ashlands gradient). Optional for v1 of the
+     fix — biome + water + relief is the bulk of "looks like the map"; forest stipple is polish.
+   - **Relief/height shading** = derive a hillshade from `GetBiomeHeight` (neighbor-delta or the
+     vanilla height ramp). Satisfies AT-RENDER-RELIEF.
+3. **Why re-sample instead of reading vanilla's baked `m_mapTexture`?** The baked textures exist and
+   are CPU-readable (vanilla itself calls `GetPixel`/`GetPixels` on them — `:1636`, `:668`), BUT they
+   are **private** (`:301-305`) → reflection, and only populate on a graphical client (gated at
+   `:552`). Re-sampling `WorldGenerator` (public, deterministic, no `Minimap` lifecycle dependency)
+   is cleaner AND is the **same code path the headless preview harness (§2E.2) runs** — preview and
+   in-game render become byte-identical, which is exactly the verification leg Daniel demanded.
+   *(Reading the baked textures via reflection is an acceptable fallback if re-sampling proves too
+   slow, but the bound 1000 m window is only ~33² = 1089 cells, so the CPU cost is trivial — bake
+   ONCE into a cached `Texture2D` at imprint/open, not per-frame.)*
+4. **Crop/sample to the window — reuse `BoundedMapMath` (no new math).** The window is the same
+   `WindowSpec` (`ComputeWindow`) the fog + pins already use. Walk `wy,wx` over `Size×Size`, compute
+   each cell's world centre, sample as above, write into the cartography `Texture2D` (Point filter,
+   bottom-up rows = north-up, matching `PaintFog`). The shroud mask (`PaintShroudMask`, our fog window)
+   and pin overlay are UNCHANGED and align by construction (one `WindowSpec`). `Point` filter at fixed
+   zoom preserves AT-MAP-FIXEDZOOM / AT-TABLEMAP-3.
+5. **`SurveyData` wire format UNCHANGED** (answers the card's open-Q2). Cartography is global +
+   deterministic from seed and sampled live at render; `SurveyData` still carries ONLY the bool fog
+   window + pins → no ZDO contract change, placed Tables don't orphan (AT-TABLEMAP-7 / AT-RENDER
+   regression holds).
+6. **AT-TABLEMAP-6 / AT-RENDER-NOMAP-INTACT by construction.** We call **`WorldGenerator` sampling
+   only** — NOT `Minimap.SetMapMode`, NOT `m_largeRoot.SetActive`, NOT anything that re-enables the
+   global map. `Game.m_noMap` and `GlobalKeys.NoMap` are never written. If a `Minimap.ForceRegen()`
+   (`:532`, **public**) call is ever used to warm vanilla's cache, note that it too only bakes
+   textures and never touches roots/`SetMapMode` — but the PRIMARY route doesn't need it at all,
+   since we sample `WorldGenerator` ourselves.
+7. **Graceful degradation (keep).** If `WorldGenerator.instance == null` (world not yet initialized —
+   shouldn't happen post-join, but guard it), keep `PaintFog` as the two-color fallback so the viewer
+   is never blank. `PaintFog` stays in the codebase.
+
+**Net change vs. shipped §2E:** delete the GPU-material-copy path (`_mapMaterial` instantiate,
+`_FogTex` reveal override, shader-uniform driving, `uvRect` framing). Replace with a CPU sampler that
+fills the existing cartography `RawImage`'s `Texture2D`. The shroud-mask `RawImage`, overlay, title,
+exit prompt, and §2H rotate/center are all untouched.
+
+##### 2E.1 acceptance tests (named, observable — close only on Daniel's in-game check + the §2E.2 preview)
+- **AT-RENDER-WATER** — water (`height < 30`) renders as a distinct water tone within the disc, not
+  the land fill. (The headline defect.)
+- **AT-RENDER-BIOME** — biome coloring matches the vanilla map's biome palette (meadows green,
+  black-forest, swamp, mountains, plains, etc.) via the `GetPixelColor` table.
+- **AT-RENDER-RELIEF** — height/relief shading is visible (hillshade or height ramp from
+  `GetBiomeHeight`).
+- **AT-RENDER-NOMAP-INTACT** — the global map stays disabled; `m_largeRoot`/`m_smallRoot` never
+  re-enable; `Game.m_noMap`/`GlobalKeys.NoMap` untouched (subsumes AT-TABLEMAP-6).
+- **AT-RENDER-PREVIEW** — a headless preview PNG (§2E.2) of the intended bounded output is produced
+  and signed off by Daniel **before** in-game ship.
+- **AT-RENDER-REGRESSION** — `SurveyData` wire unchanged; placed Tables don't orphan; pins + shroud +
+  edge arrow still align (AT-TABLEMAP-4/7).
+- logs-green ≠ playable — Daniel confirms in-game the local map looks like the real map, bounded.
+
+#### 2E.2 — Headless preview harness (Daniel-requested: PNG captures before ship)
+
+> **Status: NEW — verification leg.** This box is a headless dedicated server (no GPU client), which
+> is exactly why §2E shipped blind. The fix: make the cartography compositor **GPU-free and
+> standalone** (per §2E.1) so it can run off-engine and emit a PNG that previews the in-game look.
+
+- **The whole point of the CPU re-lock (§2E.1) is that the compositor is a pure function:**
+  `(worldSeed, boundOrigin, radius) → RGBA32 window texture`, depending only on `WorldGenerator`
+  sampling + our color logic. Factor it into a Unity-free (or Unity-light) core so the SAME code runs
+  in-game AND in the harness. Preview == ship by construction.
+- **Two viable harness routes (implementer + Daniel pick; the engineer prototypes the cheaper one
+  first):**
+  - **Route P1 — extract-and-replicate (no engine).** Port the color logic + a `WorldGenerator`
+    sample into a tiny standalone .NET tool (or reuse the existing `worldgen-spike` tooling at
+    `~/valheim/worldgen-spike/`, which already deterministically derives a world from a seed via the
+    `.fwl` writer `gen_world.py`). Sample biome/height for a seed+origin window, composite to a PNG
+    with `System.Drawing`/`ImageSharp`. **Pro:** runs anywhere headless, fast, no Valheim runtime.
+    **Con:** must keep the ported `WorldGenerator` math in sync with vanilla (drift risk — pin it to
+    a decomp cite + a golden-seed checksum test).
+  - **Route P2 — batchmode capture.** Run the compositor inside a Unity batchmode harness / the game
+    in `-batchmode -nographics` and `EncodeToPNG` the generated `Texture2D`. **Pro:** uses the real
+    `WorldGenerator` (zero drift). **Con:** heavier to stand up headless; `SetPixels`/`EncodeToPNG`
+    work without a GPU (CPU texture ops), but the harness must boot enough of the game to init
+    `WorldGenerator` from a seed — the `worldgen-spike` server bootstrap is the proven precedent.
+- **Deliverable:** PNG capture(s) of the bounded 1000 m window for a known seed/origin (ideally
+  Daniel's playtest world seed), messaged to Daniel for sign-off on AT-RENDER-PREVIEW **before** the
+  in-game change is shipped. Include at least one capture spanning a biome boundary + a shoreline so
+  water, biome color, and relief are all visible in one frame.
+- **This harness is reusable** for every future cartography render change — it converts "logs green"
+  into "here's what it looks like," closing the gap that let §2E ship blind.
+
+> **Status: DESIGN CORRECTION (ORIGINAL §2E, 2026-06-11 — SUPERSEDED by §2E.1 above on the render
+> route; retained for history).** Supersedes the "paint our own two-color texture" render
 > path of §2B bullet 1 / the spike. The fork **SHELL** (own Canvas + open/close path, fixed
 > zoom, fixed-radius shroud, pin + player-marker overlay, polar edge-arrow) is UNCHANGED and
 > correct — **only the fog-paint step changes.** Reported by Daniel, v0.2.19-playtest, in
@@ -749,6 +922,16 @@ are committed; no third-party mod code is touched.
 **Implementation card:** routed to `engineer-ui` (owns `MapViewer.cs`, built it under
 t_cb831069), as a child of the issue-6 card. **SpecCheck impact: none** (render behavior, not a
 recipe row). Spec + code move together in that PR.
+
+> **🔴 RENDER ROUTE RE-LOCKED — see §2E.1 (issue 10, card t_14c34abe, 2026-06-12).** The
+> material-copy route specced in this §2E SHIPPED (PR #123) and FAILED in Daniel's v0.2.22
+> playtest (flat land color + shroud = the `PaintFog` fallback). The architect decomp-pass in
+> §2E.1 disproves both the shipped premise and the issue-10 card's stated root cause, and
+> re-locks the render on a **CPU-sampled `WorldGenerator` composite** (no GPU shader) plus a
+> **headless PNG preview harness** (§2E.2) for sign-off before ship. The implementation child
+> for this re-lock is the issue-10 render card; route it to the SAME `engineer-ui` worker that
+> holds the rest of the viewer cluster (issues #1/#2/#3/#4/#9/#11 — all touch `MapViewer.cs`),
+> **render-first** (the CPU composite is the foundation the orientation/overlay fixes ride on).
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
