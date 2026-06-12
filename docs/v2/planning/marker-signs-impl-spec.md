@@ -26,18 +26,26 @@ piece entries** (all new, all build pieces — no item recipes):
 
 | # | Manifest entry | Kind | Resources | Station |
 |---|---|---|---|---|
-| 1 | `piece_sbpr_marker_poi` | build piece | Wood ×2 | (Spade menu; `m_craftingStation = null`) |
-| 2 | `piece_sbpr_marker_mining` | build piece | Wood ×2 | (Spade menu; `m_craftingStation = null`) |
-| 3 | `piece_sbpr_marker_shelter` | build piece | Wood ×2 | (Spade menu; `m_craftingStation = null`) |
-| 4 | `piece_sbpr_marker_portal` | build piece | Wood ×2 | (Spade menu; `m_craftingStation = null`) |
+| 1 | `piece_sbpr_marker_poi` | build piece | Wood ×2 + Greydwarf eye ×1 | (Spade menu; `m_craftingStation = null`) |
+| 2 | `piece_sbpr_marker_mining` | build piece | Wood ×2 + Greydwarf eye ×1 | (Spade menu; `m_craftingStation = null`) |
+| 3 | `piece_sbpr_marker_shelter` | build piece | Wood ×2 + Greydwarf eye ×1 | (Spade menu; `m_craftingStation = null`) |
+| 4 | `piece_sbpr_marker_portal` | build piece | Wood ×2 + Greydwarf eye ×1 | (Spade menu; `m_craftingStation = null`) |
 
-- **Build cost = Wood ×2**, matching the existing Painted Sign (`SpecCheck.cs:57-59`,
-  `Signs.WoodCost`). Marker signs are the same fieldcraft tier as the plain sign;
-  the *map pin* is the value-add, not a costlier recipe. (If Daniel wants them
-  costlier, that is a one-line manifest + recipe change — flag it, don't assume.)
-- **Resource prefab-name caveat:** `Wood` is the vanilla internal id. SpecCheck flags
-  a NULL `m_resItem` if the name is wrong; reuse `Signs.WoodCost` / the existing
-  `BuildReq("Wood", …)` call shape (`Assets.cs:365`).
+- **Build cost = Wood ×2 + Greydwarf eye ×1.** The Wood ×2 keeps markers in the same
+  cheap fieldcraft tier as the Painted Sign; the +1 Greydwarf eye is a **Black Forest
+  availability gate**, not a cost tax. Greydwarf eye is a *Common* BF drop
+  (Greydwarf / Brute / Shaman), so requiring one simply proves the player reached the
+  Black Forest and killed a Greydwarf — markers are no longer craftable from turn-1
+  Meadows wood. The *map pin* is still the value-add; the gate only sets the tier at
+  which you unlock it. (Locked by Daniel 2026-06-11 — this is the deliberate revision
+  the prior "if Daniel wants them costlier, flag it" note anticipated.)
+- **Resource prefab-name caveat:** `Wood` and `GreydwarfEye` are the vanilla internal
+  ids (the eye token is confirmed against `prefab-tools/prefab_index.json` + the wiki
+  Internal ID, *not* guessed — `Greydwarf eye` the display name resolves to nothing).
+  A wrong token logs a warning and **silently drops the requirement**; SpecCheck's NULL
+  `m_resItem` check is the only backstop. Use the `MarkerSigns.EyeResource` const, never
+  a retyped literal, and reuse the existing `BuildReq("Wood", …)` call shape
+  (`Assets.cs:365`).
 - **Manifest shape gotcha:** `SpecCheck.Run()` iterates `Manifest.Where(s => s.Piece
   != null)` for build pieces. These four are `Piece` only (`Item = null`). Match that
   shape — a `RecipeSpec` with both null or both set won't be checked
@@ -148,7 +156,8 @@ ADR-0006. Build each marker piece additively:
 - `piece.m_craftingStation = null` (no bench to place — every Spade-placed SBPR piece
   does this: `Signs.cs:270`, `Trailhead.cs:186`).
 - `MarkerSigns.DoObjectDBWiring(zns)` rebuilds `piece.m_resources = { BuildReq("Wood",
-  2) }` (the ODB-phase authoritative pass, mirroring `Signs.cs:303-328`), then add the
+  2), BuildReq("GreydwarfEye", 1) }` (the ODB-phase authoritative pass, mirroring
+  `Signs.cs:303-328`), then add the
   `MarkerSigns.DoObjectDBWiring` dispatch line to `Registrar.cs` after
   `Signs.DoObjectDBWiring` (`Registrar.cs:116`).
 
