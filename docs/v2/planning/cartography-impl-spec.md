@@ -454,6 +454,13 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 > through the shared `SignPanelInputBlock` so Escape "just works"; (2) no on-screen exit
 > prompt — add a bottom-center "[Esc] Close map" label. Read §2F before touching the viewer's
 > input handling or canvas build.
+> **⚠️ ORIENTATION SUPERSEDED (2026-06-11, issue 8 → §2F).** This section's implicit
+> *north-up, table-centred* held-map orientation is superseded for the **FieldReadOnly (held
+> Local Map)** view: §2H makes it **free-rotate with player heading + player-centred** (the
+> Surveyor's Table / TableEdit view keeps the north-up, table-centred behaviour described
+> here). The bounding/shroud (1000 m around the table) and fixed zoom are UNCHANGED; only
+> orientation + view-centring of the held map change. Read §2F before touching the held-map
+> orientation, and route §2E + §2F to the SAME worker (they co-define the same RawImage).
 
 > **The spike (`t_e8bbbe48`) is the source of truth for the render path.** Build §2B
 > against its findings doc — especially the confirmed `m_pixelSize` and which RawImage
@@ -558,6 +565,9 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 - **AT-TABLENAME-1…8** (issue 10, 2026-06-11) — Table naming + name-gated binding + item-name
   inheritance + viewer title; see **§1.7** for the named criteria. (§2A.6 item-name + §2B.1
   viewer-title are the item/viewer-side halves of that feature.)
+- **AT-LMAP-ROT-1…5** (issue 8 correction, 2026-06-11) — the held Local Map free-rotates with
+  player heading (forward = up), player-centred, static centre marker; the Table view stays
+  north-up. See **§2H** for the named criteria + the locked route.
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
@@ -685,8 +695,6 @@ are committed; no third-party mod code is touched.
 **Implementation card:** routed to `engineer-ui` (owns `MapViewer.cs`, built it under
 t_cb831069), as a child of the issue-6 card. **SpecCheck impact: none** (render behavior, not a
 recipe row). Spec + code move together in that PR.
-
----
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
@@ -1043,6 +1051,144 @@ Daniel's call at review.
 code move together in that PR.
 
 ---
+
+### 2H — Free-rotate the held Local Map (issue 8 design correction, 2026-06-11)
+
+> **Status: DESIGN CORRECTION + UNDER-SPECIFIED-POINT RESOLUTION.** Reported by Daniel,
+> v0.2.19-playtest: *"local map does not rotate freely but rather is north fixed."* The fork
+> SHELL, bounding, fixed zoom, the §2E cartography render, pins, and the edge arrow are all
+> UNCHANGED in PURPOSE — this section adds **orientation** (the map turns with the player so
+> forward = up) and resolves a point §2B/§2E left implicit: **what sits at the centre of the
+> held view.** Clean-side (ADR-0001). Applies to the **held Local Map (FieldReadOnly) view
+> only** — the Surveyor's Table (TableEdit) view stays north-up (see "Table view" below).
+
+**Two factual corrections up front (decomp-verified — do NOT carry the card's framing forward).**
+The bug card and Daniel's scoping comment both assume vanilla offers a "free-rotate mode" and
+that the in-disc player marker already sits at screen centre. Both are false in the current build:
+
+1. **Vanilla's minimap is NORTH-UP; it does NOT free-rotate, and there is no north-lock/free
+   toggle.** Grounded: `Minimap.CenterMap` (`Minimap.cs:1002-1039`) only *pans* the map —
+   `uvRect.center`/`m_mapImageLarge.uvRect` + the `_mapCenter`/`_pixelSize`/`_zoom` shader
+   uniforms (`:1023-1034`). The map **surface is never rotated.** The complete uniform set the
+   vanilla shader is driven by is `_MainTex`/`_MaskTex`/`_HeightTex`/`_FogTex` + `_zoom`/
+   `_pixelSize`/`_mapCenter`/`_SharedFade` (`:435-442`, `:628-639`, `:1023-1034`) — **there is no
+   rotation uniform.** The only thing that rotates is the **marker**: `UpdatePlayerMarker` sets
+   `m_smallMarker.rotation = Quaternion.Euler(0, 0, -eulerAngles.y)` from
+   `Utils.GetMainCamera().transform.rotation` (`:958`, `:1412-1416`). So "match vanilla" and
+   "free-rotate" are **opposite** for orientation. **There is no vanilla rotation idiom to copy
+   — free-rotate is SBPR behaviour we BUILD.** (The "freely rotating" phrasing in the v1 docs —
+   `docs/v0.1.0/planning/requirements.md:57`, `cartography-v2.md:23` — is SBPR *design intent*,
+   not a description of vanilla. Free-rotate is consistent with that intent; north-up was the
+   drift.)
+
+2. **The held view is centred on the bound TABLE, not the player** (`CartographyViewer.cs:70`
+   `BoundOrigin = Table position`; `MapViewer.WorldToMapRect :237-239` puts the bound origin's
+   cell at rect centre; `LocalMapController :152` feeds the table origin). So the in-disc player
+   marker (`MapViewer.cs:343-345`) renders at the player's **offset from the table**, NOT at
+   centre — it only coincides with centre when you stand on the table. **Consequence:** Daniel's
+   two requirements — *"static square at centre"* AND *"only the map root rotates by -heading,
+   keep the marker as-is"* — are **mutually exclusive under the current table-centred projection.**
+   Rotating the root about its centre (the table) makes the offset player marker **orbit** screen
+   centre as you turn in place; it does not pin it there. Pinning the square at centre **requires
+   centring the view on the player.** This is the real crux the card glossed.
+
+**The locked routing decision (route 1 — rotate the transform, NOT the projection/shader).** Bake
+heading into a **transform rotation of the displayed map quad + overlay**, never into
+`WorldToMapRect` math (route 2, REJECTED) and never into the shader (impossible — no rotation
+uniform). Route 2 would also collide head-on with §2E, which is replacing the per-pixel render.
+Rotation is render-agnostic: you rotate the `RawImage`'s `RectTransform` (the §2E material rides
+its own quad's UVs, so rotating the quad rotates the composited cartography correctly) plus the
+overlay layer as one unit.
+
+**RECOMMENDED construction — P2 "player-centred minimap" (matches Daniel's stated visual; primary
+spec).** The held Local Map behaves like the personal minimap it is meant to *become* (D1):
+
+1. **Centre the FIELD view on the player.** Each frame in `FieldReadOnly` mode, drive the view so
+   the player's world position maps to rect centre — for §2E, set the material `_mapCenter` (and
+   `uvRect` window) to the **player** position; for the overlay, project world→rect relative to
+   the player. The **bound/shroud stays 1000 m around the TABLE** (AT-MAP-BOUND unchanged — only
+   what's *centred* changes, not what's *revealed*). The explored disc therefore sits OFF-centre
+   inside the fixed circular shroud vignette and slides as the player walks — the normal "you are
+   here, world around you" minimap look.
+2. **Rotate the map quad + overlay container by the camera yaw** so camera-forward points up.
+   Reference convention: vanilla rotates its marker by `-cameraYaw`; the *map* therefore rotates
+   by the **opposite** sense. **Exact sign + camera-yaw-vs-body-yaw is BUILD-CALIBRATED in-client**
+   (same discipline that locked `m_pixelSize` in the spike — confirm against the live render, do
+   not ship an unverified sign). Heading source: `Utils.GetMainCamera().transform.eulerAngles.y`
+   (the member vanilla's own marker uses), unless the calibration shows body-yaw reads better.
+3. **Player marker: static featureless square at dead centre** (`MapViewer.cs:343-345` kept at
+   `Quaternion.identity` — Daniel's comment, honoured). Forward = up is carried by the rotating
+   world under it (AT-LMAP-ROT-2). No facing indicator on the marker (Daniel, 2026-06-11).
+4. **Pins ride the rotation for POSITION, counter-rotate their ICON for readability.** Parent pins
+   to the rotating container so they stay world-anchored as it spins; then set each pin's own
+   `localRotation` to **-containerRotation** so the icon sprite stays screen-upright (never
+   upside-down). The current fork has no pin text, so icon-upright is the whole job (AT-LMAP-ROT-3).
+5. **Edge arrow points at the TABLE when the table is off-view.** Under player-centring, when the
+   player is outside the 1000 m disc the player is at centre and the **table** is the off-screen
+   target — clamp a direction arrow toward the bound origin at the view edge. This is *more*
+   faithful to AT-MAP-EDGEARROW's wording ("arrow… pointing at the bound Table") than the current
+   table-centred clamp. Re-express `BoundedMapMath.EdgeClampToDisc` for the player→table bearing;
+   because the arrow is a child of the rotating container, its clamp angle composes with the
+   container rotation automatically (AT-LMAP-ROT-4).
+6. **Drive rotation + recentre per-frame in `MapViewer.Update()`** (field mode), NOT on the 0.25 s
+   survey `Refresh` — at 4 Hz rotation would visibly stutter. The viewer already has an `Update()`
+   (Escape/click); add the heading read + recenter there, gated to `FieldReadOnly`.
+
+**Table view (TableEdit) stays NORTH-UP and table-centred** (resolves open-Q3). A Surveyor's
+Table is a static placed object with no heading; you stand at it and read. Switch on the existing
+`MapViewerMode` flag: `FieldReadOnly` → player-centred + free-rotate; `TableEdit` → north-up +
+table-centred (today's behaviour, unchanged). This keeps the Table view a stable shared-editing
+surface and confines all rotation to the held map.
+
+**Free-rotate only — NO toggle** (resolves open-Q "north-up/free toggle like vanilla?"). There is
+no vanilla toggle to match (correction 1). Daniel asked for free-rotate; v1 intent is "freely
+rotating, no north indicator." Ship free-rotate; do not build a north-lock option.
+
+**Cheaper FALLBACK — P1 "table-centred spin" (documented, NOT recommended).** Keep the current
+table-centred projection (and §2E unchanged) and rotate the container by heading about its centre
+(the table). Delivers forward = up with a near-one-line change and zero §2E coupling, BUT the
+player marker **orbits** centre instead of staying pinned there — which **fails Daniel's stated
+AT-LMAP-ROT-2.** Listed only so the cost delta is explicit: if Daniel decides an orbiting marker
+on a table-centred map is acceptable, P1 is materially cheaper. **Architect's lean: P2.**
+
+**Interaction with §2E (mandatory coordination).** §2H and §2E both define the centring +
+projection of the **same** `MapViewer` RawImage, and §2E is not yet built. **Route both to the
+SAME `engineer-ui` worker** (the viewer-UX cluster note in all four viewer cards). Concretely: P2
+makes the §2E field render **player-centred** (`_mapCenter` → player) while the Table render stays
+table-centred — a small, clean delta to §2E, but only coherent if one worker holds both. If they
+are split, they will conflict on `MapViewer.cs` centring. Sequence §2E first (it establishes the
+material render), then §2H adds centring-mode + rotation on top.
+
+**Graceful degradation.** If `Utils.GetMainCamera()` is null (no camera yet), skip the rotation
+for that frame (leave last orientation) rather than throw — the map must never blank on a missing
+camera.
+
+**Clean/dirty:** Clean-side (ADR-0001). Reading `Utils.GetMainCamera().transform` /
+`Player.m_localPlayer.transform` heading and applying a uGUI transform rotation is base-game read +
+our own UI. No decompiled IronGate source copied; no third-party mod code.
+
+#### 2H acceptance tests (named, observable — close only on Daniel's in-game check)
+- **AT-LMAP-ROT-1** — turning the player rotates the held Local Map so the player's forward
+  direction is up (free-rotate); the map is no longer north-fixed.
+- **AT-LMAP-ROT-2** — the player marker sits fixed at the centre of the held view as a static
+  square; the world rotates underneath it (player-centred; satisfied by P2, not P1).
+- **AT-LMAP-ROT-3** — pins stay anchored to their world positions as the map rotates (they ride
+  the rotation) and their icons remain screen-upright (counter-rotated), never upside-down.
+- **AT-LMAP-ROT-4** — the fixed 1000 m shroud + the off-disc edge arrow read correctly under
+  rotation; when the player is outside the disc the arrow points toward the bound Table in the
+  rotated frame.
+- **AT-LMAP-ROT-5** (no regression) — fixed zoom (AT-MAP-FIXEDZOOM) and the bounded-disc reveal
+  (AT-MAP-BOUND) are unchanged; only orientation + view-centring of the held map change. The
+  Surveyor's Table (TableEdit) view stays north-up + table-centred.
+- logs-green ≠ playable — Daniel confirms in-game the held map rotates with heading.
+
+**Implementation card:** routed to `engineer-ui` (owns `MapViewer.cs`), as a child of THIS
+card and **coordinated with / sequenced after the §2E implementation child** (same worker).
+**SpecCheck impact: none** (transform/render behaviour, not a recipe row). Spec + code move
+together in that PR.
+
+---
+
 
 ## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping
 
