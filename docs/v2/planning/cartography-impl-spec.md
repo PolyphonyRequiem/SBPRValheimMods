@@ -572,6 +572,23 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
 
+> **✅ IMPL STATUS (2026-06-11, t_95039708 → branch `impl/tablemap-vanilla-render-t_95039708`).**
+> The §2E LOCKED ROUTE is BUILT in `MapViewer.cs`: the two-color `PaintFog` is no longer the
+> primary render — `TryRenderVanillaCartography` instantiates a COPY of
+> `Minimap.instance.m_mapImageLarge.material`, binds a reveal-all `_FogTex`, drives
+> `uvRect`/`_zoom`/`_pixelSize`/`_mapCenter` to frame the bound origin's fog window (the same
+> `BoundedMapMath` `WindowSpec` the fog + pins use → aligned by construction), and overlays OUR
+> survey fog as a shroud mask. The boxy `CFrame` border is removed (AT-ISSUE1-BORDER). `PaintFog`
+> is kept as the mandated graceful-degradation fallback (Minimap not generated yet). Build is
+> clean (0 warn / 0 err). **NOT YET PLAYTESTED — the in-client shader micro-spike below could not
+> be run by the headless build worker (no GPU; map textures gate on `graphicsDeviceType != Null`,
+> decomp `Minimap.Update :47034`). The decomp RE was re-verified line-by-line; the one
+> unconfirmable piece is the GPU shader's exact `uvRect`↔`_mapCenter`/`_pixelSize` sampling.
+> Daniel's in-game playtest IS the §2E-mandated spike + the merge gate.** If the material can't be
+> driven, the calibration constant (`zoom = Size/textureSize`, `_pixelSize = 200/zoom`) is the
+> single knob to tune; if it can't be driven at all, the fallback already keeps the viewer
+> functional (two-color) rather than blank.
+
 > **Status: DESIGN CORRECTION.** Supersedes the "paint our own two-color texture" render
 > path of §2B bullet 1 / the spike. The fork **SHELL** (own Canvas + open/close path, fixed
 > zoom, fixed-radius shroud, pin + player-marker overlay, polar edge-arrow) is UNCHANGED and
