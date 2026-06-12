@@ -481,13 +481,17 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 > through the shared `SignPanelInputBlock` so Escape "just works"; (2) no on-screen exit
 > prompt — add a bottom-center "[Esc] Close map" label. Read §2F before touching the viewer's
 > input handling or canvas build.
-> **⚠️ ORIENTATION SUPERSEDED (2026-06-11, issue 8 → §2F).** This section's implicit
-> *north-up, table-centred* held-map orientation is superseded for the **FieldReadOnly (held
-> Local Map)** view: §2H makes it **free-rotate with player heading + player-centred** (the
-> Surveyor's Table / TableEdit view keeps the north-up, table-centred behaviour described
-> here). The bounding/shroud (1000 m around the table) and fixed zoom are UNCHANGED; only
-> orientation + view-centring of the held map change. Read §2F before touching the held-map
-> orientation, and route §2E + §2F to the SAME worker (they co-define the same RawImage).
+> **⚠️ ORIENTATION SUPERSEDED (2026-06-11, issue 8 → §2H; RE-LOCKED 2026-06-12 → §2H.1).** This
+> section's implicit orientation for the **FieldReadOnly (held Local Map)** view is governed by
+> **§2H.1** (the 2026-06-12 re-lock), NOT this section and NOT the original §2H. The held Local
+> Map is a **fixed-window, TABLE-centred, circular, rotate-to-heading** minimap: the player
+> marker moves within a static disc and is hidden + edge-arrowed when outside it; only the
+> circular interior rotates (the bezel/frame is fixed); there is **no** north indicator. The
+> Surveyor's Table / TableEdit view keeps the north-up, table-centred, square behaviour described
+> here. Bounding/shroud (1000 m around the table) and fixed zoom are UNCHANGED. **Read §2H.1
+> before touching the held-map orientation**, and route §2E + §2H.1 to the SAME worker (they
+> co-define the same RawImage). *(The superseded §2H "player-centred + free-rotate" model shipped
+> in v0.2.22 and was rejected — see the §2H.1 supersession note for why.)*
 
 > **The spike (`t_e8bbbe48`) is the source of truth for the render path.** Build §2B
 > against its findings doc — especially the confirmed `m_pixelSize` and which RawImage
@@ -608,9 +612,12 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
 - **AT-TABLENAME-1…8** (issue 10, 2026-06-11) — Table naming + name-gated binding + item-name
   inheritance + viewer title; see **§1.7** for the named criteria. (§2A.6 item-name + §2B.1
   viewer-title are the item/viewer-side halves of that feature.)
-- **AT-LMAP-ROT-1…5** (issue 8 correction, 2026-06-11) — the held Local Map free-rotates with
-  player heading (forward = up), player-centred, static centre marker; the Table view stays
-  north-up. See **§2H** for the named criteria + the locked route.
+- **AT-LMAP-TC-1…6** (issues #2/#3/#4/#9 re-lock, 2026-06-12) — the held Local Map is a
+  fixed-window, **TABLE-centred**, circular, rotate-to-heading minimap: no pan (#4); player marker
+  at true table-relative position, hidden + edge-arrow when off-disc (#3); fixed bezel, only the
+  interior rotates (#2); circular form (#9); no north indicator. The Table view stays north-up +
+  square. See **§2H.1** for the named criteria + the locked route. *(Supersedes AT-LMAP-ROT-1…5 /
+  the player-centred §2H — see the §2H.1 supersession map.)*
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
@@ -1326,6 +1333,162 @@ code move together in that PR.
 ---
 
 ### 2H — Free-rotate the held Local Map (issue 8 design correction, 2026-06-11)
+
+> **🔴 SUPERSEDED (2026-06-12, issues #2/#3/#4/#9 → §2H.1, card t_05e702ee).** The
+> **player-centred minimap** model locked in this section (P2: view recentres on the player each
+> frame, marker pinned at dead centre, off-disc arrow points at the off-screen table) SHIPPED in
+> v0.2.22 and is what Daniel rejected across four playtest bugs at once: #4 (the map pans to
+> follow the player — that pan IS the player-centring offset), #3 (the blue square renders
+> outside the disc — the centred marker never hides), #2 (the whole box/frame rotates, not just
+> the interior), and #9 (it's a rotating *square*, not the discussed fixed-bezel *circular*
+> minimap). Daniel re-locked the orientation model on 2026-06-12 (verbatim quotes in §2H.1).
+> **Read §2H.1 before touching the held-map orientation — it supersedes the player-centred
+> LOCKED ROUTE in the rest of §2H (kept below for history).** The §2H *rotation* intent
+> (free-rotate to heading, no north indicator) and the §2H/§2E coordination (one `engineer-ui`
+> worker owns the whole transform model) both STAND; only the *centring* model inverts.
+
+#### 2H.1 — Orientation-model re-lock: fixed-window, TABLE-centred, circular (issues #2/#3/#4/#9, 2026-06-12, card t_05e702ee)
+
+> **Status: BUG/DESIGN — ORIENTATION-MODEL RE-LOCK.** Supersedes §2H's "P2 player-centred
+> minimap" LOCKED ROUTE. Resolves four v0.2.22-playtest bugs that are **one model**, not four
+> fixes: #2 (frame rotates), #3 (player square renders outside the disc), #4 (map pans to follow
+> the player), #9 (square, not circular). Reported by Daniel 2026-06-12; the model below is
+> Daniel-locked via two coordination comments on card `t_05e702ee` (2026-06-12). Clean-side
+> (ADR-0001): reading + adapting vanilla camera/heading + our own uGUI transforms is base-game.
+> **SpecCheck impact: none** (transform/presentation behaviour, not a recipe row). Spec + code
+> move together in the implementation PR.
+
+**What Daniel locked (verbatim, card `t_05e702ee` comments, 2026-06-12):**
+- *"M1 B but always centered on the table not the player."* — the held Local Map is **M1**
+  (player marker moves within a fixed window) with **B** (rotates to heading), **centred on the
+  table's survey origin, not the player.**
+- *"the player is supposed to be disoriented by lack of an understanding of North. The whole
+  purpose of the compass in the swamp is to assist with reading the map."* — the absence of a
+  North reference is **intended difficulty**, not a bug to hedge. **No north-up mode, no north
+  arrow, no compass rose, no orienting aid of any kind** on the local map. A future swamp-tier
+  compass item is the designed tool that earns the player that help.
+
+The held Local Map (**FieldReadOnly** view) is a **FIXED-WINDOW, TABLE-CENTRED, CIRCULAR,
+rotate-to-heading minimap.** Point by point:
+
+1. **TABLE-centred, fixed window — NO pan (resolves #4).** The 1000 m window is **static**: it is
+   centred on the bound Table's survey origin (`BoundOrigin`) and does **not** slide to follow
+   the player. This is already the default projection — §2B/§2E put `BoundOrigin`'s cell at rect
+   centre. The bug is the deliberate player-centring offset `ApplyFieldOrientation` adds in field
+   mode: **`_mapRect.anchoredPosition = -playerAnchor`** (current `MapViewer.cs:685-690`). **Delete
+   that offset** (set `Vector2.zero`, same as `TableEdit`); the view then reads like a paper map
+   nailed to the table. AT-MAP-BOUND (what is *revealed*) is unchanged — only what is *centred*
+   changes.
+
+2. **Player marker = TRUE table-relative position; hidden + edge-arrow when outside the disc
+   (resolves #3).** The blue marker sits at the player's real offset from the table and travels
+   as the player walks (M1). When the player leaves the 1000 m radius, the in-disc dot is
+   **hidden** and an **edge arrow** is shown instead, clamped to the disc edge and pointing
+   **outward toward the player's real bearing** ("you are that way, past the shroud").
+   **This is exactly the existing `UpdatePlayerMarkerTableCentred` behaviour** (`MapViewer.cs:616-659`:
+   `EdgeClampToDisc` → in-disc dot, or outside → outward arrow). The #3 fix is therefore a
+   **routing change, not new math**: in `UpdatePlayerMarker` (`:574-588`), route `FieldReadOnly`
+   to `UpdatePlayerMarkerTableCentred`, **not** `UpdatePlayerMarkerFieldCentred` (`:596-609`,
+   which pins the marker at dead centre and never hides — the defect). Retire the now-dead
+   player-centred apparatus: `UpdatePlayerMarkerFieldCentred`, the `_staticOverlay` layer
+   (`:118`), and `UpdateTableArrow` (`:731-779`). **`UpdateTableArrow` is incoherent under this
+   model** — it points at an *off-screen* table, but the table is now always at screen centre, so
+   there is nothing to point at. Daniel's #3 phrasing "table-arrow shown instead" was written
+   under the superseded player-centred assumption; his re-lock comment says "edge-arrow when
+   outside," which is the player-direction edge arrow specified here (= AT-MAP-EDGEARROW, already
+   built).
+
+3. **CIRCULAR form with a FIXED bezel — only the interior rotates (resolves #9 + #2).** The held
+   view is a **circle**, not a square. Split the layer tree into a **non-rotating frame** and a
+   **rotating interior**:
+   - **Non-rotating parent** (screen-aligned, never rotates): a **circular clip mask** (the disc)
+     + a **fixed circular bezel** image on top + the already-static title (§2B.1) and exit prompt
+     (§2F). This is the "box" Daniel wants to stop spinning (#2).
+   - **Rotating interior** (`_mapContainer`, today's rotation node): the §2E.1 cartography
+     `RawImage` + the shroud-mask `RawImage` + the pin/marker overlay. **Only this rotates.**
+   - **Geometric guarantee (resolves the #2 AT "no clipping artifacts at the window edge"):** the
+     square cartography texture is the bounding box of the 1000 m disc, so the visible disc is the
+     square's **inscribed circle** — which is invariant under rotation about centre. Rotating the
+     square never uncovers the disc (the four corner triangles outside the disc are shroud-opaque
+     anyway and are clipped away by the circular mask). No empty corners ever appear. Clip radius =
+     disc radius in pixels = half the square's pixel side.
+
+4. **Rotates to heading, pivoting on the TABLE (Daniel's "B").** Keep the existing rotation of the
+   interior: `_mapContainer.localRotation = Euler(0, 0, MapRotationSign * cameraYaw)`
+   (`MapViewer.cs:696-700`), driven per-frame from `Update` (§2H b6, unchanged). With the #4 pan
+   removed, the container pivots about its own centre = the **table** point = screen centre.
+   **Documented geometric consequence (intended, NOT a bug):** because the player marker is
+   off-centre (it's at the player's offset from the table), rotating the disc about the table
+   makes the marker **orbit** screen-centre as the player turns in place far from the table — the
+   player is not at the pivot. This is the disorientation Daniel explicitly wants (point 5).
+   - **`MapRotationSign` (`:89`, currently `+1f`) stays the single build-calibration knob** for
+     rotation *sense* — Daniel tunes it in-game if the map turns the wrong way (same discipline as
+     §2H). **Do NOT hardcode-and-forget; do NOT expose any *other* flag.**
+   - **NO north-up alternative.** STRIKE the superseded §2H "north-up + facing-arrow fallback":
+     Daniel reversed it — disorientation is the design. There is no north-up mode to expose, so
+     **drop that flag entirely.**
+
+5. **NO north reference of any kind (Daniel-locked).** Do not add a north-up mode, a compass rose,
+   a North arrow, a fixed-North bezel mark, or any orienting aid to the held Local Map. Reading the
+   spinning table-centred disc IS the intended challenge of the no-map exploration loop until a
+   future **swamp-tier compass** item ships. (Consistent with the v1 lock:
+   `docs/v0.1.0/planning/requirements.md:57` / `:646` — "minimap ONLY, freely rotating, **no north
+   indicator**".) The player marker stays a **featureless square/dot with no facing pip** — a
+   facing indicator is itself an orientation aid and is out of scope here; the marker's *position*
+   rides the rotation, and (like the pins, §2H b4) its icon counter-rotates so it never appears to
+   spin (`CounterRotatePins`).
+
+6. **Surveyor's Table (TableEdit) view is UNCHANGED — north-up, table-centred, square, static
+   frame.** A placed Table has no heading; you stand at it and read a stable shared-editing
+   surface. Switch purely on the existing `MapViewerMode` flag: `FieldReadOnly` → fixed-window +
+   table-centred + circular + rotate-to-heading (this section); `TableEdit` → today's north-up +
+   table-centred + square behaviour, byte-for-byte. This also confirms the answer to issue #1's
+   candidate-B reading: the Table *map view* is north-up **by design** (not a bug); issue #1, if
+   it means placement-ghost rotation, is a separate `Piece.m_canRotate` build property, out of
+   scope here.
+
+**Net change vs. shipped §2H.** This is a **simplification**, not added complexity: delete the
+player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticOverlay` +
+`UpdateTableArrow` and route field mode through the existing `UpdatePlayerMarkerTableCentred`
+(#3), and split a fixed circular bezel/clip parent off the rotating `_mapContainer` (#2 + #9). The
+§2E.1 CPU-composite render, the shroud mask, pins (ride rotation + counter-rotate icons), the
+§2F exit prompt, the §2G open input, AT-MAP-BOUND, and AT-MAP-FIXEDZOOM are all untouched.
+
+##### 2H.1 acceptance tests (named, observable — close only on Daniel's in-game check)
+- **AT-LMAP-TC-1 (issue #4)** — equipping/opening the held Local Map shows a **table-centred,
+  fixed** window: the map does **not** pan or slide to follow the player; the bound Table sits at
+  screen centre.
+- **AT-LMAP-TC-2 (issue #3)** — inside the 1000 m disc the player marker renders at its **true
+  position relative to the table** and moves as the player walks; **outside** the disc the in-disc
+  square is **hidden** and a single **edge arrow**, clamped to the disc edge, points outward toward
+  the player's real bearing. The player square never renders beyond the disc.
+- **AT-LMAP-TC-3 (issues #9 + #2)** — the held view is a **circle** with a **fixed, screen-aligned
+  bezel/frame**; only the interior content (cartography + shroud + pins + marker) rotates. No part
+  of the frame/box rotates, and no clipping artifact appears at the disc edge as the interior spins.
+- **AT-LMAP-TC-4 (issue #2 rotation / Daniel's "B")** — turning the player rotates the interior to
+  heading about the **table** pivot; a player turning in place away from the table sees their marker
+  **orbit** screen-centre (intended). The rotation **sense** is correct after `MapRotationSign`
+  calibration.
+- **AT-LMAP-TC-5 (Daniel disorientation lock)** — there is **no** north indicator, compass rose,
+  north-up mode, or any orienting aid anywhere on the held Local Map.
+- **AT-LMAP-TC-6 (no regression)** — AT-MAP-BOUND (1000 m reveal), AT-MAP-FIXEDZOOM, the §2E.1
+  CPU-composite render, pin position+icon-upright behaviour, the §2F exit prompt, and the §2G open
+  input are unchanged; the Surveyor's Table (TableEdit) view stays north-up + table-centred +
+  square + static-frame, byte-for-byte.
+- logs-green ≠ playable — Daniel confirms in-game.
+
+**Supersession map (old §2H ATs → this section).** AT-LMAP-ROT-1 (free-rotate) → restated in
+AT-LMAP-TC-4. **AT-LMAP-ROT-2 (player pinned at centre, world rotates under it) → SUPERSEDED**
+(the player is no longer centred; the table is). AT-LMAP-ROT-3 (pins ride rotation, icons upright)
+→ retained, now also covers the marker (AT-LMAP-TC-3/-4). AT-LMAP-ROT-4 (off-disc arrow) →
+**re-pointed**: the arrow points at the off-disc *player* (table is centred), per AT-LMAP-TC-2.
+AT-LMAP-ROT-5 (no zoom/bound regression) → AT-LMAP-TC-6.
+
+**Implementation routing.** One `engineer-ui` worker owns `MapViewer.cs`; route #2/#3/#4/#9 as a
+**single** impl card (a child of the #3 card `t_05e702ee`) on a worktree — they are one transform
+model and would collide if split (the v0.2.20 `MapViewer.cs` lesson). Sequence after the §2E.1
+render impl lands (same file). #11 (pin labels) rides the same rotating overlay but is a separate
+label-rendering change, not orientation. **SpecCheck impact: none.** Spec + code move together.
 
 > **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
 > The §2H LOCKED ROUTE (P2 player-centred minimap, route-1 transform rotation) is BUILT in
