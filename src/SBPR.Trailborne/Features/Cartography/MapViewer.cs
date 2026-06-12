@@ -72,19 +72,36 @@ namespace SBPR.Trailborne.Features.Cartography
         private const float PinIconPx       = 22f;  // pin marker size on screen
         private const float PlayerMarkerPx  = 26f;
 
-        // Palette — our own dark-Norse parchment/shroud (clean-room; no vanilla sprite copy).
-        private static readonly Color32 CParchment = new Color32(214, 198, 162, 255); // explored & in-disc
-        private static readonly Color32 CShroud    = new Color32(14, 13, 11, 255);    // outside disc / unexplored
-        private static readonly Color   CBackdrop  = new Color(0f, 0f, 0f, 0.85f);
-        private static readonly Color   CFrame     = new Color(0.45f, 0.36f, 0.22f, 1f);
+        // ── §2E vanilla-cartography render constants ──────────────────────────────────
+        // Shader uniform names on vanilla's map material (Minimap.Start :46916-46919,
+        // CenterMap :47506-47514 — decomp-verified). We reuse a COPY of that material.
+        private const string MainTexProp   = "_MainTex";   // RGB24 biome base color
+        private const string FogTexProp    = "_FogTex";    // R8G8 explored(R)/shared(G) mask
+        private const string ZoomProp      = "_zoom";
+        private const string PixelSizeProp = "_pixelSize"; // SHADER uniform (= 200f/zoom), NOT m_pixelSize
+        private const string MapCenterProp = "_mapCenter"; // world-space view centre
+        private const string SharedFadeProp = "_SharedFade";
+
+        // Palette — our own dark-Norse shroud (clean-room; no vanilla sprite copy).
+        // CParchment/CShroud are the 2-color FALLBACK palette (graceful degradation, §2E);
+        // CShroudA is the opaque shroud used to mask OVER the real vanilla cartography.
+        private static readonly Color32 CParchment = new Color32(214, 198, 162, 255); // fallback: explored & in-disc
+        private static readonly Color32 CShroud    = new Color32(14, 13, 11, 255);    // fallback: outside disc / unexplored
+        private static readonly Color32 CShroudA   = new Color32(10, 9, 8, 255);       // mask shroud (opaque over cartography)
+        private static readonly Color32 CClear     = new Color32(0, 0, 0, 0);          // mask lit cell (show cartography through)
+        private static readonly Color   CBackdrop  = new Color(0f, 0f, 0f, 0.92f);
 
         // ── UI refs ───────────────────────────────────────────────────────────────────
         private GameObject? _root;          // the whole overlay (toggled active)
         private Canvas? _canvas;
-        private RawImage? _mapImage;        // the painted fog texture
+        private RawImage? _mapImage;        // the CARTOGRAPHY layer (vanilla map material copy; 2-color fallback)
+        private RawImage? _shroudImage;     // the disc+survey shroud mask layered OVER the cartography
         private RectTransform? _mapRect;    // the map square (pins/markers parent to this)
         private GameObject? _overlayLayer;  // pins + player marker + edge arrow live here
-        private Texture2D? _tex;
+        private Texture2D? _tex;            // fallback 2-color fog texture
+        private Texture2D? _shroudTex;      // the alpha shroud-mask texture (lit→clear, shroud→opaque)
+        private Texture2D? _revealTex;      // 1×1 force-explored override for the copy's _FogTex
+        private Material?  _mapMaterial;    // INSTANTIATED COPY of vanilla's map material (never vanilla's live one)
         private RawImage? _playerMarker;    // reused player dot/arrow
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
 
@@ -118,7 +135,7 @@ namespace SBPR.Trailborne.Features.Cartography
             _open = false;
         }
 
-        // ── Render: paint fog texture + overlay pins/markers ─────────────────────────────
+        // ── Render: §2E vanilla-cartography (material copy) + shroud mask + overlay ───────
 
         private void Render()
         {
@@ -129,14 +146,191 @@ namespace SBPR.Trailborne.Features.Cartography
                 return;
             }
 
-            PaintFog(survey);
             LayoutMapRect(survey.Size);
+
+            // §2E LOCKED ROUTE: render the SAME cartography as the vanilla map by reusing a
+            // COPY of vanilla's map material (biome/height/forest/water live in its shader +
+            // four bound textures), framed to the bound origin's disc, with OUR fog window as
+            // the shroud mask on top. Falls back to the legacy 2-color paint if the material
+            // can't be obtained (e.g. Minimap not yet generated). PaintFog is retained as the
+            // mandatory graceful-degradation path (§2E "Graceful degradation").
+            bool carto = TryRenderVanillaCartography(survey);
+            if (!carto)
+                PaintFog(survey); // graceful degradation → the old explored/shroud two-color fill
+
             RebuildOverlay(survey);
         }
 
-        /// <summary>Paint the Size×Size bool fog window into our own RGBA32 texture.</summary>
+        /// <summary>
+        /// §2E primary render. Instantiate a COPY of vanilla's map material
+        /// (<c>Minimap.instance.m_mapImageLarge.material</c>), which carries the four bound
+        /// cartography textures (_MainTex biome / _MaskTex forest+water / _HeightTex relief /
+        /// _FogTex explored) + the compositing shader. Drive the copy's _mapCenter / _zoom /
+        /// _pixelSize + the RawImage.uvRect to frame the bound origin's disc at our single
+        /// fixed scale, then overlay OUR survey fog as the shroud mask. We never touch
+        /// vanilla's live material or roots → nomap stays in force (AT-TABLEMAP-6).
+        ///
+        /// Returns false (→ caller falls back to PaintFog) if the vanilla material/textures
+        /// aren't available yet. The exact uvRect↔_mapCenter/_pixelSize sampling is a GPU
+        /// shader behavior that can't be confirmed from the C# decomp — the calibration
+        /// constants below are decomp-derived (vanilla CenterMap :47506-47514 + WorldToMapPoint
+        /// :47977) and MUST be verified/tuned in-client per §2E's mandatory micro-spike.
+        /// </summary>
+        private bool TryRenderVanillaCartography(SurveyData survey)
+        {
+            // Graceful degradation guards (§2E): no Minimap singleton, no large map image, or
+            // generation hasn't run yet (no _MainTex) → bail to the 2-color fallback.
+            var mm = Minimap.instance;
+            if (mm == null || mm.m_mapImageLarge == null || mm.m_mapImageLarge.material == null)
+                return false;
+
+            float pixelSize  = survey.PixelSize > 0f ? survey.PixelSize : 64f;   // world m per source cell
+            int   textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
+            Vector3 origin   = _req.BoundOrigin;
+
+            // 1) Instantiate (once) a COPY of the vanilla map material. The copy inherits the
+            //    four texture bindings by reference (Minimap.Start :46916-46919) + the shader.
+            if (_mapMaterial == null)
+            {
+                try
+                {
+                    _mapMaterial = UnityEngine.Object.Instantiate(mm.m_mapImageLarge.material);
+                    _mapMaterial.name = "SBPR_BoundedMapMaterial(Clone)";
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: could not copy vanilla map material ({e.Message}); falling back to 2-color paint.");
+                    _mapMaterial = null;
+                    return false;
+                }
+            }
+
+            // The cartography main texture must be valid for the RawImage to draw; if the
+            // vanilla map hasn't generated it yet, fall back rather than render blank (§2E).
+            var mainTex = _mapMaterial.GetTexture(MainTexProp);
+            if (mainTex == null)
+                return false;
+
+            // 2) Override the copy's _FogTex with a reveal-all (1×1 white R=G=1) texture so the
+            //    cartography shows for the WHOLE framed window — vanilla's live _FogTex reflects
+            //    the local player's real-time exploration, NOT our survey. OUR survey shroud is
+            //    applied as a separate mask in step 4 (§2E bullet 3: shroud = our fog, not _FogTex).
+            EnsureRevealTexture();
+            if (_revealTex != null) _mapMaterial.SetTexture(FogTexProp, _revealTex);
+            _mapMaterial.SetFloat(SharedFadeProp, 1f); // show shared/full cartography, no fade
+
+            // 3) Frame EXACTLY the fog window at our single fixed scale. The window is the
+            //    same WindowSpec the fog + pins were built from (BoundedMapMath): cells
+            //    [cx-CellRadius .. cx+CellRadius], Size = 2*CellRadius+1. Framing the cartography
+            //    to the identical window means cartography, shroud mask, and pin overlay all
+            //    share ONE window definition → aligned by construction. The 1000 m disc sits
+            //    inside this slightly-over-provisioned window (e.g. 33 cells × 64 m = 2112 m for
+            //    a 2000 m disc), so a thin shroud ring frames the disc naturally (no boxy border).
+            //
+            //    uvRect is normalized over the full world texture. A source cell index c maps to
+            //    uv = c / textureSize (vanilla WorldToMapPoint :47977: mx = x/pixelSize +
+            //    textureSize/2 = cell index, then /textureSize). zoom = window uv span = Size/
+            //    textureSize (vanilla CenterMap: uvRect.width = zoom; _pixelSize = 200f/zoom).
+            int size = survey.Size;
+            int cx = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, textureSize);
+            int cy = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, textureSize);
+            float zoom = Mathf.Clamp((float)size / textureSize, 0.001f, 1f); // normalized uv span of the window
+            // uv centre = the window's centre cell (+0.5 → cell centre) / textureSize.
+            float mcx = (cx + 0.5f) / textureSize;
+            float mcy = (cy + 0.5f) / textureSize;
+
+            if (_mapImage != null)
+            {
+                _mapImage.material = _mapMaterial;
+                _mapImage.texture  = mainTex;                       // valid main texture for the RawImage
+                _mapImage.color    = Color.white;
+                var uv = new Rect { width = zoom, height = zoom };
+                uv.center = new Vector2(mcx, mcy);
+                _mapImage.uvRect = uv;
+            }
+
+            // Drive the shader uniforms on OUR copy (vanilla CenterMap :47506-47514). _mapCenter
+            // is the bound origin (world); _pixelSize = 200/zoom and _zoom = zoom mirror vanilla.
+            _mapMaterial.SetFloat(ZoomProp, zoom);
+            _mapMaterial.SetFloat(PixelSizeProp, 200f / Mathf.Max(zoom, 0.0001f));
+            _mapMaterial.SetVector(MapCenterProp, new Vector4(origin.x, origin.z, 0f, 0f));
+
+            // 4) Shroud mask = OUR survey fog (explored-AND-in-disc), opaque everywhere else.
+            //    Layered as a second RawImage exactly over the cartography rect, so the disc is
+            //    the natural edge (no boxy frame — AT-ISSUE1-BORDER) and beyond-radius reads as
+            //    shroud (AT-TABLEMAP-2). Aligned to the same WindowSpec the fog was built from.
+            PaintShroudMask(survey);
+
+            return true;
+        }
+
+        /// <summary>
+        /// Build the shroud-mask texture from the survey fog window: lit (explored-and-in-disc)
+        /// → transparent (cartography shows through); everything else → opaque shroud. The mask
+        /// RawImage sits over the cartography at the same rect, so the bounded disc is realized
+        /// purely by the mask (the one deliberate difference from vanilla — §2E bullet 3).
+        /// Same bottom-up row convention as PaintFog so it aligns with the cartography window.
+        /// </summary>
+        private void PaintShroudMask(SurveyData survey)
+        {
+            int size = survey.Size;
+            if (_shroudTex == null || _shroudTex.width != size)
+            {
+                if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
+                _shroudTex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false)
+                {
+                    name = "SBPR_ShroudMask",
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Bilinear, // soft shroud edge (not crisp cells — this is the mask)
+                };
+            }
+
+            var px = new Color32[size * size];
+            var fog = survey.Fog;
+            int n = Mathf.Min(px.Length, fog.Length);
+            for (int i = 0; i < n; i++)
+                px[i] = fog[i] ? CClear : CShroudA; // lit → see cartography; else → opaque shroud
+            for (int i = n; i < px.Length; i++)
+                px[i] = CShroudA;
+
+            _shroudTex.SetPixels32(px);
+            _shroudTex.Apply(updateMipmaps: false);
+
+            if (_shroudImage != null)
+            {
+                _shroudImage.texture = _shroudTex;
+                _shroudImage.color = Color.white;
+                _shroudImage.gameObject.SetActive(true);
+            }
+        }
+
+        /// <summary>A 1×1 R=G=1 texture bound as _FogTex on the copy to force "fully explored"
+        /// for the framed window (we shroud with our OWN fog mask instead — §2E bullet 3).</summary>
+        private void EnsureRevealTexture()
+        {
+            if (_revealTex != null) return;
+            _revealTex = new Texture2D(1, 1, TextureFormat.RGBA32, mipChain: false)
+            {
+                name = "SBPR_RevealFog",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Point,
+            };
+            // R = personal-explored, G = shared-explored (Minimap.Explore :1555-1566 writes R/G).
+            _revealTex.SetPixels32(new[] { new Color32(255, 255, 0, 255) });
+            _revealTex.Apply(updateMipmaps: false);
+        }
+
+        /// <summary>
+        /// FALLBACK render (§2E graceful degradation). Paint the Size×Size bool fog window into
+        /// our own RGBA32 two-color texture. Used only when the vanilla map material/textures
+        /// are unavailable (Minimap not generated yet). Retained per §2E ("Keep PaintFog").
+        /// </summary>
         private void PaintFog(SurveyData survey)
         {
+            // Detach the cartography material so the fallback two-color texture is what shows.
+            if (_mapImage != null) _mapImage.material = null;
+            if (_shroudImage != null) _shroudImage.gameObject.SetActive(false);
+
             int size = survey.Size;
             if (_tex == null || _tex.width != size)
             {
@@ -161,7 +355,12 @@ namespace SBPR.Trailborne.Features.Cartography
             _tex.SetPixels32(px);
             _tex.Apply(updateMipmaps: false);
 
-            if (_mapImage != null) _mapImage.texture = _tex;
+            if (_mapImage != null)
+            {
+                _mapImage.texture = _tex;
+                _mapImage.uvRect = new Rect(0f, 0f, 1f, 1f); // reset any cartography windowing
+                _mapImage.color = Color.white;
+            }
         }
 
         /// <summary>Size the on-screen map square at a FIXED scale (no scroll-zoom).</summary>
@@ -485,18 +684,11 @@ namespace SBPR.Trailborne.Features.Cartography
             bgRt.anchorMin = Vector2.zero; bgRt.anchorMax = Vector2.one;
             bgRt.offsetMin = Vector2.zero; bgRt.offsetMax = Vector2.zero;
 
-            // A simple carved frame behind the map (our own flat color; visual polish later).
-            var frame = new GameObject("frame");
-            frame.transform.SetParent(_root.transform, false);
-            var frameImg = frame.AddComponent<Image>();
-            frameImg.color = CFrame;
-            var frameRt = frame.GetComponent<RectTransform>();
-            frameRt.anchorMin = frameRt.anchorMax = new Vector2(0.5f, 0.5f);
-            frameRt.pivot = new Vector2(0.5f, 0.5f);
-            frameRt.sizeDelta = new Vector2(MaxFullViewPx + 24, MaxFullViewPx + 24);
-
-            // The painted fog map.
-            var mapGo = new GameObject("boundedFog");
+            // The cartography layer: a RawImage that shows a COPY of the vanilla map material
+            // (§2E) — biome/height/forest/water — or the 2-color fallback texture. No boxy
+            // frame behind it (AT-ISSUE1-BORDER): the bounded disc + shroud ring IS the edge,
+            // matching the vanilla map's soft framing rather than a hard SBPR rectangle.
+            var mapGo = new GameObject("cartography");
             mapGo.transform.SetParent(_root.transform, false);
             _mapImage = mapGo.AddComponent<RawImage>();
             _mapRect = _mapImage.rectTransform;
@@ -504,7 +696,20 @@ namespace SBPR.Trailborne.Features.Cartography
             _mapRect.pivot = new Vector2(0.5f, 0.5f);
             _mapRect.sizeDelta = new Vector2(MaxFullViewPx, MaxFullViewPx);
 
-            // Overlay layer (pins + markers) sits on top of the fog, same rect + center.
+            // The shroud mask: a RawImage stretched over the cartography (child → renders above
+            // it). Its texture is OUR survey fog as an alpha mask (lit→transparent, else→opaque
+            // shroud), so the 1000 m disc + unexplored cells read as shroud OVER the real map
+            // (§2E bullet 3 — the one deliberate difference from vanilla).
+            var shroudGo = new GameObject("shroudMask");
+            shroudGo.transform.SetParent(mapGo.transform, false);
+            _shroudImage = shroudGo.AddComponent<RawImage>();
+            _shroudImage.raycastTarget = false; // never intercept the Table-mode pin clicks
+            var shRt = _shroudImage.rectTransform;
+            shRt.anchorMin = Vector2.zero; shRt.anchorMax = Vector2.one; // stretch to the cartography rect
+            shRt.offsetMin = Vector2.zero; shRt.offsetMax = Vector2.zero;
+
+            // Overlay layer (pins + markers) sits on top of BOTH the cartography and the shroud
+            // (added last → highest child). Same rect + center as the map.
             _overlayLayer = new GameObject("overlay");
             _overlayLayer.transform.SetParent(mapGo.transform, false);
             var ovRt = _overlayLayer.AddComponent<RectTransform>();
@@ -528,6 +733,10 @@ namespace SBPR.Trailborne.Features.Cartography
         private void OnDestroy()
         {
             if (_tex != null) UnityEngine.Object.Destroy(_tex);
+            if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
+            if (_revealTex != null) UnityEngine.Object.Destroy(_revealTex);
+            // Destroy OUR instantiated material copy (never vanilla's live material).
+            if (_mapMaterial != null) UnityEngine.Object.Destroy(_mapMaterial);
             if (_instance == this) _instance = null;
         }
     }
