@@ -1,7 +1,7 @@
 ---
 title: "Trailborne v2 (Black Forest) — Cartography buildable implementation spec"
 status: current
-purpose: "Per-feature, build-ready implementation specs for the three v2 cartography features (Surveyor's Table, Local Map + viewer, Cartographer's Kit). Each section gives observable acceptance criteria, the exact vanilla hooks, the feature-folder it lands in, and its SpecCheck manifest row. Authored by the architect spec-pass (card t_4be278de) once all open items locked. Implementers (engineer-systems / engineer-ui) build from THIS doc; requirements.md is the what, this is the how-to-pick-it-up-cold."
+purpose: "Per-feature, build-ready implementation specs for the v2 cartography features (Surveyor's Table, Local Map + viewer, Cartographer's Kit, and §3.5 the mod-enforced NoMap precondition). Each section gives observable acceptance criteria, the exact vanilla hooks, the feature-folder it lands in, and its SpecCheck manifest row. Authored by the architect spec-pass (card t_4be278de) once all open items locked; §3.5 NoMap enforcement added by card t_8c9abf6f (2026-06-11). Implementers (engineer-systems / engineer-ui) build from THIS doc; requirements.md is the what, this is the how-to-pick-it-up-cold."
 ---
 
 # Trailborne v2 cartography — buildable implementation spec
@@ -499,6 +499,282 @@ recipe row). Spec + code move together in that PR.
 - **AT-KIT-COEXIST** — sits in the Utility slot alongside weapon / shield / Local Map with
   no slot collision.
 - SpecCheck row 3 present; `[hold]` PR; logs-green ≠ playable.
+
+---
+
+## 3.5 NoMap enforcement — the mod disables the global map by default (the tier's enforced precondition)
+
+> **Status: NEW FEATURE + premise correction (card t_8c9abf6f, architect spec-pass 2026-06-11).**
+> This is the precondition the entire cartography tier was built assuming but **nothing
+> enforced**. The tier's whole premise — *no global map → earn bounded local maps* — is only
+> true if `Game.m_noMap` is actually on. On a fresh/local world it is NOT (the key isn't set
+> until a host runs `nomap` by hand), so the forked viewer competes with a free full-world
+> map. **This feature makes the mod own its own premise: it sets `GlobalKeys.NoMap`
+> server-side by default, built as a LIFTABLE gate** so a future Mistlands advancement can
+> re-enable the global map. Clean-side (ADR-0001): setting a vanilla global key via
+> `ZoneSystem` is base-game; no third-party mod code.
+
+> **Daniel's framing correction (2026-06-11, on the card):** the original report said "the
+> global map works on Niflheim." That was a misread — Daniel was playtesting on a **local
+> world**, not Niflheim; Niflheim itself already has NoMap set. This *strengthens* the
+> feature: the local-world case IS the evidence for mod-owned enforcement. A per-world,
+> set-by-hand premise is exactly the silent fragility this removes. **The lesson:** an
+> unenforced premise (the stale "hardcore = no map" belief) silently shipped false for the
+> whole tier — never again leave the tier's precondition to a server-config assumption.
+
+**Lands in:** `Features/Cartography/NoMapEnforcer.cs` (a new server-side Harmony patch class) +
+its `PatchCheck`-visible registration in `Plugin.cs`. **No new prefab, no item, no recipe.**
+**Card:** route the impl to `engineer-systems` (server-side global-key code; smaller/lower-risk
+than the viewer). **SpecCheck impact: NONE** — this is global-key behaviour, not a recipe row.
+
+### 3.5.0 The mechanism (re-verified against the decomp — `assembly_valheim.decompiled.cs`)
+
+> ⚠️ **Re-grounding note for the implementer.** Every line number below was re-checked
+> against the local decomp on 2026-06-11 (the card's cited `:96455` etc. are from an
+> older dump; the *behaviour* matches but the *line numbers* differ — verify names against
+> `assembly_valheim.dll` metadata, never trust a line number cold). Six facts the original
+> card framing did NOT surface but that **decide the hook design** are called out as ⭐.
+
+`Game.m_noMap` is driven SOLELY by the `GlobalKeys.NoMap` global key (plus a per-player
+client pref, irrelevant to us):
+
+- `Game.UpdateNoMap()` (`:85133`): `m_noMap = (ZoneSystem.instance &&
+  ZoneSystem.instance.GetGlobalKey(GlobalKeys.NoMap)) || (per-player "mapenabled_<name>"
+  pref == 0)`, then `Minimap.instance.SetMapMode(m_noMap ? MapMode.None : MapMode.Small)`.
+  So **set the key → `m_noMap` true → the global map UI is forced off.** ✅ as the card says.
+- `GlobalKeys` enum (`:85203`): `NoMap` is index **26**; `NonServerOption` is index **32**.
+  This ordering is load-bearing for persistence (see ⭐3).
+
+⭐**1 — `SetGlobalKey` is a ROUTED RPC, not a direct write.**
+`ZoneSystem.SetGlobalKey(GlobalKeys)` → `SetGlobalKey(string)` (`:98480`) →
+`ZRoutedRpc.instance.InvokeRoutedRPC("SetGlobalKey", name)`. The no-target overload
+(`:70673`) routes to `GetServerPeerID()` — i.e. **the call is always sent to the server**,
+from wherever it's invoked. The actual mutation happens in the server-side handler
+`RPC_SetGlobalKey(sender, name)` (`:98539`): if the key isn't already present it calls
+`GlobalKeyAdd(name)` then `SendGlobalKeys(ZRoutedRpc.Everybody)`. **Consequence:** calling
+`SetGlobalKey` is correct and idempotent (the handler's own `!Contains` guard makes a repeat
+a no-op + no re-broadcast), but it is *asynchronous* — it does not mutate state inline; it
+posts an RPC the server processes. Do not assume `GetGlobalKey(NoMap)` flips true on the next
+line. This is why the enforcement hook must run **server-side** (so the RPC is local) and must
+be **idempotent on every world-load**, not a one-shot fire-and-forget.
+
+⭐**2 — the RPC handler is registered SERVER-ONLY.**
+`ZoneSystem.Start()` (`:96426`) registers `RPC_SetGlobalKey` / `RPC_RemoveGlobalKey` **only
+inside `if (ZNet.instance.IsServer())`** (`:96434`). A pure client never handles these. So
+enforcement MUST be a server-side action. (A connected client *can* call `SetGlobalKey` — it
+routes to the server — but our design sets it server-authoritatively at world load, exactly
+like the `nomap` console command does under its own `ZNet.instance.IsServer()` guard,
+`:37350`.)
+
+⭐**3 — NoMap PERSISTS automatically (two independent save paths), because idx 26 <
+`NonServerOption` (32).**
+- `GlobalKeyAdd` (`:96472`) adds NoMap to `ZNet.World.m_startingGlobalKeys` when the key's
+  enum `< NonServerOption` (`:96477`, `:96495-96498`). `m_startingGlobalKeys` is serialized to
+  the world **`.fwl` meta** (`World.SaveWorldMetaData`, `:95780-95784`).
+- `ZoneSystem.SaveASync` (`:96703`) also writes the live `m_globalKeys` set to the world
+  **`.db`**, filtering OUT keys with enum `< NonServerOption` (`:96713-96717`) — i.e. the
+  `.db` path saves the boss/event keys, the `.fwl` path saves the world-modifier keys.
+  **NoMap (idx 26 < 32) rides the `.fwl`/`m_startingGlobalKeys` path.** Either way, once set,
+  vanilla restores it on the next boot with no action from us → **AT-NOMAP-3 holds by
+  construction.** The implication for our hook: we are *enforcing an invariant*, not
+  *persisting state* — vanilla persists it; we just guarantee it's present.
+
+⭐**4 — a freshly-joined client inherits the state with ZERO client-side mod action.**
+On the server, `ZoneSystem.OnNewPeer(peerID)` (`:96593`) calls `SendGlobalKeys(peerID)` for
+every connecting peer (`:96595-96599`). The client's `RPC_GlobalKeys` handler (`:96462`)
+clears + rebuilds its key set from the server's, then (via `GlobalKeyAdd` → `UpdateWorldRates`
+→ `UpdateNoMap`) flips `m_noMap` and forces `SetMapMode(None)`. **So a server-set NoMap takes
+effect on all clients automatically — the cartography fork needs no client-side enforcement.**
+This is why the feature is purely server-side. → **AT-NOMAP-2 holds by construction.**
+
+⭐**5 — liftability is FREE and symmetric, BUT a custom-named latch key would NOT persist.**
+`RemoveGlobalKey(NoMap)` (`:98548`) routes the same way → server `RPC_RemoveGlobalKey`
+(`:98558`) → `GlobalKeyRemove` + `SendGlobalKeys(Everybody)` → every client re-runs
+`UpdateNoMap` and the global map comes back. So the future Mistlands trigger is a single
+`RemoveGlobalKey(GlobalKeys.NoMap)` server-side call — a clean flip, no code rip-out. **But
+note for the gate design:** `GetKeyValue` (`:96544`) resolves any name that is NOT a member of
+the `GlobalKeys` enum to `gk = NonServerOption` (`:96558-96560`), and `GlobalKeyAdd` then does
+NOT add it to `m_globalKeysEnums` and does NOT persist it to `m_startingGlobalKeys` (the
+`< NonServerOption` guard fails). **Therefore a custom `"SBPR_MistlandsReached"` global key is
+the WRONG durable latch** — it wouldn't be queryable via `GetGlobalKey(GlobalKeys)` and
+wouldn't survive a restart. The liftability signal must be either (a) a real vanilla
+`GlobalKeys` enum member, or (b) NoMap's own presence/absence (see §3.5.2).
+
+⭐**6 — the `WorldSetup` WIPE hazard (the hook-timing trap).**
+`ZNet.LoadWorld()` ends by calling `WorldSetup()` (`:68198`, `:68222`) →
+`ZoneSystem.SetStartingGlobalKeys()` (`:98441`), which **clears all 32 world-modifier keys and
+re-adds only the persisted `m_startingGlobalKeys`** (`:98443-98467`). If our enforcement runs
+*before* `WorldSetup`, a `SetGlobalKey(NoMap)` RPC could be processed and then wiped by the
+rebuild on the very first boot of a world that didn't already have it. **Therefore the
+enforcement hook must fire AFTER `WorldSetup` has run** — i.e. after the existing v1
+`LegacyTerrainOpZdoCleanup` postfix point (which is a `[HarmonyPostfix]` on `ZNet.LoadWorld`,
+already proven server-only because `LoadWorld` is reached only from `ServerLoadWorld` under
+`if (m_isServer)`, `:66811-66823`). Because NoMap then lands in `m_startingGlobalKeys` and is
+re-applied by every subsequent `SetStartingGlobalKeys`, only the FIRST boot needs the nudge;
+later boots find it already set and our idempotent guard no-ops.
+
+### 3.5.1 The hook (RESOLVES open question 1: cleanest server-side enforce-on-load point)
+
+**Postfix on `ZNet.LoadWorld`** (the SAME vanilla method `LegacyTerrainOpZdoCleanup` already
+postfixes — a proven server-only, once-per-boot, post-`WorldSetup` seam). Do NOT use
+`ZoneSystem.Start` — that runs before the world DB / starting-keys are loaded and before the
+server RPC handlers may be wired, and it would race ⭐6's wipe.
+
+```
+[HarmonyPatch(typeof(ZNet), "LoadWorld")]
+public static class NoMapEnforcer
+{
+    [HarmonyPostfix]
+    [HarmonyPriority(Priority.Last)]   // after vanilla body + WorldSetup; order-independent vs the legacy-ZDO sweep
+    public static void Postfix()
+    {
+        try
+        {
+            if (!ServerContext.OnSBServer) return;            // mod's own gate (see Registrar pattern)
+            var zs = ZoneSystem.instance;
+            if (zs == null) return;                            // defensive; LoadWorld implies it exists
+            if (!ShouldEnforceNoMap(zs)) return;               // the LIFTABLE gate (§3.5.2)
+            if (zs.GetGlobalKey(GlobalKeys.NoMap)) {           // already set → idempotent no-op, no re-broadcast
+                Plugin.Log.LogInfo("[Trailborne/NoMap] NoMap already set; mod holds the global-map disable.");
+                return;
+            }
+            zs.SetGlobalKey(GlobalKeys.NoMap);                 // routed RPC → server handler → SendGlobalKeys(Everybody)
+            Plugin.Log.LogWarning("[Trailborne/NoMap] Global map DISABLED by default "
+                + "(set GlobalKeys.NoMap server-side). Liftable at the Mistlands tier advancement (future). "
+                + "The cartography tier is now the only map. (card t_8c9abf6f)");
+        }
+        catch (System.Exception e)
+        {
+            // Fail LOUD but non-fatal: a thrown enforcer must not take down world load.
+            Plugin.Log.LogError($"[Trailborne/NoMap] enforce-on-load threw (non-fatal): {e}");
+        }
+    }
+}
+```
+
+- **Server-only by construction** (`LoadWorld` only runs server-side) AND explicitly gated on
+  `ServerContext.OnSBServer` — same belt-and-braces as every other SBPR registration.
+- **Idempotent** — the `GetGlobalKey(NoMap)` check + the handler's own `!Contains` guard mean a
+  repeat boot, a second LoadWorld, or a hand-set `nomap` all collapse to a no-op.
+- **The loud boot-log line is mandatory** (RESOLVES open question 3's "honesty" half): the
+  lesson of this bug is that a silent, unenforced premise shipped false. The mod must SAY, at
+  every boot, that it holds NoMap — so the state is never again a silent assumption. Grep
+  target: `[Trailborne/NoMap]`.
+
+### 3.5.2 The LIFTABLE gate (RESOLVES open question 2: the Mistlands signal)
+
+The disable MUST be conditional so a future Mistlands advancement can lift it cleanly. Build
+the gate **now**; the Mistlands *trigger* is out of scope (future card). Concretely, factor the
+condition behind one method:
+
+```
+// Returns false once the world has advanced past the point where the global map is re-granted.
+// TODAY this is always true (Mistlands re-enable is future scope); the SEAM is what this card ships.
+internal static bool ShouldEnforceNoMap(ZoneSystem zs)
+{
+    // FUTURE (Mistlands tier card): return false when the Mistlands-reached signal is present,
+    // e.g.  if (zs.GetGlobalKey(GlobalKeys.NoMap_LiftedByMistlands_or_a_real_progression_key)) return false;
+    // The lift itself is then a single server-side RemoveGlobalKey(GlobalKeys.NoMap) at the
+    // advancement, and this guard stops re-asserting it on the next boot.
+    return true;
+}
+```
+
+**The latch signal — architect's recommendation (the Mistlands TRIGGER card finalizes it):**
+do NOT invent a custom-named global key for "Mistlands reached" — per ⭐5 a non-enum key is
+neither enum-queryable nor persisted, so it can't be a durable latch. Two grounded options the
+future card chooses between:
+
+1. **NoMap's own absence as the latch (simplest, recommended).** When the Mistlands trigger
+   fires it calls `RemoveGlobalKey(GlobalKeys.NoMap)` once. Because the removal persists
+   (it drops out of `m_startingGlobalKeys`), the key stays absent across restarts. The gate
+   becomes: *"if a player/world has reached Mistlands, don't re-assert."* The cleanest read of
+   "reached Mistlands" that is **server-side and persisted** is a real vanilla progression
+   key — see option 2 — OR a small SBPR ZDO/world-data flag the Mistlands card owns. Until that
+   card exists, `ShouldEnforceNoMap` returns true and re-asserts NoMap every boot, which is the
+   safe default (the map stays disabled).
+2. **Tie to a real vanilla `GlobalKeys` progression member** if one cleanly denotes Mistlands
+   entry. The enum (`:85203`) carries boss-defeat keys (`defeated_*`) but NOT a "reached
+   biome" key, so there is no perfect vanilla "entered Mistlands" global key — the Mistlands
+   card will most likely mint its own persisted SBPR world flag. **This is explicitly the
+   future card's call;** THIS card only ships the `ShouldEnforceNoMap` seam + the
+   always-enforce default so lifting later is a one-method flip, not a code rip-out.
+
+> **Architect note routed to the future Mistlands card:** the cleanest progression signal is
+> NOT a global key at all — it's whatever durable per-world state the Mistlands-advancement
+> feature already needs. File the Mistlands re-enable as: (a) detect the advancement, (b)
+> `RemoveGlobalKey(GlobalKeys.NoMap)` once, (c) flip `ShouldEnforceNoMap` to read that same
+> advancement flag. Do not hardcode an unconditional permanent NoMap, and do not mint a custom
+> *global key* as the latch (⭐5).
+
+### 3.5.3 Config posture (RESOLVES open question 3: escape hatch)
+
+Daniel's directive is "this mod should just disable it" → **default ON, enforced.** Add ONE
+optional BepInEx config escape hatch, defaulting to enforced, so a future server operator (or a
+debug session) can opt out without a recompile — mirroring the existing `Plugin.cs` config
+pattern (`Config.Bind`):
+
+- `Config.Bind("Cartography", "SBPR_EnforceNoMap", true, "When true (default), the mod disables
+  the vanilla global map by setting GlobalKeys.NoMap server-side at world load — the cartography
+  tier's enforced precondition. Set false ONLY to let the vanilla global map coexist (debug /
+  non-cartography server). The Mistlands tier advancement lifts NoMap independently of this
+  flag.")`.
+- `ShouldEnforceNoMap` checks this flag first: `if (!Plugin.EnforceNoMap.Value) return false;`.
+- **The loud boot-log line fires either way** — if the flag is false, log that the mod is
+  *deliberately NOT* holding NoMap (so a "why does the map work?" question is answered in the
+  log, not re-debugged in-game). This is the honesty rule: the state is never silent.
+
+### 3.5.4 Scope discipline (no over-reach)
+
+- The hook sets **ONLY** `GlobalKeys.NoMap`. It must NOT touch any other global key, world
+  modifier, or the hardcore death-penalty/combat keys. (`SetGlobalKey(GlobalKeys.NoMap)` is a
+  single-key add; the handler's `GlobalKeyAdd` only mutates that one key.) → **AT-NOMAP-6.**
+- It does NOT remove or alter a NoMap the operator set by hand — if it's already there, no-op.
+- It does NOT touch the per-player client `nomap` pref (`mapenabled_<name>`); that orthogonal
+  toggle is out of scope (card "Scope/out").
+- The Local Map M-key collision card (`t_91182d97`) is made moot by this (no global map to
+  collide with), but per the decision pinned there it is STILL implemented defensively — the
+  forked viewer opens on its own input regardless of whether the global map exists. This card
+  does not change that.
+
+### 3.5.5 Acceptance criteria (named, observable — close only on Daniel's in-game check)
+
+- **AT-NOMAP-1** — On a world with the mod (fresh/local world included), the vanilla global map
+  (M) is disabled **by default** — `Game.m_noMap` is true, pressing M opens no global map UI.
+  No host has to run `nomap` by hand.
+- **AT-NOMAP-2** — A freshly-joined client inherits the disabled state automatically (the server
+  pushes the key on connect via `SendGlobalKeys`); no client-side mod action and no client
+  config needed.
+- **AT-NOMAP-3** — The state persists across a dedicated-server restart (NoMap rides
+  `m_startingGlobalKeys` → the world `.fwl`); the mod re-asserts idempotently on every boot
+  regardless.
+- **AT-NOMAP-4 (liftable)** — The disable is gated behind `ShouldEnforceNoMap` so a future
+  Mistlands advancement can `RemoveGlobalKey(GlobalKeys.NoMap)` and restore the global map.
+  Verified now by a manual/test toggle of the gate condition (or the `SBPR_EnforceNoMap=false`
+  config) restoring the map. **The Mistlands trigger itself is future scope; the LIFTABILITY
+  seam must exist now.**
+- **AT-NOMAP-5 (no regression)** — The cartography tier (Surveyor's Table / Local Map viewer /
+  Cartographer's Kit) still works with NoMap enforced — it was built for exactly this state;
+  confirm no regression now that the premise is actually true (the viewer still opens, the
+  bounded disc still renders, the Kit still gates fog).
+- **AT-NOMAP-6 (no over-reach)** — The mod sets ONLY the NoMap key; the hardcore death-penalty
+  and every other world modifier / global key are unchanged (diff the global-key set before/after
+  boot — only NoMap is added).
+- **AT-NOMAP-BOOTLOG** — Server boot logs a single, greppable `[Trailborne/NoMap]` line stating
+  the mod set or already-holds NoMap (or, with the config off, that it is deliberately NOT
+  holding it). The premise is never silent again.
+- logs-green ≠ playable: Daniel confirms in-game that M opens nothing and the cartography tier is
+  the only map.
+
+### 3.5.6 PatchCheck + boot wiring
+
+- Register `NoMapEnforcer` in `Plugin.Awake()` via `harmony.PatchAll(typeof(NoMapEnforcer))`
+  **alongside the other cartography patches** (next to `CartographersKit.UpdateExploreGate`).
+  The `PatchCheck` watchdog (`Runtime/PatchCheck.cs`) will scream at boot if it's attributed but
+  unregistered — so adding the `[HarmonyPatch]` class without the `PatchAll` line fails loudly
+  (this is the exact dead-patch class the watchdog exists to catch). The `✓ All N patch classes
+  registered` count rises by 1.
+- **SpecCheck: untouched** — no recipe/piece row. Do not bump the recipe manifest count.
 
 ---
 
