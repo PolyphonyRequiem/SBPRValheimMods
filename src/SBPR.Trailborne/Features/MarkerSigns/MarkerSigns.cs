@@ -16,7 +16,8 @@ namespace SBPR.Trailborne.Features.MarkerSigns
     ///   • the data-driven type table (one source for registration + SpecCheck + panel),
     ///   • ADDITIVE prefab construction (ADR-0006 — new GameObject + AddComponent; NO
     ///     runtime clone of a ZNetView-bearing prefab — AT-PIN-ADR0006),
-    ///   • ZNetScene registration + the ObjectDB-phase resource rebuild (Wood ×2),
+    ///   • ZNetScene registration + the ObjectDB-phase resource rebuild (Wood ×2 +
+    ///     Greydwarf eye ×1 — a Black Forest availability gate),
     ///   • the ZDO-key + prefab-name string contracts (locked here, never renamed).
     ///
     /// The vanilla `sign` and `wood_pole2` prefabs are read as BLUEPRINTS only
@@ -36,9 +37,18 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         public const string ZdoPinIconColor = "SBPR_PinIconColor";  // RESERVED (Q1 defers color)
         public const string ZdoPinTextColor = "SBPR_PinTextColor";  // RESERVED (Q1 defers color)
 
-        // Build cost — Wood ×2, matching the Painted Sign (Signs.WoodCost). The map pin
-        // is the value-add, not a costlier recipe (impl-spec §0).
+        // Build cost — Wood ×2 + Greydwarf eye ×1 (impl-spec §0). The +1 eye is a Black
+        // Forest *availability gate*, not a cost tax: the eye is a Common BF drop, so
+        // requiring one proves the player reached the Black Forest and killed a Greydwarf.
+        // Markers stay cheap — they're just no longer craftable from turn-1 Meadows wood.
+        // The map pin is still the value-add; the gate only sets the tier you unlock it at.
         public const int WoodCost = 2;
+
+        // Greydwarf eye — vanilla Common BF drop (Greydwarf / Brute / Shaman). Token
+        // confirmed against prefab_index.json + wiki Internal ID; do NOT retype from
+        // memory (a wrong token silently drops the requirement — SpecCheck is the backstop).
+        public const int    EyeCost     = 1;
+        public const string EyeResource = "GreydwarfEye";
 
         // Vanilla blueprints (read-only, never cloned): the wood sign supplies the board
         // mesh/material + Sign field defaults + effect lists; the 2m pole is the post.
@@ -213,10 +223,10 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             // the headless server (no textures) — harmless, the menu icon is client-only.
             var icon = Assets.LoadPngAsSprite(m.IconFile);
             if (icon != null) piece.m_icon = icon;
-            // Resources are (re)built authoritatively in the ObjectDB phase (Wood is in
-            // ODB by then). Seed a Wood req now so the prefab is never resource-less;
-            // warn=false because the ODB-phase rebuild is the authoritative pass.
-            piece.m_resources = new[] { BuildReq("Wood", WoodCost, warn: false) };
+            // Resources are (re)built authoritatively in the ObjectDB phase (Wood + the
+            // Greydwarf eye are in ODB by then). Seed reqs now so the prefab is never
+            // resource-less; warn=false because the ODB-phase rebuild is the authoritative pass.
+            piece.m_resources = new[] { BuildReq("Wood", WoodCost, warn: false), BuildReq(EyeResource, EyeCost, warn: false) };
 
             // ── MarkerSignTag: per-instance ZDO state + the WearNTear destroy seam. ──
             var tag = go.AddComponent<MarkerSignTag>();
@@ -243,13 +253,13 @@ namespace SBPR.Trailborne.Features.MarkerSigns
                 var piece  = prefab != null ? prefab.GetComponent<Piece>() : null;
                 if (piece != null)
                 {
-                    piece.m_resources = new[] { BuildReq("Wood", WoodCost) };
+                    piece.m_resources = new[] { BuildReq("Wood", WoodCost), BuildReq(EyeResource, EyeCost) };
                     piece.m_craftingStation = null;
                 }
             }
 
             Plugin.Log.LogInfo(
-                "[Trailborne/MarkerSigns] ObjectDB wiring complete (4 marker pieces, Wood x2, " +
+                "[Trailborne/MarkerSigns] ObjectDB wiring complete (4 marker pieces, Wood x2 + Greydwarf eye x1, " +
                 "placed via the Spade 'Trail' tab).");
         }
 

@@ -243,10 +243,11 @@ namespace SBPR.Trailborne.Runtime
                 }
             }
 
-            // ── v2 Marker Signs (4 additive build pieces, Wood x2) ──
+            // ── v2 Marker Signs (4 additive build pieces, Wood x2 + Greydwarf eye x1) ──
             // Generated rather than enumerated (4× repetitive) — same DRY pattern as the
-            // cairn loop above. These are build pieces (Item == null), Wood x2, no station
-            // (placed via the spade). Source: marker-signs-impl-spec.md §0.
+            // cairn loop above. These are build pieces (Item == null), Wood x2 + Greydwarf
+            // eye x1 (Black Forest availability gate), no station (placed via the spade).
+            // Source: marker-signs-impl-spec.md §0.
             foreach (var mk in MarkerSigns.MarkerTypes)
             {
                 checks++;
@@ -259,7 +260,7 @@ namespace SBPR.Trailborne.Runtime
                 }
                 else
                 {
-                    var expected = new[] { R("Wood", MarkerSigns.WoodCost) };
+                    var expected = new[] { R("Wood", MarkerSigns.WoodCost), R(MarkerSigns.EyeResource, MarkerSigns.EyeCost) };
                     CompareResources(mk.PrefabName, expected, piece.m_resources, ref errors);
                 }
             }
