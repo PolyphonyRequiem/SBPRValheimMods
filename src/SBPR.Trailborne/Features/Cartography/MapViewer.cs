@@ -820,10 +820,15 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (!_open) return;
 
-            // ESC closes the full-screen view (the fork owns its own close path — it does NOT
-            // rely on vanilla Minimap's M/ESC handling, which is dead under nomap). For the
-            // field Local-Map view the controller will also close it on unequip; this is the
-            // explicit player dismiss. We do NOT toggle vanilla map mode.
+            // ESC closes the full-screen view (the fork owns its own close path). The viewer
+            // is a standalone uGUI overlay — it never rode vanilla's Minimap M/ESC handling
+            // (the OPEN trigger is the Use key while equipped, §2G; the Table opens it via
+            // Interact). For the field Local-Map view the controller also closes it on unequip;
+            // this is the explicit player dismiss. We do NOT toggle vanilla map mode.
+            //
+            // NOTE (§2F): this Close() is the half that WORKS. The same Escape also reaches
+            // vanilla's Menu.Show gate and opens the pause menu — that leak is suppressed by
+            // the Menu.Show prefix inside SignPanelInputBlock (gated on AnyOpen), NOT here.
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 Close();

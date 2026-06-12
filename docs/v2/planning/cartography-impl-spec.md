@@ -881,6 +881,23 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
   file. Note the dependency on the implementation card.
 ### 2G — Local Map open input (issue 7 design correction, 2026-06-11)
 
+> **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
+> The §2G LOCKED open input is BUILT in `LocalMapController.cs`: the `GetButtonDown("Map")` open
+> edge is replaced by `GetButtonDown("Use") || GetButtonDown("JoyUse")`, gated through
+> `CanOpenOnUse(player)` — opens ONLY on an idle Use press (`player.GetHoverObject() == null`, so a
+> hovered Table/door/chest interaction wins — AT-LMAP-TABLE-COEXIST) and is suppressed while any
+> modal is up (`TextInput.IsVisible()` / `InventoryGui.IsVisible()` / `SignPanelInputBlock.AnyOpen`).
+> The toggle-CLOSE path is intentionally ungated so the open field viewer is always dismissible
+> with Use. The equipped HUD prompt (`UpdateEquippedPrompt` → a client-only bottom-centre overlay)
+> shows `[<$KEY_Use>] $piece_readmap` (vanilla tokens, localized — rebind-correct, mirrors the
+> MapTable :114046 idiom) only while equipped + the field viewer is closed (mutually exclusive with
+> §2F's "[Esc] Close map"). The inverted-premise comments in `LocalMapController.cs` + the
+> `MapViewer.cs` Escape comment are corrected. The "just a hoe" LMB/RMB click-suppression is
+> untouched (intended — AT-LMAP-OPEN-5). No `Minimap`-clamp nerf smuggled in (§2G.3 deferred —
+> Daniel's separate call). Build 0/0. **NOT YET PLAYTESTED — Daniel confirms in-game: Use opens, no
+> double-map, hover-interaction wins, prompt visible.** Vanilla APIs verified vs the decomp
+> (`ZInput.GetButtonDown("Use")` :16116, `Player.GetHoverObject()` :14699, `$piece_readmap` :114046).
+
 > **Status: DESIGN CORRECTION.** Supersedes the "the vanilla **'Map' button** activates the
 > full view (dead under nomap, so the fork repurposes it)" open path asserted in the §2 IMPL
 > STATUS banner, §2A.4, §2B, and the code comments at `LocalMapController.cs:79-86` /
