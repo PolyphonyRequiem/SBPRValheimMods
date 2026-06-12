@@ -618,6 +618,11 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
   interior rotates (#2); circular form (#9); no north indicator. The Table view stays north-up +
   square. See **§2H.1** for the named criteria + the locked route. *(Supersedes AT-LMAP-ROT-1…5 /
   the player-centred §2H — see the §2H.1 supersession map.)*
+- **AT-LMAP-LIVE-1…6** (issue 5, 2026-06-12) — with the Cartographer's Kit worn, travelling
+  visibly grows the held map (the FieldReadOnly shroud recedes along the player's path) by OR-ing
+  the player's live personal fog over the static imprint snapshot; without the Kit, no passive
+  reveal; the snapshot stays static in storage. See **§2I** for the named criteria + the locked
+  shroud-source route (rides §2E.1).
 - SpecCheck row 2 present; `[hold]` PR; logs-green ≠ playable.
 
 ### 2E — Vanilla-cartography render (issue 6 design correction, 2026-06-11)
@@ -1643,6 +1648,195 @@ together in that PR.
 
 ---
 
+### 2I — Held map updates live while travelling with the Kit (issue 5, 2026-06-12)
+
+> **Status: BUG/DESIGN — ROOT-CAUSE LOCATED + SEMANTICS RESOLVED + RENDER RE-LOCK.** Reported by
+> Daniel, v0.2.22-playtest. Resolves a behaviour the §2E.1 render model (issue 10, PR #129) made
+> *visible-by-omission*: the held Local Map's shroud is built from the **frozen imprint snapshot**
+> only, so wearing the Cartographer's Kit and walking never grows what the field viewer shows.
+> The fork SHELL, the §2E.1 cartography composite, §2F/§2G input, §2H.1 orientation, the Kit gate
+> (§3), and the `SurveyData` wire format are all UNCHANGED. This section adds **one fog source** to
+> the FieldReadOnly shroud — the player's LIVE personal fog, OR'd over the static snapshot —
+> mirroring the snapshot∪live PIN union the viewer already does. Clean-side (ADR-0001).
+> **SpecCheck impact: none** (render behaviour, not a recipe row).
+
+**What Daniel reported (verbatim):** *"issue 5: local map(s) data don't update while travelling
+when the cartographer's tools are equipped."*
+
+#### 2I.1 The two survey surfaces — which one Daniel expects to grow (disambiguation)
+
+The bug card flagged two distinct survey surfaces and asked which Daniel expects to update while
+walking. The decomp + the shipped code settle it:
+
+- **(a) The player's PERSONAL fog** — vanilla `Minimap.m_explored` (`bool[m_textureSize²]`),
+  written by `Explore(player.position, m_exploreRadius)` every `m_exploreInterval` (2 s) inside
+  `UpdateExplore` (decomp `Minimap.cs:1524-1532`/`:1534-1566`). The Cartographer's Kit GATES exactly
+  this write (§3.2 — Prefix on `UpdateExplore` returns `false` with no Kit). **With the Kit worn,
+  `m_explored` demonstrably grows as you walk** (proven in-game by the §3 IMPL STATUS: *"personal fog
+  accumulates even under v1's server-side nomap"*; and `SurveyorTableTag.ContributeLocalSurvey`
+  `:288-328` already reads this live array successfully).
+- **(b) The TABLE's shared ZDO survey** — the imprinted 1000 m snapshot a Local Map carries
+  (`LocalMap.ReadSurvey` → `m_customData["sbpr_map_blob"]`). This is **static by design and by
+  hard lock**: requirements §2 *"Imprint = a snapshot of the Table's current survey at imprint time
+  (NOT a live link — a map 'as it was when drawn')."* It MUST NOT mutate while carried (it can be
+  handed to another player; mutating it would break that contract and AT-MAP regression).
+
+**Resolution (architect's locked reading — flagged for Daniel's ratification): semantics (a),
+realized as a live OVERLAY, not a mutation of (b).** The held FieldReadOnly view composites the
+player's LIVE personal fog (Kit-gated, disc-clipped to the bound Table's 1000 m disc) OR'd OVER the
+frozen imprint snapshot. So a bound Local Map shows *"everything the Table knew when I drew it, PLUS
+everywhere I've personally walked in this disc since (while wearing the Kit)."* That is the minimal,
+lock-consistent reading of *"travelling grows the map"*:
+
+- The imprinted snapshot stays static in storage (requirement §2 honoured — handing the map to
+  another player still gives them the frozen snapshot; the live overlay is each reader's OWN
+  `m_explored`, read at render time, never persisted).
+- The bound Table survey is **NOT** auto-resynced from the field — re-syncing the shared ZDO from
+  afar is the deliberate **Use-at-the-Table** action, which already merges your fog into the Table
+  (`ContributeLocalSurvey`, runs on every Table Use before it opens the Table view). The field map
+  must not silently owner-write a distant Table's ZDO.
+- It is **structurally identical to how PINS already work**: `RebuildOverlay` (`MapViewer.cs:418-454`)
+  already unions the snapshot pins (`survey.Pins`) with the LIVE `WorldPins.CollectInDiscPins(origin,
+  radius)`. Issue 5 extends that same snapshot∪live dual-source pattern from pins to fog. One model,
+  not a new one.
+
+> **If Daniel wants a different surface to grow** (e.g. ALSO re-sync the bound Table survey live, or
+> have the field map mutate its own stored snapshot), say so on review and this section re-specs.
+> The architect's lean — and the only reading that touches no locked contract — is the live overlay
+> above.
+
+#### 2I.2 Located root cause (grounded — the §2E.1 model made it a one-layer gap)
+
+The §2E.1 render (issue 10, PR #129 `60ba21e`) split the viewer into two independent layers:
+
+| Layer | Source | Currentness |
+|---|---|---|
+| **Cartography** (biome/water/relief) | sampled live from `WorldGenerator` (or, in the shipped material-copy build, vanilla's map textures) | always fully current — deterministic from seed, independent of exploration |
+| **Shroud mask** | `SurveyData.Fog` — the lit/unlit cells | **as supplied in `_req.Survey`** |
+
+`PaintShroudMask(survey)` (`MapViewer.cs:309-340`) makes `fog[i] ? transparent : opaque-shroud`. In
+**FieldReadOnly** the `survey` is `LocalMap.ReadSurvey(map)` (`LocalMapController.OpenFullView :266`
+/ `RefreshOpenView :289`) — the **frozen imprint snapshot**. `RefreshOpenView` re-reads that SAME
+frozen blob on the 0.25 s poll, so the shroud never changes. **There is no code path feeding the
+player's live `m_explored` into the held viewer's shroud.** Therefore, even with the Kit working
+perfectly and `m_explored` growing every 2 s, the held map's shroud can never recede while walking.
+That — not a broken Kit — is the bug. The cartography layer is irrelevant to the defect (it's always
+fully drawn underneath); the shroud is the only thing gating visibility, and its only input is the
+static snapshot.
+
+**Corollary:** issue 5 is a **pure shroud-source enrichment**, riding directly on §2E.1. No
+cartography change, no `SurveyData` wire change, no Kit change.
+
+#### 2I.3 🔒 LOCKED ROUTE — OR the live personal-fog window into the FieldReadOnly shroud
+
+In **FieldReadOnly mode only**, before building the shroud mask, merge the player's live personal
+fog into a RENDER-TIME COPY of the survey fog (never mutate the stored `SurveyData`):
+
+1. **Read live personal fog.** `Minimap.instance.m_explored` via the SAME reflected-field idiom
+   `SurveyorTableTag.ReadExplored` already uses (`:463-468` — `GetField("m_explored",
+   Instance|NonPublic)`, cached `FieldInfo`). Reuse/extract that helper; do not hand-roll a second
+   reflection path. Clean-side: `m_explored` is a stable base-game field (ADR-0001).
+2. **Window it to the SAME `WindowSpec` the snapshot uses** — `BoundedMapMath.BuildWindowedFog`
+   (the fog half of `SurveyData.CaptureWindow`) keyed on the **survey's `OriginX/OriginZ`** (the
+   bound Table), `RadiusMeters`, `PixelSize`, `TextureSize` — **NOT** the player position. Under the
+   §2H.1 re-lock the held view is **TABLE-centred** (the bound origin sits at rect centre; the
+   player marker moves within the fixed window), so the live-fog window is table-anchored exactly
+   like the snapshot fog, the §2E.1 cartography, and the pins — one `WindowSpec`, aligned by
+   construction, no offset subtlety. (Do NOT re-window on the player position: that would desync the
+   live fog from the static cartography/snapshot beneath it.)
+3. **OR-merge into a copy.** `mergedFog[i] = snapshot.Fog[i] || liveWindow[i]`. Build a throwaway
+   `bool[]` (or a scratch `SurveyData` clone) for the mask; the stored snapshot is untouched
+   (requirement §2 static-snapshot lock; AT-LMAP-LIVE-5).
+4. **Disc-clip is inherited.** `BuildWindowedFog` already clips to the 1000 m disc, so live cells
+   beyond the bound disc never light up — walking OUTSIDE the disc reveals nothing on this map
+   (AT-MAP-BOUND holds; the §2H.1 edge arrow then points outward toward the player's real bearing).
+   Pins likewise stay disc-bound.
+5. **Feed `mergedFog` to `PaintShroudMask`** (and to the overlay's disc test). The always-present
+   §2E.1 cartography shows through every newly-lit cell → the map visibly fills in as you travel.
+6. **Re-evaluate every Render().** The shroud merge must recompute each `Render()` (not cache once),
+   so the live window reflects the current `m_explored`. The cadence already exists:
+   `LocalMapController` calls `RefreshOpenView` → `CartographyViewer.Refresh` → `Render()` every
+   0.25 s while a field map is open (`LocalMapController.cs:156-158`) — 4 Hz, far finer than the 2 s
+   explore interval, so the reveal is smooth and needs NO new timer. (The §2H.1 per-frame `Update`
+   drives rotation; the fog merge can ride either the 0.25 s `Refresh` or the per-frame `Update` —
+   implementer's choice; 0.25 s is sufficient and cheaper.)
+7. **Cost is trivial.** The window is ~33×33 ≈ 1089 cells; re-windowing reads only that disc
+   sub-rectangle of `m_explored`, not the whole array. Negligible at 4 Hz.
+
+**Kit gate holds by construction (AT-LMAP-LIVE-2).** The live overlay's only new cells come from
+`m_explored`, which the §3 Kit Prefix only lets grow WHILE THE KIT IS WORN. With the Kit off,
+`m_explored` does not change, so the live window contributes nothing new and the held map shows only
+the static snapshot — i.e. *"without the Kit, no passive reveal"* falls out automatically; no extra
+gate code in the viewer.
+
+**TableEdit (Surveyor's Table view) is UNCHANGED — no live overlay there.** The Table view reads the
+shared ZDO survey, and `ContributeLocalSurvey` ALREADY merges the user's live fog into it on the
+same Use that opens it — so the Table view is fresh by that path, not by a render-time overlay.
+Adding a personal-fog overlay to the shared-editing surface would muddy its shared semantics. The
+overlay is **FieldReadOnly-only**, symmetric with §2H (FieldReadOnly rotates/centres; TableEdit stays
+static north-up). Switch on the existing `MapViewerMode` flag.
+
+**`SurveyData` wire format UNCHANGED** (no ZDO contract change → placed Tables / imprinted maps don't
+orphan, AT-LMAP-LIVE-6). The live fog is a render-time read of `Minimap.m_explored`, never serialized.
+
+#### 2I.4 Investigation precondition (verify before closing — logs-green ≠ playable)
+
+The card asks to confirm the Kit actually engages under enforced nomap (the v0.2.19 Kit had a
+separate no-cost crash). This is **already addressed** — the icon-crash was fixed (§3.1 / C1
+`FallbackIcon`) and the §3 gate verified `UpdateExplore` fires under nomap — but it is the
+PRECONDITION for issue 5 being observable. Daniel verifies in one pass: craft + equip the Kit, walk,
+confirm (1) the Kit is craftable/equippable with no crash, AND (2) the held map's shroud now recedes
+along your path. If the shroud still doesn't move with a confirmed-equipped Kit, the live-fog read
+(step 1) — not the snapshot — is the suspect.
+
+#### 2I.5 Files touched + clean/dirty
+
+- **`MapViewer.cs`** — in `Render()`/`TryRenderVanillaCartography`/`PaintShroudMask`, when
+  `_req.Mode == FieldReadOnly`, build the snapshot∪live merged fog (steps 1-5) and paint the shroud
+  + run the overlay disc test from it. Extract the reflected `m_explored` read into a shared helper
+  (or reuse `SurveyorTableTag`'s). No change to TableEdit, the cartography composite, the §2H.1
+  transform/orientation, or `SurveyData`.
+- **(optional) a shared fog-read helper** — if `SurveyorTableTag.ReadExplored` is made reusable
+  (e.g. a small `static bool[]? MinimapFog.ReadExplored()` in `BoundedMapMath` or a new tiny helper),
+  both the Table contribute path and the viewer overlay read `m_explored` through one cached
+  `FieldInfo`. Keeps the reflection idiom single-sourced.
+- **Clean-side (ADR-0001):** reading `Minimap.m_explored` + windowing with `BoundedMapMath` is
+  base-game read + our own math. No decompiled IronGate source committed; no third-party mod code
+  (the reference cartography mods are NOT consulted for this — the snapshot∪live pattern is taken
+  from THIS repo's own pin overlay).
+
+#### 2I.6 Acceptance tests (named, observable — close only on Daniel's in-game check)
+
+- **AT-LMAP-LIVE-1** — With the Kit worn and a bound Local Map equipped (field view open), walking
+  visibly grows the revealed area on the held map (the shroud recedes along your path), in real time
+  as you travel.
+- **AT-LMAP-LIVE-2** — WITHOUT the Kit, walking reveals NOTHING new on the held map (the §3 gate
+  still holds; the held shroud shows only the static imprint snapshot).
+- **AT-LMAP-LIVE-3** — The reveal is bounded: walking OUTSIDE the bound Table's 1000 m disc adds
+  nothing to the map (AT-MAP-BOUND intact); the §2H.1 edge arrow still points outward toward the
+  player's real bearing.
+- **AT-LMAP-LIVE-4** — The live reveal aligns with the cartography and pins under §2H.1
+  rotate-to-heading + table-centred framing (the live-fog window is table-anchored to the same
+  `WindowSpec`); no offset/tearing between the newly-lit cells and the terrain beneath them.
+- **AT-LMAP-LIVE-5** (snapshot static-in-storage) — The imprinted snapshot is NOT mutated: re-reading
+  the same map after walking (e.g. relog, or hand it to another player) shows that player's own
+  live fog over the ORIGINAL snapshot, not your accumulated walk baked into the item. `SurveyData`
+  wire unchanged.
+- **AT-LMAP-LIVE-6** (no regression) — Table (TableEdit) view unchanged; placed Tables / imprinted
+  maps don't orphan (no wire change); the §2E.1 cartography, §2F exit, §2G open, §2H.1 orientation all
+  still behave.
+- logs-green ≠ playable — Daniel confirms in-game: Kit on + walk → the held map fills in as he
+  travels; Kit off → it doesn't.
+
+#### 2I.7 Routing
+
+- **Clean-side → `engineer-ui`** (owns `MapViewer.cs` + `LocalMapController.cs` + the whole viewer
+  cluster). This is a small, self-contained shroud-source change on top of the §2E.1 render — route
+  it to the SAME worker that holds the viewer cluster, **after** the §2E.1 CPU-composite render child
+  lands (the live overlay paints into that composite's shroud layer; sequencing it first would build
+  against a render that's being replaced).
+- **SpecCheck impact: none** (render behaviour, no recipe row). Spec + code move together in the PR.
+
 
 ## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping
 
@@ -1714,6 +1908,14 @@ together in that PR.
   accumulates; the gate makes that accumulation Kit-dependent. Confirm in-game that with no
   Kit, walking adds nothing to the personal auto-map (and therefore nothing imprintable at
   a Table); with the Kit, it accumulates normally.
+
+> **🔗 Coupling with issue 5 (§2I) — the Kit is the WRITE-gate; the held viewer is the READER.**
+> This gate controls whether `m_explored` grows while walking. Issue 5 (§2I) is the other half:
+> the held FieldReadOnly viewer must READ that growing `m_explored` (live, OR'd over the static
+> imprint snapshot) so the held map visibly fills in as you travel. The Kit working (this section,
+> AT-KIT-GATE) is the PRECONDITION for §2I being observable; §2I is what surfaces the Kit's effect
+> on the held map. No change to this gate is needed for §2I — they share one fog-write model (the
+> §3 IMPL STATUS coupling note already records this).
 
 ### 3.3 Acceptance criteria (spec §6; close only on Daniel's in-game check)
 - **AT-KIT-ICON** — On a CLIENT, selecting the Kit in the Explorer's Bench renders an icon

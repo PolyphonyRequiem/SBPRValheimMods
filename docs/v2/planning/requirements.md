@@ -166,6 +166,14 @@ no north). Three interlocking pieces:
     (NOT the screen edge): project the off-disc player position onto the 1000 m circle
     and show a direction arrow toward the bound Table. (`ClampToScreenEdge` is the
     wrong precedent — this is a map-space clamp to the disc.)
+  - **Live reveal while travelling (issue 5, 2026-06-12 — flagged for ratification).**
+    While the Cartographer's Kit is worn, walking grows what the held field map shows:
+    the player's live personal fog (the same `m_explored` the Kit gates) is revealed
+    OVER the static imprint snapshot, clipped to the bound 1000 m disc. Without the Kit,
+    no passive reveal. The imprinted snapshot itself stays static in storage (the §2
+    "as it was when drawn" lock holds — the live reveal is each reader's own walking,
+    read at view time, never baked into the item). Implementation + the snapshot∪live
+    overlay model: `cartography-impl-spec.md` §2I.
 
 ### Fog storage (the over-provisioning fix)
 - The Local Map / Table fog is a **small array windowed to the 1000 m disc at the
