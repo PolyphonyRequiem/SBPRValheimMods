@@ -107,7 +107,8 @@ namespace SBPR.Trailborne.Features.MarkerSigns
                     {
                         string markerType = zdo.GetString(MarkerSigns.ZdoMarkerType, "");
                         var def = ResolveType(markerType, m);
-                        var pin = ProjectPin(map, pos, def);
+                        string customName = zdo.GetString(MarkerSigns.ZdoPinName, "");
+                        var pin = ProjectPin(map, pos, def, customName: customName);
                         if (pin != null) Projected[id] = pin;
                     }
                 }
@@ -146,8 +147,10 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             if (Projected.ContainsKey(id)) return true; // already shown
 
             var def = MarkerSigns.ByKey(tag.MarkerType) ?? MarkerSigns.ByPrefab(tag.MarkerType);
-            // The tag carries the live sprite the server can't load — prefer it.
-            var pin = ProjectPin(map, tag.transform.position, def, tag.MarkerIcon);
+            // The tag carries the live sprite the server can't load — prefer it. The custom
+            // pin name (impl-spec §7) is read live off the tag so the fast path and the scan
+            // path resolve the SAME label via ResolveLabel (no drift).
+            var pin = ProjectPin(map, tag.transform.position, def, tag.MarkerIcon, tag.ReadPinName());
             if (pin == null) return false;
             Projected[id] = pin;
             return true;
@@ -256,7 +259,7 @@ namespace SBPR.Trailborne.Features.MarkerSigns
 
                     var def = ResolveType(zdo.GetString(MarkerSigns.ZdoMarkerType, ""), m);
                     int pinType = def != null ? (int)def.VanillaPinType : (int)Minimap.PinType.Icon0;
-                    string label = def != null ? def.PinLabel : "Marker";
+                    string label = ResolveLabel(zdo.GetString(MarkerSigns.ZdoPinName, ""), def);
                     result.Add(new Cartography.SurveyPin(label, pinType, pos, isChecked: false, ownerId: 0L));
                 }
             }
@@ -276,12 +279,13 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         /// construction. Returns the PinData, or null if it could not be created.
         /// </summary>
         private static Minimap.PinData? ProjectPin(
-            Minimap map, Vector3 pos, MarkerSigns.MarkerType? def, Sprite? overrideIcon = null)
+            Minimap map, Vector3 pos, MarkerSigns.MarkerType? def, Sprite? overrideIcon = null,
+            string customName = "")
         {
             try
             {
                 Minimap.PinType baseType = def != null ? def.VanillaPinType : Minimap.PinType.Icon0;
-                string label = def != null ? def.PinLabel : "Marker";
+                string label = ResolveLabel(customName, def);
 
                 // save:false — never persisted; isChecked:false — a fresh field pin.
                 var pin = map.AddPin(pos, baseType, label, save: false, isChecked: false);
@@ -344,6 +348,22 @@ namespace SBPR.Trailborne.Features.MarkerSigns
                 if (byKey != null) return byKey;
             }
             return scanned;
+        }
+
+        /// <summary>
+        /// The SINGLE label-resolution rule (impl-spec §7.3): prefer the per-instance custom
+        /// pin name (SBPR_PinName); fall back to the type's PinLabel when it's empty/unset;
+        /// last-ditch "Marker" if even the type def is missing. Centralized here so the two
+        /// label sites (ProjectPin for the minimap, CollectInDiscPins for the cartography
+        /// viewer) CANNOT drift — both call this. An all-whitespace name is treated as unset
+        /// (the caller trims before writing, but a pre-existing whitespace ZDO value is
+        /// defended here too) so a blank name never renders an empty pin label
+        /// (AT-MARKER-NAME-5).
+        /// </summary>
+        private static string ResolveLabel(string customName, MarkerSigns.MarkerType? def)
+        {
+            if (!string.IsNullOrWhiteSpace(customName)) return customName;
+            return def != null ? def.PinLabel : "Marker";
         }
     }
 }
