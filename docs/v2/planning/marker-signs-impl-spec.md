@@ -616,8 +616,18 @@ Notes the implementer MUST honor:
 
 ## 7. ENHANCEMENT: namable markers → custom WorldPin label (card t_62af5802)
 
-> **STATUS: SPEC-LOCKED, NOT YET BUILT** (architect spec-pass, card t_62af5802,
-> 2026-06-11). Routed to `engineer-systems`. This section ADDS a feature the M1–M3
+> **STATUS: IMPLEMENTED (card t_281813d7, engineer-systems).** The textbox in
+> `MarkerSignPanel`, the `SBPR_PinName` owner-write ZDO field + `ReadPinName`/`WritePinName`
+> accessors, the centralized `WorldPins.ResolveLabel` preferred at BOTH label sites
+> (`ProjectPin` + `CollectInDiscPins`) with the custom name threaded through the
+> `ProjectPinnedNow` fast path, and the commit-time `RemoveProjected`+`ProjectPinnedNow`
+> re-projection (Enter / focus-loss / Close / Escape, capped 32 + trimmed) are all built
+> and compile 0/0 (`TreatWarningsAsErrors` ON). The locked decisions below were built to
+> exactly. **logs-green ≠ playable**: AT-MARKER-NAME-1…6 close only on Daniel's in-game
+> check (type a name, see it on the map pin). Spec-pass authored by the architect
+> (card t_62af5802, 2026-06-11).
+>
+> This section ADDS a feature the M1–M3
 > build intentionally omitted: the marker shipped read-only with a STATIC per-type
 > pin label. Daniel's 2026-06-11 v0.2.19-playtest ask: *"the new marker signs should
 > be namable via a textbox, and that textbox should map to the name of the pin.

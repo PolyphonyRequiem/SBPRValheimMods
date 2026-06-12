@@ -34,6 +34,7 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         // ── ZDO-key string contracts (save/wire — lock here, never rename) ──────────
         public const string ZdoMarkerType   = "SBPR_MarkerType";    // string: poi/mining/shelter/portal
         public const string ZdoPinned       = "SBPR_Pinned";        // bool:   pinned on the placer's map?
+        public const string ZdoPinName      = "SBPR_PinName";       // string: player's custom pin label ("" = type fallback) — impl-spec §7
         public const string ZdoPinIconColor = "SBPR_PinIconColor";  // RESERVED (Q1 defers color)
         public const string ZdoPinTextColor = "SBPR_PinTextColor";  // RESERVED (Q1 defers color)
 

@@ -17,6 +17,12 @@ namespace SBPR.Trailborne.Features.MarkerSigns
     ///     read the type straight off the ZDO without a prefab→type map.
     ///   • SBPR_Pinned      (bool)   — is this marker currently pinned on the placer's
     ///     map? Toggled by the Shift+E gesture (wired in the gesture milestone).
+    ///   • SBPR_PinName     (string) — the player's custom name for this marker, edited in
+    ///     MarkerSignPanel and used as the WorldPin's on-map label (impl-spec §7,
+    ///     card t_62af5802). Empty/unset ("") = fall back to the type's PinLabel. Owner-
+    ///     write, the same pattern as SBPR_Pinned. 🔒 LOCKED wire contract — never rename
+    ///     (a rename orphans the custom name on every placed marker). An existing marker
+    ///     that never wrote a name reads "" and the fallback takes over (AT-MARKER-NAME-6).
     ///   • SBPR_PinIconColor (string) — RESERVED, unused in the first cut (Q1 defers per-
     ///     pin color). Reserved now so the color fast-follow needs no ZDO migration.
     ///   • SBPR_PinTextColor (string) — RESERVED, unused in the first cut. Same.
@@ -143,6 +149,29 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             if (nview == null || nview.GetZDO() == null) return false;
             if (!nview.IsOwner()) nview.ClaimOwnership();
             nview.GetZDO().Set(MarkerSigns.ZdoPinned, pinned);
+            return true;
+        }
+
+        /// <summary>Current custom pin name from the ZDO ("" on the ghost / no ZDO / unset).
+        /// Empty is the canonical "unset" sentinel; the WorldPin label-read falls back to the
+        /// type's PinLabel when this is empty (impl-spec §7.3 — AT-MARKER-NAME-5/6).</summary>
+        public string ReadPinName()
+        {
+            if (nview == null || nview.GetZDO() == null) return "";
+            return nview.GetZDO().GetString(MarkerSigns.ZdoPinName, "");
+        }
+
+        /// <summary>
+        /// Owner-write the custom pin name (the caller has already trimmed/capped it —
+        /// impl-spec §7.5). Returns false if the ZDO isn't ready (ghost / uninitialised) so
+        /// the caller can avoid acting on a non-persisted edit. Mirrors WritePinned's owner-
+        /// claim shape verbatim. A null name is coerced to "" (the unset sentinel).
+        /// </summary>
+        public bool WritePinName(string name)
+        {
+            if (nview == null || nview.GetZDO() == null) return false;
+            if (!nview.IsOwner()) nview.ClaimOwnership();
+            nview.GetZDO().Set(MarkerSigns.ZdoPinName, name ?? "");
             return true;
         }
 
