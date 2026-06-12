@@ -38,6 +38,18 @@ no north). Three interlocking pieces:
 > (t_62af5802) — no shared naming helper. Adds two locked wire keys (`SBPR_TableName`,
 > `sbpr_map_name`); no recipe-manifest change.
 
+> **BUG-FIX + ENHANCEMENT (2026-06-12, issue 6, card t_8b84ee35):** **(A)** the §2G "[E] open
+> map" intermittently stops working after imprinting at the Table or pinning a marker sign, and
+> recovers only after re-using the Table — a stale modal-open flag latches the open gate (the
+> viewer's `IsOpen` was a side bool that could desync from its canvas; root cause + fix in
+> `cartography-impl-spec.md` §2I.1/§2I.2). **(B)** imprint is **redesigned**: instead of Using the
+> Table auto-imprinting every carried map, you now **look at the Table and press the hotbar number
+> (1–8) of the Local Map slot you want to imprint** — disambiguating which map gets the survey and
+> removing the auto-imprint ambiguity that fed (A). Buildable detail + named ATs in
+> `cartography-impl-spec.md` §2I (AT-LMAP-OPEN-RELIABLE-1..3, AT-IMPRINT-HOTBAR-1..6). The §1.6.4
+> name gate and the snapshot/storage mechanism (§2A.5/§2A.6) are unchanged — only the imprint
+> *trigger* moves. No recipe-manifest change.
+
 - A Black-Forest-tier piece, placed via the **Trailblazer's Spade build menu** (never
   the Hammer — design Pillar 1).
 - **Built additively (ADR-0006)** — `new GameObject()` + `Piece`/`WearNTear`/`ZNetView`
@@ -270,6 +282,16 @@ item/gating cards layer on top.
   block); unequip → weapon+shield return clean.
 - **AT-MAP-TORCH** — map + left-hand torch coexist (lit map at night); still can't
   block or attack.
+- **AT-MAP-OPEN-RELIABLE** (issue 6) — the "[E] open map" gesture works **reliably** after
+  imprinting at a Surveyor's Table AND after pinning/unpinning a marker sign; it never enters a
+  dead-E state that only re-using the Table clears. (Root cause: a stale modal-open flag latching
+  the open gate — full detail + AT-LMAP-OPEN-RELIABLE-1..3 in
+  [`cartography-impl-spec.md §2I`](cartography-impl-spec.md).)
+- **AT-IMPRINT-HOTBAR** (issue 6) — imprint now requires **looking at the Table and pressing the
+  hotbar number (1–8) of the target Local Map slot**; only that map is imprinted, a wrong/empty/
+  non-map slot is safely refused with feedback, and Using (E) the Table no longer auto-imprints.
+  The §1.6.4 name gate is preserved. (AT-IMPRINT-HOTBAR-1..6 in
+  [`cartography-impl-spec.md §2I`](cartography-impl-spec.md).)
 - **AT-TABLE-SHARED** — multiple surveyors writing to one Table build a combined record
   of its 1000 m disc; pins/fog beyond 1000 m aren't stored.
 - **AT-TABLE-PINEDIT** — the Table view permits pin removal on shared data; the field
