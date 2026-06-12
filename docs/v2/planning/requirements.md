@@ -72,6 +72,12 @@ no north). Three interlocking pieces:
 > in the PR handoff. `[hold]` PR off `integ/v2-cartography`; **logs-green ≠ playable** — the
 > in-game pixel render + equip feel are Daniel's F9/Map-key/in-hand checks. The bullets
 > below remain the locked behavioural target.
+>
+> **⚠️ ISSUE-7 CORRECTION (2026-06-11, Daniel playtest):** the "Map-button activate path"
+> clarification above is WRONG — it assumed the playtest world is `nomap=ON`. It is
+> `nomap=OFF`, where vanilla's M-key full map is alive, so binding our viewer to "Map"
+> stacked both maps. **The equipped Local Map now opens on the Use key (E), not "Map"**
+> (`cartography-impl-spec.md` §2F). AT-MAP-EQUIP below is amended accordingly.
 
 ### Acquisition + binding
 - A craftable **item**, **blank when crafted** — carries no map data until **imprinted
@@ -238,8 +244,10 @@ item/gating cards layer on top.
 
 ## 6. Acceptance tests
 
-- **AT-MAP-EQUIP** — equip the Local Map + activate → it becomes the active minimap
-  showing ONLY its 1000 m disc.
+- **AT-MAP-EQUIP** — equip the Local Map, then press **Use (E)** → it opens the bounded
+  full view showing ONLY its 1000 m disc. (Issue-7 correction: the open input is the Use
+  key, NOT the "Map" button — binding to "Map" double-stacked vanilla's map under
+  `nomap=OFF`. See `cartography-impl-spec.md` §2F / AT-LMAP-OPEN-*.)
 - **AT-MAP-DURABLE** — binding persists while the item sits in inventory; reverts to
   no-map the instant it leaves inventory.
 - **AT-MAP-BOUND** — nothing beyond 1000 m of the bound Table ever reveals; pins beyond
