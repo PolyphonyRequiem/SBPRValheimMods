@@ -347,6 +347,21 @@ namespace SBPR.Trailborne
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapEquipPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapBootstrapPatch));
 
+            // v2 Local Map item-name display (issue 10, §2A.6b — card t_41482aa3). Two scoped
+            // postfixes substitute an imprinted map's per-instance Table name (sbpr_map_name
+            // m_customData key) for the item's displayed title, so several bound maps are
+            // distinguishable in inventory (AT-TABLENAME-3):
+            //  • LocalMapTooltipNamePatch: Postfix on the private InventoryGrid.CreateItemTooltip
+            //    — overwrites UITooltip.m_topic (the title) after the vanilla call. The seam the
+            //    player actually reads.
+            //  • LocalMapHoverNamePatch: Postfix on ItemDrop.GetHoverName — the world-drop hover.
+            // Both guard on the presence of sbpr_map_name → pure pass-through for every other
+            // item (AT-TABLENAME-7 no-orphan). Registered here so PatchCheck confirms each wove
+            // a method (AT-TABLENAME-8 — the t_564f695a unregistered-patch lesson). Client-only
+            // by nature (no inventory UI on the dedicated server); the guard makes it inert there.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapTooltipNamePatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapHoverNamePatch));
+
             // v2 Cartographer's Kit — the auto-mapping GATE (card t_65fcfe5c, impl-spec §3.2).
             // Prefix on Minimap.UpdateExplore(float, Player): no-ops the personal walking-reveal
             // fog write unless the local player wears the Cartographer's Kit in the Utility slot.

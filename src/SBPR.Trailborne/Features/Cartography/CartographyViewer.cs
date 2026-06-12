@@ -71,6 +71,12 @@ namespace SBPR.Trailborne.Features.Cartography
         public float RadiusMeters;           // hard shroud radius (1000 m)
         public MapViewerMode Mode;
         public ICartographyPinEditor? PinEditor;  // non-null only in TableEdit mode
+
+        // §2B.1 (issue 10): the on-screen title shown while the view is open — the bound
+        // Table's name. TableEdit sets the live Table name; FieldReadOnly sets the imprinted
+        // map's name (LocalMap.TryGetName). Empty/null → no title element rendered (an unnamed
+        // Table's view, or a pre-1.6 imprinted map). Mode-agnostic: one title code path.
+        public string? Title;
     }
 
     /// <summary>

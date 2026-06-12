@@ -271,6 +271,7 @@ namespace SBPR.Trailborne.Features.Cartography
             }
 
             LocalMap.TryGetBoundOrigin(map, out var origin);
+            LocalMap.TryGetName(map, out var mapName); // §2B.1: imprinted Table name → viewer title
             CartographyViewer.Open(new MapViewRequest
             {
                 Survey       = survey,
@@ -278,6 +279,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 RadiusMeters = SurveyRadiusMeters,
                 Mode         = MapViewerMode.FieldReadOnly, // field view is read-only (no pin edit)
                 PinEditor    = null,                        // structurally cannot edit pins
+                Title        = mapName,                     // §2B.1 — bound Table name as the on-screen title ("" → hidden)
             });
             Plugin.Log.LogInfo("[Trailborne/Cartography] Local Map equipped — opened bounded full view (field, read-only).");
         }
@@ -287,6 +289,7 @@ namespace SBPR.Trailborne.Features.Cartography
             var survey = LocalMap.ReadSurvey(map);
             if (survey == null) return;
             LocalMap.TryGetBoundOrigin(map, out var origin);
+            LocalMap.TryGetName(map, out var mapName); // §2B.1: keep the title stable across refreshes
             CartographyViewer.Refresh(new MapViewRequest
             {
                 Survey       = survey,
@@ -294,6 +297,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 RadiusMeters = SurveyRadiusMeters,
                 Mode         = MapViewerMode.FieldReadOnly,
                 PinEditor    = null,
+                Title        = mapName,
             });
         }
 

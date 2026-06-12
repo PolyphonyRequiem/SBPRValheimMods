@@ -123,6 +123,7 @@ namespace SBPR.Trailborne.Features.Cartography
         private RawImage? _playerMarker;    // reused player dot/arrow
         private RawImage? _tableArrow;      // §2H field-mode: arrow toward the bound Table when player is off-disc
         private Text? _exitPrompt;          // §2F: bottom-center "[Esc] Close map" (+ TableEdit pin hint)
+        private Text? _titleLabel;          // §2B.1: top-center Table-name cartouche (issue 10)
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
 
         // ── Live request state ──────────────────────────────────────────────────────────
@@ -183,6 +184,10 @@ namespace SBPR.Trailborne.Features.Cartography
             // §2F.3: mode-aware exit prompt text. FieldReadOnly shows just the close hint;
             // TableEdit also surfaces the left-click pin-removal affordance.
             UpdateExitPrompt();
+
+            // §2B.1: top-center Table-name cartouche (issue 10). Hidden when the request
+            // carries no Title (unnamed Table / pre-1.6 imprinted map).
+            UpdateTitle();
 
             // §2H: in FieldReadOnly, centre the view on the player + rotate to heading. In
             // TableEdit this is a no-op (identity rotation, zero offset) → unchanged north-up
@@ -936,6 +941,25 @@ namespace SBPR.Trailborne.Features.Cartography
             _exitPrompt.text = Localization.instance != null ? Localization.instance.Localize(raw) : raw;
         }
 
+        /// <summary>
+        /// §2B.1 (issue 10): show the bound Table's name as a top-centre cartouche while the
+        /// view is open. The title comes from _req.Title — TableEdit threads the live Table
+        /// name (SurveyorTableTag.GetTableName), FieldReadOnly the imprinted map's name
+        /// (LocalMap.TryGetName). Mode-agnostic: one code path for both. An empty/null Title
+        /// hides the label entirely (an unnamed Table's view, or a pre-1.6 imprinted map —
+        /// AT-TABLENAME-7 no-orphan). Localized so any tokens resolve; a plain place name
+        /// passes through unchanged.
+        /// </summary>
+        private void UpdateTitle()
+        {
+            if (_titleLabel == null) return;
+            string title = _req.Title ?? string.Empty;
+            bool show = !string.IsNullOrEmpty(title);
+            _titleLabel.gameObject.SetActive(show);
+            if (!show) return;
+            _titleLabel.text = Localization.instance != null ? Localization.instance.Localize(title) : title;
+        }
+
         private void EnsureCanvas()
         {
             if (_root != null) return;
@@ -1049,6 +1073,32 @@ namespace SBPR.Trailborne.Features.Cartography
             prRt.pivot = new Vector2(0.5f, 0f);
             prRt.anchoredPosition = new Vector2(0f, 40f); // bottom-centre
             prRt.sizeDelta = new Vector2(1200f, 48f);
+
+            // §2B.1 title cartouche (issue 10): a TOP-centre label parented to _root (toggles
+            // with the overlay). HARD PLACEMENT CONTRACT with the §2F exit prompt: title =
+            // TOP-centre, exit prompt = BOTTOM-centre — they never collide. Wears the same
+            // shared VanillaUISkin.Font + parchment-cream tint as the exit prompt so it reads
+            // as a map cartouche. Set per-Render from _req.Title (hidden when empty). Slightly
+            // larger + bold so it reads as a heading above the bounded map square.
+            var titleGo = new GameObject("titleLabel");
+            titleGo.transform.SetParent(_root.transform, false);
+            _titleLabel = titleGo.AddComponent<Text>();
+            _titleLabel.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            _titleLabel.fontSize = 34;
+            _titleLabel.fontStyle = FontStyle.Bold;
+            _titleLabel.alignment = TextAnchor.UpperCenter;
+            _titleLabel.color = new Color(1f, 0.95f, 0.8f, 0.97f);
+            _titleLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _titleLabel.verticalOverflow = VerticalWrapMode.Overflow;
+            _titleLabel.raycastTarget = false;
+            var tlRt = _titleLabel.rectTransform;
+            tlRt.anchorMin = new Vector2(0.5f, 1f);
+            tlRt.anchorMax = new Vector2(0.5f, 1f);
+            tlRt.pivot = new Vector2(0.5f, 1f);
+            tlRt.anchoredPosition = new Vector2(0f, -40f); // top-centre
+            tlRt.sizeDelta = new Vector2(1200f, 52f);
+            _titleLabel.gameObject.SetActive(false); // shown only when _req.Title is non-empty
 
             _root.SetActive(false);
         }
