@@ -479,32 +479,6 @@ namespace SBPR.Trailborne.Features.Cartography
             return true;
         }
 
-        /// <summary>
-        /// §2H: the anchored map-rect position of a world point WITHOUT the window-bounds
-        /// rejection that <see cref="WorldToMapRect"/> applies. The projection is linear
-        /// (cell deltas × on-screen cell size), so it extrapolates cleanly past the window
-        /// edge — needed for player-centring when the held map's player has walked beyond the
-        /// table-centred window (the table arrow then points back). Returns the same value as
-        /// WorldToMapRect for in-window points.
-        /// </summary>
-        private Vector2 WorldToMapRectUnclamped(Vector3 world, SurveyData survey)
-        {
-            if (_mapRect == null) return Vector2.zero;
-            float pixelSize = survey.PixelSize > 0f ? survey.PixelSize : 64f;
-            int textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
-            int size = survey.Size;
-
-            int cx = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, textureSize);
-            int cy = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, textureSize);
-            int px = BoundedMapMath.WorldToCellX(world.x, pixelSize, textureSize);
-            int py = BoundedMapMath.WorldToCellY(world.z, pixelSize, textureSize);
-
-            int half = (size - 1) / 2;
-            float wx = (px - cx) + half;
-            float wy = (py - cy) + half;
-            return MapRectAnchor(wx, wy, size);
-        }
-
         /// <summary>Shared core: window-cell (wx,wy) → anchored px relative to the rect's
         /// centered pivot. North = up (matches the bottom-up texture copy).</summary>
         private Vector2 MapRectAnchor(float wx, float wy, int size)
@@ -513,6 +487,36 @@ namespace SBPR.Trailborne.Features.Cartography
             float cell = edge / size;
             return new Vector2((wx + 0.5f) * cell - edge / 2f,
                                (wy + 0.5f) * cell - edge / 2f);
+        }
+
+        /// <summary>
+        /// §2H: CONTINUOUS (sub-cell) projection of a world point to anchored map-rect px,
+        /// WITHOUT the window-bounds rejection that <see cref="WorldToMapRect"/> applies and
+        /// WITHOUT per-cell integer rounding — so the player-centring offset (and the table
+        /// arrow's bearing) move SMOOTHLY as the player walks, instead of jumping a whole cell
+        /// (64 m → ~27 px) at a time, and extrapolate cleanly when the player is far from the
+        /// table (beyond the table-centred window). The fractional cell index mirrors vanilla
+        /// WorldToPixel's pre-round value (world/pixelSize + textureSize/2). Pins keep the
+        /// cell-snapped <see cref="WorldToMapRect"/> projection (they annotate discrete fog
+        /// cells); only the player-centring + arrow use this.
+        /// </summary>
+        private Vector2 WorldToMapRectContinuous(Vector3 world, SurveyData survey)
+        {
+            if (_mapRect == null) return Vector2.zero;
+            float pixelSize = survey.PixelSize > 0f ? survey.PixelSize : 64f;
+            int textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
+            int size = survey.Size;
+
+            // Fractional cell index (no Math.Round — the smooth analogue of WorldToCellX/Y).
+            float fcx = survey.OriginX / pixelSize + textureSize / 2f;
+            float fcy = survey.OriginZ / pixelSize + textureSize / 2f;
+            float fpx = world.x / pixelSize + textureSize / 2f;
+            float fpy = world.z / pixelSize + textureSize / 2f;
+
+            float half = (size - 1) / 2f;
+            float wx = (fpx - fcx) + half;
+            float wy = (fpy - fcy) + half;
+            return MapRectAnchor(wx, wy, size);
         }
 
         // ── Overlay element construction ─────────────────────────────────────────────────
@@ -674,10 +678,10 @@ namespace SBPR.Trailborne.Features.Cartography
             if (player == null) return;
 
             // 1) Player-centring offset: shift the map so the player's projected anchor lands
-            //    at the container origin. The projection is unclamped (the player may be far
-            //    from the table → beyond the window), so it extrapolates linearly.
+            //    at the container origin. CONTINUOUS projection (sub-cell) so the map scrolls
+            //    smoothly as the player walks, rather than jumping a whole 64 m cell at a time.
             Vector3 ppos = player.transform.position;
-            Vector2 playerAnchor = WorldToMapRectUnclamped(ppos, survey);
+            Vector2 playerAnchor = WorldToMapRectContinuous(ppos, survey);
             _mapRect.anchoredPosition = -playerAnchor;
 
             // 2) Heading rotation. Camera yaw is the member vanilla's own marker reads
@@ -738,9 +742,10 @@ namespace SBPR.Trailborne.Features.Cartography
             if (_tableArrow == null) return;
 
             // Direction player→table in the UNROTATED map-pixel frame (the container rotation
-            // is applied by the parent, so we work pre-rotation here).
-            Vector2 playerAnchor = WorldToMapRectUnclamped(playerPos, survey);
-            Vector2 tableAnchor  = WorldToMapRectUnclamped(origin, survey);
+            // is applied by the parent, so we work pre-rotation here). Continuous projection so
+            // the bearing tracks smoothly with player movement.
+            Vector2 playerAnchor = WorldToMapRectContinuous(playerPos, survey);
+            Vector2 tableAnchor  = WorldToMapRectContinuous(origin, survey);
             Vector2 toTable = tableAnchor - playerAnchor;
             if (toTable.sqrMagnitude < 1e-4f) { _tableArrow.gameObject.SetActive(false); return; }
             Vector2 dir = toTable.normalized;
