@@ -38,6 +38,20 @@ namespace SBPR.Trailborne.Features.Signs
         // the Marker Sign reference panel (v2, card t_0c7b782d) — OR the forked bounded map
         // VIEWER (v2 cartography, card t_cb831069). All are full-screen uGUI surfaces that
         // must block character/camera input and free the cursor identically.
+        //
+        // §2I.2 (issue 6, Part A — LIVENESS INVARIANT, belt-and-suspenders): EVERY contributor
+        // below MUST derive from its panel's LIVE GameObject state (`_root.activeSelf` / the
+        // canvas), never a standalone bool that can outlive its surface. A side-bool that latches
+        // `true` after the panel is gone keeps AnyOpen latched, which silently kills the §2G
+        // E-to-open gate (CanOpenOnUse early-outs on AnyOpen) until something re-opens the stuck
+        // surface — the exact "dead-E until you re-use the Table" defect. The three contributors
+        // already satisfy this:
+        //   • SignPaintPanel.IsOpen            → `_instance._root.activeSelf` (un-latchable)
+        //   • MarkerSignPanel.IsOpen           → `_instance._root.activeSelf` (un-latchable)
+        //   • CartographyViewer.IsViewerOpen   → MapViewer.IsOpen => `_root.activeSelf` (§2I.1 —
+        //     converted from the old `_open` side-bool that COULD latch; that was the root cause).
+        // If you add a fourth contributor, it MUST follow the same activeSelf/liveness discipline —
+        // do NOT feed AnyOpen from a bool you flip by hand.
         internal static bool AnyOpen =>
             SignPaintPanel.IsOpen
             || MarkerSignPanel.IsOpen

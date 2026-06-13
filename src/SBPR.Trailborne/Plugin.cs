@@ -414,6 +414,17 @@ namespace SBPR.Trailborne
             // BannerDiagCommand). Registered here so the PatchCheck watchdog sees it woven.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.MapModeCommand));
 
+            // §2I.3 (issue 6, Part B) — Surveyor's Table imprint trigger. Harmony PREFIX on
+            // Player.UseHotbarItem(int): while the local player is hovering a named Surveyor's
+            // Table, pressing a hotbar number (1-8) imprints THAT slot's Local Map with the
+            // Table's survey (SurveyorTableTag.TryImprintSlot) and consumes the press so the map
+            // isn't also equipped/used. Replaces the retired auto-imprint-on-Use. Off-Table,
+            // hotbar keys behave exactly as vanilla (the prefix returns true). Client-only:
+            // Player.m_localPlayer is null on the dedicated server → pure pass-through. MUST be
+            // registered here or it ships dead and PatchCheck ERRORs at boot (the t_564f695a
+            // unregistered-patch lesson).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.SurveyorTableHotbarImprintPatch));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be

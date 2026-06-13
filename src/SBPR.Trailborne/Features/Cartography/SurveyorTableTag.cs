@@ -120,9 +120,14 @@ namespace SBPR.Trailborne.Features.Cartography
                     "\n[<color=yellow><b>$KEY_Use</b></color>] Name this table");
 
             // [Use] contributes the local survey + opens the (shared, editable) Table view.
+            // The [1-8] line advertises the §2I.3 imprint gesture (look at the Table + press the
+            // hotbar number of the Local Map slot to imprint). Plain English with literal bracketed
+            // digits — NOT a $KEY_* token: the hotbar keys are vanilla Hotbar1..8, not a single
+            // rebindable Trailborne action, so there is no one keybind token to localize.
             return Localize(
                 GetHoverName() +
-                "\n[<color=yellow><b>$KEY_Use</b></color>] Survey here / review the shared map");
+                "\n[<color=yellow><b>$KEY_Use</b></color>] Survey here / review the shared map" +
+                "\n[<color=yellow><b>1-8</b></color>] Imprint that Local Map");
         }
 
         // ── Interactable ──────────────────────────────────────────────────────────────
@@ -151,24 +156,27 @@ namespace SBPR.Trailborne.Features.Cartography
 
             // 1b) NAME GATE (§1.6.4, issue 10): a Table MUST be named before it will bind/
             //     imprint maps. Using an UNNAMED Table launches the vanilla rename dialog
-            //     (§1.6.3) instead of imprinting or opening the viewer — so imprint NEVER
-            //     happens while the name is empty (the hard requirement). This matches the
-            //     unnamed hover affordance ("[Use] Name this table", §1.6.2). Once named, a
-            //     subsequent Use imprints + opens the viewer normally. (Implementer choice,
-            //     spec-sanctioned: we always prompt-to-name an unnamed Table on Use, rather
-            //     than only when a map is carried — it keeps the §1.6.2 hover literally true.
-            //     ImprintCarriedLocalMaps also hard-guards on the empty name as a backstop.)
+            //     (§1.6.3) instead of opening the viewer — and the §2I.3 hotbar-imprint gesture
+            //     is independently name-gated in TryImprintSlot — so imprint NEVER happens while
+            //     the name is empty (the hard requirement). This matches the unnamed hover
+            //     affordance ("[Use] Name this table", §1.6.2). Once named, a subsequent Use
+            //     opens the viewer normally (imprint is the separate hotbar gesture, §2I.4).
+            //     (Implementer choice, spec-sanctioned: we always prompt-to-name an unnamed Table
+            //     on Use — it keeps the §1.6.2 hover literally true. TryImprintSlot ALSO hard-
+            //     guards on the empty name as the per-slot backstop.)
             if (string.IsNullOrEmpty(GetTableName()))
             {
                 RequestRename(user);
                 return true;
             }
 
-            // 1c) IMPRINT (§2A.5/§2A.6): the Table is named — snapshot THIS Table's shared
-            //     survey + bound-origin onto every carried Local Map, AND stamp the Table's
-            //     name onto the item (sbpr_map_name) so its inventory title bears the name.
-            //     Done after contribute so the imprint includes what this player just added.
-            ImprintCarriedLocalMaps(user);
+            // 1c) IMPRINT MOVED OFF THE USE PATH (§2I.4, issue 6). Imprint no longer rides Use —
+            //     it is now the explicit "hover the Table + press the target map's hotbar number"
+            //     gesture (SurveyorTableHotbarImprintPatch → TryImprintSlot), which imprints THAT
+            //     ONE map instead of every carried map. Using (E) a named Table still contributes
+            //     the survey (above) + opens the viewer (below), but does NOT imprint anything
+            //     (AT-IMPRINT-HOTBAR-4). ImprintCarriedLocalMaps is retired; its per-map core is
+            //     reused one-slot-at-a-time by TryImprintSlot.
 
             // 2) OPEN the forked viewer on the SHARED data in pin-removal Table mode (D4),
             //    threading the Table name as the on-screen title (§2B.1). The render is the
@@ -328,51 +336,94 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// Imprint every blank/old Local Map the surveyor carries with a SNAPSHOT of THIS
-        /// Table's shared survey + its bound-origin world coord (§2A.5 — a snapshot, not a
-        /// live link), AND stamp the Table's NAME onto the item (§2A.6 — sbpr_map_name) so
-        /// its inventory title bears the name. Imprints ALL carried Local Maps so a player
-        /// can stock several. No-ops silently if the player carries none, the Table has no
-        /// survey yet, OR the Table is unnamed (§1.6.4 hard backstop — even a future caller
-        /// can't produce a nameless bind). Ward access is already gated by the caller (Interact).
+        /// §2I.4 (issue 6, Part B): imprint ONE carried Local Map — the item in the hotbar
+        /// slot the player pressed while hovering this Table — with a SNAPSHOT of THIS Table's
+        /// shared survey + bound-origin + name (§2A.5/§2A.6, mechanism unchanged). Replaces the
+        /// retired Use-path <c>ImprintCarriedLocalMaps</c> (which imprinted ALL carried maps at
+        /// once and rode the Use press — the auto-imprint ambiguity that fed the Part A latch).
+        ///
+        /// Called only by <see cref="SurveyorTableHotbarImprintPatch"/>, which has already gated
+        /// "local player" + "hovering this Table". Every reached path returns <c>true</c>
+        /// (HANDLED) so the caller consumes the hotbar press: while looking at a Table the hotbar
+        /// keys ARE the imprint gesture, so the slot item is never also used/equipped by vanilla
+        /// (AT-IMPRINT-HOTBAR-2). Each refusal still gives Center-message feedback — no silent
+        /// no-op. Returns <c>false</c> only if there is no local player (defensive; the caller
+        /// won't reach here on a dedicated server).
+        ///
+        /// Refusals (each a Center message): no ward access → vanilla <c>$piece_noaccess</c>;
+        /// unnamed Table → "Name this table before binding maps" (the §1.6.4 bind gate, now
+        /// enforced per-slot); empty / non-Local-Map slot → "Hold a Local Map in that slot to
+        /// imprint it"; nothing surveyed yet → "This table has nothing surveyed yet". Success →
+        /// "Local Map imprinted: &lt;table name&gt;".
         /// </summary>
-        private void ImprintCarriedLocalMaps(Humanoid user)
+        public bool TryImprintSlot(ItemDrop.ItemData? item)
         {
-            var player = user as Player;
-            var inv = player != null ? player.GetInventory() : null;
-            if (inv == null) return;
+            var user = Player.m_localPlayer;
+            if (user == null) return false; // no local player (dedicated server) — let vanilla run
+            if (nview == null || !nview.IsValid()) return false;
 
-            // §1.6.4 HARD BACKSTOP: never imprint while the Table name is empty. The Interact
-            // path already diverts an unnamed Table to the rename dialog, but this guard makes
-            // a nameless bind structurally impossible regardless of caller.
+            // Ward RE-CHECK — never trust the gesture/UI to have gated (the hover text is
+            // advisory). flash:true so a denied player sees the ward shield flash (vanilla parity).
+            if (!PrivateArea.CheckAccess(transform.position))
+            {
+                user.Message(MessageHud.MessageType.Center, "$piece_noaccess");
+                return true;
+            }
+
+            // §1.6.4 NAME GATE (hard, unchanged): never bind/imprint while the Table name is
+            // empty. Previously a backstop inside ImprintCarriedLocalMaps; now the per-slot gate.
             string tableName = GetTableName();
             if (string.IsNullOrEmpty(tableName))
-                return;
+            {
+                user.Message(MessageHud.MessageType.Center, "Name this table before binding maps");
+                return true;
+            }
 
+            // The pressed slot must hold one of OUR Local Maps (blank or already imprinted).
+            // An empty slot resolves to null upstream (Inventory.GetItemAt) → same refusal.
+            if (!IsLocalMap(item))
+            {
+                user.Message(MessageHud.MessageType.Center, "Hold a Local Map in that slot to imprint it");
+                return true;
+            }
+
+            // The Table must actually have something surveyed to imprint.
             var shared = ReadSharedSurvey();
             if (shared == null || shared.IsEmpty)
-                return; // nothing surveyed here yet — leave carried maps blank
-
-            int imprinted = 0;
-            foreach (var it in inv.GetAllItems())
             {
-                if (it?.m_dropPrefab == null) continue;
-                bool isMap = it.m_dropPrefab.GetComponent<LocalMapItemTag>() != null
-                             || it.m_dropPrefab.name == LocalMap.LocalMapName;
-                if (!isMap) continue;
-
-                if (LocalMap.Imprint(it, shared, transform.position, tableName))
-                    imprinted++;
+                user.Message(MessageHud.MessageType.Center, "This table has nothing surveyed yet");
+                return true;
             }
 
-            if (imprinted > 0)
+            // Success — snapshot THIS Table's survey + bound-origin + name onto the one map
+            // (§2A.5/§2A.6 — identical Imprint call the retired all-maps path used).
+            if (LocalMap.Imprint(item!, shared, transform.position, tableName))
             {
-                user.Message(MessageHud.MessageType.Center,
-                    imprinted == 1 ? "Local Map imprinted" : $"{imprinted} Local Maps imprinted");
+                user.Message(MessageHud.MessageType.Center, $"Local Map imprinted: {tableName}");
                 Plugin.Log.LogInfo(
-                    $"[Trailborne/Cartography] Imprinted {imprinted} Local Map(s) @({transform.position.x:F0},{transform.position.z:F0}) " +
-                    $"| survey window {shared.Size}x{shared.Size} | pins={shared.Pins.Count}.");
+                    $"[Trailborne/Cartography] Local Map imprinted @({transform.position.x:F0},{transform.position.z:F0}) " +
+                    $"| table '{tableName}' | survey window {shared.Size}x{shared.Size} | pins={shared.Pins.Count}.");
             }
+            else
+            {
+                // LocalMap.Imprint already logged the serialize failure; surface it rather than
+                // swallow, and still consume the press (we're in the imprint gesture context).
+                user.Message(MessageHud.MessageType.Center, "Could not imprint that Local Map");
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// True if the item is one of OUR Local Maps — a component tag on its drop prefab, or the
+        /// locked prefab name (rename-proof). Mirrors LocalMapController.IsLocalMap /
+        /// LocalMapEquipPatch.IsLocalMap (the same idiom; each cartography class keeps its own
+        /// 3-line copy rather than introducing a shared util for one predicate).
+        /// </summary>
+        private static bool IsLocalMap(ItemDrop.ItemData? item)
+        {
+            if (item?.m_dropPrefab == null) return false;
+            return item.m_dropPrefab.GetComponent<LocalMapItemTag>() != null
+                   || item.m_dropPrefab.name == LocalMap.LocalMapName;
         }
 
         /// <summary>

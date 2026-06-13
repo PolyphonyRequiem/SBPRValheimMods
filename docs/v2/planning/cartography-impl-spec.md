@@ -2090,6 +2090,27 @@ along your path. If the shroud still doesn't move with a confirmed-equipped Kit,
 > `Inventory.GetItemAt`, `Player.GetHoverObject`) — verified against the `assembly_valheim` decomp.
 > **SpecCheck/recipe manifest impact: none** (input + interaction behaviour, no recipe rows).
 
+> **✅ IMPL STATUS (2026-06-12, card t_5b070785, engineer-ui).** BUILT on branch
+> `feat/eopen-reliable-hotbar-imprint-t_5b070785` off `v1` (after the viewer-cluster PR #139
+> landed — the MapViewer.cs collision this card's SEQUENCING warned about is resolved). Build
+> 0 errors / 0 warnings. One PR, both parts (they share MapViewer.cs / SurveyorTableTag.cs).
+> **Part A** — `MapViewer.IsOpen` is now `_root != null && _root.activeSelf` (§2I.2 mechanism
+> (i)); the `_open` side-bool is DELETED and `Open`/`Refresh`/`Close`/`Update`/`RefreshIfOpen`
+> re-gate on the canvas. `SignPanelInputBlock.AnyOpen` documents the §2I.2 liveness invariant
+> (mechanism (ii)) — all three contributors now derive from live `activeSelf`, so none can latch
+> the §2G E-open gate. No watchdog/timer added; the §2G modal-suppress is untouched. **Part B** —
+> new `SurveyorTableHotbarImprintPatch` (Harmony prefix on `Player.UseHotbarItem(int)`, Type[]
+> overload-pinned, registered in `Plugin.Awake` before `PatchCheck.Run` → PatchCheck-verified):
+> local-player + hovered-`SurveyorTableTag` gate → `GetItemAt(index-1,0)` → `TryImprintSlot`,
+> `return !handled` consumes a handled press. `SurveyorTableTag.Interact` no longer imprints (the
+> `ImprintCarriedLocalMaps` call is removed; the method is retired); new
+> `TryImprintSlot(ItemDrop.ItemData?)` reuses the name/ward/empty-survey backstops one slot at a
+> time with the §2I.4 Center-message refusals; the named-Table `GetHoverText` gains the
+> `[1-8] Imprint that Local Map` line. **Verified: build 0/0 + DLL contains the new type + the
+> patch is registered.** NOT yet verified in-game — the §2I.6 acceptance tests
+> (AT-LMAP-OPEN-RELIABLE-1..3, AT-IMPRINT-HOTBAR-1..6) are Daniel's playtest gate (logs-green ≠
+> playable); in particular Part A reliability and Part B refusal feedback need a live client.
+
 **What Daniel reported (verbatim):** *"issue 6: for some reason, the 'press E to open the map'
 stopped working. Either after copying from the map station, or after pinning a marker sign.
 Seemed to start working again after using the table again. We should make copy to a map require
