@@ -53,6 +53,15 @@ legendary Viking *sólarsteinn* ("sunstone") used to find the sun through overca
 the solar-charge fiction a concrete, lore-true anchor: the item literally holds a shard of
 sun-finding crystal.
 
+- 🟢 **Sunstone is a standalone RESOURCE, not just "the detector's material" (Daniel, 2026-06-13).**
+  Sunstone is its own new Swamp resource with a real source/drop economy (see Sourcing below), and
+  is **expected to have more than one use** in practice — the monster-detection accessory is its
+  **first consumer**, not its sole reason to exist. Spec it as a general material (its own
+  ItemDrop / resource entry, its own SpecCheck manifest row when it ships) that the detector
+  recipe *consumes*, so future items (other Swamp-tier crafts) can draw on the same resource
+  without re-deriving it. Do NOT bake Sunstone's definition *into* the detector — keep the
+  material and the consumer separate. Candidate future uses are open (don't pre-lock); the point
+  is the architecture must not assume single-use.
 - 🔴 **Sunstone is NET-NEW mod fiction — there is NO "Sunstone" in vanilla Valheim** (verified
   vs the full wiki corpus, 0 hits). We are AUTHORING this material. It is not a reskin of an
   existing item. (Closest vanilla cousin in spirit is Crystal — a Mountain material — but
