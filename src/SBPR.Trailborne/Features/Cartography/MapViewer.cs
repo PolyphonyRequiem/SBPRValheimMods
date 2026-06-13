@@ -70,33 +70,51 @@ namespace SBPR.Trailborne.Features.Cartography
         // so a small window (33×33) reads big and a (future) larger window still fits.
         private const int   MaxFullViewPx   = 900;  // target on-screen square edge (full view)
         private const float PinIconPx       = 22f;  // pin marker size on screen
+        private const float PinLabelFontPx  = 14f;   // §2K: pin label text size (annotation scale)
         private const float PlayerMarkerPx  = 26f;
 
-        // ── §2H free-rotate (held Local Map / FieldReadOnly only) ─────────────────────
-        // The held map free-rotates with the player's heading (forward = up), is centred on
-        // the PLAYER (not the bound Table), and pins a static square marker at dead centre
-        // (§2H P2 "player-centred minimap"). The Surveyor's Table (TableEdit) view is
-        // unaffected — it stays north-up + table-centred (§2H "Table view").
+        // ── §2H.1 orientation model — fixed-window, TABLE-centred, circular, rotate-to-heading ──
+        // The held Local Map (FieldReadOnly) is a FIXED-WINDOW, TABLE-centred, CIRCULAR,
+        // rotate-to-heading minimap (Daniel-locked, card t_05e702ee, 2026-06-12):
+        //   • TABLE-centred, no pan: the 1000 m window is static on the bound Table's survey
+        //     origin and does NOT slide to follow the player (resolves #4).
+        //   • Player marker at its TRUE table-relative position; HIDDEN + an outward edge arrow
+        //     shown when the player leaves the disc (resolves #3).
+        //   • CIRCULAR with a FIXED bezel/frame that never rotates — only the interior content
+        //     (cartography + shroud + pins + marker) rotates, clipped to a fixed disc (#9 + #2).
+        //   • Rotates to heading about the TABLE pivot. A player away from the table sees their
+        //     marker ORBIT screen centre — intended (the table is the pivot, not the player).
+        //   • NO north reference of any kind (Daniel: disorientation is the design; the future
+        //     swamp Iron Compass is the earned orientation tool). No north-up mode/toggle.
         //
-        // 🔴 BUILD-CALIBRATED SIGN (§2H bullet 2). The exact rotation sense + whether
-        // camera-yaw or body-yaw reads better cannot be confirmed on a headless build worker
-        // (no GPU, no live camera) — the same discipline that locked m_pixelSize in the
-        // UI-fork spike. Vanilla rotates its NORTH-UP marker by -cameraYaw
-        // (UpdatePlayerMarker: m_smallMarker.rotation = Euler(0,0,-eulerAngles.y)); rotating
-        // the MAP so forward = up is the opposite sense, so the first guess is +cameraYaw.
-        // If the map turns the wrong way in-game, flip this one constant to -1f. This is the
-        // single calibration knob Daniel's playtest tunes (Option A, 2026-06-11).
+        // The Surveyor's Table (TableEdit) view ALSO rotates-to-heading (issue #1, Daniel-locked
+        // 2026-06-12, starbright-engineering comment): a north-locked table view was a free North
+        // reference, which defeats the no-North pillar. Both views rotate; neither has a North
+        // indicator. The table view stays table-centred + square (fuller extent for pin-editing
+        // visibility); only its rotation changes vs. the pre-§2H.1 north-up lock.
+        //
+        // 🔴 BUILD-CALIBRATED SIGN (§2H.1 b4). The rotation sense + camera-vs-body-yaw source
+        // can't be confirmed on a headless build worker (no GPU, no live camera). Vanilla rotates
+        // its NORTH-UP marker by -cameraYaw; rotating the MAP so forward = up is the opposite
+        // sense, so the first guess is +cameraYaw. If the map turns the wrong way in-game, flip
+        // this one constant to -1f. It is the single calibration knob; there is NO other flag and
+        // NO north-up alternative to expose (Daniel reversed that — disorientation is intended).
         private const float MapRotationSign = 1f;
 
-        // ── §2E vanilla-cartography render constants ──────────────────────────────────
-        // Shader uniform names on vanilla's map material (Minimap.Start :46916-46919,
-        // CenterMap :47506-47514 — decomp-verified). We reuse a COPY of that material.
-        private const string MainTexProp   = "_MainTex";   // RGB24 biome base color
-        private const string FogTexProp    = "_FogTex";    // R8G8 explored(R)/shared(G) mask
-        private const string ZoomProp      = "_zoom";
-        private const string PixelSizeProp = "_pixelSize"; // SHADER uniform (= 200f/zoom), NOT m_pixelSize
-        private const string MapCenterProp = "_mapCenter"; // world-space view centre
-        private const string SharedFadeProp = "_SharedFade";
+        // Circular clip radius as a fraction of the map square's pixel side. The visible disc is
+        // the inscribed circle of the square cartography texture (the bounding box of the 1000 m
+        // disc), which is invariant under rotation about centre — so rotating never uncovers an
+        // empty corner (the four corner triangles are shroud-opaque and clipped away anyway).
+        private const float DiscClipFraction = 0.5f;
+
+        // ── §2E.1 CPU-composite render (issue 10) ─────────────────────────────────────
+        // The cartography is composited on the CPU by CartographyComposer from PUBLIC
+        // WorldGenerator data (biome + height) — NOT by driving vanilla's GPU map shader.
+        // The deleted §2E path (a COPY of Minimap.m_mapImageLarge.material + _mapCenter/
+        // _pixelSize/_zoom/_FogTex uniforms + uvRect framing) depended on that shader
+        // compositing correctly on our detached quad, which could not be verified headless
+        // and shipped blind → the v0.2.22 "flat land + shroud" failure. The CPU composite
+        // needs no GPU and is byte-identical to the §2E.2 preview harness.
 
         // Palette — our own dark-Norse shroud (clean-room; no vanilla sprite copy).
         // CParchment/CShroud are the 2-color FALLBACK palette (graceful degradation, §2E);
@@ -110,18 +128,19 @@ namespace SBPR.Trailborne.Features.Cartography
         // ── UI refs ───────────────────────────────────────────────────────────────────
         private GameObject? _root;          // the whole overlay (toggled active)
         private Canvas? _canvas;
-        private RectTransform? _mapContainer; // §2H: rotates by heading in FieldReadOnly (identity in TableEdit)
-        private RawImage? _mapImage;        // the CARTOGRAPHY layer (vanilla map material copy; 2-color fallback)
+        private RectTransform? _frame;      // §2H.1: FIXED, screen-aligned circular clip+bezel (NEVER rotates)
+        private RectTransform? _mapContainer; // §2H.1: the rotating INTERIOR (rotates to heading in both modes)
+        private RawImage? _mapImage;        // the CARTOGRAPHY layer (CPU composite; 2-color fallback)
         private RawImage? _shroudImage;     // the disc+survey shroud mask layered OVER the cartography
         private RectTransform? _mapRect;    // the map square (pins/markers parent to this)
         private GameObject? _overlayLayer;  // pins + player marker + edge arrow live here
-        private GameObject? _staticOverlay;  // §2H: never-rotated layer hosting the centred player marker
+        private RawImage? _bezel;           // §2H.1: fixed circular frame ring drawn over the disc edge
         private Texture2D? _tex;            // fallback 2-color fog texture
         private Texture2D? _shroudTex;      // the alpha shroud-mask texture (lit→clear, shroud→opaque)
-        private Texture2D? _revealTex;      // 1×1 force-explored override for the copy's _FogTex
-        private Material?  _mapMaterial;    // INSTANTIATED COPY of vanilla's map material (never vanilla's live one)
+        private Texture2D? _cartoTex;       // §2E.1: the CPU-composited cartography (biome+water+relief)
+        private Material?  _shaderMat;      // §2E.3: instantiated COPY of vanilla's styled map material (parchment mode)
+        private Texture2D? _bezelTex;       // §2H.1: the circular bezel ring texture (built once)
         private RawImage? _playerMarker;    // reused player dot/arrow
-        private RawImage? _tableArrow;      // §2H field-mode: arrow toward the bound Table when player is off-disc
         private Text? _exitPrompt;          // §2F: bottom-center "[Esc] Close map" (+ TableEdit pin hint)
         private Text? _titleLabel;          // §2B.1: top-center Table-name cartouche (issue 10)
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
@@ -156,7 +175,7 @@ namespace SBPR.Trailborne.Features.Cartography
             _open = false;
         }
 
-        // ── Render: §2E vanilla-cartography (material copy) + shroud mask + overlay ───────
+        // ── Render: §2E.1 CPU-composite cartography + shroud mask + overlay ───────────────
 
         private void Render()
         {
@@ -169,13 +188,26 @@ namespace SBPR.Trailborne.Features.Cartography
 
             LayoutMapRect(survey.Size);
 
-            // §2E LOCKED ROUTE: render the SAME cartography as the vanilla map by reusing a
-            // COPY of vanilla's map material (biome/height/forest/water live in its shader +
-            // four bound textures), framed to the bound origin's disc, with OUR fog window as
-            // the shroud mask on top. Falls back to the legacy 2-color paint if the material
-            // can't be obtained (e.g. Minimap not yet generated). PaintFog is retained as the
-            // mandatory graceful-degradation path (§2E "Graceful degradation").
-            bool carto = TryRenderVanillaCartography(survey);
+            // §2E.1 LOCKED ROUTE: composite the cartography on the CPU from PUBLIC, deterministic
+            // WorldGenerator data (biome + height → biome color + water tone + relief), framed to
+            // the bound origin's disc, with OUR fog window as the shroud mask on top. No GPU shader,
+            // no Minimap-material copy. Falls back to the legacy 2-color paint if WorldGenerator
+            // isn't initialized yet (pre-join). PaintFog is retained as the mandatory
+            // graceful-degradation path (§2E.1 bullet 7).
+            // §2E.3 TWO-MODE RENDER (Daniel picks in-client via `sbpr_mapmode`):
+            //   • Shader  → reuse a COPY of vanilla's STYLED map material (the parchment look:
+            //               paper + cloud/haze + fog feathering live in that GPU shader, NOT in
+            //               the data). Silently falls back to the CPU composite if the styled
+            //               material/textures aren't generated (headless build box, or pre-join).
+            //   • Cpu     → §2E.1 composite from public WorldGenerator data (biome+water+relief).
+            //               Always renders, but no parchment styling.
+            // PaintFog remains the final 2-color graceful-degradation backstop. Shader is the
+            // default so the first look is the parchment attempt (auto-fallback if unavailable).
+            bool carto = false;
+            if (MapRenderModeState.Current == MapRenderMode.Shader)
+                carto = TryRenderVanillaShader(survey);
+            if (!carto)
+                carto = TryComposeCartography(survey);
             if (!carto)
                 PaintFog(survey); // graceful degradation → the old explored/shroud two-color fill
 
@@ -189,114 +221,269 @@ namespace SBPR.Trailborne.Features.Cartography
             // carries no Title (unnamed Table / pre-1.6 imprinted map).
             UpdateTitle();
 
-            // §2H: in FieldReadOnly, centre the view on the player + rotate to heading. In
-            // TableEdit this is a no-op (identity rotation, zero offset) → unchanged north-up
-            // table-centred view. Applied on every Render AND every frame from Update() (so
-            // rotation tracks heading at frame rate, not the 0.25 s survey refresh — §2H b6).
+            // §2H.1: the held map (FieldReadOnly) is CIRCULAR with the fixed bezel; the table
+            // view (TableEdit) keeps its fuller SQUARE extent for pin-editing visibility, so the
+            // bezel/corner-mask is hidden there. Toggle per Render by mode.
+            UpdateFrameForMode();
+
+            // §2H.1: in both modes, rotate the interior to heading (table-centred, no pan). In
+            // TableEdit this also rotates now (issue #1). Applied on every Render AND every frame
+            // from Update() (so rotation tracks heading at frame rate, not the 0.25 s refresh).
             ApplyFieldOrientation(survey);
         }
 
         /// <summary>
-        /// §2E primary render. Instantiate a COPY of vanilla's map material
-        /// (<c>Minimap.instance.m_mapImageLarge.material</c>), which carries the four bound
-        /// cartography textures (_MainTex biome / _MaskTex forest+water / _HeightTex relief /
-        /// _FogTex explored) + the compositing shader. Drive the copy's _mapCenter / _zoom /
-        /// _pixelSize + the RawImage.uvRect to frame the bound origin's disc at our single
-        /// fixed scale, then overlay OUR survey fog as the shroud mask. We never touch
-        /// vanilla's live material or roots → nomap stays in force (AT-TABLEMAP-6).
+        /// §2E.1 primary render. Composite the cartography on the CPU from PUBLIC,
+        /// deterministic <c>WorldGenerator</c> data (biome + height), using the SAME
+        /// pure <see cref="CartographyComposer"/> the headless preview harness runs, so
+        /// in-game and preview are byte-identical (§2E.2). For each cell of the bound
+        /// window we sample biome color (vanilla GetPixelColor table), water tone
+        /// (<c>height &lt; 30 m</c>), and a hillshade relief, bake into <see cref="_cartoTex"/>
+        /// once, and show it on the cartography <see cref="_mapImage"/>. OUR survey fog is
+        /// then overlaid as the shroud mask. We call WorldGenerator sampling ONLY — never
+        /// <c>Minimap.SetMapMode</c>, never the map roots, never <c>Game.m_noMap</c> —
+        /// so nomap stays in force (AT-RENDER-NOMAP-INTACT).
         ///
-        /// Returns false (→ caller falls back to PaintFog) if the vanilla material/textures
-        /// aren't available yet. The exact uvRect↔_mapCenter/_pixelSize sampling is a GPU
-        /// shader behavior that can't be confirmed from the C# decomp — the calibration
-        /// constants below are decomp-derived (vanilla CenterMap :47506-47514 + WorldToMapPoint
-        /// :47977) and MUST be verified/tuned in-client per §2E's mandatory micro-spike.
+        /// Returns false (→ caller falls back to PaintFog) only if <c>WorldGenerator.instance</c>
+        /// isn't initialized yet (shouldn't happen post-join, but guarded — §2E.1 bullet 7).
         /// </summary>
-        private bool TryRenderVanillaCartography(SurveyData survey)
+        private bool TryComposeCartography(SurveyData survey)
         {
-            // Graceful degradation guards (§2E): no Minimap singleton, no large map image, or
-            // generation hasn't run yet (no _MainTex) → bail to the 2-color fallback.
+            // Graceful degradation guard (§2E.1 bullet 7): no worldgen yet → 2-color fallback.
+            var sampler = WorldGeneratorSampler.Live;
+            if (sampler == null)
+                return false;
+
+            float pixelSize   = survey.PixelSize > 0f ? survey.PixelSize : 64f;   // world m per source cell
+            int   textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
+            int   size        = survey.Size;
+
+            // The cartography window is the SAME WindowSpec the fog + pins were built from
+            // (BoundedMapMath) → cartography, shroud mask, and pin overlay share ONE window
+            // definition and align cell-for-cell by construction. Rebuild it from the survey's
+            // stored origin/radius so a re-imprinted map re-derives the identical grid.
+            float radius = _req.RadiusMeters > 0f ? _req.RadiusMeters : survey.RadiusMeters;
+            var window = BoundedMapMath.ComputeWindow(survey.OriginX, survey.OriginZ,
+                                                      radius, pixelSize, textureSize);
+
+            // Defensive: the survey's fog window Size and the freshly-computed window Size must
+            // agree (they derive from the same origin/radius/grid). If a legacy survey carries a
+            // mismatched Size, fall back rather than paint a misaligned composite.
+            if (window.Size != size)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/Cartography] MapViewer: composer window size {window.Size} != survey size {size}; " +
+                    "falling back to 2-color paint (legacy/mismatched survey).");
+                return false;
+            }
+
+            // Composite on the CPU. Palette comes from the live Minimap colors (inherits a
+            // game-patch recolor) or the vanilla literals if Minimap isn't up yet. ~33²=1089
+            // cells → trivial; baked ONCE here (per Render, not per frame).
+            CartographyPalette palette;
+            try { palette = CartographyPalette.FromMinimap(); }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: palette read failed ({e.Message}); using vanilla literals.");
+                palette = CartographyPalette.Vanilla;
+            }
+
+            Color32[] pixels;
+            try
+            {
+                pixels = CartographyComposer.Compose(sampler, palette, window, pixelSize, textureSize);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: CPU composite failed ({e.Message}); falling back to 2-color paint.");
+                return false;
+            }
+
+            // Upload into our cached cartography texture (Point filter = crisp cells at fixed
+            // zoom, AT-MAP-FIXEDZOOM; bottom-up rows = north-up, matching PaintFog + the shroud).
+            if (_cartoTex == null || _cartoTex.width != size)
+            {
+                if (_cartoTex != null) UnityEngine.Object.Destroy(_cartoTex);
+                _cartoTex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false)
+                {
+                    name = "SBPR_Cartography",
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Point,
+                };
+            }
+            _cartoTex.SetPixels32(pixels);
+            _cartoTex.Apply(updateMipmaps: false);
+
+            if (_mapImage != null)
+            {
+                _mapImage.material = null;                  // no shader — we draw our own pixels
+                _mapImage.texture  = _cartoTex;
+                _mapImage.uvRect   = new Rect(0f, 0f, 1f, 1f);
+                _mapImage.color    = Color.white;
+            }
+
+            // Shroud mask = OUR survey fog (explored-AND-in-disc), opaque everywhere else.
+            // Layered over the cartography at the same rect → the disc is the natural edge
+            // (no boxy frame) and beyond-radius reads as shroud (AT-TABLEMAP-2). Same window.
+            PaintShroudMask(survey);
+
+            return true;
+        }
+
+        /// <summary>
+        /// §2E.3 SHADER render — the parchment look. Reuse a COPY of vanilla's STYLED large-map
+        /// material (<c>Minimap.instance.m_mapImageLarge.material</c>), which carries the four
+        /// bound cartography textures (<c>_MainTex</c> biome / <c>_MaskTex</c> forest / <c>_HeightTex</c>
+        /// relief / <c>_FogTex</c> fog) AND the display shader that composites the paper texture,
+        /// cloud/haze, and fog feathering — i.e. the actual vanilla map LOOK. Drive the copy's
+        /// <c>_mapCenter</c>/<c>_zoom</c>/<c>_pixelSize</c> + the RawImage <c>uvRect</c> in LOCKSTEP
+        /// (vanilla <c>CenterMap</c>, Minimap.cs:1004-1034) to frame the bound origin's 1000&#160;m
+        /// disc at our fixed scale. OUR survey fog is then overlaid as the hard 1000&#160;m shroud
+        /// mask on top (vanilla's native <c>_FogTex</c> haze stays inside the disc — Daniel's
+        /// "keep vanilla haze, hard cutoff past 1000&#160;m" lean; tunable later).
+        ///
+        /// <para>We instantiate a COPY and never mutate vanilla's live material or its roots, so
+        /// nomap stays in force (AT-RENDER-NOMAP-INTACT). Returns <c>false</c> → caller falls back
+        /// to the CPU composite when the styled material/textures aren't generated: that happens on
+        /// a headless / GPU-less client (vanilla gates the bake on
+        /// <c>graphicsDeviceType != Null</c>, Minimap.cs:552) or pre-join. The blank-render bug the
+        /// ORIGINAL attempt (§2E, v0.2.22) hit was a uvRect↔uniform double-transform; this copies
+        /// CenterMap's lockstep exactly to avoid it.</para>
+        /// </summary>
+        private bool TryRenderVanillaShader(SurveyData survey)
+        {
             var mm = Minimap.instance;
             if (mm == null || mm.m_mapImageLarge == null || mm.m_mapImageLarge.material == null)
                 return false;
 
-            float pixelSize  = survey.PixelSize > 0f ? survey.PixelSize : 64f;   // world m per source cell
-            int   textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
-            Vector3 origin   = _req.BoundOrigin;
+            Material liveMat = mm.m_mapImageLarge.material;
 
-            // 1) Instantiate (once) a COPY of the vanilla map material. The copy inherits the
-            //    four texture bindings by reference (Minimap.Start :46916-46919) + the shader.
-            if (_mapMaterial == null)
+            // The styled material only carries a generated _MainTex on a GPU client that has run
+            // GenerateWorldMap (Minimap.cs:552 gates it on graphicsDeviceType != Null). No main
+            // texture → nothing to draw → fall back to the CPU composite cleanly.
+            Texture? mainTex = liveMat.GetTexture("_MainTex");
+            if (mainTex == null)
+                return false;
+
+            // Instantiate ONE persistent COPY of the styled material (inherits the 4 texture
+            // bindings + the shader by reference). Never touch vanilla's live material/roots.
+            if (_shaderMat == null)
             {
                 try
                 {
-                    _mapMaterial = UnityEngine.Object.Instantiate(mm.m_mapImageLarge.material);
-                    _mapMaterial.name = "SBPR_BoundedMapMaterial(Clone)";
+                    _shaderMat = UnityEngine.Object.Instantiate(liveMat);
+                    _shaderMat.name = "SBPR_BoundedMapMaterial(Clone)";
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: could not copy vanilla map material ({e.Message}); falling back to 2-color paint.");
-                    _mapMaterial = null;
+                    Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: could not copy vanilla map material ({e.Message}); falling back to CPU composite.");
+                    _shaderMat = null;
                     return false;
                 }
             }
 
-            // The cartography main texture must be valid for the RawImage to draw; if the
-            // vanilla map hasn't generated it yet, fall back rather than render blank (§2E).
-            var mainTex = _mapMaterial.GetTexture(MainTexProp);
-            if (mainTex == null)
-                return false;
+            float pixelSize   = survey.PixelSize > 0f ? survey.PixelSize : 64f;   // world m per source cell
+            int   textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
+            int   size        = survey.Size;
+            Vector3 origin    = _req.BoundOrigin;
 
-            // 2) Override the copy's _FogTex with a reveal-all (1×1 white R=G=1) texture so the
-            //    cartography shows for the WHOLE framed window — vanilla's live _FogTex reflects
-            //    the local player's real-time exploration, NOT our survey. OUR survey shroud is
-            //    applied as a separate mask in step 4 (§2E bullet 3: shroud = our fog, not _FogTex).
-            EnsureRevealTexture();
-            if (_revealTex != null) _mapMaterial.SetTexture(FogTexProp, _revealTex);
-            _mapMaterial.SetFloat(SharedFadeProp, 1f); // show shared/full cartography, no fade
-
-            // 3) Frame EXACTLY the fog window at our single fixed scale. The window is the
-            //    same WindowSpec the fog + pins were built from (BoundedMapMath): cells
-            //    [cx-CellRadius .. cx+CellRadius], Size = 2*CellRadius+1. Framing the cartography
-            //    to the identical window means cartography, shroud mask, and pin overlay all
-            //    share ONE window definition → aligned by construction. The 1000 m disc sits
-            //    inside this slightly-over-provisioned window (e.g. 33 cells × 64 m = 2112 m for
-            //    a 2000 m disc), so a thin shroud ring frames the disc naturally (no boxy border).
-            //
-            //    uvRect is normalized over the full world texture. A source cell index c maps to
-            //    uv = c / textureSize (vanilla WorldToMapPoint :47977: mx = x/pixelSize +
-            //    textureSize/2 = cell index, then /textureSize). zoom = window uv span = Size/
-            //    textureSize (vanilla CenterMap: uvRect.width = zoom; _pixelSize = 200f/zoom).
-            int size = survey.Size;
-            int cx = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, textureSize);
-            int cy = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, textureSize);
-            float zoom = Mathf.Clamp((float)size / textureSize, 0.001f, 1f); // normalized uv span of the window
-            // uv centre = the window's centre cell (+0.5 → cell centre) / textureSize.
-            float mcx = (cx + 0.5f) / textureSize;
-            float mcy = (cy + 0.5f) / textureSize;
+            // Framing — vanilla CenterMap lockstep (Minimap.cs:1004-1034). WorldToMapPoint
+            // (Minimap.cs:1496-1501): mx = p.x/pixelSize + textureSize/2 (texture-pixel units),
+            // then /textureSize → 0..1 uv. The window's uv span (zoom) = our cell count /
+            // textureSize. uvRect.center, _mapCenter, _pixelSize, and _zoom MUST all be set
+            // consistently or the shader samples the wrong region → blank (the §2E bug).
+            float mx = origin.x / pixelSize + textureSize / 2f;
+            float my = origin.z / pixelSize + textureSize / 2f;
+            float uvCx = mx / textureSize;
+            float uvCy = my / textureSize;
+            float zoom = Mathf.Clamp((float)size / textureSize, 0.0001f, 1f); // uv span of our window
 
             if (_mapImage != null)
             {
-                _mapImage.material = _mapMaterial;
-                _mapImage.texture  = mainTex;                       // valid main texture for the RawImage
+                _mapImage.material = _shaderMat;
+                _mapImage.texture  = mainTex;           // a valid main texture so the RawImage draws
                 _mapImage.color    = Color.white;
-                var uv = new Rect { width = zoom, height = zoom };
-                uv.center = new Vector2(mcx, mcy);
+                var uv = _mapImage.uvRect;
+                uv.width  = zoom;
+                uv.height = zoom;
+                uv.center = new Vector2(uvCx, uvCy);
                 _mapImage.uvRect = uv;
             }
 
-            // Drive the shader uniforms on OUR copy (vanilla CenterMap :47506-47514). _mapCenter
-            // is the bound origin (world); _pixelSize = 200/zoom and _zoom = zoom mirror vanilla.
-            _mapMaterial.SetFloat(ZoomProp, zoom);
-            _mapMaterial.SetFloat(PixelSizeProp, 200f / Mathf.Max(zoom, 0.0001f));
-            _mapMaterial.SetVector(MapCenterProp, new Vector4(origin.x, origin.z, 0f, 0f));
+            // Drive the shader uniforms on OUR copy in lockstep with the uvRect above
+            // (vanilla CenterMap :1024-1027). _pixelSize is the SHADER uniform (200/zoom), NOT the
+            // world pixelSize; _mapCenter is the bound origin in world space.
+            _shaderMat.SetFloat("_zoom", zoom);
+            _shaderMat.SetFloat("_pixelSize", 200f / Mathf.Max(zoom, 1e-4f));
+            _shaderMat.SetVector("_mapCenter", new Vector4(origin.x, origin.z, 0f, 0f));
 
-            // 4) Shroud mask = OUR survey fog (explored-AND-in-disc), opaque everywhere else.
-            //    Layered as a second RawImage exactly over the cartography rect, so the disc is
-            //    the natural edge (no boxy frame — AT-ISSUE1-BORDER) and beyond-radius reads as
-            //    shroud (AT-TABLEMAP-2). Aligned to the same WindowSpec the fog was built from.
+            // OUR hard 1000 m shroud mask on top (same window as the fog/pins). Vanilla's native
+            // _FogTex haze stays live inside the disc (left as-is in the copied material).
             PaintShroudMask(survey);
 
             return true;
+        }
+
+        /// <summary>
+        /// §2E.3: re-render the currently-open viewer in place (used by the <c>sbpr_mapmode</c>
+        /// console command so a mode switch is visible without reopening the map). Returns
+        /// <c>true</c> if the viewer was open and got redrawn.
+        /// </summary>
+        public bool RefreshIfOpen()
+        {
+            if (!_open) return false;
+            Render();
+            return true;
+        }
+
+        /// <summary>
+        /// §2H.1 b3: build (once) the FIXED circular bezel texture — a transparent disc interior
+        /// out to <paramref name="discFrac"/> of the half-edge, a bronze ring band at that
+        /// radius, and an OPAQUE shroud-tone fill in the corners beyond it. The bezel RawImage is
+        /// sized larger than the map square (×√2), so the opaque corners fully cover the rotating
+        /// interior's square corners — the held map reads as a stable circle, never a spinning
+        /// square (the #2 + #9 fix), regardless of the interior's heading.
+        /// </summary>
+        private Texture2D EnsureBezelTexture(float discFrac)
+        {
+            if (_bezelTex != null) return _bezelTex;
+
+            const int N = 512;
+            _bezelTex = new Texture2D(N, N, TextureFormat.RGBA32, mipChain: false)
+            {
+                name = "SBPR_Bezel",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            float half = N / 2f;
+            float discR = half * Mathf.Clamp01(discFrac); // disc edge in texture px
+            float ringInner = discR * 0.98f;              // ring band
+            float ringOuter = discR;
+            var ringColor = new Color(0.62f, 0.55f, 0.42f, 1f);     // muted bronze frame
+            var cornerShroud = new Color(0.04f, 0.035f, 0.03f, 1f); // opaque shroud-tone corners
+
+            var px = new Color32[N * N];
+            for (int y = 0; y < N; y++)
+            {
+                for (int x = 0; x < N; x++)
+                {
+                    float dx = x + 0.5f - half;
+                    float dy = y + 0.5f - half;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    Color c;
+                    if (d <= ringInner)
+                        c = new Color(0f, 0f, 0f, 0f);   // transparent → cartography shows through
+                    else if (d <= ringOuter)
+                        c = ringColor;                    // the bezel ring band
+                    else
+                        c = cornerShroud;                 // opaque frame, covers the rotating corners
+                    px[y * N + x] = (Color32)c;
+                }
+            }
+            _bezelTex.SetPixels32(px);
+            _bezelTex.Apply(updateMipmaps: false);
+            return _bezelTex;
         }
 
         /// <summary>
@@ -339,31 +526,14 @@ namespace SBPR.Trailborne.Features.Cartography
             }
         }
 
-        /// <summary>A 1×1 R=G=1 texture bound as _FogTex on the copy to force "fully explored"
-        /// for the framed window (we shroud with our OWN fog mask instead — §2E bullet 3).</summary>
-        private void EnsureRevealTexture()
-        {
-            if (_revealTex != null) return;
-            _revealTex = new Texture2D(1, 1, TextureFormat.RGBA32, mipChain: false)
-            {
-                name = "SBPR_RevealFog",
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Point,
-            };
-            // R = personal-explored, G = shared-explored (Minimap.Explore :1555-1566 writes R/G).
-            _revealTex.SetPixels32(new[] { new Color32(255, 255, 0, 255) });
-            _revealTex.Apply(updateMipmaps: false);
-        }
-
         /// <summary>
-        /// FALLBACK render (§2E graceful degradation). Paint the Size×Size bool fog window into
+        /// FALLBACK render (§2E.1 graceful degradation). Paint the Size×Size bool fog window into
         /// our own RGBA32 two-color texture. Used only when the vanilla map material/textures
         /// are unavailable (Minimap not generated yet). Retained per §2E ("Keep PaintFog").
         /// </summary>
         private void PaintFog(SurveyData survey)
         {
-            // Detach the cartography material so the fallback two-color texture is what shows.
-            if (_mapImage != null) _mapImage.material = null;
+            // Detach the cartography composite so the fallback two-color texture is what shows.
             if (_shroudImage != null) _shroudImage.gameObject.SetActive(false);
 
             int size = survey.Size;
@@ -495,15 +665,14 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// §2H: CONTINUOUS (sub-cell) projection of a world point to anchored map-rect px,
+        /// §2H.1: CONTINUOUS (sub-cell) projection of a world point to anchored map-rect px,
         /// WITHOUT the window-bounds rejection that <see cref="WorldToMapRect"/> applies and
-        /// WITHOUT per-cell integer rounding — so the player-centring offset (and the table
-        /// arrow's bearing) move SMOOTHLY as the player walks, instead of jumping a whole cell
-        /// (64 m → ~27 px) at a time, and extrapolate cleanly when the player is far from the
-        /// table (beyond the table-centred window). The fractional cell index mirrors vanilla
-        /// WorldToPixel's pre-round value (world/pixelSize + textureSize/2). Pins keep the
-        /// cell-snapped <see cref="WorldToMapRect"/> projection (they annotate discrete fog
-        /// cells); only the player-centring + arrow use this.
+        /// WITHOUT per-cell integer rounding — so the in-disc player marker travels SMOOTHLY as
+        /// the player walks, instead of jumping a whole cell (64 m → ~27 px) at a time. The
+        /// fractional cell index mirrors vanilla WorldToPixel's pre-round value
+        /// (world/pixelSize + textureSize/2). Pins keep the cell-snapped
+        /// <see cref="WorldToMapRect"/> projection (they annotate discrete fog cells); only the
+        /// in-disc player marker uses this.
         /// </summary>
         private Vector2 WorldToMapRectContinuous(Vector3 world, SurveyData survey)
         {
@@ -545,6 +714,38 @@ namespace SBPR.Trailborne.Features.Cartography
             rt.sizeDelta = new Vector2(PinIconPx, PinIconPx);
             rt.anchoredPosition = anchored;
             _pinObjects.Add(go);
+
+            // §2K (issue #11): render the pin's resolved label as a Text CHILD of the pin go.
+            // Because §2H.1's CounterRotatePins rotates the whole pin GameObject upright, a child
+            // label inherits the upright-cancel, position, and ClearPinObjects lifecycle for
+            // free — no new rotation code, CounterRotatePins is untouched. ResolveLabel already
+            // fell back to the type label upstream, so a non-blank Name renders that; a genuinely
+            // empty Name renders no label (no empty box). raycastTarget off so it never eats the
+            // TableEdit pin-removal click.
+            if (!string.IsNullOrWhiteSpace(pin.Name))
+            {
+                var labelGo = new GameObject("pinLabel");
+                labelGo.transform.SetParent(go.transform, false);   // child of the pin → rides + counter-rotates with it
+                var txt = labelGo.AddComponent<Text>();
+                txt.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                           ?? Resources.GetBuiltinResource<Font>("Arial.ttf");   // SAME font as §2B.1 title / §2F exit prompt
+                txt.fontSize = (int)PinLabelFontPx;                  // annotation scale, below the 26/34 prompt/title
+                txt.alignment = TextAnchor.UpperCenter;              // sits centred BELOW the icon
+                txt.color = new Color(1f, 0.95f, 0.8f, 0.97f);       // parchment-cream, matches title/exit prompt
+                txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+                txt.verticalOverflow = VerticalWrapMode.Overflow;
+                txt.raycastTarget = false;                           // never eat the TableEdit left-click-remove ray
+                txt.text = pin.Name;
+                var lrt = txt.rectTransform;
+                lrt.anchorMin = lrt.anchorMax = new Vector2(0.5f, 0.5f);
+                lrt.pivot = new Vector2(0.5f, 1f);                   // top-centre pivot → grows downward
+                lrt.anchoredPosition = new Vector2(0f, -(PinIconPx * 0.5f + 2f)); // just under the icon
+                lrt.sizeDelta = new Vector2(160f, 20f);
+                // Legibility over the §2E.1 composite (Outline precedent: MarkerSignPanel).
+                var outline = labelGo.AddComponent<Outline>();
+                outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
+                outline.effectDistance = new Vector2(1.5f, -1.5f);
+            }
         }
 
         /// <summary>
@@ -571,47 +772,28 @@ namespace SBPR.Trailborne.Features.Cartography
 
         // ── Player marker / edge arrow ───────────────────────────────────────────────────
 
+        /// <summary>
+        /// §2H.1: the player marker rides the rotating interior at its TRUE table-relative
+        /// position (M1). Inside the disc it is the in-disc dot; OUTSIDE the disc the dot is
+        /// HIDDEN and a single edge arrow, clamped to the disc edge, points OUTWARD toward the
+        /// player's real bearing (resolves #3 — the marker never renders beyond the disc). This
+        /// is one behaviour for BOTH modes now: the held map and the table view are both
+        /// table-centred, so the marker math is identical (the table view simply doesn't rotate
+        /// the interior when the player stands at the table ≈ centre — handled in
+        /// ApplyFieldOrientation, not here).
+        /// </summary>
         private void UpdatePlayerMarker(SurveyData survey, Vector3 origin, float radius)
         {
-            // §2H: the held Local Map (FieldReadOnly) is player-centred — the marker is a
-            // STATIC square at dead centre on the never-rotated static overlay, and the world
-            // rotates underneath it (Daniel-locked: no facing indicator). The Surveyor's Table
-            // (TableEdit) keeps the original table-centred behaviour: the marker rides the
-            // (un-rotated, un-offset) overlay at the player's projected offset from the table,
-            // edge-clamped to the disc when the player is outside it.
-            if (_req.Mode == MapViewerMode.FieldReadOnly)
-            {
-                UpdatePlayerMarkerFieldCentred();
-                return;
-            }
             UpdatePlayerMarkerTableCentred(survey, origin, radius);
         }
 
         /// <summary>
-        /// §2H FieldReadOnly: player marker is a static featureless square at dead centre of
-        /// the static (never-rotated) overlay. Forward = up is carried by the rotating world
-        /// beneath it (AT-LMAP-ROT-2). No edge arrow here — the off-disc indicator points at
-        /// the TABLE and rides the rotating overlay (UpdateTableArrow), per §2H bullet 5.
-        /// </summary>
-        private void UpdatePlayerMarkerFieldCentred()
-        {
-            EnsurePlayerMarker(staticLayer: true);
-            if (_playerMarker == null) return;
-            var player = Player.m_localPlayer;
-            if (player == null) { _playerMarker.gameObject.SetActive(false); return; }
-
-            _playerMarker.gameObject.SetActive(true);
-            var rt = _playerMarker.rectTransform;
-            rt.anchoredPosition = Vector2.zero;          // dead centre
-            rt.localRotation = Quaternion.identity;       // static square, no facing (Daniel)
-            rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
-            _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f);
-        }
-
-        /// <summary>
-        /// Original TableEdit player marker / edge arrow (unchanged behaviour). The marker
-        /// shows at its real map position when inside the disc, or — when outside — as a
-        /// direction arrow polar-clamped to the shroud radius (AT-MAP-EDGEARROW).
+        /// Table-centred player marker / edge arrow (§2H.1, resolves #3). The marker sits at the
+        /// player's real offset from the bound table and travels as the player walks. Inside the
+        /// 1000 m disc it is the in-disc dot; outside, the in-disc dot is HIDDEN and the marker
+        /// becomes an outward edge arrow polar-clamped to the disc radius (AT-LMAP-TC-2 /
+        /// AT-MAP-EDGEARROW). It lives on the rotating overlay, so its position rides the heading
+        /// rotation; its icon is counter-rotated upright by CounterRotatePins.
         /// </summary>
         private void UpdatePlayerMarkerTableCentred(SurveyData survey, Vector3 origin, float radius)
         {
@@ -619,7 +801,7 @@ namespace SBPR.Trailborne.Features.Cartography
             var player = Player.m_localPlayer;
             if (player == null) { if (_playerMarker != null) _playerMarker.gameObject.SetActive(false); return; }
 
-            EnsurePlayerMarker(staticLayer: false);
+            EnsurePlayerMarker();
             if (_playerMarker == null) return;
             _playerMarker.gameObject.SetActive(true);
 
@@ -627,93 +809,93 @@ namespace SBPR.Trailborne.Features.Cartography
             BoundedMapMath.EdgeClampToDisc(ppos.x, ppos.z, origin.x, origin.z, radius,
                 out float cx, out float cz, out float angleDeg, out bool outside, out _);
 
-            // Project the (clamped if outside) point onto the map rect.
-            var projected = new Vector3(cx, 0f, cz);
-            if (!WorldToMapRect(projected, survey, out Vector2 anchored))
-            {
-                // Off-grid even after clamp (shouldn't happen — clamp keeps it on the disc,
-                // which the window fully contains): hide rather than draw garbage.
-                _playerMarker.gameObject.SetActive(false);
-                return;
-            }
-
             var rt = _playerMarker.rectTransform;
-            rt.anchoredPosition = anchored;
             rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
 
             if (outside)
             {
-                // Edge arrow: point FROM the clamped disc point toward... the player is OUT,
-                // so the arrow points outward along the bearing (toward the player's real
-                // position) — i.e. "they're that way past the shroud". angleDeg is the bearing
-                // origin→player (0°=+X/east, CCW). Map +Y = north(+Z), so screen rotation =
-                // angleDeg measured from +X. Tint it distinctly so it reads as "off-map".
+                // OUTSIDE the disc: hide the in-disc dot semantics and show the edge arrow just
+                // INSIDE the disc edge, pointing OUTWARD along the bearing toward the player's
+                // real position ("they're that way, past the shroud"). We pull the arrow a few %
+                // inside the disc radius so it sits in the bezel's transparent interior, not under
+                // the fixed ring band. The clamped point sits on the disc, which the window fully
+                // contains, so the projection always succeeds.
+                float inset = 0.94f; // fraction of the disc radius → just inside the bezel ring
+                float ax = origin.x + (cx - origin.x) * inset;
+                float az = origin.z + (cz - origin.z) * inset;
+                var clamped = new Vector3(ax, 0f, az);
+                if (!WorldToMapRect(clamped, survey, out Vector2 edgeAnchored))
+                {
+                    _playerMarker.gameObject.SetActive(false);
+                    return;
+                }
+                rt.anchoredPosition = edgeAnchored;
                 rt.localRotation = Quaternion.Euler(0, 0, angleDeg);
                 _playerMarker.color = new Color(1f, 0.5f, 0.2f, 1f); // off-disc arrow
             }
             else
             {
+                // INSIDE: the in-disc dot at the player's true projected position. Use the
+                // CONTINUOUS (sub-cell) projection so the marker travels smoothly as the player
+                // walks (M1), rather than jumping a whole 64 m cell at a time.
+                rt.anchoredPosition = WorldToMapRectContinuous(ppos, survey);
                 rt.localRotation = Quaternion.identity;
                 _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f); // in-disc dot
             }
         }
 
         /// <summary>
-        /// §2H bullet 1+2: drive the FieldReadOnly view's player-centring offset + heading
-        /// rotation each frame. The cartography/shroud/pins ride <see cref="_mapRect"/> inside
-        /// <see cref="_mapContainer"/>; offsetting the map by -playerAnchor puts the PLAYER at
-        /// the container origin (= screen centre = rotation pivot), and rotating the container
-        /// by the camera yaw turns the world so forward = up. TableEdit resets both to identity
-        /// (north-up, table-centred) so its view is byte-for-byte the pre-§2H behaviour.
-        /// Per §2H bullet 6 this runs at frame rate (from Update), not the 0.25 s refresh.
+        /// §2H.1: show the fixed circular bezel/corner-mask ONLY in FieldReadOnly (the held map
+        /// is a circle). In TableEdit the bezel is hidden so the Surveyor's Table keeps its fuller
+        /// SQUARE extent for pin-editing visibility (a circular clip would hide edge pins you are
+        /// trying to manage). Both modes still rotate-to-heading; only the framing differs.
+        /// </summary>
+        private void UpdateFrameForMode()
+        {
+            if (_bezel == null) return;
+            bool circular = _req.Mode == MapViewerMode.FieldReadOnly;
+            _bezel.gameObject.SetActive(circular);
+        }
+
+        /// <summary>
+        /// §2H.1 b1/b3/b4: drive the rotating INTERIOR each frame. The interior (cartography +
+        /// shroud + pins + marker, all under <see cref="_mapContainer"/>) is TABLE-centred (no
+        /// player-pan) and rotates to heading about the table = screen centre; the fixed circular
+        /// frame/bezel (<see cref="_frame"/>) NEVER rotates. BOTH modes rotate-to-heading now
+        /// (issue #1 fold-in): a north-locked table view was a free North reference and is gone.
+        /// Per §2H.1 this runs at frame rate (from Update), not the 0.25 s refresh.
         /// </summary>
         private void ApplyFieldOrientation(SurveyData survey)
         {
             if (_mapContainer == null || _mapRect == null) return;
 
-            if (_req.Mode != MapViewerMode.FieldReadOnly)
-            {
-                // Table view: no rotation, no player-centring offset (unchanged).
-                _mapContainer.localRotation = Quaternion.identity;
-                _mapRect.anchoredPosition = Vector2.zero;
-                return;
-            }
+            // TABLE-centred in both modes: the window is static on the bound origin — NO
+            // player-centring pan (resolves #4). _mapRect stays at zero offset; the bound
+            // table sits at screen centre by construction (§2B/§2E put BoundOrigin at centre).
+            _mapRect.anchoredPosition = Vector2.zero;
 
-            var player = Player.m_localPlayer;
-            if (player == null) return;
-
-            // 1) Player-centring offset: shift the map so the player's projected anchor lands
-            //    at the container origin. CONTINUOUS projection (sub-cell) so the map scrolls
-            //    smoothly as the player walks, rather than jumping a whole 64 m cell at a time.
-            Vector3 ppos = player.transform.position;
-            Vector2 playerAnchor = WorldToMapRectContinuous(ppos, survey);
-            _mapRect.anchoredPosition = -playerAnchor;
-
-            // 2) Heading rotation. Camera yaw is the member vanilla's own marker reads
-            //    (UpdatePlayerMarker: Utils.GetMainCamera().transform.rotation). If the camera
-            //    isn't up yet, keep the last orientation rather than throw/blank (§2H "Graceful
-            //    degradation"). The rotation SENSE is build-calibrated (MapRotationSign).
+            // Heading rotation. Camera yaw is the member vanilla's own marker reads
+            // (Utils.GetMainCamera().transform.rotation). If the camera isn't up yet, keep the
+            // last orientation rather than throw/blank (graceful degradation). The rotation
+            // SENSE is the single build-calibration knob (MapRotationSign). Both FieldReadOnly
+            // and TableEdit rotate (issue #1 — no north-up lock anywhere).
             var cam = Utils.GetMainCamera();
             if (cam == null) return;
             float camYaw = cam.transform.eulerAngles.y;
             float rotZ = MapRotationSign * camYaw;
             _mapContainer.localRotation = Quaternion.Euler(0f, 0f, rotZ);
 
-            // 3) Pins ride the rotation for POSITION (they're under the container), but
-            //    counter-rotate each icon so it stays screen-upright (§2H bullet 4 / AT-LMAP-ROT-3).
+            // Pins (and the player marker) ride the rotation for POSITION; counter-rotate each
+            // pin icon so it stays screen-upright (§2H.1 b5 / AT-LMAP-TC-3). The pin LABELS
+            // (§2K) are children of the pin GameObjects, so they inherit this counter-rotation.
             CounterRotatePins(rotZ);
-
-            // 4) Off-disc indicator: when the player is outside the 1000 m disc the TABLE is
-            //    the off-screen target — show an arrow toward it at the view edge (§2H b5 /
-            //    AT-LMAP-ROT-4). Lives under the rotating container, so its bearing composes
-            //    with the container rotation automatically.
-            UpdateTableArrow(survey, ppos);
         }
 
-        /// <summary>§2H bullet 4: keep pin icons upright while the map rotates. Each pin rides
-        /// the rotating container for POSITION; setting its own localRotation to the negative
-        /// of the container's Z cancels the spin so the icon never goes upside-down. A no-op
-        /// (identity) in TableEdit where rotZ is 0.</summary>
+        /// <summary>§2H.1 b5: keep pin icons upright while the interior rotates. Each pin rides
+        /// the rotating container for POSITION; setting its own localRotation to the negative of
+        /// the container's Z cancels the spin so the icon (and its child §2K label) never goes
+        /// upside-down. A no-op (identity) when the interior isn't rotated (player standing at
+        /// the table in TableEdit ≈ 0 yaw is still a real rotation; this always tracks it).</summary>
         private void CounterRotatePins(float containerZ)
         {
             var counter = Quaternion.Euler(0f, 0f, -containerZ);
@@ -721,66 +903,9 @@ namespace SBPR.Trailborne.Features.Cartography
                 if (go != null) go.transform.localRotation = counter;
         }
 
-        /// <summary>
-        /// §2H bullet 5 (FieldReadOnly): when the player is outside the bound 1000 m disc, the
-        /// player sits at screen-centre and the bound Table is off-view — show a direction
-        /// arrow at the view edge pointing toward the Table. Built lazily under the rotating
-        /// container so the bearing composes with the heading rotation (AT-LMAP-ROT-4). Hidden
-        /// when the player is inside the disc.
-        /// </summary>
-        private void UpdateTableArrow(SurveyData survey, Vector3 playerPos)
+        private void EnsurePlayerMarker()
         {
-            if (_mapContainer == null || _mapRect == null) return;
-
-            Vector3 origin = _req.BoundOrigin;
-            float radius = _req.RadiusMeters > 0f ? _req.RadiusMeters : survey.RadiusMeters;
-            float dx = playerPos.x - origin.x, dz = playerPos.z - origin.z;
-            bool outside = (dx * dx + dz * dz) > radius * radius;
-
-            if (!outside)
-            {
-                if (_tableArrow != null) _tableArrow.gameObject.SetActive(false);
-                return;
-            }
-
-            EnsureTableArrow();
-            if (_tableArrow == null) return;
-
-            // Direction player→table in the UNROTATED map-pixel frame (the container rotation
-            // is applied by the parent, so we work pre-rotation here). Continuous projection so
-            // the bearing tracks smoothly with player movement.
-            Vector2 playerAnchor = WorldToMapRectContinuous(playerPos, survey);
-            Vector2 tableAnchor  = WorldToMapRectContinuous(origin, survey);
-            Vector2 toTable = tableAnchor - playerAnchor;
-            if (toTable.sqrMagnitude < 1e-4f) { _tableArrow.gameObject.SetActive(false); return; }
-            Vector2 dir = toTable.normalized;
-
-            // Clamp to a ring just inside the view square (player at centre).
-            float edgeRadius = _mapRect.sizeDelta.x * 0.45f;
-            var rt = _tableArrow.rectTransform;
-            rt.anchoredPosition = dir * edgeRadius;
-            float ang = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg; // sprite points +X by default
-            rt.localRotation = Quaternion.Euler(0f, 0f, ang);
-            _tableArrow.gameObject.SetActive(true);
-        }
-
-        private void EnsureTableArrow()
-        {
-            if (_tableArrow != null || _mapContainer == null) return;
-            var go = new GameObject("tableArrow");
-            go.transform.SetParent(_mapContainer.transform, false);
-            _tableArrow = go.AddComponent<RawImage>();
-            _tableArrow.raycastTarget = false;
-            _tableArrow.color = new Color(1f, 0.5f, 0.2f, 1f); // off-disc / "table that way"
-            var rt = _tableArrow.rectTransform;
-            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
-        }
-
-        private void EnsurePlayerMarker(bool staticLayer)
-        {
-            Transform? parent = staticLayer ? _staticOverlay?.transform : _overlayLayer?.transform;
+            Transform? parent = _overlayLayer?.transform;
             if (parent == null) return;
 
             if (_playerMarker == null)
@@ -794,15 +919,6 @@ namespace SBPR.Trailborne.Features.Cartography
                 rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
                 rt.pivot = new Vector2(0.5f, 0.5f);
                 rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
-            }
-            else if (_playerMarker.transform.parent != parent)
-            {
-                // Mode changed (field ↔ table): move the marker to the right layer. The static
-                // layer never rotates (field centre marker); the overlay layer rides the map
-                // (table offset marker).
-                _playerMarker.transform.SetParent(parent, false);
-                _playerMarker.rectTransform.anchoredPosition = Vector2.zero;
-                _playerMarker.rectTransform.localRotation = Quaternion.identity;
             }
         }
 
@@ -856,11 +972,10 @@ namespace SBPR.Trailborne.Features.Cartography
             if (_req.Mode == MapViewerMode.TableEdit && _req.PinEditor != null && Input.GetMouseButtonDown(0))
                 TryRemovePinAtCursor();
 
-            // §2H: drive the held-map free-rotate + player-centring at FRAME RATE (not the
-            // 0.25 s survey Refresh — at 4 Hz rotation would visibly stutter, §2H bullet 6).
-            // No-op in TableEdit (identity rotation, zero offset). Cheap: a camera-yaw read +
-            // a transform set; the heavy fog/pin rebuild stays on Refresh.
-            if (_req.Mode == MapViewerMode.FieldReadOnly)
+            // §2H.1: drive the rotate-to-heading at FRAME RATE (not the 0.25 s survey Refresh —
+            // at 4 Hz rotation would visibly stutter). BOTH modes rotate now (issue #1 fold-in):
+            // the table view no longer north-locks. Cheap: a camera-yaw read + a transform set;
+            // the heavy fog/pin rebuild stays on Refresh.
             {
                 var survey = _req.Survey;
                 if (survey != null && survey.Fog != null && survey.Size > 0)
@@ -985,26 +1100,34 @@ namespace SBPR.Trailborne.Features.Cartography
             bgRt.anchorMin = Vector2.zero; bgRt.anchorMax = Vector2.one;
             bgRt.offsetMin = Vector2.zero; bgRt.offsetMax = Vector2.zero;
 
-            // §2H rotation container: a centred, zero-size pivot node. The cartography +
-            // shroud + pins (the "world" layer) are its children, so rotating IT rotates the
-            // whole map about screen-centre. In FieldReadOnly it spins with the player's
-            // heading (forward = up); in TableEdit it stays identity (north-up). Because its
-            // pivot is screen-centre and the field offset puts the PLAYER at screen-centre,
-            // rotation is about the player (AT-LMAP-ROT-1/2).
+            // §2H.1 b3: FIXED circular frame (the "box" Daniel wants to stop spinning). A
+            // centred, square node sized to the on-screen map that NEVER rotates. It hosts the
+            // rotating interior + the fixed bezel ring + the fixed title/exit-prompt. The disc
+            // is realized by the shroud-opaque corners + the bezel ring on top, not a literal
+            // shader clip (the inscribed-circle geometry guarantees rotating the interior never
+            // uncovers an empty corner — §2H.1 b3).
+            var frameGo = new GameObject("frame");
+            frameGo.transform.SetParent(_root.transform, false);
+            _frame = frameGo.AddComponent<RectTransform>();
+            _frame.anchorMin = _frame.anchorMax = new Vector2(0.5f, 0.5f);
+            _frame.pivot = new Vector2(0.5f, 0.5f);
+            _frame.sizeDelta = new Vector2(MaxFullViewPx, MaxFullViewPx);
+
+            // §2H.1 b3: the ROTATING INTERIOR. A centred, zero-size pivot node under the fixed
+            // frame. The cartography + shroud + pins + player marker are its children, so
+            // rotating IT rotates the whole interior about screen-centre = the TABLE pivot.
+            // BOTH modes rotate to heading (issue #1). The frame around it does NOT rotate.
             var containerGo = new GameObject("mapContainer");
-            containerGo.transform.SetParent(_root.transform, false);
+            containerGo.transform.SetParent(_frame.transform, false);
             _mapContainer = containerGo.AddComponent<RectTransform>();
             _mapContainer.anchorMin = _mapContainer.anchorMax = new Vector2(0.5f, 0.5f);
             _mapContainer.pivot = new Vector2(0.5f, 0.5f);
             _mapContainer.sizeDelta = Vector2.zero;
 
-            // The cartography layer: a RawImage that shows a COPY of the vanilla map material
-            // (§2E) — biome/height/forest/water — or the 2-color fallback texture. No boxy
-            // frame behind it (AT-ISSUE1-BORDER): the bounded disc + shroud ring IS the edge,
-            // matching the vanilla map's soft framing rather than a hard SBPR rectangle.
-            // Parented to the rotation container; its anchoredPosition is the §2H player-
-            // centring offset (0 in TableEdit → table-centred; -playerAnchor in FieldReadOnly
-            // → player at centre).
+            // The cartography layer: a RawImage that shows the §2E.1 CPU-composited cartography
+            // texture (biome/water/relief) — or the 2-color fallback texture. No boxy frame
+            // behind it (AT-ISSUE1-BORDER): the bounded disc + shroud ring IS the edge. Parented
+            // to the rotating container; TABLE-centred (zero offset — §2H.1 removes the pan).
             var mapGo = new GameObject("cartography");
             mapGo.transform.SetParent(_mapContainer.transform, false);
             _mapImage = mapGo.AddComponent<RawImage>();
@@ -1016,7 +1139,8 @@ namespace SBPR.Trailborne.Features.Cartography
             // The shroud mask: a RawImage stretched over the cartography (child → renders above
             // it). Its texture is OUR survey fog as an alpha mask (lit→transparent, else→opaque
             // shroud), so the 1000 m disc + unexplored cells read as shroud OVER the real map
-            // (§2E bullet 3 — the one deliberate difference from vanilla).
+            // (§2E.1 — the one deliberate difference from vanilla). The shroud-opaque corners
+            // are what make the rotating square read as a disc (no empty corners).
             var shroudGo = new GameObject("shroudMask");
             shroudGo.transform.SetParent(mapGo.transform, false);
             _shroudImage = shroudGo.AddComponent<RawImage>();
@@ -1025,10 +1149,9 @@ namespace SBPR.Trailborne.Features.Cartography
             shRt.anchorMin = Vector2.zero; shRt.anchorMax = Vector2.one; // stretch to the cartography rect
             shRt.offsetMin = Vector2.zero; shRt.offsetMax = Vector2.zero;
 
-            // Overlay layer (pins + the field-mode table arrow) sits on top of BOTH the
-            // cartography and the shroud (added last → highest child). It rides the cartography
-            // rigidly, so pins stay world-anchored under rotation + the player-centring offset
-            // (AT-LMAP-ROT-3). Same rect + center as the map.
+            // Overlay layer (pins + player marker) sits on top of BOTH the cartography and the
+            // shroud (added last → highest child). It rides the cartography rigidly, so pins +
+            // marker stay world-anchored under rotation (AT-LMAP-TC-3). Same rect + center.
             _overlayLayer = new GameObject("overlay");
             _overlayLayer.transform.SetParent(mapGo.transform, false);
             var ovRt = _overlayLayer.AddComponent<RectTransform>();
@@ -1036,19 +1159,26 @@ namespace SBPR.Trailborne.Features.Cartography
             ovRt.pivot = new Vector2(0.5f, 0.5f);
             ovRt.sizeDelta = Vector2.zero; // children anchor to center, position in px
 
-            // §2H static overlay: a centred, zero-size, NEVER-rotated node that hosts the
-            // player marker. In FieldReadOnly the player marker is a static square pinned at
-            // dead centre while the world rotates underneath (Daniel-locked: no facing
-            // indicator). In TableEdit the player marker is projected to its real offset from
-            // the table here (the static layer == screen-centre == table-centre when the world
-            // layer has zero offset + identity rotation, so TableEdit is unchanged).
-            var staticGo = new GameObject("staticOverlay");
-            staticGo.transform.SetParent(_root.transform, false);
-            var stRt = staticGo.AddComponent<RectTransform>();
-            stRt.anchorMin = stRt.anchorMax = new Vector2(0.5f, 0.5f);
-            stRt.pivot = new Vector2(0.5f, 0.5f);
-            stRt.sizeDelta = Vector2.zero;
-            _staticOverlay = staticGo;
+            // §2H.1 b3: the FIXED circular bezel + opaque corner-mask, drawn OVER the rotating
+            // interior but as a child of the non-rotating frame (so it never spins — the #2 fix).
+            // It is sized LARGER than the map square — to MaxFullViewPx*√2 — so that when the
+            // interior rotates, the square's corners (which extend to half-edge*√2 from centre)
+            // are fully covered by the bezel's opaque corner-shroud and never read as a spinning
+            // diamond over the backdrop. The bronze ring is drawn at the 1000 m disc radius
+            // (= MaxFullViewPx/2 in screen px), which is the fraction 1/√2 of the bezel's
+            // half-edge. raycastTarget off so it never eats the TableEdit pin-removal click.
+            float bezelEdge = MaxFullViewPx * 1.41421356f; // √2 → covers the rotated square's corners
+            float discFrac = (MaxFullViewPx * 0.5f) / (bezelEdge * 0.5f); // disc radius / bezel half-edge
+            var bezelGo = new GameObject("bezel");
+            bezelGo.transform.SetParent(_frame.transform, false);
+            _bezel = bezelGo.AddComponent<RawImage>();
+            _bezel.raycastTarget = false;
+            _bezel.texture = EnsureBezelTexture(discFrac);
+            _bezel.color = Color.white;
+            var bzRt = _bezel.rectTransform;
+            bzRt.anchorMin = bzRt.anchorMax = new Vector2(0.5f, 0.5f);
+            bzRt.pivot = new Vector2(0.5f, 0.5f);
+            bzRt.sizeDelta = new Vector2(bezelEdge, bezelEdge);
 
             // §2F.3 exit prompt: a bottom-centre instructional label parented to _root (so it
             // toggles with the overlay). Literal "[Esc]" — NOT a $KEY_ token: Escape is a
@@ -1117,9 +1247,9 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (_tex != null) UnityEngine.Object.Destroy(_tex);
             if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
-            if (_revealTex != null) UnityEngine.Object.Destroy(_revealTex);
-            // Destroy OUR instantiated material copy (never vanilla's live material).
-            if (_mapMaterial != null) UnityEngine.Object.Destroy(_mapMaterial);
+            if (_cartoTex != null) UnityEngine.Object.Destroy(_cartoTex);
+            if (_shaderMat != null) UnityEngine.Object.Destroy(_shaderMat);
+            if (_bezelTex != null) UnityEngine.Object.Destroy(_bezelTex);
             if (_instance == this) _instance = null;
         }
     }

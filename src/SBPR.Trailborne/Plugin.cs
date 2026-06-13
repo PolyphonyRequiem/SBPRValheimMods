@@ -391,6 +391,12 @@ namespace SBPR.Trailborne
             // dead-patch class it exists to catch).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.NoMapEnforcer));
 
+            // §2E.3 — `sbpr_mapmode` console command: lets Daniel switch the Local Map render
+            // path live between the vanilla styled "parchment" shader and the CPU composite, and
+            // pick whichever looks right on his GPU. Postfixes Terminal.InitTerminal (same hook as
+            // BannerDiagCommand). Registered here so the PatchCheck watchdog sees it woven.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.MapModeCommand));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be
