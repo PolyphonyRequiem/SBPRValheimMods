@@ -269,8 +269,10 @@ checks are tallied separately in the boot summary line).
   refused (no `sbpr_map_name`/`sbpr_map_blob` written) and the player is prompted to name it first
   (§1.6.4). Naming, then re-Using, imprints normally.
 - **AT-TABLENAME-3** (item bears the name) — After naming + imprinting, the Local Map ITEM's name in
-  inventory hover bears the Table's name (e.g. "Map: Northern Outpost"), distinguishable from other
-  bound maps in the same pack (§2A.6). Confirmed it is the TITLE, not just a tooltip body line.
+  inventory hover bears the Table's name, formatted `Local Map of "Northern Outpost"` (§2A.6/§2A.6c),
+  distinguishable from other bound maps in the same pack. Confirmed it is the TITLE, not just a tooltip
+  body line. *(Format re-locked by issue 8 — the original `Map: <name>` wording is superseded; see the
+  AT-MAPNAME-1…5 series in §1.7 / §2A.6c for the re-lock's own acceptance tests.)*
 - **AT-TABLENAME-4** (field-view title) — Opening that Local Map's full view (equip + Map button)
   shows the Table's name as an on-screen title (§2B.1).
 - **AT-TABLENAME-5** (Table-view title) — Opening the view at the Table itself (TableEdit mode) also
@@ -396,6 +398,14 @@ with the Table via the `CartographyViewer` seam).
 > **Status: NEW DESIGN.** The imprinted Local Map item's NAME must bear the Table's name so a
 > player carrying several bound maps can tell them apart in inventory. Pairs with §1.6.
 
+> **🔒 FORMAT RE-LOCK (issue 8, 2026-06-12, Daniel).** The displayed item name is locked to
+> **`Local Map of "<TableName>"`** (the bare Table name in double quotes), superseding the
+> v0.2.22 wording `Map: <name>`. The displayed-name format now lives in one place,
+> `LocalMap.FormatDisplayName(string)` (was the `NameDisplayPrefix` const) — see §2A.6c. This is
+> a display-only reskin: storage (`sbpr_map_name`, still bare), the imprint path, the patched
+> seams, and SpecCheck are all UNCHANGED. The §2B.1 viewer cartouche keeps the BARE name (it
+> does not route through the format helper — see §2A.6c).
+
 > **IMPL STATUS (2026-06-12, card t_41482aa3, engineer-ui):** built; build 0/0.
 > **(a)** `LocalMap.Imprint` gained an optional `string tableName` param and stamps the bare
 > name into the new `sbpr_map_name` `m_customData` key (LOCK, never rename); `SurveyorTableTag.
@@ -407,9 +417,11 @@ with the Table via the `CartographyViewer` seam).
 > `assembly_guiutils`**) and `LocalMapHoverNamePatch` (Postfix on `ItemDrop.GetHoverName` →
 > rewrites `__result`, the world-drop hover). **Guard = presence of the `sbpr_map_name` key**
 > (chosen over `m_dropPrefab`, which is `[NonSerialized]` and unreliable on loaded items); pure
-> pass-through otherwise (AT-TABLENAME-7). **Name format: light `"Map: "` prefix applied at display
-> time (stored bare)** — the spec's recommended answer to the open-Q; **Daniel confirms the prefix
-> in-game.** **logs-green ≠ playable — AT-TABLENAME-3.**
+> pass-through otherwise (AT-TABLENAME-7). **Name format (issue 8 re-lock, 2026-06-12): the
+> displayed title is `Local Map of "<TableName>"`** (double-quoted bare name), produced by
+> `LocalMap.FormatDisplayName(name)` at both seams — replaced the v0.2.22 `"Map: "` prefix. Stored
+> bare; format applied at display, so it changes without re-imprinting. **Daniel confirms in-game.**
+> **logs-green ≠ playable — AT-MAPNAME-1.**
 
 **⚠️ The card's `m_crafterName` hypothesis is WRONG — corrected here against the decomp.** The
 card's open question proposes carrying the per-instance name via `ItemData.m_customData["crafterName"]`
@@ -465,13 +477,64 @@ card's open question proposes carrying the per-instance name via `ItemData.m_cus
     `sbpr_map_name`, so it is a pure pass-through for every other item — it never touches vanilla
     titles. Register it in `Plugin.Awake()` via `harmony.PatchAll(typeof(...))` and it WILL be caught
     by `PatchCheck` if forgotten (the t_564f695a lesson — an unregistered patch ships dead).
-- **Name format (Daniel to confirm — recommend a light prefix):** the displayed name reads as a map,
-  e.g. **`"Map: Northern Outpost"`**. Implementer can store the bare name in `sbpr_map_name` and apply
-  the `"Map: "` prefix at display time (so the prefix can change without re-imprinting), OR store the
-  formatted string. Recommend storing bare + prefixing at display. *(This is the card's open-Q on bare
-  vs prefixed — recommended answer: light `"Map: "` prefix, applied at display.)*
+- **Name format (issue 8 — RESOLVED, Daniel locked it 2026-06-12):** the displayed title is
+  **`Local Map of "<TableName>"`** (bare Table name in double quotes), e.g. `Local Map of "Northern
+  Outpost"`. The bare name is stored in `sbpr_map_name` and the format is applied at display time by
+  `LocalMap.FormatDisplayName(string)` (so the wording can change without re-imprinting). This
+  supersedes the earlier recommended `"Map: "` prefix. See §2A.6c for the locked helper + seams.
 - **Blank maps are unaffected:** a map with no `sbpr_map_name` (never imprinted) shows the vanilla
   "Local Map" title — the patch is a pass-through. (AT-TABLENAME-7 no-orphan.)
+
+#### 2A.6c Item-name FORMAT re-lock — `Local Map of "<TableName>"` (issue 8, 2026-06-12, display-only)
+
+> **Status: LOCKED (Daniel, 2026-06-12).** A pure display-FORMAT change to the §2A.6/§2A.6b item
+> name that already ships. The imprinted Local Map's displayed title is now
+> **`Local Map of "<TableName>"`** — the bare Table name wrapped in double quotes — superseding the
+> v0.2.22 wording `Map: <name>`. **Nothing about storage, imprint, the patched seams, or the patch
+> registration changes.** This is a reskin of the displayed string only.
+
+**The single source of the wording.** §2A.6b stored the format as the `LocalMap.NameDisplayPrefix`
+const (`"Map: "`) and built the title by concatenation (`prefix + name`). Because the new format wraps
+the name (a trailing quote follows it) it is no longer a pure prefix, so the const is replaced by a
+formatter method:
+
+```csharp
+// LocalMap.cs — was: public const string NameDisplayPrefix = "Map: ";
+public static string FormatDisplayName(string tableName) => $"Local Map of \"{tableName}\"";
+```
+
+**Both seams call it (unchanged otherwise).** The two postfixes in `LocalMapNamePatch.cs` that already
+weave the name in now format it through the helper instead of concatenating the old prefix:
+
+- `LocalMapTooltipNamePatch` (inventory hover title, `UITooltip.m_topic`): `tooltip.m_topic =
+  LocalMap.FormatDisplayName(name);`
+- `LocalMapHoverNamePatch` (`ItemDrop.GetHoverName` world-drop / transfer hover): `__result =
+  LocalMap.FormatDisplayName(name);`
+
+Both already shipped weaving the name in (PR #126, the `ItemDrop.GetHoverName` seam is a verified
+ancestor of the v0.2.22 bump) — there is **no coverage gap** to chase; this only changes what they say.
+
+**Explicitly out of scope (do NOT change):**
+
+- **The §2B.1 viewer cartouche title (`MapViewer._titleLabel`)** shows the **BARE** name via
+  `MapViewRequest.Title` ← `LocalMap.TryGetName`. It does NOT route through `FormatDisplayName` and is
+  left BARE — Daniel said that on-screen title already works and didn't ask to change it. Keep the
+  cartouche reading `Northern Outpost`, not `Local Map of "Northern Outpost"`.
+- No `sbpr_map_name` / imprint / storage changes; no new Harmony patches; **SpecCheck: no change**
+  (display-only, no recipe rows).
+
+**Acceptance tests (AT-MAPNAME-1…5) — supersede the format clause of AT-TABLENAME-3:**
+
+- **AT-MAPNAME-1** — an imprinted map's inventory hover title reads exactly `Local Map of "Home"`
+  (table named "Home").
+- **AT-MAPNAME-2** — BOTH item seams show it: the inventory hover title (`InventoryGrid.
+  CreateItemTooltip` → `m_topic`) AND the world-drop / transfer hover (`ItemDrop.GetHoverName`).
+- **AT-MAPNAME-3** (no orphan) — a blank / pre-1.6 map (no `sbpr_map_name`) still reads the plain
+  vanilla `Local Map` (pure pass-through; `FormatDisplayName` is never invoked).
+- **AT-MAPNAME-4** — `PatchCheck` green; the §2B.1 cartouche title still shows the BARE name; non-map
+  items' titles are untouched.
+- **AT-MAPNAME-5** (logs-green ≠ playable) — Daniel confirms `Local Map of "Home"` in-game on the
+  inventory item.
 
 #### 2A.7 Tooltip combat-row suppression (issue 7, display-only)
 

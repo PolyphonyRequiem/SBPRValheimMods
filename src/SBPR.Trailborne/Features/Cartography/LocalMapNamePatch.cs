@@ -49,8 +49,8 @@ namespace SBPR.Trailborne.Features.Cartography
     /// §2A.6b PRIMARY seam — the inventory hover title the player actually reads. Postfix
     /// on the private <c>InventoryGrid.CreateItemTooltip(ItemData, UITooltip)</c>: after the
     /// vanilla call sets <c>tooltip.m_topic = item.m_shared.m_name</c>, overwrite m_topic with
-    /// the imprinted Table name (prefixed "Map: ") when the item carries <c>sbpr_map_name</c>.
-    /// Pure pass-through for every other item.
+    /// the imprinted Table name formatted as <c>Local Map of "&lt;name&gt;"</c> (§2A.6c) when the
+    /// item carries <c>sbpr_map_name</c>. Pure pass-through for every other item.
     /// </summary>
     [HarmonyPatch(typeof(InventoryGrid), "CreateItemTooltip")]
     public static class LocalMapTooltipNamePatch
@@ -60,7 +60,7 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (item == null || tooltip == null) return;
             if (!LocalMap.TryGetName(item, out string name)) return; // not our imprinted map → pass-through
-            tooltip.m_topic = LocalMap.NameDisplayPrefix + name;
+            tooltip.m_topic = LocalMap.FormatDisplayName(name);
         }
     }
 
@@ -78,7 +78,7 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (__instance == null) return;
             if (!LocalMap.TryGetName(__instance.m_itemData, out string name)) return; // not our imprinted map
-            __result = LocalMap.NameDisplayPrefix + name;
+            __result = LocalMap.FormatDisplayName(name);
         }
     }
 

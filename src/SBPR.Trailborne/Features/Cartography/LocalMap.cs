@@ -63,9 +63,9 @@ namespace SBPR.Trailborne.Features.Cartography
         // with the blob's OriginX/Z, kept as a fast "is this map imprinted?" probe).
         //
         // NameKey (issue 10, §2A.6) carries the imprinting Table's NAME so the item's
-        // displayed title can bear it (e.g. "Map: Northern Outpost") — surfaced by the
-        // scoped LocalMapNamePatch postfix. Stored BARE (no "Map: " prefix); the prefix is
-        // applied at display time so it can change without re-imprinting. All three keys are
+        // displayed title can bear it (formatted `Local Map of "Northern Outpost"` per §2A.6c) —
+        // surfaced by the scoped LocalMapNamePatch postfix. Stored BARE (no display wording); the
+        // format is applied at display time so it can change without re-imprinting. All three keys are
         // save/wire contracts — LOCK + never rename (a rename orphans every imprinted map's
         // stored data, same rule as the prefab name). m_customData is the ONLY per-instance,
         // save-surviving store (m_shared is shared by reference across instances — §2A.6).
@@ -73,9 +73,12 @@ namespace SBPR.Trailborne.Features.Cartography
         public const string BoundKey   = "sbpr_map_bound";
         public const string NameKey    = "sbpr_map_name";
 
-        // Display prefix for an imprinted map's title (§2A.6) — applied at render time by the
-        // name patch, NOT stored, so it can change without re-imprinting every placed map.
-        public const string NameDisplayPrefix = "Map: ";
+        // Display-name format for an imprinted map's title (§2A.6/§2A.6c) — applied at render
+        // time by the name patch, NOT stored, so the wording can change without re-imprinting
+        // every placed map. Daniel locked the format to `Local Map of "<TableName>"` (issue 8,
+        // 2026-06-12), superseding the v0.2.22 `Map: <name>`. The bare Table name is still
+        // stored under NameKey; this is the single source of the displayed wording.
+        public static string FormatDisplayName(string tableName) => $"Local Map of \"{tableName}\"";
 
         private const string IconFile = "local_map_v0.1.png"; // optional; falls back to no icon
 
@@ -209,7 +212,8 @@ namespace SBPR.Trailborne.Features.Cartography
         /// item's m_customData under <see cref="MapBlobKey"/>, plus the bound-origin coord
         /// under <see cref="BoundKey"/>, plus the imprinting Table's NAME under
         /// <see cref="NameKey"/> (§2A.6 — so the item's title bears the Table name). The
-        /// name is stored BARE (no "Map: " prefix); the prefix is applied at display time.
+        /// name is stored BARE (no display wording); the `Local Map of "<name>"` format (§2A.6c)
+        /// is applied at display time.
         /// An empty/null <paramref name="tableName"/> writes no name key (a pre-1.6 / unnamed
         /// imprint shows the vanilla "Local Map" title — AT-TABLENAME-7 no-orphan). Returns
         /// true on success. The blob is the §2C windowed format — identical to the Table's,
@@ -294,7 +298,7 @@ namespace SBPR.Trailborne.Features.Cartography
         /// <summary>
         /// Read the imprinted Table NAME off a Local Map instance (§2A.6), or false if the
         /// map is blank / was imprinted before naming existed (no <see cref="NameKey"/>).
-        /// The returned name is BARE (no "Map: " prefix) — apply <see cref="NameDisplayPrefix"/>
+        /// The returned name is BARE (no display wording) — apply <see cref="FormatDisplayName"/>
         /// at display time. Mirrors <see cref="TryGetBoundOrigin"/>. Pure read; never throws.
         /// </summary>
         public static bool TryGetName(ItemDrop.ItemData item, out string name)
