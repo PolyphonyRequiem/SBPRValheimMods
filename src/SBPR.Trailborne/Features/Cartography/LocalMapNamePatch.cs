@@ -40,6 +40,7 @@
 //      transfer hover). Postfix rewrites the returned string for our item only.
 // ============================================================================
 
+using System.Text;
 using HarmonyLib;
 
 namespace SBPR.Trailborne.Features.Cartography
@@ -78,6 +79,86 @@ namespace SBPR.Trailborne.Features.Cartography
             if (__instance == null) return;
             if (!LocalMap.TryGetName(__instance.m_itemData, out string name)) return; // not our imprinted map
             __result = LocalMap.NameDisplayPrefix + name;
+        }
+    }
+
+    // ========================================================================
+    //  §2A.7 (issue 7) — strip the weapon combat-stat rows from a Local Map's
+    //  tooltip BODY. A map is not a weapon; it must show no block/parry/damage/
+    //  knockback/backstab/stamina rows nor the "$item_twohanded" handed line.
+    // ------------------------------------------------------------------------
+    //  ROOT CAUSE (grounded against assembly_valheim decomp, clean-side ADR-0001):
+    //    LocalMap sets m_itemType = TwoHandedWeapon (=14) — load-bearing for the
+    //    equip/block-clear/torch discipline (§2A.2/§2A.3), so it MUST stay. But
+    //    that type routes the item through the weapon `case` of
+    //    ItemDrop.ItemData.GetTooltip (the body builder): AddHandedTip appends
+    //    "$item_twohanded" before the switch, and the weapon case emits damage /
+    //    $item_staminause / AddBlockTooltip (parrybonus/parryadrenaline/block where
+    //    >1f) / $item_knockback / $item_backstab. Zeroing m_blockPower/m_deflectionForce
+    //    (LocalMap.cs) only suppresses the two block rows (both gated >1f); the rest
+    //    leak from the Hoe donor's un-zeroed weapon fields. Per-field zeroing is
+    //    whack-a-mole — the clean fix is to suppress the whole weapon section for our
+    //    item, display-side only.
+    //
+    //  SEAM: a Postfix on the PUBLIC STATIC overload
+    //    ItemDrop.ItemData.GetTooltip(ItemData, int, bool, float, int).
+    //    The instance GetTooltip(int) delegates to this static overload (decomp
+    //    :618-621), and the crafting UI calls the static one directly, so ONE patch
+    //    covers every surface (inventory hover + crafting hover + equip/world-drop
+    //    hover). This is the BODY (item.GetTooltip()), distinct from the TITLE seam
+    //    LocalMapTooltipNamePatch hooks (InventoryGrid.CreateItemTooltip → m_topic).
+    //    The overload is disambiguated by an explicit Type[] in [HarmonyPatch].
+    //
+    //  BEHAVIOR: for OUR item, REBUILD a clean body (description + weight line) and
+    //    overwrite ref __result. We rebuild rather than regex-strip because
+    //    "$item_twohanded" is appended BEFORE the weight line and is hard to truncate
+    //    cleanly. We do NOT transiently mutate m_shared.m_itemType around the call —
+    //    m_shared is shared BY REFERENCE across every Local Map instance + the prefab
+    //    template (see the name-patch rationale above), so mutating it is unsafe.
+    //
+    //  GUARD: item?.m_dropPrefab?.GetComponent<LocalMapItemTag>() != null. The TAG
+    //    (not the sbpr_map_name key) so BOTH a blank crafted map AND an imprinted one
+    //    are cleaned (the name key only exists once imprinted; a blank map would still
+    //    leak weapon stats otherwise — AT-MAP-TT-3). m_dropPrefab IS reliably set on
+    //    loaded-from-save items: Inventory.Load → AddItem(name,…,customData,…) →
+    //    Instantiate(prefab) → ItemDrop.Awake sets m_itemData.m_dropPrefab =
+    //    ObjectDB.GetItemPrefab(name) UNCONDITIONALLY (decomp :58698), before any
+    //    ZNetView gating. (The "[NonSerialized] → unreliable on loaded items" note in
+    //    this file's header is overcautious for THIS guard — the equip/binding/table
+    //    patches all rely on the same m_dropPrefab tag check and work in-game.)
+    //
+    //  Pure pass-through for every other item (vanilla tooltips byte-identical —
+    //  AT-MAP-TT-5). Registered in Plugin.Awake so PatchCheck confirms it wove a method
+    //  (AT-MAP-TT-6). Client-only by nature: GetTooltip dereferences Player.m_localPlayer
+    //  (NPEs server-side → never called there); the null-guard short-circuits regardless.
+    // ========================================================================
+    /// <summary>
+    /// §2A.7 (issue 7) — Postfix on the public static
+    /// <c>ItemDrop.ItemData.GetTooltip(ItemData, int, bool, float, int)</c> that rebuilds a
+    /// clean, weapon-stat-free tooltip body for the Local Map (description + weight). Guarded
+    /// on <see cref="LocalMapItemTag"/> via <c>m_dropPrefab</c> (catches blank AND imprinted
+    /// maps); pure pass-through for every other item.
+    /// </summary>
+    [HarmonyPatch(typeof(ItemDrop.ItemData), nameof(ItemDrop.ItemData.GetTooltip),
+        new[] { typeof(ItemDrop.ItemData), typeof(int), typeof(bool), typeof(float), typeof(int) })]
+    public static class LocalMapTooltipCombatStripPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix(ItemDrop.ItemData item, int stackOverride, ref string __result)
+        {
+            // GUARD: only our Local Map (tag on the drop-prefab — blank AND imprinted).
+            if (item?.m_dropPrefab == null) return;
+            if (item.m_dropPrefab.GetComponent<LocalMapItemTag>() == null) return;
+
+            // REBUILD a clean body. Mirror vanilla's leading lines (description, then the
+            // weight row in the localizable "$item_weight" form) but emit NONE of the
+            // weapon/combat rows and NOT the "$item_twohanded" handed line.
+            var sb = new StringBuilder();
+            sb.Append(item.m_shared.m_description);
+            sb.AppendFormat("\n$item_weight: <color=orange>{0}</color>",
+                item.GetWeight(stackOverride).ToString("0.0"));
+
+            __result = sb.ToString();
         }
     }
 }

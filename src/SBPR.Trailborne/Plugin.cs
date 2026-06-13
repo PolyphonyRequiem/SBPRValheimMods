@@ -370,6 +370,23 @@ namespace SBPR.Trailborne
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapTooltipNamePatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapHoverNamePatch));
 
+            // v2 Local Map tooltip combat-row suppression (issue 7, §2A.7 — card t_28b59e69).
+            // ItemType=TwoHandedWeapon (§2A.2, load-bearing for the equip/block-clear/torch
+            // discipline) routes the map through the weapon case of ItemDrop.ItemData.GetTooltip,
+            // which emits weapon rows (parry bonus / knockback / backstab / stamina-use / block
+            // where >1f) plus the always-on "$item_twohanded" handed line. A map is not a weapon.
+            //  • LocalMapTooltipCombatStripPatch: Postfix on the PUBLIC STATIC
+            //    ItemDrop.ItemData.GetTooltip(ItemData,int,bool,float,int) (overload-disambiguated
+            //    by Type[]) — the BODY builder the instance GetTooltip(int) + the crafting UI both
+            //    funnel through, so one seam covers inventory + crafting + equip/world-drop hover.
+            //    For our item (guard: LocalMapItemTag on m_dropPrefab — catches blank AND imprinted)
+            //    it rebuilds a clean body (description + weight) with no combat rows. ItemType is
+            //    UNCHANGED; equip behaviour is untouched. Pure pass-through for every other item.
+            // Registered here so PatchCheck confirms it wove a method (AT-MAP-TT-6). Client-only by
+            // nature: GetTooltip reads Player.m_localPlayer (never called on the dedicated server);
+            // the null-guard short-circuits regardless.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapTooltipCombatStripPatch));
+
             // v2 Cartographer's Kit — the auto-mapping GATE (card t_65fcfe5c, impl-spec §3.2).
             // Prefix on Minimap.UpdateExplore(float, Player): no-ops the personal walking-reveal
             // fog write unless the local player wears the Cartographer's Kit in the Utility slot.
