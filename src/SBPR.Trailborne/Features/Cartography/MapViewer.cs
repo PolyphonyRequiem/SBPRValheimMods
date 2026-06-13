@@ -147,8 +147,16 @@ namespace SBPR.Trailborne.Features.Cartography
 
         // ── Live request state ──────────────────────────────────────────────────────────
         private MapViewRequest _req;
-        private bool _open;
-        public bool IsOpen => _open;
+
+        // §2I.1/§2I.2 (issue 6, Part A): open-state is derived from the CANVAS, never a side
+        // bool. The two sign panels (SignPaintPanel.IsOpen, MarkerSignPanel.IsOpen) already key
+        // on `_root.activeSelf` and so cannot desync; the viewer's old standalone `_open` bool
+        // COULD latch true while nothing was on screen (a Close() that was skipped, an exception
+        // out of Render() after `_open=true`, a scene/route change), which kept
+        // CartographyViewer.IsViewerOpen → SignPanelInputBlock.AnyOpen latched and silently
+        // killed E-to-open until the Table was re-used. Deriving IsOpen from the live root makes
+        // the gate un-latchable: if the overlay isn't active, every consumer reads "closed".
+        public bool IsOpen => _root != null && _root.activeSelf;
         public MapViewerMode CurrentMode => _req.Mode;
 
         // ── IMapViewer ──────────────────────────────────────────────────────────────────
@@ -157,22 +165,20 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             _req = request;
             EnsureCanvas();
-            _root!.SetActive(true);
-            _open = true;
+            _root!.SetActive(true);   // §2I.1: this IS the open-state now — IsOpen reads _root.activeSelf
             Render();
         }
 
         public void Refresh(MapViewRequest request)
         {
-            if (!_open) return;
+            if (!IsOpen) return;
             _req = request;
             Render();
         }
 
         public void Close()
         {
-            if (_root != null) _root.SetActive(false);
-            _open = false;
+            if (_root != null) _root.SetActive(false);   // §2I.1: deactivating the root IS the close
         }
 
         // ── Render: §2E.1 CPU-composite cartography + shroud mask + overlay ───────────────
@@ -431,7 +437,7 @@ namespace SBPR.Trailborne.Features.Cartography
         /// </summary>
         public bool RefreshIfOpen()
         {
-            if (!_open) return false;
+            if (!IsOpen) return false;
             Render();
             return true;
         }
@@ -949,7 +955,7 @@ namespace SBPR.Trailborne.Features.Cartography
 
         private void Update()
         {
-            if (!_open) return;
+            if (!IsOpen) return;
 
             // ESC closes the full-screen view (the fork owns its own close path). The viewer
             // is a standalone uGUI overlay — it never rode vanilla's Minimap M/ESC handling
