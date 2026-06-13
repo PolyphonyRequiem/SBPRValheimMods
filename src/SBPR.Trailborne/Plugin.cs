@@ -408,12 +408,6 @@ namespace SBPR.Trailborne
             // dead-patch class it exists to catch).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.NoMapEnforcer));
 
-            // §2E.3 — `sbpr_mapmode` console command: lets Daniel switch the Local Map render
-            // path live between the vanilla styled "parchment" shader and the CPU composite, and
-            // pick whichever looks right on his GPU. Postfixes Terminal.InitTerminal (same hook as
-            // BannerDiagCommand). Registered here so the PatchCheck watchdog sees it woven.
-            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.MapModeCommand));
-
             // §2I.3 (issue 6, Part B) — Surveyor's Table imprint trigger. Harmony PREFIX on
             // Player.UseHotbarItem(int): while the local player is hovering a named Surveyor's
             // Table, pressing a hotbar number (1-8) imprints THAT slot's Local Map with the
