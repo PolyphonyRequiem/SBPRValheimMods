@@ -1,7 +1,7 @@
 ---
 title: "Swamp-tier solar-charged monster-detection accessory (IDEA)"
 status: idea
-purpose: "Capture Daniel's swamp-tier item idea — an equippable that charges durability in sunlight and reveals nearby hostiles while worn, draining at a fixed rate. IDEA-stage only: theme undecided, mechanics proposed, nothing locked. Promote to a cartography-v2-style design doc when Daniel picks it up."
+purpose: "Capture Daniel's swamp-tier item idea — an equippable that charges durability in sunlight and reveals nearby hostiles while worn, draining at a fixed rate. THEME + MATERIAL DECIDED 2026-06-13: built around Sunstone (net-new Iceland-spar material), dual-sourced from swamp surface chests (primary) + rare Draugr Elite drop (secondary). Mechanics still PROPOSED; promote to a cartography-v2-style design doc when Daniel picks it up."
 ---
 
 # Swamp-tier solar-charged monster-detection accessory (IDEA)
@@ -42,12 +42,72 @@ A **charge/drain accessory**, not a consumable:
   vanilla (query nearby `Character`/`BaseAI` hostiles, surface them on the minimap/an overlay)
   or, if we ever want parity with that mod, go through the clean-room RE wall. Clean-side:
   reading vanilla's character/minimap surface is fair game.
-- **Tier:** Swamp. Recipe undecided (Swamp-tier mats — e.g. some combination of the Swamp's
-  signature drops; Daniel to theme it).
+- **Tier:** Swamp. Recipe undecided (Swamp-tier mats — but now anchored on **Sunstone**, the
+  new material decided 2026-06-13; see "Theme + material + sourcing" below).
+
+## 🟢 Theme + material + sourcing — DECIDED (Daniel, 2026-06-13)
+
+The theme is locked: the item is built around **Sunstone**, a NEW craftable material modeled
+after **Iceland spar** (Silfurberg) — the real birefringent calcite crystal tied to the
+legendary Viking *sólarsteinn* ("sunstone") used to find the sun through overcast. This gives
+the solar-charge fiction a concrete, lore-true anchor: the item literally holds a shard of
+sun-finding crystal.
+
+- 🟢 **Sunstone is a standalone RESOURCE, not just "the detector's material" (Daniel, 2026-06-13).**
+  Sunstone is its own new Swamp resource with a real source/drop economy (see Sourcing below), and
+  is **expected to have more than one use** in practice — the monster-detection accessory is its
+  **first consumer**, not its sole reason to exist. Spec it as a general material (its own
+  ItemDrop / resource entry, its own SpecCheck manifest row when it ships) that the detector
+  recipe *consumes*, so future items (other Swamp-tier crafts) can draw on the same resource
+  without re-deriving it. Do NOT bake Sunstone's definition *into* the detector — keep the
+  material and the consumer separate. Candidate future uses are open (don't pre-lock); the point
+  is the architecture must not assume single-use.
+- 🔴 **Sunstone is NET-NEW mod fiction — there is NO "Sunstone" in vanilla Valheim** (verified
+  vs the full wiki corpus, 0 hits). We are AUTHORING this material. It is not a reskin of an
+  existing item. (Closest vanilla cousin in spirit is Crystal — a Mountain material — but
+  Sunstone is its own Swamp-tier thing, NOT Crystal.)
+- **Lane note:** the *sólarsteinn* legend is historically a NAVIGATION aid (find the sun →
+  orient), which overlaps thematically with the **Iron Compass** (also v3 Swamps, the no-map
+  orientation payoff — `nomap.md` §8). We are deliberately routing Sunstone to the
+  *threat-detection* item, not the compass. The fiction that bridges it: the stone stores
+  daylight and, while charged, lets the bearer *sense what moves in the dark*. If Daniel later
+  decides Sunstone fits the compass better, that's a swap to revisit — flagged, not foreclosed.
+
+### Sourcing — DUAL-SOURCE (decided 2026-06-13), grounded vs wiki loot/drop tables
+
+Sunstone is found by **exploring the Swamp surface** (primary) with a **rare combat drop**
+(secondary) — deliberately NOT locked behind the Sunken Crypts, to pull players into the open,
+dangerous overworld rather than the safe gated-dungeon loop.
+
+1. **PRIMARY — surface loot chests (exploration path).** Add Sunstone as a low-weight entry to
+   the **Swamp surface** chest tables — explicitly NOT the Sunken Crypt table. Grounded targets
+   (verified `~/valheim/sbpr-corpus/wiki/fandom/Swamp_chest.md` + `Swamp.md`):
+   - The **Swamp Chest** table (spawns in the **Swamp Runestone Tower**, a surface structure) —
+     the canonical "swamp surface" chest. Its existing entries sit at ~10.5%/slot, 2–3 slots,
+     with **Withered bone at 5.3% as the rare tail** — Sunstone slots in at that rare-tail
+     weight as precedent.
+   - Other swamp **surface** POIs that use loot chests: **Draugr Village**, **Ruined Tower**,
+     **Abandoned House / Abandoned Village**, **Viking Graveyard**, **Shipwreck**.
+   - 🔴 EXCLUDE the **Sunken Crypts** chest table (the gated-dungeon loop we're steering away from).
+2. **SECONDARY — rare drop from Draugr Elite (combat path).** Draugr Elite are already **rare**
+   (night-spawn/despawn-at-dawn, or one-time near Inverted Towers) and carry a **tiny** vanilla
+   drop table (Draugr Elite trophy 10% + Entrails), so a low-% Sunstone roll fits cleanly with
+   no economy collision. Verified `~/valheim/sbpr-corpus/wiki/fandom/Draugr_elite.md`.
+   - ⚠️ **Caveat (why it's SECONDARY, not the only source):** the canonical Draugr-Elite farm is
+     Body Piles *inside* Sunken Crypts — so an elite-ONLY drop would quietly route players back
+     into the crypts we're avoiding. Keeping chests primary preserves the surface-exploration
+     intent; the elite drop is a combat-path bonus, not the bottleneck.
+- **Drop rarity — OPEN knob for Daniel:** how rare overall? Two anchors to pick between:
+  *looser* (~5–8% surface / ~5% elite → a Sunstone after a couple hours of swamp exploration)
+  vs *tighter* (~2–3% → a genuine treasure, a few sessions in). Lean to be set by Daniel.
+- **Recipe:** the detector item's recipe is then Sunstone ×N + other Swamp mats (iron? guck?) —
+  N and the supporting mats TBD with the rarity knob (rarer Sunstone → fewer per craft).
 
 ## 🔴 OPEN questions for Daniel (when he picks this up)
-- **Theme / fiction:** what IS the item? (A sunstone amulet? A charged lantern? A bug-in-amber
-  charm?) The theme drives the art, the name, and the recipe mats.
+- ~~**Theme / fiction:**~~ ✅ DECIDED 2026-06-13 — **Sunstone** (Iceland-spar / *sólarsteinn*),
+  a net-new material, dual-sourced from swamp surface chests + rare Draugr Elite drop. See the
+  "Theme + material + sourcing" section above. Remaining sub-knob: overall drop **rarity** (the
+  looser-vs-tighter lean).
 - **Detection scope:** all hostiles, or a subset? Radius? Does it show them on the minimap
   (which the cartography tier may have *disabled* by default — see `nomap.md` / the NoMap
   enforcer) or via a separate on-screen overlay? **Interaction with NoMap is a real design
