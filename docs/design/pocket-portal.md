@@ -58,6 +58,14 @@ The **Portal Seed** item is crafted from:
   **20 Finewood + 10 Greydwarf eye + 2 Surtling core**, crafted at a Workbench.
 - The swap reads thematically: drop the carpentry (Finewood), double the "eye"/magic component,
   keep the cores, add the ancient seed as the growth catalyst. "Less building, more growing."
+- 🟡 **Ectoplasm as a possible alternative — PLAYTEST-CONTINGENT (Daniel, 2026-06-13).**
+  **Ectoplasm** may be an acceptable substitute for the **Greydwarf eyes and/or the Surtling
+  cores**, to be decided by **playtest** (feel + balance), NOT locked now. Grounded: Ectoplasm is
+  a **Black Forest** material dropped by **Ghosts** (verified `Ectoplasm.md`) — same tier, so it's
+  a legitimate swap that keeps the recipe Black-Forest-native. It's also thematically apt (a
+  spectral/ancient material for an ancient-growth portal). Leave the locked recipe as-is for the
+  first build; flag Ectoplasm as the tuning lever to try if the eye/core cost feels wrong in
+  playtest. Open: does it replace the eyes, the cores, or both — and at what ratio? Playtest call.
 - 🔴 **OPEN — where is the SEED itself crafted?** Daniel specified the seed needs no bench *to
   plant in the field*, but didn't say where you craft the seed. Options: (a) craft the seed at a
   Workbench/Forge back home (you pre-make seeds, then carry them out — most likely), or (b) the
@@ -156,6 +164,8 @@ The **Portal Seed** item is crafted from:
    portal doesn't)?
 4. **Break→seed scope** — always returns the seed (lean), or only on intentional deconstruct?
 5. **Hammer vs Spade vs both** for placement (reconcile with design-pillars.md).
+6. **Ectoplasm substitution** (playtest-contingent) — replace the Greydwarf eyes and/or Surtling
+   cores with Ectoplasm if the eye/core cost feels wrong in playtest; which, and at what ratio?
 
 ## Status / next step
 PROPOSED, mechanics locked. → Architect buildable spec (named acceptance tests: plant→15s-grow→
