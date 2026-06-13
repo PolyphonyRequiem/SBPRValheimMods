@@ -107,17 +107,20 @@ namespace SBPR.Trailborne.Features.Cartography
         // empty corner (the four corner triangles are shroud-opaque and clipped away anyway).
         private const float DiscClipFraction = 0.5f;
 
-        // ── §2E.1 CPU-composite render (issue 10) ─────────────────────────────────────
-        // The cartography is composited on the CPU by CartographyComposer from PUBLIC
-        // WorldGenerator data (biome + height) — NOT by driving vanilla's GPU map shader.
-        // The deleted §2E path (a COPY of Minimap.m_mapImageLarge.material + _mapCenter/
-        // _pixelSize/_zoom/_FogTex uniforms + uvRect framing) depended on that shader
-        // compositing correctly on our detached quad, which could not be verified headless
-        // and shipped blind → the v0.2.22 "flat land + shroud" failure. The CPU composite
-        // needs no GPU and is byte-identical to the §2E.2 preview harness.
+        // ── §2E.3 LOCKED RENDER: vanilla styled material is THE render (issue 10) ─────
+        // The cartography is the REAL vanilla parchment look — a COPY of vanilla's styled
+        // large-map material (Minimap.m_mapImageLarge.material: paper texture + cloud/haze +
+        // fog feathering live in that GPU display shader, NOT in the four data textures it
+        // composites), framed to our bound 1000 m disc. Confirmed good on Daniel's GPU client
+        // (v0.2.23-playtest, 2026-06-12) with NO toggle. The earlier selectable SHADER-vs-CPU
+        // render mode and its CPU compositor (CartographyComposer, §2E.1) were REMOVED: the CPU
+        // path existed to insure against "this client can't drive the vanilla map shader," but a
+        // client that can't drive the vanilla map shader can't see the vanilla map either — it
+        // insured a non-scenario. PaintFog remains the only fallback (the never-blank guard for
+        // the pre-join / Minimap-not-generated window — that is NOT "CPU mode").
 
         // Palette — our own dark-Norse shroud (clean-room; no vanilla sprite copy).
-        // CParchment/CShroud are the 2-color FALLBACK palette (graceful degradation, §2E);
+        // CParchment/CShroud are the 2-color PaintFog FALLBACK palette (never-blank guard, §2E);
         // CShroudA is the opaque shroud used to mask OVER the real vanilla cartography.
         private static readonly Color32 CParchment = new Color32(214, 198, 162, 255); // fallback: explored & in-disc
         private static readonly Color32 CShroud    = new Color32(14, 13, 11, 255);    // fallback: outside disc / unexplored
@@ -137,8 +140,7 @@ namespace SBPR.Trailborne.Features.Cartography
         private RawImage? _bezel;           // §2H.1: fixed circular frame ring drawn over the disc edge
         private Texture2D? _tex;            // fallback 2-color fog texture
         private Texture2D? _shroudTex;      // the alpha shroud-mask texture (lit→clear, shroud→opaque)
-        private Texture2D? _cartoTex;       // §2E.1: the CPU-composited cartography (biome+water+relief)
-        private Material?  _shaderMat;      // §2E.3: instantiated COPY of vanilla's styled map material (parchment mode)
+        private Material?  _shaderMat;      // §2E.3: instantiated COPY of vanilla's styled map material (THE render)
         private Texture2D? _bezelTex;       // §2H.1: the circular bezel ring texture (built once)
         private RawImage? _playerMarker;    // reused player dot/arrow
         private Text? _exitPrompt;          // §2F: bottom-center "[Esc] Close map" (+ TableEdit pin hint)
@@ -194,28 +196,17 @@ namespace SBPR.Trailborne.Features.Cartography
 
             LayoutMapRect(survey.Size);
 
-            // §2E.1 LOCKED ROUTE: composite the cartography on the CPU from PUBLIC, deterministic
-            // WorldGenerator data (biome + height → biome color + water tone + relief), framed to
-            // the bound origin's disc, with OUR fog window as the shroud mask on top. No GPU shader,
-            // no Minimap-material copy. Falls back to the legacy 2-color paint if WorldGenerator
-            // isn't initialized yet (pre-join). PaintFog is retained as the mandatory
-            // graceful-degradation path (§2E.1 bullet 7).
-            // §2E.3 TWO-MODE RENDER (Daniel picks in-client via `sbpr_mapmode`):
-            //   • Shader  → reuse a COPY of vanilla's STYLED map material (the parchment look:
-            //               paper + cloud/haze + fog feathering live in that GPU shader, NOT in
-            //               the data). Silently falls back to the CPU composite if the styled
-            //               material/textures aren't generated (headless build box, or pre-join).
-            //   • Cpu     → §2E.1 composite from public WorldGenerator data (biome+water+relief).
-            //               Always renders, but no parchment styling.
-            // PaintFog remains the final 2-color graceful-degradation backstop. Shader is the
-            // default so the first look is the parchment attempt (auto-fallback if unavailable).
-            bool carto = false;
-            if (MapRenderModeState.Current == MapRenderMode.Shader)
-                carto = TryRenderVanillaShader(survey);
-            if (!carto)
-                carto = TryComposeCartography(survey);
-            if (!carto)
-                PaintFog(survey); // graceful degradation → the old explored/shroud two-color fill
+            // §2E.3 LOCKED ROUTE (Daniel, v0.2.23-playtest 2026-06-12): the cartography is the
+            // REAL vanilla styled map material (the parchment look), framed to the bound origin's
+            // 1000 m disc, with OUR fog window as the shroud mask on top. There is NO render-mode
+            // toggle: the selectable SHADER-vs-CPU pick and the CPU compositor were removed once
+            // the shader render was confirmed good on a real GPU client (a client that can't drive
+            // the vanilla map shader can't see the vanilla map either, so the CPU fallback insured
+            // a non-scenario). PaintFog is the ONLY fallback — the never-blank guard for the
+            // pre-join / Minimap-not-generated window (WorldGenerator/Minimap absent), NOT a
+            // second render mode.
+            if (!TryRenderVanillaShader(survey))
+                PaintFog(survey); // never-blank guard → the explored/shroud two-color fill
 
             RebuildOverlay(survey);
 
@@ -239,104 +230,6 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// §2E.1 primary render. Composite the cartography on the CPU from PUBLIC,
-        /// deterministic <c>WorldGenerator</c> data (biome + height), using the SAME
-        /// pure <see cref="CartographyComposer"/> the headless preview harness runs, so
-        /// in-game and preview are byte-identical (§2E.2). For each cell of the bound
-        /// window we sample biome color (vanilla GetPixelColor table), water tone
-        /// (<c>height &lt; 30 m</c>), and a hillshade relief, bake into <see cref="_cartoTex"/>
-        /// once, and show it on the cartography <see cref="_mapImage"/>. OUR survey fog is
-        /// then overlaid as the shroud mask. We call WorldGenerator sampling ONLY — never
-        /// <c>Minimap.SetMapMode</c>, never the map roots, never <c>Game.m_noMap</c> —
-        /// so nomap stays in force (AT-RENDER-NOMAP-INTACT).
-        ///
-        /// Returns false (→ caller falls back to PaintFog) only if <c>WorldGenerator.instance</c>
-        /// isn't initialized yet (shouldn't happen post-join, but guarded — §2E.1 bullet 7).
-        /// </summary>
-        private bool TryComposeCartography(SurveyData survey)
-        {
-            // Graceful degradation guard (§2E.1 bullet 7): no worldgen yet → 2-color fallback.
-            var sampler = WorldGeneratorSampler.Live;
-            if (sampler == null)
-                return false;
-
-            float pixelSize   = survey.PixelSize > 0f ? survey.PixelSize : 64f;   // world m per source cell
-            int   textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
-            int   size        = survey.Size;
-
-            // The cartography window is the SAME WindowSpec the fog + pins were built from
-            // (BoundedMapMath) → cartography, shroud mask, and pin overlay share ONE window
-            // definition and align cell-for-cell by construction. Rebuild it from the survey's
-            // stored origin/radius so a re-imprinted map re-derives the identical grid.
-            float radius = _req.RadiusMeters > 0f ? _req.RadiusMeters : survey.RadiusMeters;
-            var window = BoundedMapMath.ComputeWindow(survey.OriginX, survey.OriginZ,
-                                                      radius, pixelSize, textureSize);
-
-            // Defensive: the survey's fog window Size and the freshly-computed window Size must
-            // agree (they derive from the same origin/radius/grid). If a legacy survey carries a
-            // mismatched Size, fall back rather than paint a misaligned composite.
-            if (window.Size != size)
-            {
-                Plugin.Log.LogWarning(
-                    $"[Trailborne/Cartography] MapViewer: composer window size {window.Size} != survey size {size}; " +
-                    "falling back to 2-color paint (legacy/mismatched survey).");
-                return false;
-            }
-
-            // Composite on the CPU. Palette comes from the live Minimap colors (inherits a
-            // game-patch recolor) or the vanilla literals if Minimap isn't up yet. ~33²=1089
-            // cells → trivial; baked ONCE here (per Render, not per frame).
-            CartographyPalette palette;
-            try { palette = CartographyPalette.FromMinimap(); }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: palette read failed ({e.Message}); using vanilla literals.");
-                palette = CartographyPalette.Vanilla;
-            }
-
-            Color32[] pixels;
-            try
-            {
-                pixels = CartographyComposer.Compose(sampler, palette, window, pixelSize, textureSize);
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: CPU composite failed ({e.Message}); falling back to 2-color paint.");
-                return false;
-            }
-
-            // Upload into our cached cartography texture (Point filter = crisp cells at fixed
-            // zoom, AT-MAP-FIXEDZOOM; bottom-up rows = north-up, matching PaintFog + the shroud).
-            if (_cartoTex == null || _cartoTex.width != size)
-            {
-                if (_cartoTex != null) UnityEngine.Object.Destroy(_cartoTex);
-                _cartoTex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false)
-                {
-                    name = "SBPR_Cartography",
-                    wrapMode = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Point,
-                };
-            }
-            _cartoTex.SetPixels32(pixels);
-            _cartoTex.Apply(updateMipmaps: false);
-
-            if (_mapImage != null)
-            {
-                _mapImage.material = null;                  // no shader — we draw our own pixels
-                _mapImage.texture  = _cartoTex;
-                _mapImage.uvRect   = new Rect(0f, 0f, 1f, 1f);
-                _mapImage.color    = Color.white;
-            }
-
-            // Shroud mask = OUR survey fog (explored-AND-in-disc), opaque everywhere else.
-            // Layered over the cartography at the same rect → the disc is the natural edge
-            // (no boxy frame) and beyond-radius reads as shroud (AT-TABLEMAP-2). Same window.
-            PaintShroudMask(survey);
-
-            return true;
-        }
-
-        /// <summary>
         /// §2E.3 SHADER render — the parchment look. Reuse a COPY of vanilla's STYLED large-map
         /// material (<c>Minimap.instance.m_mapImageLarge.material</c>), which carries the four
         /// bound cartography textures (<c>_MainTex</c> biome / <c>_MaskTex</c> forest / <c>_HeightTex</c>
@@ -350,11 +243,13 @@ namespace SBPR.Trailborne.Features.Cartography
         ///
         /// <para>We instantiate a COPY and never mutate vanilla's live material or its roots, so
         /// nomap stays in force (AT-RENDER-NOMAP-INTACT). Returns <c>false</c> → caller falls back
-        /// to the CPU composite when the styled material/textures aren't generated: that happens on
-        /// a headless / GPU-less client (vanilla gates the bake on
-        /// <c>graphicsDeviceType != Null</c>, Minimap.cs:552) or pre-join. The blank-render bug the
-        /// ORIGINAL attempt (§2E, v0.2.22) hit was a uvRect↔uniform double-transform; this copies
-        /// CenterMap's lockstep exactly to avoid it.</para>
+        /// to <see cref="PaintFog"/> (the never-blank guard) when the styled material/textures
+        /// aren't generated: that happens on a headless / GPU-less client (vanilla gates the bake on
+        /// <c>graphicsDeviceType != Null</c>, Minimap.cs:552) or pre-join — but on a real GPU client
+        /// (the only kind that can see the vanilla map at all) the styled material IS present, which
+        /// is why this is the unconditional render and the CPU composite was removed (§2E.3). The
+        /// blank-render bug the ORIGINAL attempt (§2E, v0.2.22) hit was a uvRect↔uniform
+        /// double-transform; this copies CenterMap's lockstep exactly to avoid it.</para>
         /// </summary>
         private bool TryRenderVanillaShader(SurveyData survey)
         {
@@ -366,7 +261,7 @@ namespace SBPR.Trailborne.Features.Cartography
 
             // The styled material only carries a generated _MainTex on a GPU client that has run
             // GenerateWorldMap (Minimap.cs:552 gates it on graphicsDeviceType != Null). No main
-            // texture → nothing to draw → fall back to the CPU composite cleanly.
+            // texture → nothing to draw → fall back to PaintFog cleanly (the never-blank guard).
             Texture? mainTex = liveMat.GetTexture("_MainTex");
             if (mainTex == null)
                 return false;
@@ -382,7 +277,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 }
                 catch (Exception e)
                 {
-                    Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: could not copy vanilla map material ({e.Message}); falling back to CPU composite.");
+                    Plugin.Log.LogWarning($"[Trailborne/Cartography] MapViewer: could not copy vanilla map material ({e.Message}); falling back to PaintFog.");
                     _shaderMat = null;
                     return false;
                 }
@@ -427,18 +322,6 @@ namespace SBPR.Trailborne.Features.Cartography
             // _FogTex haze stays live inside the disc (left as-is in the copied material).
             PaintShroudMask(survey);
 
-            return true;
-        }
-
-        /// <summary>
-        /// §2E.3: re-render the currently-open viewer in place (used by the <c>sbpr_mapmode</c>
-        /// console command so a mode switch is visible without reopening the map). Returns
-        /// <c>true</c> if the viewer was open and got redrawn.
-        /// </summary>
-        public bool RefreshIfOpen()
-        {
-            if (!IsOpen) return false;
-            Render();
             return true;
         }
 
@@ -533,9 +416,12 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// FALLBACK render (§2E.1 graceful degradation). Paint the Size×Size bool fog window into
-        /// our own RGBA32 two-color texture. Used only when the vanilla map material/textures
-        /// are unavailable (Minimap not generated yet). Retained per §2E ("Keep PaintFog").
+        /// FALLBACK render (§2E.3 never-blank guard). Paint the Size×Size bool fog window into
+        /// our own RGBA32 two-color texture. Used ONLY when the vanilla styled map material/textures
+        /// are unavailable (Minimap not generated yet / pre-join / GPU-less) — i.e. when
+        /// <see cref="TryRenderVanillaShader"/> returns false. This is NOT a selectable render mode
+        /// (the §2E.1 CPU composite was removed in §2E.3); it is the last-resort guard so the disc
+        /// is never blank.
         /// </summary>
         private void PaintFog(SurveyData survey)
         {
@@ -568,6 +454,12 @@ namespace SBPR.Trailborne.Features.Cartography
 
             if (_mapImage != null)
             {
+                // §2E.3: detach the vanilla styled material so the 2-color fallback texture isn't
+                // drawn THROUGH the parchment shader. Previously the (now-removed) CPU composite leg
+                // always cleared this between a shader failure and PaintFog; with the shader leg now
+                // the only cartography render, PaintFog must clear it itself or a shader→fallback
+                // transition would render blank.
+                _mapImage.material = null;
                 _mapImage.texture = _tex;
                 _mapImage.uvRect = new Rect(0f, 0f, 1f, 1f); // reset any cartography windowing
                 _mapImage.color = Color.white;
@@ -1253,7 +1145,6 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (_tex != null) UnityEngine.Object.Destroy(_tex);
             if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
-            if (_cartoTex != null) UnityEngine.Object.Destroy(_cartoTex);
             if (_shaderMat != null) UnityEngine.Object.Destroy(_shaderMat);
             if (_bezelTex != null) UnityEngine.Object.Destroy(_bezelTex);
             if (_instance == this) _instance = null;

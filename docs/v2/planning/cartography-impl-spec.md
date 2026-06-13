@@ -733,13 +733,21 @@ untouched. **SpecCheck / drift manifest: no change** (display-only; no recipe / 
   attack.
 - **AT-TABLEMAP-1…7** (issue 6 correction, 2026-06-11) — the viewer must render vanilla
   cartography (biome/height/forest/water), not a two-color fog mask; see **§2E** for the
-  named criteria + the locked route. **(Render route RE-LOCKED 2026-06-12, issue 10 → §2E.1:
-  the material-copy route failed in v0.2.22; superseded by a CPU-sampled `WorldGenerator`
-  composite. See AT-RENDER-* below.)**
-- **AT-RENDER-WATER/BIOME/RELIEF/NOMAP-INTACT/PREVIEW/REGRESSION** (issue 10, 2026-06-12) — the
-  bounded viewer must show water + biome color + relief like the vanilla map (not flat land +
-  shroud), via the §2E.1 CPU composite, verified by a §2E.2 headless preview PNG before ship; see
-  **§2E.1** for the named criteria + the re-locked route.
+  named criteria + the locked route. **(Render route FINAL-LOCKED 2026-06-12 → §2E.3: the
+  vanilla styled material IS the render, confirmed in-game on Daniel's GPU client
+  v0.2.23-playtest, no toggle. The §2E.1 CPU composite + §2E.2 preview harness are
+  SUPERSEDED/removed. See AT-PRUNE-* below.)**
+- **AT-PRUNE-1…4** (cleanup, 2026-06-12, confirmed in-game) — the CPU render fallback +
+  `sbpr_mapmode` toggle are removed; the vanilla styled material is THE unconditional render.
+  **AT-PRUNE-1** held Local Map still renders the parchment look (shader material, bounded to
+  the 1000 m disc) with NO console command. **AT-PRUNE-2** `sbpr_mapmode` no longer exists (no
+  dead Harmony patch; PatchCheck green at boot). **AT-PRUNE-3** no regression to orientation /
+  circular bezel / off-disc marker / pin labels / nomap-intact (the rest of the viewer cluster
+  is untouched). **AT-PRUNE-4** build 0/0, docs-lint OK, no orphaned `tools/` project. See
+  **§2E.3** for the final locked route. *(Supersedes the §2E.1 AT-RENDER-WATER/BIOME/RELIEF/
+  PREVIEW/REGRESSION + AT-PARCHMENT-PREVIEW CPU-composite render tests — the parchment look is
+  now proven in-game, not by a CPU-PNG proxy. AT-RENDER-NOMAP-INTACT survives as AT-PRUNE-3's
+  nomap-intact clause.)*
 - **AT-VIEWEXIT-1…7** (issue 7, 2026-06-11) — the viewer must exit cleanly: Escape closes it
   WITHOUT also opening the pause menu, and a bottom-center "[Esc] Close map" prompt is visible;
   see **§2F** for the named criteria + the locked `Menu.Show`-prefix route.
@@ -797,6 +805,19 @@ untouched. **SpecCheck / drift manifest: no change** (display-only; no recipe / 
 > material-copy LOCKED ROUTE in the rest of §2E (kept below for history).
 
 #### 2E.1 — Render root-cause correction + CPU-composite re-lock (issue 10, 2026-06-12, card t_14c34abe)
+
+> **⛔ SUPERSEDED (2026-06-12) by §2E.3 — historical, kept for the decomp record.** This section
+> re-locked the render on a GPU-free CPU composite (`CartographyComposer`) after the §2E material-copy
+> route shipped blank in v0.2.22. That composite then became the *fallback* leg of the §2E.3 two-mode
+> toggle — and was **REMOVED entirely** once Daniel's v0.2.23-playtest confirmed the vanilla **Shader**
+> render looks right on a real GPU client with no toggling. The CPU path insured against a client that
+> can't drive the vanilla map shader, which can't see the vanilla map either (a non-scenario). The
+> decomp analysis below (textures ARE generated under nomap; `WorldGenerator` is public + deterministic
+> on the joining client) remains TRUE and useful context, but **`CartographyComposer.cs` /
+> `MapViewer.TryComposeCartography` / `_cartoTex` no longer exist** — the live render is
+> `TryRenderVanillaShader` only (§2E.3). The AT-RENDER-* tests below are retired (see §2D / AT-PRUNE-*).
+
+#### 2E.1 — Render root-cause correction + CPU-composite re-lock (ORIGINAL, superseded — see banner above)
 
 > **Status: BUG/DESIGN — ROOT-CAUSE CORRECTION + RE-LOCK.** Supersedes the §2E "reuse a COPY of
 > `Minimap.instance.m_mapImageLarge.material`" LOCKED ROUTE. Reported by Daniel, v0.2.22-playtest:
@@ -938,6 +959,18 @@ exit prompt, and §2H rotate/center are all untouched.
 > pending Daniel's sign-off before merge.** Logs-green ≠ playable — Daniel confirms in-game.
 
 #### 2E.2 — Headless preview harness (Daniel-requested: PNG captures before ship)
+
+> **⛔ SUPERSEDED (2026-06-12) by §2E.3 — harness removed.** This preview leg existed to PNG-preview
+> the §2E.1 **CPU composite** off-engine before ship (the build box is headless / GPU-less, so the
+> *shader* render could never be previewed here anyway — that was the whole reason the toggle existed).
+> Once Daniel confirmed the vanilla **Shader** render in-game on his GPU client (v0.2.23-playtest), the
+> CPU composite was removed and this harness lost its only subject. **`tools/cartography-preview/`
+> (PngWriter.cs, PreviewPlugin.cs, README.md, SBPR.CartographyPreview.csproj) was DELETED** in the §2E.3
+> cleanup cut. The parchment look is now proven in-game (the real bar — logs-green/PNG-green was always
+> a proxy), so AT-RENDER-PREVIEW / AT-PARCHMENT-PREVIEW are retired (§2D / AT-PRUNE-*). Kept below for
+> the historical record of the "preview == ship" approach.
+
+#### 2E.2 — Headless preview harness (ORIGINAL, superseded — see banner above)
 
 > **Status: NEW — verification leg.** This box is a headless dedicated server (no GPU client), which
 > is exactly why §2E shipped blind. The fix: make the cartography compositor **GPU-free and
@@ -1125,42 +1158,48 @@ recipe row). Spec + code move together in that PR.
 > holds the rest of the viewer cluster (issues #1/#2/#3/#4/#9/#11 — all touch `MapViewer.cs`),
 > **render-first** (the CPU composite is the foundation the orientation/overlay fixes ride on).
 
-#### 2E.3 — Selectable SHADER vs CPU render mode (issue 10 re-correction, 2026-06-12, in-client pick)
+#### 2E.3 — FINAL LOCKED ROUTE: vanilla styled material is THE render, no toggle (issue 10, confirmed in-game 2026-06-12)
 
-> **✅ IMPL STATUS (2026-06-12, branch `feat/local-map-viewer-cluster-t_e0e8c7a9`).** The §2E.1
-> CPU composite reproduces only the map's flat biome DATA — Daniel's playtest (v0.2.22) confirmed
-> that is NOT "the parchment look." The parchment paper + cloud/haze + fog feathering live in
-> vanilla's GPU map DISPLAY SHADER on `Minimap.m_mapImageLarge.material`, NOT in the four data
-> textures it composites (decomp: `GenerateWorldMap` bakes only `GetPixelColor(biome)`→`_MainTex`
-> + mask/height/fog; nomap's `SetMapMode` only `SetActive(false)`s the roots, never the
-> shader/material). The shader render is **unverifiable on the headless build box** (Valheim gates
-> the texture bake on `graphicsDeviceType != Null`, Minimap.cs:552 — no GPU client here, and the
-> map display shader is absent from the dedicated-server payload), so rather than ship one render
-> blind a **THIRD time**, BOTH paths ship and Daniel picks the one that looks right on his GPU.
+> **✅ LOCKED + SHIPPED-DEFAULT (Daniel, v0.2.23-playtest, 2026-06-12).** The held Local Map renders
+> the **REAL vanilla parchment look** — a COPY of vanilla's styled `m_mapImageLarge.material` (the GPU
+> map display shader: paper texture + cloud/haze + fog feathering), framed to our bound 1000 m disc,
+> with OUR survey fog as the hard shroud mask on top. **Daniel playtested the default Shader render on
+> his GPU client and it looked good with NO toggling — he never switched modes.** That empirically
+> settles the question this section was opened to hedge: *can vanilla's styled `m_mapImageLarge.material`
+> be driven into our bounded `RawImage` on a real GPU client?* **Yes.**
 >
-> **Two modes (`MapRenderMode`):**
-> - **`Shader` (DEFAULT)** — `MapViewer.TryRenderVanillaShader`: instantiate a COPY of vanilla's
->   styled `m_mapImageLarge.material` (never mutate the live one → nomap intact), assign it to the
->   cartography `RawImage`, and frame the bound 1000 m disc by driving `uvRect.center` +
->   `_mapCenter` + `_pixelSize` (`200/zoom`) + `_zoom` in **lockstep** (vanilla `CenterMap`,
->   Minimap.cs:1004-1034 — the inconsistent transform was the §2E v0.2.22 blank-render bug).
->   Vanilla's native `_FogTex` haze stays live inside the disc; OUR survey fog is the hard 1000 m
->   shroud cutoff on top (Daniel's "keep vanilla haze, all-shroud past 1000 m" lean — tunable).
->   Silently falls back to `Cpu` if the styled material/`_MainTex` isn't generated (headless / pre-join).
-> - **`Cpu`** — the §2E.1 `TryComposeCartography` composite (biome+water+relief). Always renders,
->   no parchment styling.
+> **Decision: the CPU render mode and the `sbpr_mapmode` toggle were REMOVED; Shader is the
+> unconditional render.** The CPU composite (§2E.1) was insurance against *"this client can't drive the
+> vanilla map shader"* — but a client that can't drive the vanilla map shader **can't see the vanilla
+> map either**, so the fallback insured against a non-scenario. Carrying two render paths + a console
+> command + a mode enum to hedge a case that can't occur is dead weight, and dead weight in the render
+> hot path is a maintenance liability (every future §2H/§2K change had to reason about two paint legs).
 >
-> `PaintFog` remains the final 2-color backstop. The orientation/circular-bezel/pin-label/no-North
-> work (§2H.1 etc.) is render-agnostic and unchanged — only the cartography PAINT step is mode-switched.
+> **What the render is now (one leg, `MapViewer.TryRenderVanillaShader`):** instantiate a COPY of
+> vanilla's styled `m_mapImageLarge.material` (never mutate the live one → nomap intact), assign it to
+> the cartography `RawImage`, and frame the bound 1000 m disc by driving `uvRect.center` + `_mapCenter`
+> + `_pixelSize` (`200/zoom`) + `_zoom` in **lockstep** (vanilla `CenterMap`, Minimap.cs:1004-1034 — the
+> inconsistent transform was the §2E v0.2.22 blank-render bug). Vanilla's native `_FogTex` haze stays
+> live inside the disc; OUR survey fog is the hard 1000 m shroud cutoff on top.
 >
-> **In-client toggle (`MapModeCommand`):** the `sbpr_mapmode` console command —
-> `sbpr_mapmode shader|cpu|toggle` (or no arg to print current) — switches live and force-redraws
-> an open viewer. Postfixes `Terminal.InitTerminal` (same hook as `bannerdiag`), registered via
-> `harmony.PatchAll(typeof(MapModeCommand))` so PatchCheck sees it woven.
+> **`PaintFog` is the ONLY fallback — and it is NOT a render mode.** It is the never-blank guard for
+> the pre-join / `Minimap`-not-generated / GPU-less window (when `TryRenderVanillaShader` returns
+> false). On a real GPU client — the only kind that can see the vanilla map at all — the styled material
+> is present, so this branch is the steady-state render. The orientation / circular-bezel / pin-label /
+> no-North work (§2H.1 etc.) is render-agnostic and unchanged.
 >
-> **AT-PARCHMENT-* close on Daniel's in-client pick.** Logs-green ≠ playable: the shader render is
-> COMPILE-VERIFIED ONLY here; the in-client toggle IS the verification. If `shader` renders blank
-> on his GPU, `sbpr_mapmode cpu` gives the working data look as the fallback while we tune the framing.
+> **REMOVED in this cut (cleanup card, 2026-06-12):** `CartographyComposer.cs` (the CPU compositor +
+> `IBiomeSampler`/`CartographyPalette`/`WorldGeneratorSampler`), `MapRenderMode.cs` (the `MapRenderMode`
+> enum + `MapRenderModeState`), `MapModeCommand.cs` (the `sbpr_mapmode` console command + its
+> `Terminal.InitTerminal` patch + the `Plugin.Awake` registration), `MapViewer.TryComposeCartography` +
+> the cached `_cartoTex`, `MapViewer.RefreshIfOpen` (only the toggle called it), and the throwaway
+> `tools/cartography-preview/` harness (it existed only to PNG-preview the CPU composite — orphaned once
+> CPU is gone). Build stays 0/0 (TreatWarningsAsErrors). **SpecCheck impact: none** (render behavior, no
+> recipe rows). See §2E.1 (CPU composite) + §2E.2 (preview harness) — both now **SUPERSEDED** banners.
+>
+> **AT index:** AT-PRUNE-1…4 (this cut) replace the CPU-composite render ATs. The parchment look is now
+> proven **in-game** (logs-green was never the bar; Daniel's eyes on his GPU client are), so the
+> CPU-PNG evidence leg (AT-RENDER-PREVIEW / AT-PARCHMENT-PREVIEW) is retired. See §2D.
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
@@ -2096,7 +2135,9 @@ along your path. If the shroud still doesn't move with a confirmed-equipped Kit,
 > 0 errors / 0 warnings. One PR, both parts (they share MapViewer.cs / SurveyorTableTag.cs).
 > **Part A** — `MapViewer.IsOpen` is now `_root != null && _root.activeSelf` (§2I.2 mechanism
 > (i)); the `_open` side-bool is DELETED and `Open`/`Refresh`/`Close`/`Update`/`RefreshIfOpen`
-> re-gate on the canvas. `SignPanelInputBlock.AnyOpen` documents the §2I.2 liveness invariant
+> re-gate on the canvas. *(Note: `RefreshIfOpen` was itself removed in the later §2E.3 cleanup cut —
+> its only caller was the deleted `sbpr_mapmode` toggle. `Open`/`Refresh`/`Close`/`Update` still
+> re-gate on the canvas.)* `SignPanelInputBlock.AnyOpen` documents the §2I.2 liveness invariant
 > (mechanism (ii)) — all three contributors now derive from live `activeSelf`, so none can latch
 > the §2G E-open gate. No watchdog/timer added; the §2G modal-suppress is untouched. **Part B** —
 > new `SurveyorTableHotbarImprintPatch` (Harmony prefix on `Player.UseHotbarItem(int)`, Type[]
