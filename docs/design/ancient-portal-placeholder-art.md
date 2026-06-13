@@ -13,15 +13,12 @@ purpose: "Placeholder (programmer-art) construction plan for the Ancient Portal 
 > (what the final/custom art aims at) is the concept render linked at the bottom; the placeholder
 > is deliberately cruder.
 >
-> 🔴 **OPEN — ORIENTATION NOT YET LOCKED (pending Daniel, 2026-06-13).** This doc currently
-> assumes the **horizontal / overhead jump-up** ring from `pocket-portal.md`. A web reference
-> sweep found that essentially ALL existing "root portal" art is a **vertical** doorway — the
-> horizontal jump-up is genuinely unusual (a feature: distinctive; a cost: no off-the-shelf
-> reference, and a harder trigger). Daniel is deciding **horizontal jump-up vs. vertical
-> root-knot doorway**. The verified-parts inventory below is orientation-AGNOSTIC and holds
-> either way; only step 1 (ring rotation) + step 2 (trigger placement) change. If Daniel picks
-> vertical: skip the 90° flip, mount the ring vertical at ground level like a normal portal, and
-> the trigger is the easy vanilla walk-through volume (drops the novel-geometry risk entirely).
+> 🟢 **ORIENTATION CONFIRMED — horizontal jump-up (Daniel, 2026-06-13).** Daniel reviewed the
+> concept render (horizontal glowing disc on root-pillars) and confirmed: *"basically what I'm
+> hoping for, about 3 meters tall and 3 meters wide."* So the placeholder targets the **horizontal
+> overhead ring** (NOT the vertical doorway alternative — that's dropped). **Size: ~3 m tall × ~3 m
+> wide** — a compact root-arch (slightly smaller than the vanilla 4×4 portal). The verified-parts
+> inventory below is unchanged; the build assembles them at the 3×3 m horizontal-overhead spec.
 
 ## Design constraints this has to satisfy (from pocket-portal.md)
 1. **Horizontal ring, slightly above player height** — you jump UP into it to activate.
@@ -69,19 +66,26 @@ with material `stump` if we prefer that texture.)
 ## The placeholder construction (cheapest legible build)
 Built additively on one `new GameObject("SBPR_AncientPortal")` carrying **only**: `Piece`,
 `ZNetView`, `WearNTear`, `TeleportWorld`, our grow-timer `MonoBehaviour`, and these child render
-nodes (mesh+material only, no donor scripts):
+nodes (mesh+material only, no donor scripts). **Target envelope: ~3 m tall × ~3 m wide** (Daniel,
+2026-06-13) — scale every borrowed mesh to fit this; the donor meshes are all bigger and need
+shrinking (see per-step scale notes).
 
 1. **Ring (horizontal):** the `small_portal` mesh+material, **rotated 90° to lie flat** (face up),
-   parented at ~**2.2–2.5 m** height (just above player head). This is the glowing disc you jump into.
-2. **Teleport trigger:** our `TeleportWorld` + a `BoxCollider trigger` sized like the donor's,
-   placed horizontally under/at the ring so a jump-through registers (🔴 the main geometry risk —
-   size it to catch a jump but not a walk-underneath; verify on a joined client).
-3. **Roots:** 2–4 instances of the `Greydwarf_Root` `default` mesh, scaled/rotated to weave up the
-   legs and around the ring rim — sells "roots grown into a portal."
-4. **Legs:** 2–3 `stubbe` stumps, scaled thin/tall, as the pillars holding the ring overhead
-   (matches the concept render's tripod-of-roots).
+   parented at the **top of the ~3 m height** (just above a ~1.8 m player → a reachable jump apex).
+   🔧 **Scale:** the donor mesh is 4.23 × 3.29 m → scale to **~3 m wide** (≈ ×0.71) so the ring
+   footprint matches the 3 m spec. This is the glowing disc you jump into.
+2. **Teleport trigger:** our `TeleportWorld` + a `BoxCollider trigger`, placed horizontally at the
+   ring (~3 m up) so a jump-through registers (🔴 the main geometry risk — size it to catch a jump
+   apex but not a walk-underneath; with the ring at ~3 m and a ~1.8 m player +~1 m jump ≈ ~2.8–3 m
+   reach, give the trigger vertical slack; verify on a joined client).
+3. **Roots:** 2–4 instances of the `Greydwarf_Root` `default` mesh (donor 1.75 × 3.87 × 4.07 m →
+   scale down to read as ~3 m-scale tendrils), scaled/rotated to weave up the legs and around the
+   ring rim — sells "roots grown into a portal."
+4. **Legs:** 2–3 `stubbe` stumps (donor is large, 9.8 m wide → scale down hard, thin/tall) as the
+   pillars holding the ring at ~3 m overhead (matches the concept render's tripod-of-roots).
 5. **Grow fake (placeholder):** the ~15 s "grow" is faked by **lerping the whole piece's scale**
-   from ~0.1 → 1.0 over 15 s in the grow-timer `MonoBehaviour` (ZDO-stamp the plant time so it
+   from ~0.1 → 1.0 (final = the 3×3 m envelope) over 15 s in the grow-timer `MonoBehaviour`
+   (ZDO-stamp the plant time so it
    survives relog mid-grow), then enabling the `TeleportWorld`. No bespoke animation needed for
    placeholder — a real roots-assembling animation is a later art pass.
 6. **Glow (free):** the `portal_small` material's **emission map** already self-glows — no light

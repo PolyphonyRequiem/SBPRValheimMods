@@ -94,11 +94,19 @@ The **Portal Seed** item is crafted from:
 - The Ancient Portal ring is **horizontal** (lying flat, facing up) and sits **slightly above the
   player's height**, so the player must **jump up** into it to activate/teleport. This is a
   deliberate, signature interaction — you leap into an overhead root-ring rather than walking
-  through a vertical doorway.
+  through a vertical doorway. **CONFIRMED 2026-06-13** against the concept render (horizontal disc
+  on root-pillars) — Daniel: "basically what I'm hoping for."
+- **Size — DECIDED (Daniel, 2026-06-13): ~3 m tall × ~3 m wide.** The whole structure (root-pillar
+  legs + the overhead ring) stands ~3 m tall, and the ring/footprint is ~3 m wide. For reference
+  the vanilla portal silhouette is 4×4 (mesh 4.23 × 3.29 m), so the Ancient Portal is a bit
+  SMALLER/tighter than a vanilla portal — a compact root-arch, not a big gateway. The ring itself
+  sits at the top of the ~3 m height (just above a ~1.8 m player → a reachable jump).
 - 🔴 Architect/impl: confirm the activation trigger still fires on a jump-through (the vanilla
   portal teleport is a proximity/trigger-volume on `TeleportWorld`; a horizontal overhead trigger
   volume needs the collider positioned + sized so a jump registers reliably but you don't trigger
-  it by walking underneath). This is the main novel-geometry risk.
+  it by walking underneath). This is the main novel-geometry risk. At ~3 m total height with the
+  ring on top, the jump apex must reach the ring's trigger — size the trigger with enough vertical
+  slack that a standard jump (~1 m rise from a ~1.8 m player ≈ reach ~2.8–3 m) registers.
 
 ## 🟢 Fragility + break-to-seed — DECIDED
 - **More fragile than a regular portal.** Vanilla portal durability is 400 (verified Portal.md).
