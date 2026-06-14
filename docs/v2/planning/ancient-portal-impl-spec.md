@@ -214,18 +214,19 @@ mesh). All three donors are verified script-free steals (art brief, X-rayed via 
   player vertically) is a flagged in-engine check — fall back to a plain emissive disc if
   it looks wrong horizontal (art brief §"Open / to verify").
 
-### 3.3 Fragility (LOCKED — RESOLVED open-knob #3, see §6)
-- Set `WearNTear.m_health = 175f` and `m_materialType = WearNTear.MaterialType.Wood`.
-  **Justification:** vanilla portal = 400 (verified `Portal.md`); the design wants "more
-  fragile, lean ~150–200." **175** sits in that band — under half of vanilla, a real
-  downside to balance the convenience, but not so brittle a stray Greydwarf one-shots it.
-  Wood material (not the shell's default Stone) means it takes axe/fire damage like the
-  organic root structure it is. Tunable in playtest — flagged, not load-bearing.
-- **Rain decay: leave OFF for v1** (match vanilla portal: "Damaged by Rain? No"). Set
-  `m_noRoofWear = true` like the cairn shell. The design floated "a root structure
-  arguably should decay" as a balance call — **do not** implement weather decay in the
-  first build (it's an explicit open balance question, not a locked requirement). Flag for
-  Daniel.
+### 3.3 Fragility (HP = 300 — DECIDED by Daniel, 2026-06-13)
+- Set `m_materialType = WearNTear.MaterialType.Wood` (takes axe/fire damage like the
+  organic root structure it is, not the shell's default Stone).
+- **`WearNTear.m_health = 300f` — DECIDED (Daniel, 2026-06-13).** 75% of vanilla's 400
+  (verified `Portal.md`) — meaningfully more fragile than a regular portal (the convenience
+  downside) without being brittle. (Earlier spec drafts asserted a "~150–200 lean / locked
+  175" — that band was **never Daniel's**, it was an author invention, retracted 2026-06-13.
+  Daniel set 300 directly.) Keep code + this line + any SpecCheck note in lockstep.
+- **Rain decay: OFF for v1 (CONFIRMED Daniel, 2026-06-13).** Match the vanilla portal
+  ("Damaged by Rain? No"). Set `m_noRoofWear = true` like the cairn shell. **Do not**
+  implement weather decay. (A prior draft floated "a root structure arguably should decay"
+  as if it were a live design thread — that was the author's framing, not Daniel's, and is
+  retracted; Daniel confirmed no rain decay.)
 - `m_canBeRemoved = true` (deconstructable → returns the seed, §1). The shell already
   sets this.
 
@@ -249,6 +250,28 @@ mesh). All three donors are verified script-free steals (art brief, X-rayed via 
 - **Build cost:** `Piece.m_resources = { Assets.BuildReq("SBPR_PortalSeed", 1) }` — the
   one-seed cost that makes break→seed free (§1). Built in `DoObjectDBWiring` (after the Seed
   is in ObjectDB), exactly like cairns rebuild their marker-cost there (`Cairns.cs`).
+
+### 3.4b Placement surface — SOLID EARTH ONLY, not on structures (CONFIRMED Daniel, 2026-06-13)
+- 🔴 **Requirement (Daniel, 2026-06-13, verbatim):** *"it needs to be built on solid earth.
+  Not on structures."* The Ancient Portal plants in the ground — you cannot place it on a
+  wood floor, stone floor, or any built piece.
+- **Implement with `piece.m_groundOnly = true`.** Grounded against the vanilla placement
+  validator `Player.UpdatePlacementGhost` / `GetPlacementStatus`
+  (`assembly_valheim.decompiled.cs`): at `:18879` `m_groundOnly && heightmap == null →
+  PlacementStatus.Invalid` — i.e. the placement point MUST be over terrain (a `Heightmap`),
+  which built pieces are not, so this rejects placement on structures exactly as asked.
+- **Use `m_groundOnly`, NOT `m_cultivatedGroundOnly`** (`:18883`, that one additionally
+  requires hoe-cultivated dirt — too strict; Daniel said solid earth, not tilled soil), and
+  NOT `m_groundPiece` (`:18873`/`:18952`, that flag also force-snaps the piece flat to the
+  heightmap and enables terrain-clipping — wrong for an overhead root-arch we want sitting
+  upright on its legs). `m_groundOnly` is the minimal "must be on terrain" gate without the
+  snap/clip side-effects.
+- **AT-PLACE-SOLID-EARTH (new — see §7):** placement ghost is valid on dirt/grass/rock
+  terrain; placement is REJECTED (red ghost, `Invalid`) when aimed at a wood/stone floor or
+  any built piece. Verify in-game on a joined client (logs-green ≠ playable).
+- Interaction note: `m_groundOnly` does not by itself constrain slope; if Daniel later wants
+  "no steep cliffs," that's a separate `m_notOnTiltingSurface`/`m_groundPiece` call — flag,
+  don't pre-add.
 
 ### 3.5 TeleportWorld — real vanilla teleport, ore-ban inherited free
 Add a real **`TeleportWorld`** component (`AddComponent<TeleportWorld>()`,
@@ -388,21 +411,25 @@ sync — update both for `docs/v2/planning/`.)
 
 ---
 
-## 6. Open knobs — RESOLVED (architect decisions, none block building)
+## 6. Open knobs (architect decisions + the ones that are genuinely Daniel's)
 
-The design doc left 5 small knobs. I resolved all 5 so the engineer never blocks; each is a
-reversible tuning call, flagged for Daniel to veto in playtest. None are load-bearing.
+The design doc left 5 small knobs. All 5 are now settled: four were architect tuning calls,
+and **#3 (HP) was corrected back to Daniel and he set it directly — 300** (the earlier "175 /
+lean 150–200" was an author fabrication, never Daniel's word — retracted 2026-06-13). None
+block building.
 
 | # | Knob | Resolution | Justification |
 |---|---|---|---|
 | 1 | Where the Seed crafts | **Explorer's Bench** | Daniel's lean (pre-make at home, carry out). It's the station every SBPR recipe already uses; zero new surface. The "no bench" promise is about *placing*, not crafting. |
 | 2 | Stack size at 25 kg | **`m_maxStackSize = 1`** | 5× = 125 kg defeats the point. One-per-slot is the "you carry ONE portal" pack commitment. |
-| 3 | Fragility HP | **175** (Wood material) | Design lean was 150–200; 175 is mid-band, <½ vanilla's 400 — a real downside without being one-shottable. Tunable. |
+| 3 | Fragility HP | **300** (DECIDED — Daniel, 2026-06-13) | Daniel set it directly: 300 = 75% of vanilla's 400 (verified `Portal.md`), a real fragility downside without being brittle. (A prior draft invented a "150–200 lean / 175" that was never Daniel's — retracted.) §3.3. |
 | 4 | Break→seed scope | **Always returns 1 seed** (every destroy path) | Daniel's lean + it's the *free* behavior of `Piece.DropResources` with a 1-seed recoverable cost (§1). Implementing "deconstruct-only" would mean ADDING a custom `m_onDestroyed` to SUPPRESS drops on death — more code for a worse fantasy. Always-returns is both simpler and the better game. |
 | 5 | Hammer vs Spade | **Hammer** (+ reconcile pillars doc) | Daniel's 2026-06-13 explicit word ("regular hammer") overrides `design-pillars.md:33`'s Spade-only line. Spec updates the pillar doc to carve the exception (§5). Spade is a one-line swap if Daniel reverses. |
 
-Plus the playtest-contingent **Ectoplasm** substitution (recipe eyes/cores) — **not built**,
-noted only (§2.3).
+Plus two confirmed-by-Daniel constraints folded in 2026-06-13: **no rain decay** (§3.3) and
+**solid-earth-only placement, not on structures** (`m_groundOnly`, §3.4b). And the
+playtest-contingent **Ectoplasm** substitution (recipe eyes/cores) — **not built**, noted
+only (§2.3).
 
 ---
 
@@ -431,8 +458,11 @@ in the PR handoff; the build PR does NOT self-close these.
   between each other (requires the §1 `PortalPrefabHash` registration — verify they actually
   CONNECT, not just place). **Ore/metal still blocked**: carrying copper/tin/iron refuses
   teleport with the vanilla message (we never set `m_allowAllItems`).
-- **AT-FRAGILE** — durability is 175 (< vanilla 400); the portal is destroyable by combat /
-  deconstruct.
+- **AT-FRAGILE** — durability is **300** (`m_health = 300f`, DECIDED Daniel 2026-06-13; 75% of
+  vanilla's 400, §3.3/§6); the portal is destroyable by combat / deconstruct.
+- **AT-PLACE-SOLID-EARTH** — the placement ghost is **valid on terrain** (dirt/grass/rock) and
+  **REJECTED (red `Invalid` ghost) on any built structure** — wood floor, stone floor, any
+  piece (`m_groundOnly`, §3.4b). Daniel's "solid earth, not structures." Verify in-game.
 - **AT-BREAK-TO-SEED** — destroying it (deconstruct AND creature-kill) drops **exactly one**
   replantable Portal Seed (not its mats, not rubble). The dropped seed **replants into a
   working portal** (full grow → activate → pairs). Confirm a creature-killed portal returns
