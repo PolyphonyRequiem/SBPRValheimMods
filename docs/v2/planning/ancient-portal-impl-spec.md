@@ -214,16 +214,14 @@ mesh). All three donors are verified script-free steals (art brief, X-rayed via 
   player vertically) is a flagged in-engine check — fall back to a plain emissive disc if
   it looks wrong horizontal (art brief §"Open / to verify").
 
-### 3.3 Fragility (HP = OPEN — Daniel decides; default vanilla 400 until then)
+### 3.3 Fragility (HP = 300 — DECIDED by Daniel, 2026-06-13)
 - Set `m_materialType = WearNTear.MaterialType.Wood` (takes axe/fire damage like the
   organic root structure it is, not the shell's default Stone).
-- 🔴 **`WearNTear.m_health` is an OPEN knob — NOT yet decided by Daniel.** The design doc
-  says only "more fragile than a regular portal"; it does **not** name a number. (An earlier
-  draft of this spec asserted a "~150–200 lean" and locked 175 — that band was **never
-  Daniel's**; it was the author's invention and has been retracted, 2026-06-13.) **Default
-  to vanilla `m_health = 400f`** (verified `Portal.md`) until Daniel picks a lower value, so
-  the build is honest rather than carrying a fabricated number. Whatever Daniel lands on,
-  keep code + this line in lockstep. Tunable in playtest.
+- **`WearNTear.m_health = 300f` — DECIDED (Daniel, 2026-06-13).** 75% of vanilla's 400
+  (verified `Portal.md`) — meaningfully more fragile than a regular portal (the convenience
+  downside) without being brittle. (Earlier spec drafts asserted a "~150–200 lean / locked
+  175" — that band was **never Daniel's**, it was an author invention, retracted 2026-06-13.
+  Daniel set 300 directly.) Keep code + this line + any SpecCheck note in lockstep.
 - **Rain decay: OFF for v1 (CONFIRMED Daniel, 2026-06-13).** Match the vanilla portal
   ("Damaged by Rain? No"). Set `m_noRoofWear = true` like the cairn shell. **Do not**
   implement weather decay. (A prior draft floated "a root structure arguably should decay"
@@ -415,16 +413,16 @@ sync — update both for `docs/v2/planning/`.)
 
 ## 6. Open knobs (architect decisions + the ones that are genuinely Daniel's)
 
-The design doc left 5 small knobs. Four are reversible architect tuning calls; **#3 (HP) is
-NOT resolved — it's been corrected back to an open Daniel decision** (the earlier "175 / lean
-150–200" was an author fabrication, never Daniel's word — retracted 2026-06-13). None block
-building.
+The design doc left 5 small knobs. All 5 are now settled: four were architect tuning calls,
+and **#3 (HP) was corrected back to Daniel and he set it directly — 300** (the earlier "175 /
+lean 150–200" was an author fabrication, never Daniel's word — retracted 2026-06-13). None
+block building.
 
 | # | Knob | Resolution | Justification |
 |---|---|---|---|
 | 1 | Where the Seed crafts | **Explorer's Bench** | Daniel's lean (pre-make at home, carry out). It's the station every SBPR recipe already uses; zero new surface. The "no bench" promise is about *placing*, not crafting. |
 | 2 | Stack size at 25 kg | **`m_maxStackSize = 1`** | 5× = 125 kg defeats the point. One-per-slot is the "you carry ONE portal" pack commitment. |
-| 3 | Fragility HP | 🔴 **OPEN — Daniel's call. Build defaults to vanilla 400** | The design doc says only "more fragile than vanilla"; it names **no number**. A prior draft invented a "150–200 lean" and locked 175 — that was never Daniel's and is retracted. Until Daniel picks a value, ship the honest vanilla default (400) rather than a fabricated number. §3.3. |
+| 3 | Fragility HP | **300** (DECIDED — Daniel, 2026-06-13) | Daniel set it directly: 300 = 75% of vanilla's 400 (verified `Portal.md`), a real fragility downside without being brittle. (A prior draft invented a "150–200 lean / 175" that was never Daniel's — retracted.) §3.3. |
 | 4 | Break→seed scope | **Always returns 1 seed** (every destroy path) | Daniel's lean + it's the *free* behavior of `Piece.DropResources` with a 1-seed recoverable cost (§1). Implementing "deconstruct-only" would mean ADDING a custom `m_onDestroyed` to SUPPRESS drops on death — more code for a worse fantasy. Always-returns is both simpler and the better game. |
 | 5 | Hammer vs Spade | **Hammer** (+ reconcile pillars doc) | Daniel's 2026-06-13 explicit word ("regular hammer") overrides `design-pillars.md:33`'s Spade-only line. Spec updates the pillar doc to carve the exception (§5). Spade is a one-line swap if Daniel reverses. |
 
@@ -460,9 +458,8 @@ in the PR handoff; the build PR does NOT self-close these.
   between each other (requires the §1 `PortalPrefabHash` registration — verify they actually
   CONNECT, not just place). **Ore/metal still blocked**: carrying copper/tin/iron refuses
   teleport with the vanilla message (we never set `m_allowAllItems`).
-- **AT-FRAGILE** — durability is the configured `m_health` (🔴 OPEN knob — defaults to vanilla
-  400 until Daniel picks a lower value, §3.3/§6); the portal is destroyable by combat /
-  deconstruct. (Verify against whatever value is set in code, not a hardcoded number here.)
+- **AT-FRAGILE** — durability is **300** (`m_health = 300f`, DECIDED Daniel 2026-06-13; 75% of
+  vanilla's 400, §3.3/§6); the portal is destroyable by combat / deconstruct.
 - **AT-PLACE-SOLID-EARTH** — the placement ghost is **valid on terrain** (dirt/grass/rock) and
   **REJECTED (red `Invalid` ghost) on any built structure** — wood floor, stone floor, any
   piece (`m_groundOnly`, §3.4b). Daniel's "solid earth, not structures." Verify in-game.

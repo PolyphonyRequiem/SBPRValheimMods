@@ -112,13 +112,11 @@ The **Portal Seed** item is crafted from:
   ring on top, the jump apex must reach the ring's trigger — size the trigger with enough vertical
   slack that a standard jump (~1 m rise from a ~1.8 m player ≈ reach ~2.8–3 m) registers.
 
-## 🟢 Fragility + break-to-seed — DECIDED (HP value still OPEN)
-- **More fragile than a regular portal.** Vanilla portal durability is 400 (verified Portal.md).
-  The Ancient Portal has **less** — a deliberate downside balancing the convenience. 🔴 **OPEN
-  knob — Daniel's call: the exact HP is NOT yet decided.** The design intent is only "less than
-  400"; no specific number has been set by Daniel. (A spec draft once floated "~150 HP / lean
-  150–200" — that was an author guess, never Daniel's, and is retracted 2026-06-13. The impl
-  defaults to vanilla 400 until Daniel picks a lower value.)
+## 🟢 Fragility + break-to-seed — DECIDED
+- **More fragile than a regular portal — `m_health = 300` (DECIDED, Daniel 2026-06-13).** Vanilla
+  portal durability is 400 (verified Portal.md); the Ancient Portal is **300** — 75% of vanilla, a
+  deliberate downside balancing the convenience. (A spec draft once floated "~150 HP / lean
+  150–200" — that was an author guess, never Daniel's, retracted 2026-06-13. Daniel set 300.)
 - **Rain/weather decay: NO (CONFIRMED Daniel, 2026-06-13).** Matches vanilla portal ("Damaged by
   Rain? No"). (An earlier "a root structure arguably should decay" musing was the author's, not
   Daniel's — retracted; Daniel confirmed no decay.)
@@ -179,8 +177,8 @@ The **Portal Seed** item is crafted from:
 ## Remaining OPEN knobs for Daniel (small — the core is decided)
 1. **Seed craft location** — Workbench/Forge at home (lean) vs field-craftable from raw mats?
 2. **Stack size** — low/no stack at 25 kg each (lean) vs stackable?
-3. **Fragility value** — how much less than 400 HP? And does it take weather/rain decay (vanilla
-   portal doesn't)?
+3. **Fragility value** — ✅ RESOLVED: 300 HP (Daniel, 2026-06-13). Rain/weather decay: ✅ NO
+   (Daniel). Placement: ✅ solid earth only, not on structures (Daniel).
 4. **Break→seed scope** — always returns the seed (lean), or only on intentional deconstruct?
 5. **Hammer vs Spade vs both** for placement (reconcile with design-pillars.md).
 6. **Ectoplasm substitution** (playtest-contingent) — replace the Greydwarf eyes and/or Surtling
