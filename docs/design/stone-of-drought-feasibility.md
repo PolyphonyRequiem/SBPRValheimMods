@@ -1,7 +1,7 @@
 ---
 title: "Stone of Drought — water-repel feasibility (research)"
 status: idea
-purpose: "Feasibility/scoping research for a 'Stone of Drought' placeable that carves a curved divot in the water around it (repels water). Grounded in vanilla water internals (WaterVolume / GetWaterSurface) — NOT in the Rune Magic mod's code (clean-room wall, ADR-0001). Captures what it would actually take, the hard part (visual vs logical water are two systems), and a phased path. No build decision yet."
+purpose: "Feasibility/scoping research for a 'Stone of Drought' (Ashlands tier — a NEW v7 beyond the current v6 roadmap) placeable that carves a curved divot in the water around it, repelling it (gameplay repel, depth-limited). Grounded in vanilla water internals (WaterVolume / GetWaterSurface) — NOT in the Rune Magic mod's code (clean-room wall, ADR-0001). Captures what it would actually take, the hard part (visual vs logical water are two systems), and a phased path. No build decision yet."
 ---
 
 # Stone of Drought — water-repel feasibility (research)
@@ -146,14 +146,20 @@ cheap to implement AND is the feature's natural balance + scope control, not jus
    convenient logical-only approximation can't silently pass as done.
 3. **Radius + shape.** "Curved divot" → radial cosine falloff? How big (a few m, a pond, a harbor)?
    Steep walls or gentle bowl?
-4. **Tier / theme / cost.** What unlocks it, what's it made of, where does it fit? ("Drought"
-   suggests a dry/desert/ashlands flavor, but it's untethered — Daniel's call.) Does it persist
-   (ZDO-anchored, survives relog/restart) like other placed SBPR pieces?
+4. **Tier — ✅ ASHLANDS (Daniel, 2026-06-13).** Stone of Drought is **Ashlands tier**. Note this
+   EXTENDS the roadmap: the current ladder is v1 Meadows → v2 Black Forest → v3 Swamps → v4
+   Mountains → v5 Plains → v6 Mistlands (`PARKED-2026-06-03.md`, `requirements.md:570`), so Ashlands
+   is a **NEW v7 tier** beyond the defined plan. Fits thematically — "drought"/scorched reads
+   Ashlands, which also answers the theme half of this question. **Still open:** recipe/cost (what
+   Ashlands mats — flametal? charred? molten core?), and whether it persists (ZDO-anchored, survives
+   relog/restart) like other placed SBPR pieces (lean: yes).
 5. **Multiplayer.** Water height is queried client-side per player — does every client need the
    stone registry synced (ZDO) so they all see/feel the same divot? (Almost certainly yes.)
 6. **Interactions.** What happens to fish/serpents/boats caught in the bowl? Leviathans? Does it
    drain tar pits (`LiquidVolume`/`m_depths` `:112862` is the SEPARATE savable-liquid system —
-   different hook) or only ocean water? Edge cases to decide.
+   different hook) or only ocean water? Edge cases to decide. (Note: Ashlands tier means **lava** is
+   in the neighborhood — explicitly decide whether it touches lava/`LiquidVolume` or strictly ocean
+   water; lean strictly water, lava is a separate system.)
 7. **Does it belong in Trailborne at all,** or a separate SBPR mod? It's not a no-map navigation
    feature; like the Forge Master's Trinket, its home is an open question.
 
