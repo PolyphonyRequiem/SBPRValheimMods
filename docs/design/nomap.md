@@ -113,6 +113,14 @@ This is the trickiest one in the nomap track. Vanilla `Container` (line 101699) 
 
 ## 6. Pocket Portal
 
+> 🟢 **SUPERSEDED + RETHEMED → "Portal Seed → Ancient Portal" (Black Forest v2, specced
+> 2026-06-13).** This historical note is kept for its vanilla anchors but is no longer the
+> build plan. Two corrections the current spec makes: (1) **build ADDITIVELY, do NOT clone
+> `portal_wood`** (ADR-0006 postdates this note — cloning drags EffectArea/GuidePoint, the
+> bug class); (2) it lives on the **Hammer**, not the Spade (Daniel 2026-06-13). The
+> build-ready plan is **`docs/v2/planning/ancient-portal-impl-spec.md`**; the design is
+> `docs/design/pocket-portal.md`. Read those, not the bullets below, to implement.
+
 - **Patch surface:** **none for the piece itself**, all prefab.
 - Clone `portal_wood` (TeleportWorld, line 122902, 233 lines).
 - New piece: `SBPR_PocketPortal` placed by the Trailblazer's Spade (registered in its PieceTable, not the Hammer's).

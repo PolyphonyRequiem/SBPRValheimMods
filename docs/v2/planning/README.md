@@ -21,6 +21,16 @@ Planning artifacts for the Black Forest tier. Same role as
   durable destroy-safe WorldPin engine (derive-by-scan reconcile keyed on the sign's
   ZDOID). **This is the pin model the Local Map viewer + Surveyor's Table consume** —
   built once, not forked. SpecCheck delta = **+4 build pieces**.
+- **`ancient-portal-impl-spec.md`** — the buildable *how* for **Portal Seed → Ancient
+  Portal** (design lock: [`../../design/pocket-portal.md`](../../design/pocket-portal.md) +
+  [`../../design/ancient-portal-placeholder-art.md`](../../design/ancient-portal-placeholder-art.md)).
+  A two-prefab feature on the **cairn pattern**: a 25 kg **Portal Seed** item (crafted at the
+  Explorer's Bench) and a Hammer-placed **Ancient Portal** piece whose build cost is one
+  Seed — so break→seed is free vanilla `DropResources`. Additive `TeleportWorld` kitbash
+  (horizontal overhead ring, ~15 s scale-lerp grow, jump-up trigger), keeping the vanilla
+  ore-ban. Calls out the **`PortalPrefabHash` registration** the design missed (without it
+  portals place + grow but never tag-pair). SpecCheck delta = **+2** (1 item recipe + 1
+  piece).
 
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.

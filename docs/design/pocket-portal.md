@@ -1,15 +1,19 @@
 ---
 title: "Portal Seed → Ancient Portal (Black Forest, v2)"
-status: proposed
+status: specced
 purpose: "Design doc for the Portal Seed: a single 25 kg field-craftable item that, when planted with a Hammer (no workbench), grows over ~15 s into an Ancient Portal — a horizontal, slightly-overhead root-grown portal. Otherwise a regular vanilla portal (keeps the ore/metal teleport ban). Rethemed + fully specced by Daniel 2026-06-13 from the earlier 'Pocket Portal' idea placeholder."
 ---
 
 # Portal Seed → Ancient Portal (Black Forest, v2)
 
-> 🟡 **PROPOSED — mechanics locked by Daniel 2026-06-13, not yet architect-specced.** This
-> supersedes the earlier thin "Pocket Portal (v2 IDEA)" placeholder. The concept is now fully
-> formed (item, recipe, grow mechanic, geometry, break behavior, aesthetic). Next step is an
-> architect buildable spec, then an impl card. The vanilla-anchor line numbers below come from
+> 🟢 **SPECCED — mechanics locked by Daniel 2026-06-13; architect buildable spec landed
+> 2026-06-13 (card t_9a5540b2).** This supersedes the earlier thin "Pocket Portal (v2 IDEA)"
+> placeholder. The concept is fully formed (item, recipe, grow mechanic, geometry, break
+> behavior, aesthetic) and now has a build-ready impl spec:
+> **[`../v2/planning/ancient-portal-impl-spec.md`](../v2/planning/ancient-portal-impl-spec.md)**
+> (the two-prefab cairn-pattern architecture, decomp-grounded hooks, named ATs, SpecCheck
+> rows). This doc remains the design *why*; the impl spec is the build *how*. The
+> vanilla-anchor line numbers below come from
 > `nomap.md` §6 and need re-confirming against `assembly_valheim.dll` metadata at spec time.
 
 ## What Daniel said (verbatim + attributed)
