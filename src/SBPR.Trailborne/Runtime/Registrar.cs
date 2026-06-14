@@ -7,6 +7,7 @@ using SBPR.Trailborne.Features.Signs;
 using SBPR.Trailborne.Features.Cairns;
 using SBPR.Trailborne.Features.Cartography;
 using SBPR.Trailborne.Features.MarkerSigns;
+using SBPR.Trailborne.Features.Portals;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -67,6 +68,10 @@ namespace SBPR.Trailborne.Runtime
                 LocalMap.RegisterPrefabs(__instance);
                 CartographersKit.RegisterPrefabs(__instance);
                 MarkerSigns.RegisterPrefabs(__instance);
+                // Portals (Seed item + Ancient Portal piece). After Trailhead so the
+                // Explorer's Bench exists for the recipe station; also registers the portal
+                // prefab hash into Game.PortalPrefabHash (the #1 tag-pairing risk).
+                Portals.RegisterPrefabs(__instance);
 
                 znetSceneDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -128,6 +133,12 @@ namespace SBPR.Trailborne.Runtime
                 // (above) has already registered the pigment items into ObjectDB, so BuildReq
                 // resolves them here. MUST stay after Pigments.
                 CartographersKit.DoObjectDBWiring(ZNetScene.instance);
+
+                // Portals: Seed recipe (Explorer's Bench) + Ancient Portal cost rebuild +
+                // Hammer-menu add. After Trailhead (the bench station + Hammer table must
+                // exist); the Seed item is registered into ObjectDB inside this call before
+                // the portal's one-seed build cost is rebuilt.
+                Portals.DoObjectDBWiring(ZNetScene.instance);
 
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 
