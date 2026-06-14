@@ -70,12 +70,46 @@ shader the build box couldn't drive). State it up front:
   asset/shader work, and (a)/(b) fight a proprietary shader. **Get a GPU/in-engine verification
   loop in the plan before committing** — the headless build box cannot judge this.
 
+## 🟢 Depth limit — the effect FAILS past a certain depth (Daniel, 2026-06-13) — DECIDED + load-bearing
+Daniel: the repel should be powerful enough to walk on dry seabed in shallow water, but it
+**starts to fail after a certain depth** — a stone can't drain the deep ocean. This is grounded as
+cheap to implement AND is the feature's natural balance + scope control, not just a limitation:
+
+- **Implementation is nearly free.** The postfix already computes `carved = waterSurface −
+  wellDepth(distanceFromStone)`. The depth limit is one clamp. Two grounded ways to express it:
+  - **Seabed floor clamp:** never carve below the actual ground. `WaterVolume` already holds
+    `m_heightmap` (`:127616`), and `Depth(point)` (`:127831`) already bilerps the local normalized
+    depth from the volume's corners — so the seabed/local-depth is known to the system. Clamp
+    `carved = max(carved, seabedHeight + ε)`. In shallow water the bowl reaches the seabed → you
+    stand on dry ground; in deep water the same subtraction is clamped → only a surface dimple,
+    can't dig a dry shaft to the ocean floor.
+  - **Hard well cap:** subtract at most `D` meters (e.g. ~4–6 m). Past depth `D` the water remains
+    below you — the stone "runs out of power."
+- **Why it's the RIGHT design, not just a cap:**
+  1. **Self-balancing power.** Dries fords / marsh edges / harbor shallows (walkable), but CANNOT
+     drain the deep ocean — caps the exploit ceiling (no instant underwater base anywhere, no
+     draining the sea around a boss/serpent).
+  2. **It SHRINKS the hard visual problem.** A shallow-only dry bowl at a shoreline reads
+     convincingly; a 30 m dry cylinder in open ocean would expose every seam in the proprietary
+     water shader. The depth limit reduces the Phase-2 visual carve to the tractable size — it is
+     the single most important scope-control lever for the expensive part.
+  3. **Thematically honest.** "Drought" dries shallows and damp ground; it does not part the sea.
+- 🔴 **Open knob — what "fails" looks like at the limit (aesthetic, Daniel's call):**
+  - **Soft falloff (lean):** the bowl gets shallower as the water deepens, fading to nothing — no
+    hard seam, reads as natural.
+  - **Hard cap:** full carve to depth `D`, then a clamped dimple beyond — a legible "this is as deep
+    as it goes" line.
+  Starbright leans **soft falloff** (fewer visible seams, hides the shader problem better), but it's
+  an eyeball call for Daniel.
+
 ## Phased feasibility (what it would actually take)
 - **Phase 0 — SPIKE (throwaway, 1 session):** Harmony-postfix `WaterVolume.GetWaterSurface` to
-  subtract a radial falloff near a hardcoded test point; join a client and observe. Answers the two
+  subtract a radial falloff near a hardcoded test point (WITH the seabed-floor clamp from day one —
+  it's one line and proves the shallow-vs-deep behavior); join a client and observe. Answers the two
   unknowns nothing else can: (1) does lowering logical surface actually let you stand on seabed in a
-  bowl, and (2) what does the UNTOUCHED visual water do over it (fill? z-fight? clip?). This single
-  spike tells us whether the visible-divot problem is "annoying" or "showstopper." Do this FIRST.
+  bowl, and (2) what does the UNTOUCHED visual water do over it (fill? z-fight? clip?), AND (3) how
+  does the depth-limited bowl read shallow vs deep. This single spike tells us whether the
+  visible-divot problem is "annoying" or "showstopper." Do this FIRST.
 - **Phase 1 — logical repel + a cosmetic stand-in:** the placeable item/piece + a stone registry +
   the `GetWaterSurface` postfix (radial cosine falloff → curved bowl) + a placeholder visual (e.g.
   hide/scale the local water mesh, or a dry-bowl decal) good enough to read as "repelled."
@@ -103,9 +137,10 @@ shader the build box couldn't drive). State it up front:
   by cloning a water/ZNetView prefab and stripping it.
 
 ## 🔴 Open design questions for Daniel (this is an IDEA — none pre-decided)
-1. **Scope of the effect — gameplay or cosmetic?** Is the point that you can physically WALK on dry
-   seabed in the bowl (logical repel — powerful, e.g. underwater base building, crossing water), or
-   purely a visual spectacle? That choice decides whether Phase 2 is mandatory or optional.
+1. ~~**Scope of the effect — gameplay or cosmetic?**~~ ✅ ANSWERED 2026-06-13 — **GAMEPLAY**: you can
+   physically walk on dry seabed in the bowl (logical repel), **with a depth limit** so it fails in
+   deep water (see "Depth limit" section above). This makes Phase 2 (visual carve) eventually
+   mandatory for ship-quality, but the depth limit shrinks it to a tractable shallow-water problem.
 2. **Visible-divot bar.** How polished must the water LOOK? "Convincing dry bowl" (Phase 2, hard) vs
    "good enough placeholder" (Phase 1)? Set this as a hard, eyeball-judged acceptance criterion so a
    convenient logical-only approximation can't silently pass as done.
