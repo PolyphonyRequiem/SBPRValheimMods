@@ -112,18 +112,25 @@ The **Portal Seed** item is crafted from:
   ring on top, the jump apex must reach the ring's trigger — size the trigger with enough vertical
   slack that a standard jump (~1 m rise from a ~1.8 m player ≈ reach ~2.8–3 m) registers.
 
-## 🟢 Fragility + break-to-seed — DECIDED
+## 🟢 Fragility + break-to-seed — DECIDED (HP value still OPEN)
 - **More fragile than a regular portal.** Vanilla portal durability is 400 (verified Portal.md).
-  The Ancient Portal has **less** — exact value TBD (a deliberate downside balancing the
-  convenience). 🔴 OPEN knob: how much less (e.g. ~50%? ~150 HP?). Also: does it take rain/weather
-  decay? (Vanilla portal does NOT — "Damaged by Rain? No." A root structure arguably should, but
-  that's a balance call — confirm.)
+  The Ancient Portal has **less** — a deliberate downside balancing the convenience. 🔴 **OPEN
+  knob — Daniel's call: the exact HP is NOT yet decided.** The design intent is only "less than
+  400"; no specific number has been set by Daniel. (A spec draft once floated "~150 HP / lean
+  150–200" — that was an author guess, never Daniel's, and is retracted 2026-06-13. The impl
+  defaults to vanilla 400 until Daniel picks a lower value.)
+- **Rain/weather decay: NO (CONFIRMED Daniel, 2026-06-13).** Matches vanilla portal ("Damaged by
+  Rain? No"). (An earlier "a root structure arguably should decay" musing was the author's, not
+  Daniel's — retracted; Daniel confirmed no decay.)
+- **Placement surface: SOLID EARTH ONLY, not on structures (CONFIRMED Daniel, 2026-06-13).** The
+  portal plants in the ground — it cannot be placed on a wood/stone floor or any built piece
+  (`m_groundOnly`). Daniel, verbatim: *"it needs to be built on solid earth. Not on structures."*
 - **Break behavior: collapses back into a Portal Seed.** When destroyed, instead of dropping
   rubble/refund mats, it **drops a single replantable Portal Seed** — ready to replant elsewhere.
-  This makes it genuinely *portable*: break it, pick up the seed, replant somewhere new. 🔴 Impl
-  note: this is a custom `OnDestroyed`/drop behavior (vanilla portals drop their mats on destroy).
-  Decide: does breaking ALWAYS return exactly one seed (even if killed by a creature/decay), or
-  only on player deconstruct? Lean: always returns the seed (that's the portability fantasy).
+  This makes it genuinely *portable*: break it, pick up the seed, replant somewhere new. Impl
+  note: free via the one-seed build cost + vanilla `Piece.DropResources` (no custom OnDestroyed).
+  **DECIDED: always returns exactly one seed** (every destroy path — creature-kill, decay,
+  deconstruct), the portability fantasy.
 
 ## 🟢 Teleport rules — DECIDED: "otherwise a regular portal"
 - **Keeps the ore/metal teleport ban.** Daniel: "It is otherwise a regular portal." So copper,
