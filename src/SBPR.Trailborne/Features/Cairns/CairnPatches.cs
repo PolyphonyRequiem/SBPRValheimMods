@@ -116,6 +116,11 @@ namespace SBPR.Trailborne.Features.Cairns
             {
                 int bonus = Cairns.GetCairnComfortBonus(position);
                 if (bonus > __result) __result = bonus;
+
+                // Feed the open-air Rested patch's throttled cairn-in-range cache from this 2 s path
+                // (vanilla calls CalculateComfortLevel every 2 s via Player.UpdateBaseValue for the
+                // local player), so the ~50 Hz UpdateEnvStatusEffects postfix adds ZERO new physics.
+                CairnComfortStash.Stash(bonus > 0);
             }
             catch (Exception e)
             {

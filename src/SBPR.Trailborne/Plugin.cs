@@ -265,6 +265,15 @@ namespace SBPR.Trailborne
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
+            // Open-air cairn comfort (bug-fix 2026-06-13, card t_4c5b5b2d): grant the vanilla
+            // Rested buff near a cairn out in the open, WITHOUT heat. Two cooperating heat-free
+            // patches — the postfix on Player.UpdateEnvStatusEffects (outer class) SEEDS Resting,
+            // and the nested RestingStripSuppressor swallows vanilla's per-tick Resting strip so
+            // SE_Cozy's 10 s ramp runs (campfire-parity timing, Daniel 2026-06-13). BOTH must be
+            // registered or the fix ships half-dead (PatchCheck ERRORs at boot on an unregistered
+            // [HarmonyPatch]). The nested container is registered separately, per the repo pattern.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cairns.CairnComfortRestedPatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cairns.CairnComfortRestedPatch.RestingStripSuppressor));
             // Painted Sign entrypoint (§A2.6, re-lock 2026-06-05): interacting with a
             // placed sign opens the custom combined Paint+Text uGUI panel instead of the
             // vanilla text dialog. Replaces the retired apply-ink-item paint gesture.
