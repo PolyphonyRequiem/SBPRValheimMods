@@ -1,6 +1,6 @@
 ---
 title: "Portal Seed → Ancient Portal (Black Forest, v2)"
-status: specced
+status: accepted
 purpose: "Design doc for the Portal Seed: a single 25 kg field-craftable item that, when planted with a Hammer (no workbench), grows over ~15 s into an Ancient Portal — a horizontal, slightly-overhead root-grown portal. Otherwise a regular vanilla portal (keeps the ore/metal teleport ban). Rethemed + fully specced by Daniel 2026-06-13 from the earlier 'Pocket Portal' idea placeholder."
 ---
 
