@@ -300,6 +300,58 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 
 ---
 
+## Trailborne v2 (Black Forest) — Portal Seed → Ancient Portal
+
+> **Status: SPECCED 2026-06-13 (architect card t_9a5540b2).** Design:
+> `docs/design/pocket-portal.md` + `docs/design/ancient-portal-placeholder-art.md`.
+> Buildable spec: `docs/v2/planning/ancient-portal-impl-spec.md`. A two-prefab feature on
+> the **cairn pattern** — an item (the Seed) whose recipe is checked, and a piece (the
+> Portal) whose build cost IS that item, so break→seed is free vanilla `DropResources`.
+> Impl is the engineer-systems child of the spec card. **SpecCheck delta +2.**
+
+### Items
+
+#### Portal Seed
+
+| Field | Value |
+| --- | --- |
+| Display name | Portal Seed |
+| Prefab name | `SBPR_PortalSeed` |
+| Type | `ItemDrop` (`ItemType.Material`) — a carried build ingredient, consumed by the Ancient Portal piece (cairn-marker pattern) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
+| Recipe | 1 Ancient seed (`AncientSeed`) + 20 Greydwarf eye (`GreydwarfEye`) + 2 Surtling core (`SurtlingCore`), amount 1 |
+| Weight / stack | **25 kg**, `m_maxStackSize = 1` (one-per-slot — 25 kg × stack defeats the carry-one fantasy) |
+| Function | Plant with the **Hammer** (no station in range) → grows over ~15 s into an Ancient Portal. Dropped back (×1) when an Ancient Portal is destroyed — replantable. 🟡 Ectoplasm as an eye/core substitute is a **playtest-contingent** tuning lever, NOT in the first build. |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructItemShell` + a grafted script-free root/seed mesh child. Ship a real icon PNG (SpecCheck C1 screams if it's the fallback). |
+| Patch surface | None (additive item + recipe). |
+| Status | SPEC LOCKED |
+| Source spec | `docs/v2/planning/ancient-portal-impl-spec.md` §2 |
+
+### Pieces
+
+#### Ancient Portal
+
+| Field | Value |
+| --- | --- |
+| Display name | Ancient Portal |
+| Prefab name | `piece_sbpr_ancient_portal` |
+| Type | `Piece` + real vanilla `TeleportWorld` + custom `AncientPortalTag : MonoBehaviour` (grow timer) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Build menu | **Hammer** PieceTable (`m_category = Misc`; `m_craftingStation = null` — no bench in range). Hammer exception to design-pillars Pillar 1 (Daniel 2026-06-13) — it's a deployable convenience, not a trail mark. |
+| Recipe (build cost) | **1 Portal Seed** (`SBPR_PortalSeed`, recoverable) → break returns the seed via vanilla `Piece.DropResources` on every destroy path |
+| Durability | **175** HP (< vanilla portal 400 — "more fragile"; Wood material; no rain decay for v1) |
+| Geometry | **Horizontal overhead ring**, ~3 m tall × ~3 m wide; ring at the top → jump up into it. `TeleportWorldTrigger` BoxCollider repositioned horizontal/overhead (the main novel-geometry risk). |
+| Function | Otherwise a **regular vanilla portal**: identical `ZDOVars.s_tag` pairing, identical teleport, **keeps the ore/metal ban** (`m_allowAllItems` left false; `Inventory.IsTeleportable` enforces). 🔴 **Requires registering the prefab hash in `Game.instance.PortalPrefabHash`** or it places + grows but never tag-pairs. ~15 s scale-lerp grow (ZDO-stamped plant time, relog-durable). |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructPieceShell` + grafted script-free meshes: `portal_wood`→`small_portal` ring (rotated flat, ×0.71), `Greydwarf_Root`→`default` tendrils, `stubbe` legs. **OMIT** the donor's PlayerBase EffectArea / GuidePoint / portal_destruction / LODGroup. |
+| Patch surface | **None** — TeleportWorld + trigger + ZDO grow timer + PortalPrefabHash add are all non-Harmony component wiring. (If a patch creeps in, register it in `Plugin.Awake` or PatchCheck ERRORs.) |
+| Status | SPEC LOCKED |
+| Source spec | `docs/v2/planning/ancient-portal-impl-spec.md` §3 |
+
+---
+
 ## Trailborne v1.1 (planned, not yet specced)
 
 - Ember Lamps
@@ -314,7 +366,7 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 - **Guardian Stones** family — server worldbuilding (separate mod, separate spec)
 - **Local Maps** + **Cartographer's Kit** (Trailborne v2 cartography — SPECCED, see `docs/v2/planning/`; the **Surveyor's Table** of this tier is now IMPLEMENTED — see the "Trailborne v2 (Black Forest)" section above)
 - **Real Tents** (Trailborne v2)
-- **Pocket Portal / Twisted Portal** (Trailborne v3+)
+- **Twisted Portal** (Trailborne v3+ — the endgame no-restriction portal; distinct from the v2 Ancient Portal, which is the convenience portal that KEEPS the ore ban). *(The "Pocket Portal" idea was rethemed + specced as the v2 **Portal Seed → Ancient Portal** above.)*
 - **Iron Compass** (Trailborne v3+, optional)
 - **Seer's Stone** (Trailborne v4+)
 
