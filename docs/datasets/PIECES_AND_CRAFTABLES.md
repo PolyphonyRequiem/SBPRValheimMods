@@ -341,8 +341,9 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 | Mod | Trailborne |
 | Biome tier | Black Forest |
 | Build menu | **Hammer** PieceTable (`m_category = Misc`; `m_craftingStation = null` — no bench in range). Hammer exception to design-pillars Pillar 1 (Daniel 2026-06-13) — it's a deployable convenience, not a trail mark. |
+| Placement surface | **Solid earth only** (`m_groundOnly = true`) — ghost is valid on dirt/grass/rock terrain, REJECTED on any wood/stone floor or built piece (Daniel 2026-06-13: *"built on solid earth, not on structures"*). |
 | Recipe (build cost) | **1 Portal Seed** (`SBPR_PortalSeed`, recoverable) → break returns the seed via vanilla `Piece.DropResources` on every destroy path |
-| Durability | **175** HP (< vanilla portal 400 — "more fragile"; Wood material; no rain decay for v1) |
+| Durability | **300** HP (= 75% of vanilla portal's 400 — "more fragile"; Wood material; no rain decay for v1, `m_noRoofWear = true`). DECIDED by Daniel 2026-06-13 — supersedes the earlier fabricated "175" (never Daniel's word, retracted with the "150–200 lean"). |
 | Geometry | **Horizontal overhead ring**, ~3 m tall × ~3 m wide; ring at the top → jump up into it. `TeleportWorldTrigger` BoxCollider repositioned horizontal/overhead (the main novel-geometry risk). |
 | Function | Otherwise a **regular vanilla portal**: identical `ZDOVars.s_tag` pairing, identical teleport, **keeps the ore/metal ban** (`m_allowAllItems` left false; `Inventory.IsTeleportable` enforces). 🔴 **Requires registering the prefab hash in `Game.instance.PortalPrefabHash`** or it places + grows but never tag-pairs. ~15 s scale-lerp grow (ZDO-stamped plant time, relog-durable). |
 | Visual notes | **Additive (ADR-0006)** — `Assets.ConstructPieceShell` + grafted script-free meshes: `portal_wood`→`small_portal` ring (rotated flat, ×0.71), `Greydwarf_Root`→`default` tendrils, `stubbe` legs. **OMIT** the donor's PlayerBase EffectArea / GuidePoint / portal_destruction / LODGroup. |

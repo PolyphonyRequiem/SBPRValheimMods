@@ -4,6 +4,7 @@ using SBPR.Trailborne.Features.Pigments;
 using SBPR.Trailborne.Features.Cairns;
 using SBPR.Trailborne.Features.MarkerSigns;
 using SBPR.Trailborne.Features.Cartography;
+using SBPR.Trailborne.Features.Portals;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -37,7 +38,9 @@ namespace SBPR.Trailborne.Runtime
     /// for the Black-Forest cartography rows (Surveyor's Table piece; Cartographer's Kit
     /// item recipe — the 40-pigment gate);
     /// docs/design/marker-signs-worldpin.md + docs/v2/planning/marker-signs-impl-spec.md
-    /// (§0 manifest table) for the v2 marker-sign rows.
+    /// (§0 manifest table) for the v2 marker-sign rows;
+    /// docs/v2/planning/ancient-portal-impl-spec.md §0 for the v2 Portal Seed item recipe
+    /// + Ancient Portal build-piece rows.
     /// Update BOTH this manifest AND the relevant spec in the same commit when
     /// intentionally changing a recipe.
     /// </summary>
@@ -132,6 +135,25 @@ namespace SBPR.Trailborne.Runtime
                     R(Pigments.PigmentBlackName, 10),
                     R("FineWood", 4),
                 }
+            },
+            // ── v2 Black-Forest Ancient Portal (ancient-portal-impl-spec.md §0; card t_bafc1e57) ──
+            // Portal Seed — additive item recipe, crafted at the Explorer's Bench from
+            // AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2, amount 1, 25 kg / stack 1.
+            // Item-only shape (Station set, Amount set; Piece null). LOCKED per spec §0/§2.3.
+            new RecipeSpec {
+                Item = Portals.SeedItemName, Station = "piece_sbpr_explorers_bench", Amount = 1,
+                Resources = new[] {
+                    R("AncientSeed", Portals.SeedAncientSeedCost),
+                    R(MarkerSigns.EyeResource, Portals.SeedGreydwarfEyeCost),  // "GreydwarfEye" — shared const
+                    R("SurtlingCore", Portals.SeedSurtlingCoreCost),
+                }
+            },
+            // Ancient Portal — Hammer-placed build piece (m_craftingStation = null), sole
+            // build cost is one Portal Seed (so break→seed is free via Piece.DropResources).
+            // Piece-only shape (no Item, no Station). LOCKED per spec §0/§3.4.
+            new RecipeSpec {
+                Piece = Portals.PortalPieceName, Station = null,
+                Resources = new[] { R(Portals.SeedItemName, 1) }
             },
         };
 
