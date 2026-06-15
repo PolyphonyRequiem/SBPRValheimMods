@@ -101,11 +101,21 @@ namespace SBPR.Trailborne.Features.Cartography
         // NO north-up alternative to expose (Daniel reversed that — disorientation is intended).
         private const float MapRotationSign = 1f;
 
-        // Circular clip radius as a fraction of the map square's pixel side. The visible disc is
-        // the inscribed circle of the square cartography texture (the bounding box of the 1000 m
-        // disc), which is invariant under rotation about centre — so rotating never uncovers an
-        // empty corner (the four corner triangles are shroud-opaque and clipped away anyway).
-        private const float DiscClipFraction = 0.5f;
+        // §2H.1 b3 (issue 6 — edge-bleed fix): the held map's visible disc is the inscribed
+        // circle of the square cartography texture, which is invariant under rotation about centre
+        // — so rotating never uncovers an empty corner (the four corner triangles are shroud-
+        // opaque). The fixed bezel is drawn OVER the interior and its OPAQUE cover (bronze ring +
+        // shroud) is the hard circular clip: everything beyond the disc radius is occluded. The
+        // visible disc is inset this many SCREEN px INSIDE the inscribed circle (which met the
+        // square with ZERO margin) so the square's four straight tangents (12/6/9/3 o'clock) always
+        // sit under the opaque cover, never on the sub-pixel seam that leaked the parchment slivers.
+        private const float BezelDiscInsetPx = 6f;
+
+        // Width (screen px) of the bronze ring band drawn at the visible disc edge. The opaque
+        // shroud fills everything beyond it, so ring + shroud form ONE contiguous opaque cover
+        // (no thin isolated band that bilinear upscaling can thin into a seam — the other half of
+        // the issue-6 fix). Roughly matches the prior ~9 px frame so the look is unchanged.
+        private const float BezelRingWidthPx = 10f;
 
         // ── §2E.3 LOCKED RENDER: vanilla styled material is THE render (issue 10) ─────
         // The cartography is the REAL vanilla parchment look — a COPY of vanilla's styled
@@ -326,18 +336,32 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// §2H.1 b3: build (once) the FIXED circular bezel texture — a transparent disc interior
-        /// out to <paramref name="discFrac"/> of the half-edge, a bronze ring band at that
-        /// radius, and an OPAQUE shroud-tone fill in the corners beyond it. The bezel RawImage is
-        /// sized larger than the map square (×√2), so the opaque corners fully cover the rotating
-        /// interior's square corners — the held map reads as a stable circle, never a spinning
-        /// square (the #2 + #9 fix), regardless of the interior's heading.
+        /// §2H.1 b3 (issue 6 — edge-bleed fix): build (once) the FIXED circular bezel — a HARD
+        /// circular alpha cover drawn OVER the rotating interior. It is fully transparent inside
+        /// the visible disc (cartography shows through), a bronze ring band at the disc edge, and
+        /// OPAQUE shroud-tone everywhere beyond — so ring + shroud are ONE contiguous opaque cover
+        /// that clips everything past the disc radius. Because the map interior renders with the
+        /// vanilla map SHADER (no stencil pass), a uGUI <c>Mask</c> can't clip it; this alpha cover
+        /// is the shader-agnostic clip that always works.
+        ///
+        /// <para>Two changes vs. the leaking version: (1) the transparent hole is inset
+        /// <see cref="BezelDiscInsetPx"/> screen px INSIDE the square cartography's inscribed circle
+        /// (which previously met the square with ZERO margin), so the square's four straight
+        /// tangents (12/6/9/3 o'clock) always sit under opaque cover; (2) the disc edge is built
+        /// with ANALYTIC anti-aliasing at high resolution (not a low-res Bilinear step), so the
+        /// alpha reaches fully opaque well inside the square edge — no sub-pixel/bilinear seam for
+        /// parchment to bleed through. The bezel RawImage is sized ×√2 of the map square so the
+        /// opaque corners always cover the rotating interior's square corners (the #2 + #9 fix is
+        /// preserved).</para>
         /// </summary>
-        private Texture2D EnsureBezelTexture(float discFrac)
+        /// <param name="bezelEdgeScreenPx">On-screen edge length of the bezel RawImage (px), used
+        /// to map texture px ↔ screen px so the inset/ring widths are exact screen distances.</param>
+        private Texture2D EnsureBezelTexture(float bezelEdgeScreenPx)
         {
             if (_bezelTex != null) return _bezelTex;
 
-            const int N = 512;
+            // High enough that the on-screen mapping is ~1:1 (no upscale smear at the disc edge).
+            const int N = 1024;
             _bezelTex = new Texture2D(N, N, TextureFormat.RGBA32, mipChain: false)
             {
                 name = "SBPR_Bezel",
@@ -346,11 +370,18 @@ namespace SBPR.Trailborne.Features.Cartography
             };
 
             float half = N / 2f;
-            float discR = half * Mathf.Clamp01(discFrac); // disc edge in texture px
-            float ringInner = discR * 0.98f;              // ring band
-            float ringOuter = discR;
-            var ringColor = new Color(0.62f, 0.55f, 0.42f, 1f);     // muted bronze frame
-            var cornerShroud = new Color(0.04f, 0.035f, 0.03f, 1f); // opaque shroud-tone corners
+            float screenPerTex = bezelEdgeScreenPx / N; // screen px represented by one texture px
+
+            // Thresholds in SCREEN px from centre. The square cartography's inscribed circle (= its
+            // straight-edge tangents) is at MaxFullViewPx/2; the visible transparent disc stops a
+            // few px short of it so those straight edges are always covered.
+            float discEdge   = MaxFullViewPx * 0.5f;                 // inscribed circle / square edge
+            float holeR      = discEdge - BezelDiscInsetPx;          // visible transparent disc radius
+            float ringOuterR = holeR + BezelRingWidthPx;             // bronze ring outer edge; beyond = shroud
+            const float aa   = 0.9f;                                 // analytic edge feather (screen px)
+
+            var ringColor    = new Color(0.62f, 0.55f, 0.42f, 1f);   // muted bronze frame
+            var cornerShroud = new Color(0.04f, 0.035f, 0.03f, 1f);  // opaque shroud-tone cover
 
             var px = new Color32[N * N];
             for (int y = 0; y < N; y++)
@@ -359,15 +390,17 @@ namespace SBPR.Trailborne.Features.Cartography
                 {
                     float dx = x + 0.5f - half;
                     float dy = y + 0.5f - half;
-                    float d = Mathf.Sqrt(dx * dx + dy * dy);
-                    Color c;
-                    if (d <= ringInner)
-                        c = new Color(0f, 0f, 0f, 0f);   // transparent → cartography shows through
-                    else if (d <= ringOuter)
-                        c = ringColor;                    // the bezel ring band
-                    else
-                        c = cornerShroud;                 // opaque frame, covers the rotating corners
-                    px[y * N + x] = (Color32)c;
+                    float dScreen = Mathf.Sqrt(dx * dx + dy * dy) * screenPerTex;
+
+                    // Alpha: 0 inside the hole → 1 outside, feathered over ±aa at the disc edge.
+                    // Reaches full opacity by holeR+aa, far inside the square edge at discEdge.
+                    float coverage = Mathf.SmoothStep(0f, 1f, (dScreen - (holeR - aa)) / (2f * aa));
+                    // RGB: bronze in the ring band, fading to shroud past the ring outer edge. Both
+                    // are opaque, so this transition is purely cosmetic (never a bleed path).
+                    float ringMix = Mathf.SmoothStep(0f, 1f, (dScreen - (ringOuterR - aa)) / (2f * aa));
+                    Color rgb = Color.Lerp(ringColor, cornerShroud, ringMix);
+
+                    px[y * N + x] = (Color32)new Color(rgb.r, rgb.g, rgb.b, coverage);
                 }
             }
             _bezelTex.SetPixels32(px);
@@ -1057,21 +1090,21 @@ namespace SBPR.Trailborne.Features.Cartography
             ovRt.pivot = new Vector2(0.5f, 0.5f);
             ovRt.sizeDelta = Vector2.zero; // children anchor to center, position in px
 
-            // §2H.1 b3: the FIXED circular bezel + opaque corner-mask, drawn OVER the rotating
-            // interior but as a child of the non-rotating frame (so it never spins — the #2 fix).
-            // It is sized LARGER than the map square — to MaxFullViewPx*√2 — so that when the
-            // interior rotates, the square's corners (which extend to half-edge*√2 from centre)
-            // are fully covered by the bezel's opaque corner-shroud and never read as a spinning
-            // diamond over the backdrop. The bronze ring is drawn at the 1000 m disc radius
-            // (= MaxFullViewPx/2 in screen px), which is the fraction 1/√2 of the bezel's
-            // half-edge. raycastTarget off so it never eats the TableEdit pin-removal click.
+            // §2H.1 b3 (issue 6 edge-bleed fix): the FIXED circular bezel — a HARD circular alpha
+            // cover drawn OVER the rotating interior but as a child of the non-rotating frame (so it
+            // never spins — the #2 fix). It is sized LARGER than the map square — to MaxFullViewPx*√2
+            // — so that when the interior rotates, the square's corners (which extend to half-edge*√2
+            // from centre) are fully covered by the bezel's opaque shroud and never read as a spinning
+            // diamond over the backdrop. The visible disc is the inscribed circle of the square map,
+            // inset a few px so the square's straight tangents stay under the opaque cover (no
+            // parchment bleed). EnsureBezelTexture takes the on-screen bezel edge so its inset/ring
+            // widths are exact SCREEN px. raycastTarget off so it never eats the TableEdit pin click.
             float bezelEdge = MaxFullViewPx * 1.41421356f; // √2 → covers the rotated square's corners
-            float discFrac = (MaxFullViewPx * 0.5f) / (bezelEdge * 0.5f); // disc radius / bezel half-edge
             var bezelGo = new GameObject("bezel");
             bezelGo.transform.SetParent(_frame.transform, false);
             _bezel = bezelGo.AddComponent<RawImage>();
             _bezel.raycastTarget = false;
-            _bezel.texture = EnsureBezelTexture(discFrac);
+            _bezel.texture = EnsureBezelTexture(bezelEdge);
             _bezel.color = Color.white;
             var bzRt = _bezel.rectTransform;
             bzRt.anchorMin = bzRt.anchorMax = new Vector2(0.5f, 0.5f);
