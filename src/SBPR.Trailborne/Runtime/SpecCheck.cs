@@ -171,6 +171,8 @@ namespace SBPR.Trailborne.Runtime
             int checks = 0;
             int iconChecks = 0;   // asset-renderability assertions (C1); counted separately so the
                                   // recipe-manifest tally stays a pure recipe count.
+            int attackChecks = 0; // null-m_attack boot assertions (sibling of C1); counted separately
+                                  // for the same reason — keeps the recipe tally pure.
 
             // ── Item recipes ──
             foreach (var spec in Manifest.Where(s => s.Item != null))
@@ -201,6 +203,11 @@ namespace SBPR.Trailborne.Runtime
                 // resolved ItemDrop. See CheckIcon — this is the recurrence guard for the Kit
                 // no-cost crash (server-green recipe, client-side empty-icon throw).
                 CheckIcon(spec.Item, found.m_item, ref errors, ref iconChecks);
+
+                // Sibling guard: assert m_attack/m_secondaryAttack are non-null. See CheckAttack —
+                // the recurrence guard for the Portal Seed / Kit per-frame GetChainTooltip NRE
+                // (server-green recipe, client-side null-m_attack throw on recipe select).
+                CheckAttack(spec.Item, found.m_item, ref errors, ref attackChecks);
             }
 
             // ── Build pieces ──
@@ -246,6 +253,9 @@ namespace SBPR.Trailborne.Runtime
                     // C1: cairn markers are CLONE items (donor icon), so this normally passes —
                     // it catches any future additive marker that forgets its icon.
                     CheckIcon(markerName, markerRecipe.m_item, ref errors, ref iconChecks);
+                    // Sibling: cairn markers are CLONE items (donor deep-copies a non-null attack),
+                    // so this normally passes — it catches any future additive marker that forgets it.
+                    CheckAttack(markerName, markerRecipe.m_item, ref errors, ref attackChecks);
                 }
 
                 // Cairn piece resources
@@ -289,9 +299,9 @@ namespace SBPR.Trailborne.Runtime
             }
 
             if (errors == 0)
-                Plugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest; {iconChecks} item icon(s) loaded (no fallback placeholders).");
+                Plugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest; {iconChecks} item icon(s) loaded (no fallback placeholders); {attackChecks} item(s) have non-null m_attack (no tooltip-NRE landmine).");
             else
-                Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} recipe + {iconChecks} icon checks. See above.");
+                Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} recipe + {iconChecks} icon + {attackChecks} attack checks. See above.");
         }
 
         private static void CompareResources(string? itemName, Req[] expected, Piece.Requirement[] actual, ref int errors)
@@ -377,6 +387,40 @@ namespace SBPR.Trailborne.Runtime
                     $"[Trailborne/SpecCheck] ICON MISSING: {itemName} is showing the fallback placeholder " +
                     "— its real icon PNG did not load (missing from the plugin folder?). The crafting UI " +
                     "is crash-safe (fallback) but the item has no real icon. Ship the PNG.");
+                errors++;
+            }
+        }
+
+        /// <summary>
+        /// Sibling of <see cref="CheckIcon"/> — the fail-loud boot guard for the OTHER fresh-SharedData
+        /// null landmine vanilla derefs without a guard: <c>m_attack</c> / <c>m_secondaryAttack</c>.
+        /// A fresh <c>SharedData</c> (what <c>Assets.ConstructItemShell</c> news) leaves both NULL
+        /// (vanilla has no field initializer); vanilla <c>ItemData.GetChainTooltip</c> reads
+        /// <c>m_attack.m_spawnOnHitChance</c> with no null check, and the static <c>GetTooltip</c>
+        /// calls it UNCONDITIONALLY every frame from <c>InventoryGui.UpdateRecipe</c> — so a
+        /// constructed item with a null <c>m_attack</c> throws a per-frame NRE the instant its recipe
+        /// is selected (the "wall of red"). <c>ConstructItemShell</c> now seeds an inert
+        /// <c>new Attack()</c> for both; this assertion SCREAMS at boot if a future additive path ever
+        /// forgets, exactly as the C1 icon assertion does. CLONE items deep-copy a non-null donor
+        /// <c>m_attack</c> and so pass — correct and intended; there is deliberately no per-item map,
+        /// the null check IS the exact resolution for the crash blind spot only constructed items had.
+        /// </summary>
+        private static void CheckAttack(string? itemName, ItemDrop? drop, ref int errors, ref int attackChecks)
+        {
+            attackChecks++;
+
+            var shared = drop?.m_itemData?.m_shared;
+            if (shared == null)
+                return;   // a null SharedData is its own (different) bug; CheckIcon already flags the item.
+
+            if (shared.m_attack == null || shared.m_secondaryAttack == null)
+            {
+                Plugin.Log.LogError(
+                    $"[Trailborne/SpecCheck] ATTACK NULL (structural): {itemName} has a null m_attack " +
+                    "or m_secondaryAttack — vanilla GetChainTooltip derefs it every frame the recipe is " +
+                    "selected, throwing a per-frame NRE in the craft panel. An additive item must seed " +
+                    "`new Attack()` for both in ConstructItemShell (beside the m_icons pre-seed); a clone " +
+                    "inherits the donor's non-null attack.");
                 errors++;
             }
         }
