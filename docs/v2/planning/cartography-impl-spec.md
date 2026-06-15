@@ -257,6 +257,53 @@ checks are tallied separately in the boot summary line).
   same guard for an empty name. When it DOES imprint, it passes the Table name into
   `LocalMap.Imprint` (§2A.6).
 
+#### 1.6.5 RE-naming an already-named Table (issue 3, 2026-06-15)
+
+> **Status: NEW (spec gap fill).** Daniel, v0.2.25-playtest: *"issue 3: surveyor's table should
+> support renaming."* §1.6 specced name-GATING (must name before bind) but had **no RE-name path** —
+> once `SBPR_TableName` was non-empty, `Interact` fell straight through to survey + open-viewer with no
+> way to change the name. This subsection adds the re-name affordance. Clean-side (ADR-0001): reuses the
+> existing vanilla `TextInput`/`TextReceiver` machinery from §1.6.3 — no new surface.
+
+- **Affordance — `[Use]+Alt` (architect call, 2026-06-15).** An already-named Table is re-named with
+  the **`alt` modifier + Use** (KBM default Left-Shift + E; gamepad the layout-appropriate alt button).
+  `SurveyorTableTag.Interact(Humanoid, bool hold, bool alt)` already receives `alt`; on a **named** Table
+  an `alt` Use launches `RequestRename` and returns instead of opening the viewer.
+  - **Why (a) over the other candidates:** it has a **direct vanilla precedent** — `Tameable.Interact`
+    (decomp `:27075`) does exactly `if (alt) { SetName(); return true; }` for renaming a tamed animal,
+    advertised with the same `[$KEY_AltPlace + $KEY_Use] $hud_rename` hover (`:27034`). The Surveyor's
+    Table is **not a build piece**, so the `AltPlace` (Shift) modifier carries no competing meaning while
+    hovering it — no gesture collision with survey/open or the §2I hotbar-imprint. The hold path stays
+    `return false` (candidate (b) rejected — hold gestures are undiscoverable); no in-viewer control
+    (candidate (c) rejected — heavier surface for a one-string edit).
+- **Placement in `Interact` (order matters — preserves §1.6.4).** The re-name branch sits **after** the
+  unnamed name-gate (§1.6.4), so it is reached **only when the name is already non-empty**. The
+  unnamed→first-name flow is therefore byte-for-byte unchanged (AT-TABLE-RENAME-NOREGRESS). Survey is
+  still contributed first (plain-Use parity), then: unnamed → first-name dialog; named + `alt` →
+  re-name dialog; named + plain Use → open viewer (unchanged).
+- **The dialog pre-fills the current name.** `TextReceiver.GetText()` already returns the current
+  `SBPR_TableName`, so the vanilla rename field opens populated with the existing name — the player
+  **edits** it (fix a typo) rather than retyping from blank. `SetText` owner-writes the new name through
+  the same censor + `ClaimOwnership` path (§1.6.1); the hover refreshes on the next look-at poll. The
+  `RequestRename` Center message is **context-aware**: the §1.6.4 bind-gate nag ("Name this table before
+  binding maps") shows ONLY for an unnamed Table; a re-name shows no message (the pre-filled dialog is
+  self-explanatory, matching vanilla `Tameable`'s silent alt→rename).
+- **Hover advertisement (§1.6.2 pattern, AT-TABLE-RENAME-DISCOVERABLE).** The **named**-table
+  `GetHoverText` gains a third line advertising the affordance, using the same gamepad/KBM key-token
+  split vanilla derives `alt` from (decomp `:16115`):
+  `[$KEY_AltKeys + $KEY_Use] $hud_rename` on the non-classic gamepad layout,
+  `[$KEY_AltPlace + $KEY_Use] $hud_rename` otherwise. `$hud_rename` / `$KEY_*` are vanilla tokens (they
+  localize; a custom `$piece_*` token would leak as a literal — the 2026-06-05 sign bug). The unnamed
+  hover is unchanged ("[Use] Name this table").
+- **🔴 Wire contract — re-name changes FUTURE imprints only (AT-TABLE-RENAME-NOMIGRATE).** Re-naming
+  writes only the Table's own `SBPR_TableName` ZDO. Already-imprinted Local Maps carry **their own**
+  `sbpr_map_name` copy stamped at imprint time (`LocalMap.Imprint` `:230`) — re-naming the Table does
+  **not** touch them, and **no migration is performed or wanted** (a map records the Table name AT
+  imprint time, by design — same rule §1.6.4 already implies). Subsequent imprints pick up the new name
+  via `TryImprintSlot` → `GetTableName()` → `LocalMap.Imprint`. The `SBPR_TableName` key itself is still
+  LOCK/never-rename (the key string, not the player value — §0 "NEVER rename" is about the prefab/key,
+  not the instance name).
+
 ### 1.7 Acceptance criteria — Table naming (issue 10; observable, close only on Daniel's in-game check)
 
 > The feature spans three files (`SurveyorTableTag` §1.6, `LocalMap` §2A.6, `MapViewer`/`CartographyViewer`
@@ -289,9 +336,22 @@ checks are tallied separately in the boot summary line).
   Postfix(es)) is handed to `harmony.PatchAll(typeof(...))` in `Plugin.Awake()` and passes `PatchCheck`
   at boot (the t_564f695a "unregistered patch ships dead" lesson). No new patch is needed for §1.6/§2B.1
   (ZDO + `TextInput` + viewer-label are non-Harmony); only §2A.6b adds patch surface.
+- **AT-TABLE-RENAME** (§1.6.5, issue 3 — re-name works + persists) — an already-named Table can be
+  RE-named via `[Use]+Alt`; the new name persists (owner-write `SBPR_TableName` ZDO), survives relog AND
+  a dedicated-server restart, and shows in the hover name (§1.6.2) + as the Table-view title (§2B.1).
+- **AT-TABLE-RENAME-DISCOVERABLE** (§1.6.5) — the **named**-table hover advertises the affordance:
+  a `[$KEY_AltPlace + $KEY_Use] $hud_rename` line (or the `$KEY_AltKeys` gamepad variant), localized
+  (no literal `$`-token leak).
+- **AT-TABLE-RENAME-NOMIGRATE** (§1.6.5 wire contract) — re-naming a Table does **not** retroactively
+  rename already-imprinted Local Maps (each keeps its imprint-time `sbpr_map_name`); a map imprinted
+  AFTER the re-name bears the NEW name. No migration runs.
+- **AT-TABLE-RENAME-NOREGRESS** (§1.6.5) — the unnamed→first-name gate (§1.6.4) and the §2I hotbar
+  imprint gesture are unchanged: an UNNAMED Table still prompts-to-name on plain Use and still refuses
+  imprint; a plain (non-alt) Use on a NAMED Table still opens the viewer without renaming.
 - SpecCheck impact: **none** (naming/UI behavior, no recipe rows — §0 manifest count unchanged).
   `[hold]` PR; logs-green ≠ playable — Daniel confirms in-game: name a table, bind a map, see the name
-  on the item + as the viewer title.
+  on the item + as the viewer title. **Issue 3 (re-name): Daniel re-names a table in-game and confirms
+  the new name sticks + old imprinted maps keep their names.**
 
 ---
 
