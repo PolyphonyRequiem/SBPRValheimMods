@@ -48,19 +48,46 @@ namespace SBPR.Trailborne.Features.Cartography
     /// <summary>
     /// §2A.6b PRIMARY seam — the inventory hover title the player actually reads. Postfix
     /// on the private <c>InventoryGrid.CreateItemTooltip(ItemData, UITooltip)</c>: after the
-    /// vanilla call sets <c>tooltip.m_topic = item.m_shared.m_name</c>, overwrite m_topic with
-    /// the imprinted Table name formatted as <c>Local Map of "&lt;name&gt;"</c> (§2A.6c) when the
+    /// vanilla call sets <c>tooltip.m_topic = item.m_shared.m_name</c>, re-issue the title as
+    /// the imprinted Table name formatted <c>Local map for &lt;name&gt;</c> (§2A.6c) when the
     /// item carries <c>sbpr_map_name</c>. Pure pass-through for every other item.
     /// </summary>
+    //  ⚠️ RENDER-RACE FIX (issue 4, 2026-06-15, t_783672ac) — WHY WE CALL Set, NOT JUST
+    //  ASSIGN m_topic (grounded against assembly_valheim + assembly_guiutils decomp):
+    //    The previous impl did `tooltip.m_topic = …` and stopped. That binds at boot
+    //    (PatchCheck green) but NEVER PAINTS in-game — the name was invisible, which is
+    //    exactly the bug Daniel reported ("title still lacks the table name", logs-green
+    //    ≠ playable). Root cause: InventoryGui.Update → UpdateInventory → InventoryGrid.
+    //    UpdateGui calls CreateItemTooltip(item, tooltip) EVERY GUI FRAME for the hovered
+    //    element, and CreateItemTooltip calls `tooltip.Set(item.m_shared.m_name, …)`.
+    //    UITooltip.Set is the ONLY thing that re-renders the live tooltip: when this
+    //    tooltip is the shown one it calls UpdateTextElements() which writes m_topic into
+    //    the TMP "Topic" widget (assembly_guiutils). A bare field write after Set never
+    //    triggers that render, so vanilla's per-frame Set repaints the bare "Local Map"
+    //    and our value is overwritten before the next frame. Worse, Set early-outs when
+    //    `topic == m_topic && text == m_text` (guiutils) — so to force the re-render we
+    //    must pass our NEW topic THROUGH Set (it differs from the bare name vanilla just
+    //    wrote, so the early-out doesn't fire and UpdateTextElements runs). We preserve the
+    //    body (tooltip.m_text, the GetTooltip() the combat-strip patch already cleaned) and
+    //    re-pass the vanilla anchor (InventoryGrid.m_tooltipAnchor). Same augment-not-clobber
+    //    idiom the SignHoverTextPatch uses to survive vanilla's ~2 Hz poll.
     [HarmonyPatch(typeof(InventoryGrid), "CreateItemTooltip")]
     public static class LocalMapTooltipNamePatch
     {
         [HarmonyPostfix]
-        private static void Postfix(ItemDrop.ItemData item, UITooltip tooltip)
+        private static void Postfix(InventoryGrid __instance, ItemDrop.ItemData item, UITooltip tooltip)
         {
             if (item == null || tooltip == null) return;
             if (!LocalMap.TryGetName(item, out string name)) return; // not our imprinted map → pass-through
-            tooltip.m_topic = LocalMap.FormatDisplayName(name);
+
+            string title = LocalMap.FormatDisplayName(name);
+            if (tooltip.m_topic == title) return; // already ours this frame → nothing to repaint
+
+            // Re-issue through Set so the live tooltip actually re-renders our title (a bare
+            // m_topic assignment is overwritten by vanilla's per-frame Set before it paints —
+            // the render-race the header documents). Keep the body vanilla just built and the
+            // grid's tooltip anchor; Set's topic-changed guard lets UpdateTextElements run.
+            tooltip.Set(title, tooltip.m_text, __instance.m_tooltipAnchor);
         }
     }
 

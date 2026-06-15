@@ -63,7 +63,7 @@ namespace SBPR.Trailborne.Features.Cartography
         // with the blob's OriginX/Z, kept as a fast "is this map imprinted?" probe).
         //
         // NameKey (issue 10, §2A.6) carries the imprinting Table's NAME so the item's
-        // displayed title can bear it (formatted `Local Map of "Northern Outpost"` per §2A.6c) —
+        // displayed title can bear it (formatted `Local map for Northern Outpost` per §2A.6c) —
         // surfaced by the scoped LocalMapNamePatch postfix. Stored BARE (no display wording); the
         // format is applied at display time so it can change without re-imprinting. All three keys are
         // save/wire contracts — LOCK + never rename (a rename orphans every imprinted map's
@@ -75,10 +75,11 @@ namespace SBPR.Trailborne.Features.Cartography
 
         // Display-name format for an imprinted map's title (§2A.6/§2A.6c) — applied at render
         // time by the name patch, NOT stored, so the wording can change without re-imprinting
-        // every placed map. Daniel locked the format to `Local Map of "<TableName>"` (issue 8,
-        // 2026-06-12), superseding the v0.2.22 `Map: <name>`. The bare Table name is still
-        // stored under NameKey; this is the single source of the displayed wording.
-        public static string FormatDisplayName(string tableName) => $"Local Map of \"{tableName}\"";
+        // every placed map. Daniel re-locked the format to `Local map for <TableName>` (issue 4,
+        // 2026-06-15) — lowercase "map", the word "for", NO quotes — superseding the issue-8
+        // `Local Map of "<TableName>"` and the older v0.2.22 `Map: <name>`. The bare Table name is
+        // still stored under NameKey; this is the single source of the displayed wording.
+        public static string FormatDisplayName(string tableName) => $"Local map for {tableName}";
 
         private const string IconFile = "local_map_v0.1.png"; // optional; falls back to no icon
 
@@ -212,7 +213,7 @@ namespace SBPR.Trailborne.Features.Cartography
         /// item's m_customData under <see cref="MapBlobKey"/>, plus the bound-origin coord
         /// under <see cref="BoundKey"/>, plus the imprinting Table's NAME under
         /// <see cref="NameKey"/> (§2A.6 — so the item's title bears the Table name). The
-        /// name is stored BARE (no display wording); the `Local Map of "<name>"` format (§2A.6c)
+        /// name is stored BARE (no display wording); the `Local map for <name>` format (§2A.6c)
         /// is applied at display time.
         /// An empty/null <paramref name="tableName"/> writes no name key (a pre-1.6 / unnamed
         /// imprint shows the vanilla "Local Map" title — AT-TABLENAME-7 no-orphan). Returns
