@@ -1174,6 +1174,27 @@ namespace SBPR.Trailborne.Runtime
             // still this shared FallbackIcon instance.
             drop.m_itemData.m_shared.m_icons = new[] { FallbackIcon };
 
+            // Crash-safe by construction (the EXACT same failure shape as m_icons above, different
+            // field): a fresh SharedData leaves m_attack / m_secondaryAttack NULL — vanilla
+            // SharedData has no field initializer for them (assembly_valheim SharedData :57889/:57891
+            // declare `public Attack m_attack;` with no `= new Attack()`, and no constructor news
+            // them). Vanilla ItemData.GetChainTooltip (:58551) then derefs m_shared.m_attack
+            // .m_spawnOnHitChance with NO null guard, and the static GetTooltip (:58453) calls
+            // GetChainTooltip UNCONDITIONALLY for every item type (outside the itemType switch).
+            // GetTooltip is driven per-frame by InventoryGui.UpdateRecipe, so a constructed item with
+            // a null m_attack throws a per-frame NRE the instant its recipe is selected at the bench
+            // (the "wall of red"). A CLONED item never hits this because Instantiate deep-copies the
+            // donor's non-null m_attack; only ConstructItemShell items are exposed.
+            //
+            // A default `new Attack()` is INERT: m_spawnOnHitChance defaults to 0f so the :58551
+            // guard short-circuits false (returns ""), and m_attackAnimation is empty so
+            // HavePrimaryAttack()/HaveSecondaryAttack() (:58061/:58065) stay false — LMB/RMB do
+            // nothing with the item equipped. It just stops the tooltip NRE, matching what a cloned
+            // item already carries. SpecCheck's CheckAttack assertion screams at boot if this is ever
+            // dropped (the sibling of the C1 icon assertion).
+            drop.m_itemData.m_shared.m_attack          = new Attack();
+            drop.m_itemData.m_shared.m_secondaryAttack = new Attack();
+
             return go;
         }
     }

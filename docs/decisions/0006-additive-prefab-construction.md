@@ -84,6 +84,25 @@ structure (component layout, mesh names, field values) without instantiating it.
 - **Do not reintroduce runtime prefab cloning (`Instantiate` of a vanilla/ZNetView
   prefab as a mutable base) without a new ADR.** The clone-then-strip pattern in
   pre-0.2.8 cairn code is the anti-pattern this ADR retires.
+- **A constructed item shell must pre-seed the fresh `SharedData`'s null landmines that
+  vanilla derefs without a guard.** A `new SharedData()` (what `Assets.ConstructItemShell`
+  news) leaves several reference fields at their uninitialized defaults that vanilla then
+  dereferences with no null check — a clone never hits these because `Instantiate`
+  deep-copies the donor's non-null values. Two are known and seeded in
+  `ConstructItemShell`:
+  - **`m_icons`** defaults to the vanilla empty array; `ItemDrop.GetIcon()` indexes it
+    with no bounds guard → IndexOutOfRange in the craft panel. Seeded with
+    `Assets.FallbackIcon`.
+  - **`m_attack` / `m_secondaryAttack`** default to `null` (vanilla `SharedData` has no
+    field initializer for them); `ItemData.GetChainTooltip` reads `m_attack
+    .m_spawnOnHitChance` with no null guard, and the static `GetTooltip` calls it
+    unconditionally every frame from `InventoryGui.UpdateRecipe` → a per-frame NRE the
+    instant the item's recipe is selected at a bench (v0.2.25 Portal Seed / Cartographer's
+    Kit "wall of red"). Seeded with an inert `new Attack()` for both (empty attack
+    animation → `HavePrimaryAttack()` stays false, so the item gains no actual attack).
+  Both are asserted fail-loud at boot by `SpecCheck` (`CheckIcon` / `CheckAttack`). If a
+  future field on a constructed item turns out to be a vanilla null-deref landmine, seed it
+  in `ConstructItemShell` next to these two and add a sibling SpecCheck assertion.
 
 ## Alternatives considered
 
