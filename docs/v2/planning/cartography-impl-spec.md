@@ -1769,6 +1769,25 @@ rotate-to-heading minimap.** Point by point:
      anyway and are clipped away by the circular mask). No empty corners ever appear. Clip radius =
      disc radius in pixels = half the square's pixel side.
 
+   > **✅ IMPL UPDATE — issue 6 edge-bleed fix (2026-06-15, t_d44572f2, engineer-ui).** The
+   > circular clip is realized by the **fixed bezel's opaque alpha cover**, not a uGUI `Mask`: the
+   > rotating interior renders with the vanilla map *shader* (no stencil pass), which a `Mask`
+   > cannot clip. The original bezel made the transparent disc *coincident* with the square's
+   > inscribed circle ("clip radius = half the square's pixel side") — ZERO margin — and built the
+   > edge as a low-res (512²) **Bilinear** step. Upscaled ~2.5× on screen, that step smeared into a
+   > 2–3 px partial-alpha seam straddling the square's four straight tangents (12/6/9/3 o'clock), so
+   > parchment bled past the bezel as straight-edged slivers (top + left in the playtest evidence,
+   > `docs/v2/playtest-evidence/2026-06-15/issue6-map-edge-bleed.jpeg`). **Fix:** (a) inset the
+   > transparent disc `BezelDiscInsetPx` (6 px) INSIDE the inscribed circle so the straight tangents
+   > always sit under opaque cover with margin; (b) build the bezel at 1024² with **analytic** AA
+   > (mapped to exact SCREEN px) so the alpha reaches full opacity well inside the square edge — no
+   > sub-pixel seam; (c) make the bronze ring + shroud ONE contiguous opaque cover (no thin isolated
+   > band a future upscale could thin). The visible disc shrinks 6 px (imperceptible); rotation,
+   > shroud, bezel ring, and corner-coverage (#2/#9) are unchanged. `EnsureBezelTexture` now takes
+   > the on-screen bezel edge; the dead `DiscClipFraction` const was removed. Build 0/0. **NOT YET
+   > PLAYTESTED — the headless worker has no GPU; Daniel's in-game playtest of the v0.2.25 held local
+   > map is the merge gate.**
+
 4. **Rotates to heading, pivoting on the TABLE (Daniel's "B").** Keep the existing rotation of the
    interior: `_mapContainer.localRotation = Euler(0, 0, MapRotationSign * cameraYaw)`
    (`MapViewer.cs:696-700`), driven per-frame from `Update` (§2H b6, unchanged). With the #4 pan
