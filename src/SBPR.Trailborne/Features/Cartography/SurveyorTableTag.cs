@@ -124,10 +124,23 @@ namespace SBPR.Trailborne.Features.Cartography
             // hotbar number of the Local Map slot to imprint). Plain English with literal bracketed
             // digits — NOT a $KEY_* token: the hotbar keys are vanilla Hotbar1..8, not a single
             // rebindable Trailborne action, so there is no one keybind token to localize.
+            //
+            // §1.6.5 (issue 3) RE-NAME affordance: Alt+Use re-opens the rename dialog so an already-
+            // named Table can be re-named (typo fix / repurpose). Advertised with the SAME gamepad/
+            // KBM key-token split vanilla Tameable uses for its alt→rename hint (decomp :27029/:27034):
+            // the non-classic gamepad layout binds the modifier to JoyAltKeys ($KEY_AltKeys), every
+            // other layout to AltPlace ($KEY_AltPlace) — matching the exact ternary that derives `alt`
+            // in Player's input loop (decomp :16115). $hud_rename is a VANILLA token (localizes; a
+            // custom $piece_* token would leak as a literal — the 2026-06-05 sign bug). This line is
+            // the §1.6.2 discoverability requirement (AT-TABLE-RENAME-DISCOVERABLE).
+            string renameKeys = ZInput.IsNonClassicFunctionality() && ZInput.IsGamepadActive()
+                ? "$KEY_AltKeys + $KEY_Use"
+                : "$KEY_AltPlace + $KEY_Use";
             return Localize(
                 GetHoverName() +
                 "\n[<color=yellow><b>$KEY_Use</b></color>] Survey here / review the shared map" +
-                "\n[<color=yellow><b>1-8</b></color>] Imprint that Local Map");
+                "\n[<color=yellow><b>1-8</b></color>] Imprint that Local Map" +
+                $"\n[<color=yellow><b>{renameKeys}</b></color>] $hud_rename");
         }
 
         // ── Interactable ──────────────────────────────────────────────────────────────
@@ -165,6 +178,30 @@ namespace SBPR.Trailborne.Features.Cartography
             //     on Use — it keeps the §1.6.2 hover literally true. TryImprintSlot ALSO hard-
             //     guards on the empty name as the per-slot backstop.)
             if (string.IsNullOrEmpty(GetTableName()))
+            {
+                RequestRename(user);
+                return true;
+            }
+
+            // 1b-RENAME) RE-NAME affordance (§1.6.5, issue 3): an already-named Table is re-named
+            //     with Alt+Use (the `alt` modifier — ZInput "AltPlace"/"JoyAltKeys", default Left-
+            //     Shift on KBM). Reaching here means the name is NON-empty (the gate above already
+            //     returned for unnamed Tables), so this is purely the re-name path: fix a typo or
+            //     repurpose the Table. Re-uses the EXISTING RequestRename → TextInput → SetText
+            //     machinery (no new naming surface), and GetText() pre-fills the field with the
+            //     current name so the player edits rather than retypes. Direct vanilla precedent:
+            //     Tameable.Interact does `if (alt) { SetName(); return true; }` for the exact same
+            //     gamepad/KBM alt→rename gesture (decomp :27075). Advertised on the named-table
+            //     hover (AT-TABLE-RENAME-DISCOVERABLE). The survey was already contributed above
+            //     (plain-Use parity); we return before opening the viewer because the player's intent
+            //     was to rename, not to review the map.
+            //
+            //     ⚠ Re-naming changes FUTURE imprints only (AT-TABLE-RENAME-NOMIGRATE): the new name
+            //     flows into TryImprintSlot → LocalMap.Imprint for subsequently-imprinted maps, but
+            //     already-imprinted Local Maps keep the name they were stamped with at imprint time
+            //     (they carry their own `sbpr_map_name` copy — LocalMap.Imprint :230). No migration
+            //     is performed and none should be — a map records the Table name AT imprint time.
+            if (alt)
             {
                 RequestRename(user);
                 return true;
@@ -233,18 +270,25 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// Launch the vanilla rename dialog for this Table (§1.6.3) — the same TextInput
+        /// Launch the vanilla rename dialog for this Table (§1.6.3/§1.6.5) — the same TextInput
         /// path Tameable/Sign/Portal use (decomp Tameable :27163 → TextInput.RequestText
-        /// :54895). This component is the TextReceiver: GetText() feeds the current name into
-        /// the field, SetText() owner-writes the typed name + refreshes the hover. Topic uses
-        /// the vanilla $hud_rename token (localizes; a custom $piece_* token would leak as a
-        /// literal — the 2026-06-05 sign bug). Client act only (TextInput.instance is null on
-        /// the dedicated server); a Center message tells the player why binding is blocked.
+        /// :54895). This component is the TextReceiver: GetText() feeds the CURRENT name into
+        /// the field (so a re-name edits rather than retypes), SetText() owner-writes the typed
+        /// name + refreshes the hover. Topic uses the vanilla $hud_rename token (localizes; a
+        /// custom $piece_* token would leak as a literal — the 2026-06-05 sign bug). Client act
+        /// only (TextInput.instance is null on the dedicated server).
+        ///
+        /// The Center message is context-aware: an UNNAMED Table is being named for the first
+        /// time to clear the §1.6.4 bind gate, so it states WHY (binding is blocked); an already-
+        /// named Table is being RE-named (§1.6.5, issue 3), so the bind-gate nag would be a lie —
+        /// we show no message and let the pre-filled $hud_rename dialog speak for itself (vanilla
+        /// Tameable's alt→rename shows no Center message either).
         /// </summary>
         private void RequestRename(Humanoid user)
         {
             if (TextInput.instance == null) return; // headless / no UI — nothing to show
-            user?.Message(MessageHud.MessageType.Center, "Name this table before binding maps");
+            if (string.IsNullOrEmpty(GetTableName()))
+                user?.Message(MessageHud.MessageType.Center, "Name this table before binding maps");
             TextInput.instance.RequestText(this, "$hud_rename", TableNameCharLimit);
         }
 
