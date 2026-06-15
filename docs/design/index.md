@@ -7,6 +7,7 @@
 | trailborne-vision.md | North star: the Explorer role and what success feels like |
 | design-pillars.md | The load-bearing design constraints, non-negotiable |
 | nomap.md | Investigation: how Valheim tracks the map + no-map patch-surface cross-reference |
+| map-provider-model.md | LIVING design (Daniel 2026-06-15 revision): the map provider model — M-key behavior, two map types (personal global map + local-map ARTIFACTS), equipped-local-map "provider" binding, Cartographer's-tools + Surveyor's-Table bidirectional global↔local sync, nomap-on/off split, Eye of Odin (Mistlands global-map unlock). Serialization grounded vs decomp (carried customData ≠ networked → artifact model safe). Supersedes the M/E-open + nerf portions of cartography-impl-spec §2G; iterating on §9 open questions before it graduates to specs |
 | pin-sharing.md | Investigation: multiplayer pin-sharing surface under server gating |
 | constitution.md | Governing principles for spec-driven v2 (ADR-0005 Option C) — Spec Kit vocabulary + load-bearing invariants |
 | cartography-v2.md | DRAFT design: Black Forest cartography — Map Station + Local Maps + Cartographer's Kit (grounded on vanilla MapTable/Minimap; open questions pending Daniel) |
