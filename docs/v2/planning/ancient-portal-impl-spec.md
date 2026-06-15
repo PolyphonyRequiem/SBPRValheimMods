@@ -297,11 +297,55 @@ behavior, which is what "otherwise a regular portal" means:
 >   `MeshRenderer` (point it at the grafted ring's renderer) or it NREs 60×/s. This alone
 >   would spam the log and break the piece.
 > - **`UpdatePortal()`** (0.5 s, `:122976`) is guarded by `m_proximityRoot == null` (safe
->   when null) but if you DO set `m_proximityRoot` it then calls `m_target_found.SetActive(…)`
->   — so `m_target_found` (an `EffectFade`) must be non-null whenever `m_proximityRoot` is.
->   Simplest: assign `m_proximityRoot = the ring transform` AND give `m_target_found` a real
->   `EffectFade` child (or a minimal stub), OR leave both null and accept no "target found"
->   glow pulse for v1 (the `m_model` emission still needs wiring regardless).
+>   when null) but once `m_proximityRoot` is set it dereferences **two more** refs each cycle:
+>   `m_target_found.SetActive(…)` (`:122992`, every cycle) AND `m_connected.Create(…)`
+>   (`:122984`, on the unconnected→connected edge). So all THREE must be wired together — or
+>   all left null — or you trade the old NRE for a new one on first pairing.
+
+#### 3.5.1 Proximity / "target found" effect — REQUIRED, matches vanilla (was deferred; promoted 2026-06-15)
+
+> **Status change (Daniel playtest, 2026-06-15, build v0.2.25):** This effect was deferred
+> for v1 (an Ancient Portal showed no glow/shimmer up close). Daniel reported it as **issue
+> 1** — *"the ancient portal has no visible portal effect when moving close. please use the
+> same portal effects that the regular wooden portal has"* — which **promotes it from
+> deferred-cosmetic to required.** It now matches vanilla `portal_wood`. (Card t_e58283d7.)
+
+Wire the proximity effect ADDITIVELY (ADR-0006 — graft off the `portal_wood` blueprint via
+`GetPrefab`; never clone). Implemented in `Portals.WireProximityEffect`. The three refs +
+the two HDR colors, all **read live off `portal_wood` via `vprefab inspect portal_wood
+--json` (2026-06-15)** — NOT the `TeleportWorld` class-initializer defaults, which differ:
+
+1. **`m_proximityRoot`** — a fresh child `Transform` at the ring height (`EnvelopeHeight`),
+   parented under the **piece root** (NOT the grow-scaled visual root) so it reads at a fixed
+   world position like the overhead trigger. Its `.position` feeds
+   `Player.GetClosestPlayer(m_proximityRoot.position, m_activationRange)` (`:122980`). Setting
+   it is what switches `UpdatePortal` ON.
+2. **`m_target_found`** — the `EffectFade` grafted from `portal_wood`'s **`_target_found_red`**
+   child subtree (verified live: `ParticleSystem` [Black_suck / blue flames / suck particles]
+   + `Point light` [Light + LightLod] + `SFX` [AudioSource], carrying **no ZNetView/collider**
+   → ADR-0006-safe to Instantiate; nothing to orphan). `EffectFade.Awake` auto-discovers the
+   particle/light/audio children. New helper `Assets.GraftEffectSubtree` lifts it and
+   guarantees a non-null `EffectFade`.
+3. **`m_connected`** — the activation `EffectList` (`:122984`). VALUE-COPIED off the
+   blueprint's own `TeleportWorld.m_connected` (reference, not clone); falls back to a fresh
+   empty `EffectList()` (whose `.Create()` is a safe no-op) if the blueprint is absent.
+
+Plus the emission-lerp inputs (the `m_model` glow gradient in `Update`, `:122996`):
+- **`m_colorUnconnected` = `(0, 0, 0, 1)`** (black — no emission when the portal has no twin).
+- **`m_colorTargetfound` = `(5.0, 2.379, 0, 1)`** (HDR orange; `>1` channels = bloom intensity
+  — this is the lit-ring glow). The class-default `Color.white → white` lerp is **invisible**,
+  which is precisely why wiring `m_model` alone (the v1 state) never showed a glow.
+- **`m_activationRange` = `3`** (the prefab overrides the `5f` class default), **`m_exitDistance` = `1`**.
+
+**Fail-safe (atomicity):** `m_proximityRoot` is set **only if** the `_target_found_red` graft
+succeeded, so `UpdatePortal` can never deref a null `m_target_found`. A missing/changed donor
+degrades to "no proximity effect" (the old v1 behaviour) — **not** an NRE.
+
+**Grow interaction:** the effect node lives under the piece root (fixed), so the grow-timer
+scale-lerp (which scales only `SBPR_AncientPortalVisual`, §3.6) doesn't distort it. The
+effect only reads "active" once the portal is connected to a same-tag twin, which can't happen
+before it's grown + placed, so there's no half-grown shimmer to suppress.
+
 > - `m_enabled`/activation: the grow timer (§3.6) gates teleport by toggling the
 >   `TeleportWorld` component enabled-state (or the trigger collider) — see §3.6.
 
@@ -454,6 +498,22 @@ in the PR handoff; the build PR does NOT self-close these.
   root tendrils + glowing ring).
 - **AT-JUMP-ACTIVATE** (🔴 main risk) — **jumping up** into the ring teleports; **walking
   underneath** does NOT trigger. Tuned trigger box (§3.7), verified on a joined client.
+- **AT-PORTAL-FX-PROXIMITY** (issue 1, §3.5.1) — approaching an active Ancient Portal within
+  `m_activationRange` (3 m) shows the same proximity glow/emission behaviour as a vanilla
+  wooden portal. Contrast a vanilla `portal_wood` pair side-by-side — the ring emission should
+  read equivalently up close.
+- **AT-PORTAL-FX-CONNECTED** (issue 1, §3.5.1) — a tag-paired (connected) Ancient Portal shows
+  the "target found" effect/shimmer (the `_target_found_red` particle/light burst) that vanilla
+  shows on a connected portal; an UNCONNECTED one does not (ring stays dark — `m_colorUnconnected`
+  is black).
+- **AT-PORTAL-FX-NONRE** (issue 1, §3.5.1; regression guard on the §3.5 `m_model`-null NRE) —
+  `TeleportWorld.Update` / `UpdatePortal` run with **zero NREs** now that `m_proximityRoot`,
+  `m_target_found`, and `m_connected` are all non-null. Verify especially the **first pairing**
+  (the connect-edge `m_connected.Create()`), the path that would have NRE'd if only
+  `m_proximityRoot` were wired.
+- **AT-PORTAL-FX-ADDITIVE** (issue 1, §3.5.1) — the effect is built additively (no `portal_wood`
+  clone-and-strip): the `_target_found_red` subtree is grafted via `Assets.GraftEffectSubtree`
+  (Instantiate of a ZNetView-free child), ADR-0006 held, no ZNetView/ZDO orphan introduced.
 - **AT-REGULAR-PORTAL** — two Ancient Portals given the **same 10-char tag pair** and teleport
   between each other (requires the §1 `PortalPrefabHash` registration — verify they actually
   CONNECT, not just place). **Ore/metal still blocked**: carrying copper/tin/iron refuses
@@ -472,8 +532,9 @@ in the PR handoff; the build PR does NOT self-close these.
   `GuidePoint` (Hugin does NOT pop a portal tutorial on placement), no ZNetView-clone
   soft-lock. PatchCheck green; the feature ships **patch-free**.
 - **AT-NRE-CLEAN** — no NullReferenceException spam in the log from `TeleportWorld.Update`
-  (`m_model` wired) or `UpdatePortal` (`m_proximityRoot`/`m_target_found` consistent). A clean
-  boot + place + grow + teleport produces zero portal-related NREs.
+  (`m_model` wired) or `UpdatePortal` (`m_proximityRoot` + `m_target_found` + `m_connected` all
+  non-null, §3.5.1). A clean boot + place + grow + teleport + **first tag-pairing** produces
+  zero portal-related NREs.
 - **SpecCheck** — both rows (§0) present and green at boot; recipe-manifest count +2; the Seed
   icon is real (not the fallback). **logs-green ≠ playable** — Daniel's in-game pass is the
   real gate.

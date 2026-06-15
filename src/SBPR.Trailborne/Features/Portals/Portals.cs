@@ -34,8 +34,10 @@ namespace SBPR.Trailborne.Features.Portals
     ///      (assembly_valheim:84083-89), so an idempotent re-assert never wipes it.
     ///   2. <c>TeleportWorld.m_model</c> is wired to a real ring MeshRenderer or its
     ///      <c>Update()</c> (assembly_valheim:122996-99) NREs 60×/s on m_model.material.
-    ///      We leave m_proximityRoot/m_target_found BOTH null — UpdatePortal (:122976-93)
-    ///      is m_proximityRoot==null-guarded so it's a safe no-op.
+    ///      We ALSO wire m_proximityRoot + m_target_found (EffectFade) + m_connected together
+    ///      so UpdatePortal (:122976-93) runs the vanilla proximity glow + "target found"
+    ///      shimmer (issue 1, 2026-06-15) — see <see cref="WireProximityEffect"/>. All three
+    ///      refs are set atomically (or none) so a missing donor degrades to no-effect, not NRE.
     ///   3. The overhead <see cref="TeleportWorldTrigger"/> child collider is the activation
     ///      surface (OnTriggerEnter→Teleport, :123144-51). Positioned flat at the ring; the
     ///      grow timer gates teleport by toggling THIS collider (not TeleportWorld.enabled,
@@ -81,6 +83,22 @@ namespace SBPR.Trailborne.Features.Portals
         // ── Portal piece (LOCKED — spec §3.3/§3.4) ──────────────────────────────────
         public const float PortalHealth = 300f;   // DECIDED Daniel 2026-06-13 (75% of vanilla's 400)
 
+        // ── Vanilla TeleportWorld serialized values (read LIVE off portal_wood via
+        //    `vprefab inspect portal_wood --json`, 2026-06-15 — NOT the class-initializer
+        //    defaults, which differ). These drive "the same portal effects" Daniel asked for
+        //    (issue 1): the emission glow lerps between these two HDR colors and the proximity
+        //    shimmer reads within m_activationRange. Re-confirm after a game patch. ──────────
+        //  • m_colorUnconnected = (0,0,0,1) — BLACK: no emission when the portal has no twin.
+        //  • m_colorTargetfound = (5.0, 2.379, 0.0, 1) — HDR orange (>1 = bloom intensity):
+        //    the lit-ring glow when connected. White→white (the class default) is INVISIBLE,
+        //    which is the whole reason wiring m_model alone never showed a glow.
+        //  • m_activationRange = 3 (the prefab overrides the 5f class default).
+        //  • m_exitDistance = 1.
+        private static readonly Color VanillaColorUnconnected = new Color(0f, 0f, 0f, 1f);
+        private static readonly Color VanillaColorTargetFound = new Color(5.0f, 2.3793103f, 0f, 1f);
+        private const float VanillaActivationRange = 3f;
+        private const float VanillaExitDistance    = 1f;
+
         // Visual envelope target (~3 m tall × ~3 m wide; ring at the TOP). These are
         // DESK ESTIMATES for the placeholder kitbash — flagged for AT-GEOMETRY in-game
         // tuning (spec §3.2/§3.7). The grafted donor meshes are scaled into this envelope.
@@ -91,6 +109,15 @@ namespace SBPR.Trailborne.Features.Portals
         private const string DonorPortal = "portal_wood";       // ring (New/small_portal) + effect donor
         private const string DonorRoot   = "Greydwarf_Root";    // root tendrils (default mesh)
         private const string DonorStump  = "stubbe";            // legs (cylinder stump mesh)
+
+        // ── portal_wood child-node names we read as blueprints (verified live via
+        //    `vprefab inspect portal_wood`, 2026-06-15 — the proximity effect graft) ──────
+        //  • "_target_found_red" — the EffectFade "target found" subtree (ParticleSystems +
+        //    Light + AudioSource, NO ZNetView/collider) that TeleportWorld.m_target_found
+        //    SetActive()-toggles when a teleportable player is near a CONNECTED portal.
+        //  • "Proximity" — vanilla's empty m_proximityRoot anchor child (we build our own at
+        //    the ring instead, but the name documents what we're reproducing).
+        private const string DonorTargetFoundChild = "_target_found_red";
 
         // ════════════════════════════════════════════════════════════════════════════
         // PREFAB REGISTRATION (ZNetScene.Awake postfix, via Registrar)
@@ -246,10 +273,19 @@ namespace SBPR.Trailborne.Features.Portals
                     "[Trailborne/Portals] Ancient Portal has NO grafted MeshRenderer for TeleportWorld.m_model — " +
                     "TeleportWorld.Update would NRE. All visual donors (portal_wood/Greydwarf_Root/stubbe) failed " +
                     "to graft; the piece will be broken. Check donor prefab availability.");
-            // Leave m_proximityRoot + m_target_found BOTH null (consistent): UpdatePortal is
-            // m_proximityRoot==null-guarded (safe no-op), so neither is dereferenced. We lose
-            // only the cosmetic "target found" glow pulse for v1 (spec §3.5).
             // Leave m_allowAllItems = false → the vanilla ore/metal ban holds with zero code (§3.5).
+
+            // ── 🔴 #2b: wire the PROXIMITY / "target found" effect so the portal reads alive
+            //    up close like vanilla portal_wood (issue 1, 2026-06-15). UpdatePortal (0.5 s,
+            //    decomp :122976) early-returns while m_proximityRoot==null — which is exactly
+            //    why the v1 deferral (both null) showed NO glow + NO shimmer. Once we set
+            //    m_proximityRoot it dereferences TWO more refs every cycle:
+            //      • m_target_found.SetActive(...)          (decomp :122992, every cycle)
+            //      • m_connected.Create(...)                (decomp :122984, on connect-edge)
+            //    BOTH are null on a fresh AddComponent<TeleportWorld>(), so wiring proximityRoot
+            //    ALONE would just trade the old m_model NRE for a new one on first pairing. We
+            //    wire all three atomically (or leave proximityRoot null and degrade cleanly). ──
+            WireProximityEffect(go, teleport, portalBlueprint);
 
             // ── Overhead jump-through trigger (#3): a flat box collider at the ring, gated by
             //    the grow timer. Parented under the PIECE ROOT (sibling of the visual root) so
@@ -342,6 +378,95 @@ namespace SBPR.Trailborne.Features.Portals
             trig.AddComponent<TeleportWorldTrigger>();
             // NOTE: the grow timer (AncientPortalTag) starts this collider DISABLED and enables it
             // once at full grow, so a half-grown portal can't teleport (spec §3.6).
+        }
+
+        /// <summary>
+        /// Wire the Ancient Portal's <see cref="TeleportWorld"/> to show the SAME proximity /
+        /// "target found" effect vanilla <c>portal_wood</c> shows (issue 1, Daniel 2026-06-15).
+        /// Promotes the v1-deferred cosmetic (spec §3.5) to required. ADDITIVE (ADR-0006): we
+        /// graft the effect subtree off the <paramref name="portalBlueprint"/> read via
+        /// GetPrefab (fires no Awake) — never clone portal_wood.
+        ///
+        /// 🔴 THE THREE REFS UpdatePortal DEREFERENCES once m_proximityRoot is non-null (decomp
+        /// assembly_valheim:122976-93 — read clean-side per ADR-0001). They MUST be wired
+        /// together or we trade the old NRE for a new one:
+        ///   1. <c>m_proximityRoot</c> — the anchor whose position feeds
+        ///      <c>Player.GetClosestPlayer(m_proximityRoot.position, m_activationRange)</c>
+        ///      (:122980). A fresh child Transform at the ring height. Setting this is what
+        ///      switches UpdatePortal ON (it early-returns while null, :122978).
+        ///   2. <c>m_target_found</c> — the <see cref="EffectFade"/> SetActive()-toggled at
+        ///      :122992 when a teleportable player is near a CONNECTED portal. Grafted from
+        ///      portal_wood's <c>_target_found_red</c> subtree (ParticleSystems + Light +
+        ///      AudioSource), which carries no ZNetView → ADR-0006-safe to Instantiate.
+        ///   3. <c>m_connected</c> — the activation <see cref="EffectList"/> fired ONCE on the
+        ///      unconnected→connected edge (:122984). Null on a fresh AddComponent, so we
+        ///      VALUE-COPY it off the blueprint's own TeleportWorld (reference, not clone).
+        /// Plus the two HDR colors + activation range so the emission lerp in
+        /// <c>TeleportWorld.Update</c> (:122996, the m_model glow) actually has a visible
+        /// gradient — vanilla's <c>m_colorUnconnected</c> is black and <c>m_colorTargetfound</c>
+        /// is HDR orange; the class-default white→white is invisible.
+        ///
+        /// FAIL-SAFE: if the target-found graft fails (donor/child missing) we DO NOT set
+        /// m_proximityRoot — leaving it null keeps UpdatePortal a guarded no-op (the old v1
+        /// behaviour), so a missing donor degrades to "no proximity effect" rather than an NRE.
+        /// m_model (the emission glow) is wired separately in the caller and is unaffected.
+        /// </summary>
+        private static void WireProximityEffect(GameObject pieceRoot, TeleportWorld teleport, GameObject? portalBlueprint)
+        {
+            // The two HDR colors + ranges drive the emission lerp + proximity test (read live
+            // off portal_wood; see the Vanilla* constants). Safe to set unconditionally — they
+            // only matter once UpdatePortal/Update run, and Update (m_model glow) already runs.
+            teleport.m_colorUnconnected = VanillaColorUnconnected;
+            teleport.m_colorTargetfound = VanillaColorTargetFound;
+            teleport.m_activationRange  = VanillaActivationRange;
+            teleport.m_exitDistance     = VanillaExitDistance;
+
+            // (3) m_connected — value-copy the activation EffectList off the blueprint's own
+            // TeleportWorld so the connect-edge Create() (:122984) has a real (possibly empty)
+            // list to fire instead of NRE'ing. Reading an asset's field value is reference,
+            // not inheritance (ADR-0006). Fall back to a fresh empty EffectList if the
+            // blueprint or its TeleportWorld is somehow absent — Create() on an empty list is
+            // a safe no-op, never null.
+            var blueprintTw = portalBlueprint != null ? portalBlueprint.GetComponent<TeleportWorld>() : null;
+            teleport.m_connected = blueprintTw?.m_connected ?? new EffectList();
+
+            // (2) m_target_found — graft portal_wood's "_target_found_red" EffectFade subtree
+            // onto the piece root (NOT the grow-scaled visual root, so the effect reads at a
+            // FIXED world position like the trigger). Positioned at the ring height.
+            var targetFound = Assets.GraftEffectSubtree(
+                DonorPortal, DonorTargetFoundChild, pieceRoot, "SBPR_PortalTargetFound");
+            if (targetFound != null)
+            {
+                // Anchor at the ring (~3 m up) so the shimmer reads at the overhead ring, where
+                // a connected portal's effect belongs. DESK-ESTIMATED height — shares the
+                // EnvelopeHeight the ring/trigger use; flagged for AT-GEOMETRY tuning alongside them.
+                targetFound.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
+                var fade = targetFound.GetComponent<EffectFade>();
+                teleport.m_target_found = fade;
+
+                // (1) m_proximityRoot — ONLY set when (2) succeeded, so UpdatePortal never
+                // derefs a null m_target_found. A fresh anchor child at the ring height feeds
+                // GetClosestPlayer; placed under the piece root (fixed, not grow-scaled).
+                var prox = new GameObject("SBPR_PortalProximity");
+                prox.transform.SetParent(pieceRoot.transform, worldPositionStays: false);
+                prox.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
+                teleport.m_proximityRoot = prox.transform;
+
+                Plugin.Log.LogInfo(
+                    "[Trailborne/Portals] Wired proximity effect (m_proximityRoot + m_target_found EffectFade + " +
+                    "m_connected + HDR glow colors) — Ancient Portal now shows the vanilla portal_wood approach/" +
+                    "connected effect (issue 1).");
+            }
+            else
+            {
+                // Graft failed → leave m_proximityRoot null so UpdatePortal stays a guarded
+                // no-op (the v1 behaviour). The m_model emission glow set in the caller still
+                // runs in Update(), but without proximityRoot there's no shimmer. Degraded,
+                // not broken — and crucially NOT an NRE.
+                Plugin.Log.LogWarning(
+                    "[Trailborne/Portals] Could not graft portal_wood's '_target_found_red' effect subtree; " +
+                    "leaving m_proximityRoot null (no proximity shimmer, no NRE). Check portal_wood availability/structure.");
+            }
         }
 
         /// <summary>

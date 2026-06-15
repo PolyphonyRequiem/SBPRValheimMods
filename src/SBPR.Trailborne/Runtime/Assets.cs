@@ -961,6 +961,77 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// ADDITIVELY graft a vanilla prefab's EFFECT subtree — particle systems + light +
+        /// audio + the <see cref="EffectFade"/> that fades them in/out — onto
+        /// <paramref name="dst"/>, PRESERVING the effect components. This is the VFX sibling
+        /// of <see cref="GraftVisualSubtree"/> (which is for static meshes): here we keep the
+        /// Light / AudioSource / ParticleSystem (and their LightLod / flicker / vortex helper
+        /// scripts) because they ARE the effect. Used to lift <c>portal_wood</c>'s
+        /// <c>_target_found_red</c> subtree onto the additive Ancient Portal so its
+        /// <see cref="TeleportWorld.m_target_found"/> "target found" shimmer matches vanilla.
+        ///
+        /// Reads the donor via <see cref="ZNetScene.GetPrefab"/> (fires no Awake),
+        /// Instantiates a COPY of the named child, and strips ONLY networking/gameplay/
+        /// collider components via <see cref="StripToDecorative"/> (which leaves Light/
+        /// AudioSource/ParticleSystem/EffectFade untouched — it only removes WearNTear/Piece/
+        /// Collider/ZNetView). The donor effect subtree carries no ZNetView, so instantiating
+        /// it wakes no ZDO — nothing to orphan; the same ADR-0006-safe graft pattern
+        /// <see cref="GraftVisualSubtree"/> / <see cref="GraftTorchFire"/> use. We read the
+        /// base game's own VFX asset to drive our piece's effect; reading an asset is
+        /// reference, not cloning — never the subtractive whole-networked-prefab Instantiate.
+        ///
+        /// 🔴 GUARANTEES a non-null <see cref="EffectFade"/> on the returned subtree. Vanilla
+        /// <c>_target_found_red</c> ships one; if a future game patch ever drops it we
+        /// AddComponent a bare one (EffectFade.Awake tolerates an empty particle/light/audio
+        /// set — it's a safe no-op), so a caller that assigns the result to
+        /// <c>m_target_found</c> can rely on it being non-null and never NRE. Returns the
+        /// grafted GameObject, or null if the donor / named child is missing — in which case
+        /// a <c>TeleportWorld</c> caller MUST leave <c>m_proximityRoot</c> null to keep
+        /// <c>UpdatePortal</c> a safe no-op (the null-graft degradation).
+        /// </summary>
+        public static GameObject? GraftEffectSubtree(string donorPrefabName, string effectChildName,
+                                                     GameObject dst, string graftName)
+        {
+            if (dst == null) return null;
+            var zns = ZNetScene.instance;
+            if (zns == null)
+            {
+                Plugin.Log.LogWarning($"[Trailborne] GraftEffectSubtree('{donorPrefabName}'): no ZNetScene.");
+                return null;
+            }
+            var donor = zns.GetPrefab(donorPrefabName);
+            if (donor == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftEffectSubtree: donor prefab '{donorPrefabName}' not found; " +
+                    $"'{dst.name}' will have no grafted effect.");
+                return null;
+            }
+            var src = donor.transform.Find(effectChildName);
+            if (src == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne] GraftEffectSubtree: donor '{donorPrefabName}' has no '{effectChildName}' child " +
+                    $"(vanilla structure changed?); '{dst.name}' will have no grafted effect.");
+                return null;
+            }
+
+            var copy = UnityEngine.Object.Instantiate(src.gameObject, dst.transform);
+            copy.name = graftName;
+            copy.transform.localPosition = src.localPosition;
+            copy.transform.localRotation = src.localRotation;
+            copy.transform.localScale    = src.localScale;
+            // Remove ONLY networking/gameplay/collider — Light/AudioSource/ParticleSystem/
+            // EffectFade and their helper scripts survive (those are the effect itself).
+            StripToDecorative(copy);
+            // The donor node carries the EffectFade TeleportWorld.m_target_found expects.
+            // Guarantee it so the caller can assign without a null-deref risk.
+            if (copy.GetComponent<EffectFade>() == null) copy.AddComponent<EffectFade>();
+            copy.SetActive(true);
+            return copy;
+        }
+
+        /// <summary>
         /// Construct a networked build-piece SHELL from scratch — ADR-0006 additive
         /// construction, the replacement for clone-then-strip. Returns a fresh
         /// GameObject parented under the inactive holder (so its Awake has NOT fired),
