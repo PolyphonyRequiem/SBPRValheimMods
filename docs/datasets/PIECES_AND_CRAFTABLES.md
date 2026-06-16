@@ -367,7 +367,7 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 - **Guardian Stones** family — server worldbuilding (separate mod, separate spec)
 - **Local Maps** + **Cartographer's Kit** (Trailborne v2 cartography — SPECCED, see `docs/v2/planning/`; the **Surveyor's Table** of this tier is now IMPLEMENTED — see the "Trailborne v2 (Black Forest)" section above)
 - **Real Tents** (Trailborne v2)
-- **Twisted Portal** (Trailborne v3+ — the endgame no-restriction portal; distinct from the v2 Ancient Portal, which is the convenience portal that KEEPS the ore ban). *(The "Pocket Portal" idea was rethemed + specced as the v2 **Portal Seed → Ancient Portal** above.)*
+- **Twisted Portal** (Trailborne v3 Swamp — the endgame no-restriction portal; distinct from the v2 Ancient Portal, which is the convenience portal that KEEPS the ore ban). **SPECCED — see `docs/v3/planning/twisted-portal-impl-spec.md`** (card t_f9cab392, blocked on Daniel). Two prefabs: the `piece_sbpr_twisted_portal` (Hammer-placed, solid-earth; teleports even with `NoPortals` set; paired by player-assigned RUNE NAMES in a dedicated `sbpr_rune_name` ZDO slot) + the `SBPR_TwistedKey` (a Trinket whose durability is a charge meter — eating food charges it, each teleport burns charge, Pukeberries dump-charge it fast). Consumes the shared v3 **Sunstone** material (second consumer after the Sunstone Lens). *(The "Pocket Portal" idea was rethemed + specced as the v2 **Portal Seed → Ancient Portal** above.)*
 - **Iron Compass** (Trailborne v3+, optional)
 - **Seer's Stone** (Trailborne v4+)
 
