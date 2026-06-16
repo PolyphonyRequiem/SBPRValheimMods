@@ -8,6 +8,7 @@ using SBPR.Trailborne.Features.Cairns;
 using SBPR.Trailborne.Features.Cartography;
 using SBPR.Trailborne.Features.MarkerSigns;
 using SBPR.Trailborne.Features.Portals;
+using SBPR.Trailborne.Features.Sunstone;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -72,6 +73,10 @@ namespace SBPR.Trailborne.Runtime
                 // Explorer's Bench exists for the recipe station; also registers the portal
                 // prefab hash into Game.PortalPrefabHash (the #1 tag-pairing risk).
                 Portals.RegisterPrefabs(__instance);
+
+                // v3 Swamp — Sunstone material + Sunstone Lens trinket (card t_2fd7bc7f).
+                // After Trailhead so the Explorer's Bench exists for the recipe station.
+                SunstoneLens.RegisterPrefabs(__instance);
 
                 znetSceneDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -139,6 +144,11 @@ namespace SBPR.Trailborne.Runtime
                 // exist); the Seed item is registered into ObjectDB inside this call before
                 // the portal's one-seed build cost is rebuilt.
                 Portals.DoObjectDBWiring(ZNetScene.instance);
+
+                // v3 Swamp — Sunstone material + Lens recipes (card t_2fd7bc7f). The Lens recipe
+                // consumes Sunstone; both are registered inside this one call, Sunstone first, so
+                // BuildReq resolves the Sunstone ingredient. After Trailhead (the bench station).
+                SunstoneLens.DoObjectDBWiring(ZNetScene.instance);
 
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 
