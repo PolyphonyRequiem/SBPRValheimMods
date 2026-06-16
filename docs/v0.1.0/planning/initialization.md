@@ -1,5 +1,6 @@
 ---
 spec_name: trailborne-v1
+status: historical
 created_at: 2026-06-03
 source: user
 project: SBPR Trailborne (first public SBPR Thunderstore release)
@@ -59,7 +60,7 @@ to v2+.
     bench, indestructible-ish, the v1 centerpiece)
   - Pigments (item — colored dyes for painted signs)
   - Painted Signs (variant of vanilla sign, color-coded for trail discipline)
-  - Trailblazer's Tools (item or item set — purpose to be defined)
+  - Trailblazer's Spade (single tool item — purpose to be defined)
 
 - **Black Forest tier:**
   - Local Maps + Map Stations (paired — Map Station is anchor/transfer/retention
@@ -79,7 +80,7 @@ to v2+.
   - On-demand map viewing (the "luxury" capstone — exact mechanic TBD)
 
 **v1 candidates from this list (Daniel-leaning):** Explorer's Bench, Cairns,
-Pigments, Painted Signs, Trailblazer's Tools. Plus possibly Path Lamps as a
+Pigments, Painted Signs, Trailblazer's Spade. Plus possibly Path Lamps as a
 sub-piece (TBD).
 
 # Things we know are NOT in v1
@@ -103,7 +104,7 @@ sub-piece (TBD).
 # Open questions surfaced at initialization (for spec-shaper to resolve)
 
 - Which v1 candidates actually ship vs slip?
-- What does the Trailblazer's Tools mechanic actually DO?
+- What does the Trailblazer's Spade mechanic actually DO?
 - Is Path Lamps in v1?
 - Cairn comfort radius, comfort tier, decay rules?
 - Painted Sign color count / Pigment recipe inputs?

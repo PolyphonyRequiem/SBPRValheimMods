@@ -4,8 +4,12 @@
     <AssemblyName>SBPR.Trailborne</AssemblyName>
     <RootNamespace>SBPR.Trailborne</RootNamespace>
     <LangVersion>latest</LangVersion>
-    <Version>0.1.0</Version>
+    <Version>0.2.25</Version>
     <Nullable>enable</Nullable>
+    <!-- Clean-build guard (chore t_eaca1997): all 29 baseline nullable warnings
+         were fixed, so every warning is now an error. This makes 0-warnings durable —
+         no future PR can silently reintroduce a nullable (or any) warning. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <DebugType>none</DebugType>
@@ -16,15 +20,59 @@
        (or a gitignored repo-root .env) by Directory.Build.props at the repo root.
        No machine-specific absolute paths live in this file. -->
 
+  <!-- ════════════════════════════════════════════════════════════════════════
+       Single source of truth for the version: the <Version> property above.
+       This target generates obj/GeneratedVersion.cs before compile, exposing
+       it as `Plugin.GeneratedModVersion`, which the [BepInPlugin] attribute
+       consumes. Keeps the BepInEx-advertised version, the assembly version, and
+       the modpack-zip filename all driven by ONE number — fixing the drift where
+       ModVersion was hand-pinned at "0.1.0" five releases after the csproj moved on.
+       (A const is required because [BepInPlugin] is an attribute — its args must
+       be compile-time constants — so we bake the literal in via codegen rather
+       than read Assembly metadata at runtime.) ════════════════════════════════ -->
+  <Target Name="GenerateVersionConstant" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <GeneratedVersionFile>$(IntermediateOutputPath)GeneratedVersion.cs</GeneratedVersionFile>
+      <GeneratedVersionContent>// &lt;auto-generated&gt; by the GenerateVersionConstant MSBuild target.
+// Source of truth: &lt;Version&gt; in SBPR.Trailborne.csproj. Do not edit by hand.
+namespace SBPR.Trailborne { public partial class Plugin { public const string GeneratedModVersion = "$(Version)"%3B } }</GeneratedVersionContent>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(GeneratedVersionFile)" Lines="$(GeneratedVersionContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(GeneratedVersionFile)" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <Reference Include="assembly_valheim"><HintPath>$(ValheimManaged)/assembly_valheim.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="assembly_utils"><HintPath>$(ValheimManaged)/assembly_utils.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_guiutils"><HintPath>$(ValheimManaged)/assembly_guiutils.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(ValheimManaged)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(ValheimManaged)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ValheimManaged)/UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- UnityEngine.Cloth (cairn-banner wind-responsive cloth, A-prime t_e95949c2) lives in
+         its OWN module assembly in Unity 6 — NOT PhysicsModule. Ships in the Valheim Managed
+         folder (and in the CI dedicated-server payload, Steam app 896660) like every other
+         Unity assembly — verified present alongside PhysicsModule.dll. -->
+    <Reference Include="UnityEngine.ClothModule"><HintPath>$(ValheimManaged)/UnityEngine.ClothModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule"><HintPath>$(ValheimManaged)/UnityEngine.ParticleSystemModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AudioModule"><HintPath>$(ValheimManaged)/UnityEngine.AudioModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(ValheimManaged)/UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(ValheimManaged)/UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(ValheimManaged)/UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- Runtime uGUI for the Painted Sign panel (§A2.6). These three assemblies ship
+         in the Valheim Managed folder; we build the panel clean-room from their public
+         primitives (Canvas / Image / Button / InputField / Text) — no copied vanilla UI
+         prefab. UIModule: Canvas/CanvasRenderer. UI: CanvasScaler/Graphic/Image/Button/
+         InputField/Text/Outline. TextRenderingModule: Font/TextAnchor for UI.Text. -->
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(ValheimManaged)/UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(ValheimManaged)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(ValheimManaged)/UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- TextMeshPro: vanilla Sign.m_textWidget is a TextMeshProUGUI (TMPro). The
+         Painted Sign text-color fix (§A2.6 / Issue 4b) drives m_textWidget.color +
+         .faceColor, so we need the TMP types at compile time. Ships in Managed;
+         referenced read-only (Private=false) like every other Valheim assembly. -->
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(ValheimManaged)/Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="netstandard"><HintPath>$(ValheimManaged)/netstandard.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="mscorlib"><HintPath>$(ValheimManaged)/mscorlib.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="System"><HintPath>$(ValheimManaged)/System.dll</HintPath><Private>false</Private></Reference>

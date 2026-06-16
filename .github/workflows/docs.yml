@@ -1,0 +1,35 @@
+name: Docs
+
+# Enforce the SBPR documentation conventions on every docs change.
+# Pure-Python, no build — runs in seconds. See scripts/docs-lint.py and
+# docs/decisions/ for what's enforced (two-file rule, status frontmatter,
+# no broken relative links).
+
+on:
+  push:
+    paths:
+      - 'docs/**'
+      - '**/*.md'
+      - 'scripts/docs-lint.py'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '**/*.md'
+      - 'scripts/docs-lint.py'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Lint docs conventions
+        run: python3 scripts/docs-lint.py

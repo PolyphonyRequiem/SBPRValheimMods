@@ -14,9 +14,9 @@ namespace SBPR.Trailborne.Features.Cairns
     public class CairnInteractable : MonoBehaviour, Hoverable, Interactable
     {
         private const float UseDistance = 4.0f;
-        private CairnTag cairnTag;
-        private WearNTear wnt;
-        private Piece piece;
+        private CairnTag cairnTag = null!;   // Unity-injected in Awake via GetComponent
+        private WearNTear wnt = null!;        // Unity-injected in Awake via GetComponent
+        private Piece piece = null!;          // Unity-injected in Awake via GetComponent
 
         private void Awake()
         {
@@ -55,7 +55,14 @@ namespace SBPR.Trailborne.Features.Cairns
             if (Plugin.DebugCairnDamage != null && Plugin.DebugCairnDamage.Value)
                 line3 = "\n[<color=#ff8b3d><b>Shift+$KEY_Use</b></color>] (debug) damage to 70%";
 
-            return $"{piece.m_name}\nTier {tier} / {Cairns.MaxTier} — comfort floor {comfortFloor} — HP {hpPct}%\n{line2}{line3}";
+            // Build the raw text with $KEY_Use tokens, then resolve through Valheim's
+            // localization layer so they render as the player's actual bound keybind
+            // (e.g. "E" or "Use") instead of the literal "$KEY_Use" string. Vanilla
+            // Sign/InventoryGui hover paths localize at construction; we emit raw and
+            // localize on the way out — same end state, fixes the 2026-06-05 playtest
+            // bug where the literal token leaked through.
+            string raw = $"{piece.m_name}\nTier {tier} / {Cairns.MaxTier} — comfort floor {comfortFloor} — HP {hpPct}%\n{line2}{line3}";
+            return Localization.instance != null ? Localization.instance.Localize(raw) : raw;
         }
 
         public bool Interact(Humanoid user, bool hold, bool alt)
@@ -113,8 +120,16 @@ namespace SBPR.Trailborne.Features.Cairns
             string action = "Repaired";
             if (tier < Cairns.MaxTier)
             {
+                // WriteTier rebuilds the pile at the new stone count AND re-evaluates
+                // the ember bracket, so the relight is handled there on an upgrade.
                 cairnTag.WriteTier(tier + 1);
                 action = $"Repaired + upgraded to T{tier + 1}";
+            }
+            else
+            {
+                // Max tier: no rebuild, so nudge the ember to reconcile to the now-
+                // pristine HP bracket immediately instead of waiting for the 1 s poll.
+                cairnTag.RefreshFire();
             }
 
             MessageHud.instance?.ShowMessage(

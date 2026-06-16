@@ -1,3 +1,9 @@
+---
+title: "Nomap design — idea ⇄ patch-surface cross reference"
+status: living
+purpose: Investigation: no-map navigation patch surface.
+---
+
 # Nomap design — idea ⇄ patch-surface cross reference
 
 Each idea below lists the exact decomp surface a SBPR.Niflheim Harmony patch / new
@@ -38,6 +44,8 @@ A new workbench-tier crafting station.
 - **Patch surface:** **none** — pure prefab work.
   - Clone `piece_workbench` → set new prefab name `SBPR_ExplorersBench`.
   - Add a new `CraftingStation` (line 56034) component with `m_name = "$sbpr_piece_explorers_bench"`.
+  - **Set `m_showBasicRecipies = false` on that CraftingStation.** The vanilla Workbench is the ONLY station that ships this flag `true` — it's the flag that surfaces the stationless "basic" recipes a player can otherwise craft by hand (Club, Torch, Stone Axe, Hammer, Hoe, rag armor, …). A raw clone inherits `true`, so the Explorer's Bench wrongly offered all of them. Every other vanilla station (forge, stonecutter, cauldron, …) ships it `false`; match them so ONLY Trailborne recipes appear here. (Bugfix 2026-06-04, card t_30f97042.)
+  - **Strip the inherited `GuidePoint` component** from the clone. The vanilla Workbench prefab carries a `GuidePoint` (the proximity hook that triggers Hugin's "you built a workbench" tutorial); a renamed clone still inherits it, so Hugin wrongly greets the Explorer's Bench as a Workbench. Remove all `GuidePoint` components (root + children) right after cloning so the station carries no Workbench tutorial. (Bugfix 2026-06-04, card t_53ab3232. Note: `Piece.m_firstTutorial` does NOT exist on this game version — the tutorial is driven entirely by the `GuidePoint` MonoBehaviour, verified against `assembly_valheim.dll` metadata.)
   - It becomes the `Piece.m_craftingStation` requirement for the explorer pieces below.
 - **Piece definition:** `Piece` (line 116052). Set `m_category = PieceCategory.Crafting`. `m_resources = Requirement[]` where each `Requirement.m_resItem` points to an existing `ItemDrop`.
 - **Locked recipe (Daniel, 2026-06-03):**
@@ -50,20 +58,20 @@ A new workbench-tier crafting station.
 
 ---
 
-## 2. Trailblazer's Tools (Meadows)
+## 2. Trailblazer's Spade (Meadows)
 
 An item halfway between Hoe and Hammer.
-- **Patch surface:** mostly **none** — clone `Hammer` ItemDrop → new ItemDrop `SBPR_TrailblazerTools`.
+- **Patch surface:** mostly **none** — clone `Hammer` ItemDrop → new ItemDrop `SBPR_TrailblazersSpade`.
 - Items don't have their own class — they are `ItemDrop.ItemData` with a `m_shared.m_buildPieces` (a `PieceTable`, line 59893). We supply a new `PieceTable` containing only the signage + road-widening pieces.
 - **Build-stamina mod (key one):** `Player.GetBuildStamina()` returns `m_attack.m_attackStamina`. Two options:
   1. Set `m_attackStamina = 1f` on the tool itself (clean, no patches).
-  2. Harmony postfix `Player.GetBuildStamina` to floor at 1 when the right-hand item is `SBPR_TrailblazerTools` (preserves global tuning).
+  2. Harmony postfix `Player.GetBuildStamina` to floor at 1 when the right-hand item is `SBPR_TrailblazersSpade` (preserves global tuning).
   - I recommend option 1 — minimal surface, can't break other mods.
 - **Road-widening:** the Hoe's `level_ground` is a `TerrainOp` (line 124079) preset. We register two Trailblazer pieces (`level_narrow`, `level_wide`) that both use TerrainOp with different `m_smoothRadius` values. No patches needed.
 
 ---
 
-## 3. Sign collection (placed by Trailblazer's Tools)
+## 3. Sign collection (placed by the Trailblazer's Spade)
 
 - **All four:** sub-class of `Sign` (line 121412, 178 lines, painless).
 - `Sign` already handles ZDO-backed text via `ZDOVars.s_text`, plus author + UGC filter — we get text-writeable signs for free.
@@ -105,9 +113,17 @@ This is the trickiest one in the nomap track. Vanilla `Container` (line 101699) 
 
 ## 6. Pocket Portal
 
+> 🟢 **SUPERSEDED + RETHEMED → "Portal Seed → Ancient Portal" (Black Forest v2, specced
+> 2026-06-13).** This historical note is kept for its vanilla anchors but is no longer the
+> build plan. Two corrections the current spec makes: (1) **build ADDITIVELY, do NOT clone
+> `portal_wood`** (ADR-0006 postdates this note — cloning drags EffectArea/GuidePoint, the
+> bug class); (2) it lives on the **Hammer**, not the Spade (Daniel 2026-06-13). The
+> build-ready plan is **`docs/v2/planning/ancient-portal-impl-spec.md`**; the design is
+> `docs/design/pocket-portal.md`. Read those, not the bullets below, to implement.
+
 - **Patch surface:** **none for the piece itself**, all prefab.
 - Clone `portal_wood` (TeleportWorld, line 122902, 233 lines).
-- New piece: `SBPR_PocketPortal` placed by Trailblazer's Tools (registered in its PieceTable, not the Hammer's).
+- New piece: `SBPR_PocketPortal` placed by the Trailblazer's Spade (registered in its PieceTable, not the Hammer's).
 - Recipe `Requirement[]`: standard portal mats + `surtling_core ×3` (+1 over vanilla) + `greydwarf_eye ×20` (vanilla portal is 10).
 - **Stack 5:** standard `ItemDrop.m_shared.m_maxStackSize = 5` — single line of config on the item.
 - The TeleportWorld class is unmodified. Connection logic is just tag-matching via `ZDOVars.s_tag`.
@@ -189,7 +205,7 @@ These three are all on **one class**, all clean Harmony postfixes/prefixes. No r
 2. **What unlocks the Explorer's Bench itself?** I assumed it's available at Meadows tier from start. Or does it require something first (kill an Eikthyr, find a specific item)?
 3. **Twisted Portal vs vanilla portal — coexist or replace?** Are vanilla portals still craftable for people who don't want to bother with the Key durability dance? Or does Twisted replace vanilla entirely once unlocked?
 4. **Seer's Stone scope** — only `Pickable` + `Location`, or also creatures (deer / boars for hunting)? "pickables and locations" was the spec but I want to confirm I'm not under-reading.
-5. **Trailblazer's Tools tier** — Meadows (any antler-pickaxe-tier player can build one) or gated behind the Explorer's Bench?
+5. **Trailblazer's Spade tier** — Meadows (any antler-pickaxe-tier player can build one) or gated behind the Explorer's Bench?
 6. **Public chest size** of Traveler's Storage — 4×4? Bigger? Smaller (forces selection of what to leave)?
 
 I have **no opinion** on the answers to these; they're aesthetic/pacing calls I want from you.
@@ -202,7 +218,7 @@ I have **no opinion** on the answers to these; they're aesthetic/pacing calls I 
 2. ✅ Sign collection + Beacon (prefabs only, Fireplace fuel works perfectly)
 3. ✅ Iron Compass (pure HUD overlay, no game-state patches)
 4. ✅ Pocket Portal (prefab clone + recipe)
-5. ⚠️ Explorer's Bench + Trailblazer's Tools (prefab work, but new ItemDrop with PieceTable requires asset-bundle build pipeline working)
+5. ⚠️ Explorer's Bench + Trailblazer's Spade (prefab work, but new ItemDrop with PieceTable requires asset-bundle build pipeline working)
 6. ⚠️ Map shroud / zoom cap / no scroll (Minimap is a 2420-line god-class, patches are surgically simple but the class is big — high risk of conflict with other Minimap-touching mods)
 7. ⚠️ Seer's Stone (raycast + camera + pin merging — straightforward but lots of edge cases)
 8. 🔴 Traveler's Storage (per-player private inventory in ZDO blob — novel serialization, needs careful testing)

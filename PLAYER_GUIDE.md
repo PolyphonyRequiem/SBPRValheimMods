@@ -34,7 +34,7 @@ map is to draw it.
 
 To draw it, someone has to **go look**.
 
-That someone is your Explorer. They carry the Trailblazer's Tools. They mix pigments
+That someone is your Explorer. They carry the Trailblazer's Spade. They mix pigments
 and paint signs on the trails. They build beacons on high ground so the fighters can
 find their way back. They wear the Seer's Stone and pin every berry patch, every
 copper vein, every dungeon entrance they pass. They make the maps the rest of your
@@ -65,9 +65,10 @@ start preparing the things you'll need to mark up the world.
 Once your Explorer's Bench is built, you can craft:
 
 - **Red pigment** from raspberries — your first ink color
-- **Trailblazer's Tools** (wood, tin, flint) — your sign-and-marker hand tool
-- **Painted Signs** — wooden signposts you place in the world, colored by whichever
-  pigment you used to craft them
+- **Trailblazer's Spade** (5 Wood + 2 Flint + 2 Leather Hides) — your sign-and-marker hand tool
+- **Painted Signs** — wooden signposts you place in the world unpainted, then
+  color and label through a panel: pick a text color and an optional border
+  color (one pigment each), paint it, and write the text
 
 You take your tools and your first stack of red pigment and walk out into the woods.
 You find a copper vein. You place a red signpost: **"Copper here."** You walk back
@@ -88,25 +89,28 @@ You can build:
 - **Explorer's Bench** (workbench-tier) — your crafting hub for everything explorer
 - **Red Pigment** (from raspberries) — basic ink
 - **White Pigment** (from bone fragments) — for "safe / friendly / settlement" signs
-- **Trailblazer's Tools** — _your main Meadows unlock and the heart of the Explorer
-  toolkit._ Tin and flint construction, no magic, just craftsmanship. Functions as the
+- **Trailblazer's Spade** — _your main Meadows unlock and the heart of the Explorer
+  kit._ Flint and leather construction, no magic, just craftsmanship. Functions as the
   **explorer's hammer**: its own build menu, its own pieces, its own categories. Where
-  the Hammer raises walls and the Hoe levels foundations, the Trailblazer's Tools
-  **pave the world between settlements**. Specifically, the Tools place:
+  the Hammer raises walls and the Hoe levels foundations, the Trailblazer's Spade
+  **paves the world between settlements**. Specifically, the Spade places:
   - **Trail / Road / Highway** path-paving at three widths — narrow (1.5m radius),
     standard (3m), and wide (5m). The widest setting is 2.5x the Hoe's standard path
     radius, suitable for ox-cart routes, beacon platforms, and forecourts.
-  - **Replant Grass** at the same three radii — restore cleared land, undo terraforming
-    scars, re-green an outpost. This is the cultivator's `cultivate` action at vastly
-    larger scale.
-  - **Clear Vegetation** at the wide radius — clear a viewpoint, prep a beacon site.
-  - **All Painted Signs** (see below) — only craftable when holding the Tools.
+  - **Replant Grass** — restore cleared land, undo terraforming scars, re-green an
+    outpost. This mirrors the vanilla **Cultivator's replant ("Grass") mode exactly**:
+    a focused grass-restore brush at the Cultivator's own radius. It is *not* a wide
+    terrain modifier and does *not* cultivate soil for farming — it just brings the
+    grass back.
+  - **Clear Vegetation** — clear a viewpoint, prep a beacon site. _(Planned for v0.2.0 —
+    not in the v0.1.0 build.)_
+  - **All Painted Signs** (see below) — only craftable when holding the Spade.
   - **Path Lamps** and later, **Ember Lamps** and **Beacons**.
   - **Pocket Portals** (Black Forest unlock).
 
   In short: anything an Explorer places in the world goes through the Trailblazer's
-  Tools. The Hoe and Hammer remain in your kit, but they're the *settler's* tools.
-  The Trailblazer's Tools are the *wanderer's*.
+  Spade. The Hoe and Hammer remain in your kit, but they're the *settler's* tools.
+  The Trailblazer's Spade is the *wanderer's*.
 - **Painted Signs** in red and white — and once you have more pigments, more colors
 - **Path Lamps** (3m corewood torches, resin-fueled, long burn) — light the trails you walk
 
@@ -246,13 +250,23 @@ particular color *means* on your server is up to you and your group — Trailbor
 does not assign meanings to colors. Red is not "danger." Blue is not "water."
 Whatever conventions your group settles on are conventions your group invented.
 
-Pigments are consumed at sign-craft time — the sign's color is baked in.
+Pigments are consumed when you paint: Cairn Markers bind their color at craft time,
+while Painted Signs are painted *after* you place them, through the sign's panel
+(one pigment per color slot you fill).
 
 ### Painted Signs
 
-Painted Signs are wooden posts that carry text and a color. The color comes from
-whichever pigment you used to craft the sign. The text is whatever you write on it
-(same UGC-filter as vanilla signs).
+Painted Signs are wooden posts that carry text and color. You build a single
+Painted Sign (2 Wood) and place it **unpainted** — plain wood. Interacting with
+the placed sign opens its panel. There you pick a **text color** for the board and,
+if you like, a separate **border color** (two-tone) from the swatches — Red, Blue,
+Black, White. Painting costs **one pigment per color you choose** (a text color and
+a border color = two pigments; the same color in both = two of it; border is
+optional). Press **Paint this and consume** to spend the pigments and color the sign;
+re-open it later and paint again to **repaint** (which spends pigment again). The
+text field unlocks once you've chosen a color, and **Update Text** writes the label
+for free. The colors and text stick with the sign — they survive reloads and other
+players see them.
 
 When you stand near a sign and press the pin button (default keybind _TBD_), the sign's
 location is pinned to your map. The pin's color matches the sign's color. The pin's
@@ -362,7 +376,7 @@ When we get to this, the questions to answer will include:
 - How does the no-floor wear-and-tear get applied — globally, or only on SBPR
   servers, or only inside coverage gaps?
 - Does the Guardian Stone interact with the cartography system (e.g., does a
-  Map Station auto-mark Guardian Stone coverage areas on the map)?
+  Surveyor's Table auto-mark Guardian Stone coverage areas on the map)?
 
 Not now. Just noting the connection.
 
@@ -419,7 +433,7 @@ You can craft signs without committing to the role. You can wear the Seer's Ston
 without abandoning your sword.
 
 But the role is *designed to reward specialization*. If you build out the full
-explorer's kit — Trailblazer's Tools, full pigment library, Seer's Stone, a base
+explorer's kit — the Trailblazer's Spade, full pigment library, Seer's Stone, a base
 network of beacons, a curated set of cartography tables across the map — you become
 **the player the rest of the server consults when they want to know where something
 is.** Your maps are the maps the group uses. Your signs are the signs they follow.

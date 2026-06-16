@@ -1,0 +1,188 @@
+name: CI
+
+# Build + verify the Trailborne mod on every push and PR that can affect it.
+# The crux: a CI runner has no Valheim. We pull the FREE dedicated-server
+# assemblies via SteamCMD (app 896660, anonymous login — no game ownership,
+# nothing copyrighted committed). Those carry the full reference set the net48
+# build needs (game assemblies + the BCL: mscorlib/System/netstandard), which
+# is exactly why this compiles on Linux without mono.
+
+on:
+  push:
+    branches: [main, v1]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'Directory.Build.props'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'Directory.Build.props'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  VALHEIM_SERVER_APPID: '896660'   # Valheim Dedicated Server (free, anonymous)
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      # ── Valheim dedicated-server managed assemblies (build references) ──────
+      # Cached by the appid + a weekly epoch so we don't hammer Steam every run
+      # but still pick up server updates. Cache key bumps when this file changes.
+      - name: Compute weekly cache epoch
+        id: weekstamp
+        run: echo "week=$(( $(date +%s) / 604800 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Valheim server assemblies
+        id: cache-valheim
+        uses: actions/cache@v5
+        with:
+          path: ~/valheim-server/valheim_server_Data/Managed
+          key: valheim-managed-${{ env.VALHEIM_SERVER_APPID }}-${{ hashFiles('.github/workflows/ci.yml') }}-week${{ steps.weekstamp.outputs.week }}
+
+      - name: Install SteamCMD + fetch server assemblies (on cache miss)
+        if: steps.cache-valheim.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo add-apt-repository -y multiverse
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          echo steam steam/question select "I AGREE" | sudo debconf-set-selections
+          echo steam steam/license note '' | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y steamcmd
+          # The Steam fetch is the flaky step (transient apt mirror / Steam
+          # rate-limit-timeout / runner disk pressure / "Missing configuration"
+          # on a multi-hundred-MB pull). Harden identically to release.yml per the
+          # 2026-06-06 investigation: (1) retry up to 3× with linear backoff,
+          # (2) loop on the ARTIFACT existing — not steamcmd's exit code, which it
+          # lies about — and (3) drop `validate` (it re-hashes every file: slower +
+          # more timeout-prone; the anonymous download is already Steam-integrity-checked).
+          MANAGED="$HOME/valheim-server/valheim_server_Data/Managed"
+          n=0
+          until [ -f "$MANAGED/assembly_valheim.dll" ] || [ "$n" -ge 3 ]; do
+            n=$((n+1))
+            echo "::group::steamcmd attempt $n/3"
+            steamcmd +force_install_dir "$HOME/valheim-server" \
+                     +login anonymous \
+                     +app_update "$VALHEIM_SERVER_APPID" \
+                     +quit || true
+            echo "::endgroup::"
+            [ -f "$MANAGED/assembly_valheim.dll" ] && break
+            echo "attempt $n did not produce the Managed assemblies; sleeping $((n*15))s before retry"
+            sleep $((n*15))
+          done
+          # Real success gate — the DLL is present or the step fails loudly.
+          ls "$MANAGED/assembly_valheim.dll"
+
+      - name: Point the build at the server assemblies
+        run: |
+          echo "VALHEIM_MANAGED=$HOME/valheim-server/valheim_server_Data/Managed" >> "$GITHUB_ENV"
+
+      # ── BepInEx core (compile references for HarmonyX/BepInEx) ──────────────
+      - name: Fetch BepInEx SDK
+        run: |
+          set -euo pipefail
+          bash scripts/fetch-sdk.sh
+          echo "BEPINEX_CORE=$GITHUB_WORKSPACE/.sdk/BepInExPack_Valheim/BepInEx/core" >> "$GITHUB_ENV"
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-
+
+      - name: Build (Release)
+        run: |
+          dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release \
+            -warnaserror:CS0246,CS0103,CS1061 \
+            | tee build.log
+          test -f src/SBPR.Trailborne/bin/Release/SBPR.Trailborne.dll
+
+      # ── Drift guard: the reflection targets the client-refresh layer depends
+      # on are PRIVATE/named vanilla members. If a Valheim update renames one,
+      # the patch silently no-ops ("logs green != playable"). Verify they still
+      # resolve against the real game assembly — the same check done by hand on
+      # 2026-06-04, now automated so the regression can never ship unseen.
+      - name: Verify reflection targets resolve against assembly_valheim.dll
+        run: |
+          set -euo pipefail
+          mkdir -p .ci/apiprobe && cd .ci/apiprobe
+          cat > apiprobe.csproj <<'CSPROJ'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <TargetFramework>net8.0</TargetFramework>
+              <Nullable>disable</Nullable>
+              <ImplicitUsings>disable</ImplicitUsings>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="System.Reflection.MetadataLoadContext" Version="8.0.0" />
+            </ItemGroup>
+          </Project>
+          CSPROJ
+          cat > Program.cs <<'CS'
+          using System; using System.IO; using System.Linq; using System.Reflection;
+          class Probe {
+            static int Main() {
+              string managed = Environment.GetEnvironmentVariable("VALHEIM_MANAGED");
+              var asm = Path.Combine(managed, "assembly_valheim.dll");
+              var resolver = new PathAssemblyResolver(Directory.GetFiles(managed, "*.dll").ToList());
+              using var mlc = new MetadataLoadContext(resolver);
+              var a = mlc.LoadFromAssemblyPath(asm);
+              const BindingFlags ALL = BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.Static|BindingFlags.DeclaredOnly;
+              int fails = 0;
+              void Check(string label, bool ok){ Console.WriteLine($"{(ok?"PASS":"FAIL")}  {label}"); if(!ok) fails++; }
+              var player = a.GetType("Player");
+              Check("Player.UpdateKnownRecipesList()", player?.GetMethod("UpdateKnownRecipesList", ALL) != null);
+              Check("Player.OnSpawned(bool)", player?.GetMethod("OnSpawned", ALL) != null);
+              var pt = a.GetType("PieceTable");
+              Check("PieceTable.UpdateAvailable", pt?.GetMethod("UpdateAvailable", ALL) != null);
+              Check("PieceTable.m_availablePieces", pt?.GetField("m_availablePieces", ALL) != null);
+              Check("PieceTable.m_selectedPiece", pt?.GetField("m_selectedPiece", ALL) != null);
+              Check("PieceTable.m_lastSelectedPiece", pt?.GetField("m_lastSelectedPiece", ALL) != null);
+              var piece = a.GetType("Piece");
+              var pcat = piece?.GetNestedType("PieceCategory", ALL);
+              Check("Piece.PieceCategory.Max", pcat?.GetField("Max", BindingFlags.Public|BindingFlags.Static) != null);
+              Console.WriteLine(fails==0 ? "RESULT: ALL REFLECTION TARGETS RESOLVE" : $"RESULT: {fails} MISSING");
+              return fails==0 ? 0 : 1;
+            }
+          }
+          CS
+          dotnet run -c Release
+
+      - name: Pack modpack (artifact for inspection)
+        run: |
+          bash scripts/pack-modpack.sh \
+            --dll src/SBPR.Trailborne/bin/Release/SBPR.Trailborne.dll \
+            --out dist
+
+      - name: Upload modpack artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: SBPR-Trailborne-Modpack
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error

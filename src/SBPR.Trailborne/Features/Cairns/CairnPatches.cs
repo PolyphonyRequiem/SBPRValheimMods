@@ -6,10 +6,14 @@ namespace SBPR.Trailborne.Features.Cairns
 {
     /// <summary>
     /// Harmony patches for cairn behavior:
-    ///   • WearNTear.Damage prefix → swallow damage on cairns (combat-immune,
-    ///     only natural UpdateWear decay ticks affect HP).
-    ///   • WearNTear.Awake postfix → backfill missed wear ticks when a chunk
-    ///     loads after being out-of-zone, using ZDO SBPR_LastWearTick.
+    ///   • WearNTear.Damage prefix → swallow COMBAT damage on cairns (player/monster
+    ///     hits go through Damage(HitData); time decay does NOT, so this is immunity to
+    ///     griefing only — it never touches decay).
+    ///   • WearNTear.Awake postfix → backfill missed TIME decay when a chunk loads after
+    ///     being out-of-zone, using the shared SBPR_LastWearTick in-game-day clock and
+    ///     the shared Cairns.DecayHpPerDay rate (so it agrees with the resident ticker in
+    ///     CairnTag). Keeps a 5% floor as reload safety — only the resident ticker is
+    ///     allowed to drive a cairn all the way to collapse.
     ///   • SE_Rested.CalculateComfortLevel postfix → max-clamp cairn comfort
     ///     floor into the result.
     /// </summary>
@@ -27,7 +31,11 @@ namespace SBPR.Trailborne.Features.Cairns
             if (tag == null) tag = __instance.GetComponentInParent<CairnTag>();
             if (tag != null)
             {
-                // Swallow the damage entirely. Cairns only decay via UpdateWear weather paths.
+                // Swallow COMBAT damage entirely (this method is the player/monster hit
+                // path — Damage(HitData) → RPC_Damage → ApplyDamage(totalDamage, hit)).
+                // TIME decay does NOT come through here: the resident ticker and backfill
+                // call ApplyDamage(float) directly, which never invokes Damage(HitData).
+                // So immunity-to-griefing and decay are cleanly separate — leave this as-is.
                 return false;
             }
             return true;
@@ -45,38 +53,54 @@ namespace SBPR.Trailborne.Features.Cairns
             if (nview == null || nview.GetZDO() == null) return;
             if (!nview.IsOwner()) return; // owner-only writes ZDO
 
-            double nowDay = ZNet.instance != null ? ZNet.instance.GetTimeSeconds() / 86400.0 : 0.0;
-            // GetFloat works for backfill — Valheim's in-game-day is small enough to fit comfortably.
+            // Shared in-game-day clock (EnvMan day length, NOT /86400) — the same value
+            // the resident ticker reads, so resident + out-of-zone decay never double-count.
+            float nowDay = Cairns.CurrentWearDay();
+            if (nowDay < 0f) return; // world clock not up yet
+
             float lastWearDay = nview.GetZDO().GetFloat(Cairns.ZdoLastWearTick, -1f);
             if (lastWearDay < 0f)
             {
                 // First load — seed and bail.
-                nview.GetZDO().Set(Cairns.ZdoLastWearTick, (float)nowDay);
+                nview.GetZDO().Set(Cairns.ZdoLastWearTick, nowDay);
                 return;
             }
 
-            float deltaDays = (float)nowDay - lastWearDay;
+            float deltaDays = nowDay - lastWearDay;
             if (deltaDays <= 0f)
             {
-                nview.GetZDO().Set(Cairns.ZdoLastWearTick, (float)nowDay);
+                nview.GetZDO().Set(Cairns.ZdoLastWearTick, nowDay);
                 return;
             }
 
-            // Vanilla c_RainDamage is 5 HP per c_RainDamageTime (60s) clamped to
-            // c_RainDamageMax (0.5 of max). Use a conservative day-rate proxy:
-            // ~10 HP/day weather decay when missed. Tuning lives in v0.2.0.
-            const float decayHpPerDay = 10f;
-            float decayHp = decayHpPerDay * deltaDays;
+            // Shared time-decay rate (Cairns.DecayHpPerDay, default 10 HP/in-game-day),
+            // same source the resident ticker uses. KEEP the 5% floor: this backfill is
+            // reload safety for time the cairn was unloaded, and must NOT collapse a cairn
+            // sight-unseen on chunk load — only the resident ticker (which the player is
+            // watching) is allowed to drive HP to 0 and trigger the vanilla destroy path.
+            float decayHp = Cairns.DecayHpPerDay * deltaDays;
             float curHp = nview.GetZDO().GetFloat(ZDOVars.s_health, __instance.m_health);
-            float newHp = Mathf.Max(__instance.m_health * 0.05f, curHp - decayHp); // don't kill from backfill
+            float newHp = Mathf.Max(__instance.m_health * 0.05f, curHp - decayHp); // floor — don't kill from backfill
             if (newHp < curHp)
             {
-                nview.GetZDO().Set(ZDOVars.s_health, newHp);
-                nview.InvokeRPC(ZNetView.Everybody, "WNTHealthChanged", newHp);
-                Plugin.Log.LogInfo(
-                    $"[Trailborne/M2] Cairn backfill: missed {deltaDays:F2}d → decayed {decayHp:F1} HP ({curHp:F0} → {newHp:F0}).");
+                // Route through vanilla ApplyDamage(float): it sets s_health AND fires the
+                // REGISTERED RPC_HealthChanged, refreshing the cached health% that the
+                // ember/downgrade/hover read. (The old code fired "WNTHealthChanged" — a
+                // string vanilla never registers — so the cache stayed stale until reload.)
+                // newHp is floored ≥5% > 0, so ApplyDamage subtracts without hitting Destroy.
+                float applied = curHp - newHp;
+                try
+                {
+                    __instance.ApplyDamage(applied);
+                    Plugin.Log.LogInfo(
+                        $"[Trailborne/M2] Cairn backfill: missed {deltaDays:F2}d → decayed {applied:F1} HP ({curHp:F0} → {newHp:F0}).");
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning($"[Trailborne/M2] Backfill ApplyDamage threw: {e.Message}");
+                }
             }
-            nview.GetZDO().Set(Cairns.ZdoLastWearTick, (float)nowDay);
+            nview.GetZDO().Set(Cairns.ZdoLastWearTick, nowDay);
         }
 
         // ── Comfort floor injection ─────────────────────────────────────
@@ -92,6 +116,11 @@ namespace SBPR.Trailborne.Features.Cairns
             {
                 int bonus = Cairns.GetCairnComfortBonus(position);
                 if (bonus > __result) __result = bonus;
+
+                // Feed the open-air Rested patch's throttled cairn-in-range cache from this 2 s path
+                // (vanilla calls CalculateComfortLevel every 2 s via Player.UpdateBaseValue for the
+                // local player), so the ~50 Hz UpdateEnvStatusEffects postfix adds ZERO new physics.
+                CairnComfortStash.Stash(bonus > 0);
             }
             catch (Exception e)
             {

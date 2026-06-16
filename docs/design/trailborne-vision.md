@@ -1,3 +1,9 @@
+---
+title: "Trailborne — vision and positioning"
+status: living
+purpose: North-star vision + canonical vocabulary anchor.
+---
+
 # Trailborne — vision and positioning
 
 > Brand-level framing for the Trailborne mod. This document answers *what is
@@ -44,7 +50,7 @@ terrain. The only way to *see* the world on your map is to draw it.
 
 To draw it, someone has to **go look**.
 
-That someone is your Explorer. They carry the Trailblazer's Tools. They mix
+That someone is your Explorer. They carry the Trailblazer's Spade. They mix
 pigments and paint signs on the trails. They build beacons on high ground so
 the fighters can find their way back. They wear the Seer's Stone and pin every
 berry patch, every copper vein, every dungeon entrance they pass. They make the
@@ -84,7 +90,7 @@ specs. When a doc deviates, this is the canonical source.
 
 - **The Explorer** — the role; a player who specializes in trailblazing.
 - **Trailborne** — the mod.
-- **The Trailblazer's Tools** — the tool that lets the Explorer place signs, paths,
+- **The Trailblazer's Spade** — the tool that lets the Explorer place signs, paths,
   lamps, and other navigation infrastructure. Peer of the Hammer and the Hoe.
 - **The Explorer's Bench** — the Meadows-tier crafting station that gates the
   Trailborne progression.

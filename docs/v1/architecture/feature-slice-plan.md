@@ -1,3 +1,9 @@
+---
+title: "PR C — Vertical-Slice `Features/` Structure Plan (Stage-1 Architecture)"
+status: current
+purpose: Vertical-slice Features/ architecture plan.
+---
+
 # PR C — Vertical-Slice `Features/` Structure Plan (Stage-1 Architecture)
 
 > **Status:** Design artifact. Stage 1 of PR C. The engineer executes this in Stage 2.
@@ -285,7 +291,7 @@ This mod ships **no AssetBundles and no `.meta` GUIDs** (it clones vanilla prefa
 filename via reflection). So there is **no asset-GUID breakage risk**. The real fragility is **string identifiers**,
 keyed by `GetStableHashCode()` (hash of the *value*, not the type):
 - Prefab names: `SBPR_InkRed/White/Blue/Black`, `piece_sbpr_sign_*`, `SBPR_CairnMarker_*`, `piece_sbpr_cairn_*`,
-  `piece_sbpr_path_*`, `piece_sbpr_replant_wide`, `piece_sbpr_explorers_bench`, `piece_sbpr_path_lamp`,
+  `piece_sbpr_path_*`, `piece_sbpr_replant_*`, `piece_sbpr_explorers_bench`, `piece_sbpr_path_lamp`,
   `SBPR_TrailblazersSpade`.
 - ZDO keys: `SBPR_CairnTier`, `SBPR_LastWearTick`.
 - Config: section `Debug`, key `SBPR_DebugCairnDamage`.

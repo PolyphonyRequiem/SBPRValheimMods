@@ -53,7 +53,7 @@ Each entry has:
 | Recipe | 10 Wood + 4 Stone + 1 Deer Trophy |
 | Function | Crafting hub for all Trailborne items and pieces; gates the entire Trailborne progression. |
 | Visual notes | Kitbash vanilla Workbench mesh; **antlers from the Deer Trophy visually integrated INTO the bench art** (not mounted on top — the antlers are part of the bench mesh itself, e.g. carved cups / leg-supports / pen-holders); plus half-rolled hide-map + bone-needle-in-stone-disk per design/nomap.md §1 |
-| Patch surface | Pure prefab work — clone `piece_workbench`, add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"` |
+| Patch surface | Pure prefab work — clone `piece_workbench`, add `CraftingStation` component with `m_name = "$sbpr_piece_explorers_bench"`, set **`m_showBasicRecipies = false`** (the Workbench is the only vanilla station shipping this `true`; it surfaces the stationless basic hand-craft recipes — Club, Torch, Stone Axe, Hammer, Hoe — so a raw clone wrongly offers them; bugfix t_30f97042), and **strip the inherited `GuidePoint` component** (the Workbench's Hugin "you built a workbench" tutorial hook, which the clone wrongly inherits — bugfix t_53ab3232) |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` §Explorer's Bench |
 
@@ -66,15 +66,16 @@ Each entry has:
 | Type | `Piece` (Waypoint, comfort-emitting) |
 | Mod | Trailborne |
 | Biome tier | Meadows |
-| Craft station | Explorer's Bench (to ACCESS the build menu; placed in-world via Trailblazer's Tools) |
+| Craft station | Explorer's Bench (to ACCESS the build menu; placed in-world via the Trailblazer's Spade) |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`). The spade's from-scratch PieceTable declares only the Misc-backed "Trail" category, so every spade piece (paths, sign, lamp, cairns) MUST be `m_category = Misc` or its tab never renders and the piece is invisible. **Regression history:** v0.2.2 shipped cairns as `PieceCategory.Crafting` → all four were added to the table but silently absent from the menu. Fixed 2026-06-07: cairn `m_category = Misc` + a boot-time `EnsureCategory` guard in `Trailblazing` that ERROR-logs + self-heals any future category drift. |
 | Recipe (initial build, T1) | 3 Stone + 1 Resin + 1 Cairn Marker |
 | Recipe (upgrade T1→T2→T3→T4→T5) | 3 Stone + 1 Resin (flat per tier) |
 | Recipe (repair) | 3 Stone + 1 Resin (flat) |
 | Comfort floor | 3 / 4 / 5 / 6 / 7 (per tier; max() clamp via patch on `SE_Rested.CalculateComfortLevel`) |
 | Comfort radius | TBD (proposed: ~10m, matches vanilla Banner) |
-| HP states | ≥75% pristine (resin glows); <75% fizzled (glow off); <25% downgrade tier; 0% collapse |
-| Function | Always-on comfort-emitting trail waypoint, color-bound to its Cairn Marker's pigment, mandatory decay |
-| Visual notes | Tier 2 procedural — stack of N vanilla `rock_low` prefabs assembled at runtime via ZNetView; capped with Pigment-colored runic top (vanilla rune material tinted by Marker's pigment); rune glow via vanilla `ParticleSystem` runestone-glow instanced at runtime |
+| HP states | ≥75% pristine (cosmetic fire lit); <75% fizzled (fire OUT); <25% downgrade tier; 0% collapse |
+| Function | Always-on comfort-emitting trail waypoint, color-bound to its Cairn Marker's pigment, mandatory decay. **Shows a COSMETIC fire at pristine — flame VFX + fire SFX + a small Light (below torch intensity); NO heat (EffectArea disabled), NO fuel (Fireplace forced infinite-fuel).** Fire is HP-gated: lit ≥75% HP, OUT below (fizzled = fire out). (Comfort floor is applied separately via the `SE_Rested` patch, not via fire.) Revised 2026-06-07 — the prior "non-burning marker" spec was wrong (Daniel). |
+| Visual notes | Rich procedural stone pile (LOCKED 2026-06-05 — see requirements.md §A2.1b). Cloned from vanilla `bonfire` as a structural base, with the donor fire CONFIGURED into a cosmetic fire (Daniel 2026-06-07 reversal): Fireplace KEPT but forced `m_infiniteFuel=true`/fuel-less; flame ParticleSystem(s) + fire AudioSource/ZSFX KEPT; ONE Light kept + dimmed below a torch; EffectArea (heat) + SmokeSpawner DISABLED; donor mesh logs hidden. On top: a **haphazard pile of stones, count = the stone ladder (T1=9 → T5=21)**, each **vertically squashed + horizontally flattened**, deterministically jittered (seed = ZDO id → identical across clients + reloads), pigment-tinted. **Each stone is DELIBERATELY CONSTRUCTED (2026-06-07 pivot) — a bare GameObject with only Transform+MeshFilter+MeshRenderer, built from the `Pickable_Stone` donor's mesh+material WITHOUT instantiating that networked prefab** (the old runtime-clone-then-DestroyImmediate path orphaned null-ZDO entries in `ZNetScene.m_instances` → per-frame NRE soft-lock; constructing from bare mesh removes the crash by construction). The cosmetic fire is HP-gated (lit ≥75%, out below) — fizzling reads as the fire going out. See `Features/Cairns/CairnTag.cs` (`ConfigureCosmeticFire`/`ReconcileFire`). |
 | Patch surface | `WearNTear.OnDamage`/`OnRepair` postfix for glow + tier transitions; `SE_Rested.CalculateComfortLevel` for comfort patch |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
@@ -84,34 +85,34 @@ Each entry has:
 | Field | Value |
 |---|---|
 | Display name | Painted Sign |
-| Prefab name | `SBPR_PaintedSign` (or variants per color — TBD) |
+| Prefab name | `piece_sbpr_sign` (single piece — color is per-instance ZDO state, NOT a prefab fork) |
 | Type | `Piece` (Sign variant) |
 | Mod | Trailborne |
 | Biome tier | Meadows |
-| Craft station | Explorer's Bench (build menu) |
-| Recipe | TBD — likely Wood + Pigment (mirror vanilla Sign shape) |
-| Function | Vanilla sign variant with two-color binding (E = text color, Shift+E = accent color) + two-tone pin emission when nomap=OFF |
-| Visual notes | Vanilla `sign` prefab as base, recolored per E/Shift+E player input |
-| Patch surface | `Sign.OnUse` for color picker UI; pin emission piggybacks on Minimap pin system from design/nomap.md §3 |
-| Status | SPEC LOCKED (pin keybind default TBD) |
-| Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
+| Craft station | Explorer's Bench (to craft the Trailblazer's Spade that opens the build menu) — placed in-world via the **Trailblazer's Spade build menu** ('Trail' tab). **No station-proximity required to PLACE** the sign. |
+| Recipe | 2 Wood (placed UNPAINTED; pigment is NOT a build ingredient — it is consumed at paint time via the panel) |
+| Function | One buildable free-standing signpost, placed unpainted. Interacting with the placed sign opens a **custom combined Paint+Text uGUI panel** (replaces the vanilla text dialog): pick a **text/board color** AND an optional **border color** (two-tone), pay **one pigment per filled color slot** via `{Paint this and consume}` (same color in both slots = 2 of that pigment; border optional; ≥1 color required; re-paint re-consumes), and edit the label via `{Update Text}` (FREE, locked until ≥1 color is chosen). Each swatch row leads with an explicit **`∅ None`** tile and renders **only DISCOVERED pigments** (no dead reserved slots). The text color tints the **board mesh AND the written letters**. Both colors + text persist + sync via the sign's ZDO. |
+| Visual notes | Vanilla `sign` placard kitbashed onto a **vanilla 2m wood pole (`wood_pole2`)** so it stands free on the ground like a trail signpost (Daniel 2026-06-05), board raised so its TOP sits just under the measured pole crown (board centre ~1.65m near the pole top, post foot flush at ground — anchored to the measured crown, pivot-robust, no magic height; fixes the 2026-06-07 "board floats mid-post" regression). The pole is a decorative child stripped of ZNetView/Piece/WearNTear and its OWN collider (no own ZDO, not separately destructible). A separate thin **non-trigger post-foot ground-contact collider** (bottom plane at the measured planted-post foot, root-local y≈0) makes the placed sign seat FLUSH instead of ~3/4 buried (fixes t_4ad60d6f / parent t_1dc88742): Valheim seats a piece by its lowest enabled non-trigger collider, and after the pole's collider is stripped the board's crown-lifted interact collider was the lowest one and drove the post underground. In the placement ghost the foot collider is enabled (on the `piece` layer) so the seat counts it; on the placed sign `SignTag` disables it (gated on a live ZDO) so the BOARD stays the sole interact/paint target (never intercepts the E raycast). **Two-tone:** the vanilla sign mesh has no separable frame, so a thin **border element** (`SBPR_SignBorder`, a scaled copy of the board mesh with its own material) is kitbashed in at register time to receive the second tone. Shown in plain wood (unpainted) until painted; on paint the BOARD mesh is runtime-tinted to the text color, the **TMP text widget** (`Sign.m_textWidget`) is driven to the text color, and the BORDER element to the border color (pole stays un-tinted), all re-applied on spawn from ZDO. The panel is laid out with Unity **layout groups** (not hand-computed offsets) for consistent alignment/margins. |
+| Patch surface | `Sign.Interact` prefix opens the combined Paint+Text panel for SBPR signs (suppresses the vanilla text dialog; non-SBPR signs fall through). Panel `SignPaintPanel` is custom clean-room uGUI (`UnityEngine.UI` primitives — no copied vanilla prefab). While open: `Player.TakeInput` postfix blocks character input, `PlayerController.TakeInput(bool)` postfix freezes camera mouse-look (routing through vanilla's own suppression gate — the one the replaced sign dialog used), and `GameCamera.UpdateMouseCapture` postfix releases the cursor. Text color is applied to `Sign.m_textWidget.color`/`.faceColor` (TMP); `SignTintBackup` snapshots original materials so the `None` affordances revert live. Two-tone per-instance ZDO color fields `SBPR_SignTextColor` + `SBPR_SignBorderColor` (unset = empty string); legacy `SBPR_SignColor` is one-way migrated into the text-color field on spawn. `SignPaintBackend` computes the crafting-style cost (icon + name + have/need), gates swatches on `IsPigmentDiscovered` (known recipe OR owned — default, open question), checks-then-consumes pigments atomically (no partial paint), and owner-writes both tones. Build piece added to the **Spade PieceTable** (not the Hammer); `Piece.m_craftingStation` cleared so placement needs no bench proximity. Pin emission (Shift+E) stays **unregistered** (follow-up). |
+| Status | SPEC LOCKED (combined Paint+Text panel, two-tone, Daniel 2026-06-05); **panel rebuilt on native-idiom uGUI 2026-06-07** (layout groups, discovered-only swatches + explicit None, text-widget color, crafting-style cost, camera lock, Pigment naming — Daniel playtest); **chrome skinned with real vanilla UI sprites + font 2026-06-09** (t_b47035e7 — wood-panel background/frame sprite, carved-wood button sprite + hover states, Norse display font harvested at runtime from live vanilla GUI donors via `VanillaUISkin`; flat-colour fallback if a donor is absent — Daniel playtest). CLIENT-SIDE — not headless-verifiable |
+| Source spec | `docs/v0.1.0/planning/requirements.md` §A2.6 |
 
 #### Path Lamp
 
 | Field | Value |
 |---|---|
 | Display name | Path Lamp |
-| Prefab name | `SBPR_PathLamp` |
+| Prefab name | `piece_sbpr_path_lamp` |
 | Type | `Piece` (Light source, fueled) |
 | Mod | Trailborne |
-| Biome tier | Black Forest (corewood gate) |
-| Craft station | Explorer's Bench (build menu) |
-| Recipe | Corewood + Resin (quantities TBD) |
+| Biome tier | Meadows (downshifted from Black Forest/Corewood per Daniel 2026-06-04; see requirements.md §A3.7) |
+| Craft station | Explorer's Bench (to craft the Trailblazer's Spade that opens the build menu) — placed in-world via the **Trailblazer's Spade build menu** ('Trail' tab). **No station-proximity required to PLACE** the lamp. |
+| Recipe | 3 Wood + 2 Resin |
 | Function | Trail-illumination light source — dimmer than vanilla torch, longer fuel duration, manual ignition |
-| Visual notes | Tier 1 reuse — vanilla `piece_groundtorch` or `piece_groundtorch_wood` with material tint and slight scale reduction for dimmer feel |
-| Patch surface | None (pure prefab + Fireplace component config) |
-| Status | SPEC LOCKED (quantities TBD) |
-| Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
+| Visual notes | Tier 1 reuse — clone of vanilla `piece_groundtorch_wood`, **scaled 3× vertically** (Daniel 2026-06-05) so it reads as a tall standing path lamp. Scaling is foot-anchored: the base stays flush with the ground and the flame/light rides to the new top (geometry children scale, the flame/Light children keep their size and only translate up). Root collider intentionally NOT rescaled (flag QA if the collision box should match the taller visual). |
+| Patch surface | Pure prefab work (clone + 3× foot-anchored Y-scale + Fireplace component config). Build piece added to the **Spade PieceTable** (not the Hammer); `Piece.m_craftingStation` cleared so placement needs no bench proximity. |
+| Status | SPEC LOCKED (Meadows recipe 3 Wood + 2 Resin, Daniel 2026-06-04; Spade-menu + 3× tall, Daniel 2026-06-05) |
+| Source spec | `docs/v0.1.0/planning/requirements.md` §A2.4 / §A3.7 |
 
 ### Items
 
@@ -133,19 +134,19 @@ Each entry has:
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
 
-#### Trailblazer's Tools
+#### Trailblazer's Spade
 
 | Field | Value |
 |---|---|
-| Display name | Trailblazer's Tools |
-| Prefab name | `SBPR_Item_TrailblazersTools` |
+| Display name | Trailblazer's Spade |
+| Prefab name | `SBPR_TrailblazersSpade` |
 | Type | `ItemDrop` (Tool, hoe/hammer-equivalent) |
 | Mod | Trailborne |
 | Biome tier | Meadows |
 | Craft station | Explorer's Bench |
 | Recipe | 5 Wood + 2 Flint + 2 Leather Hides |
-| Function | Single tool item — holds the Trailborne build menu (Cairns, Painted Signs, Path Lamps). 1.5/3/5m path widths (mirror Hoe). Replant Grass same radii. Clear Vegetation wide-radius. |
-| Patch surface | Likely a new `ItemDrop` with `Tool` ItemType + custom `Hoe`-derived component for path-laying |
+| Function | Single tool item — holds the Trailborne build menu (Cairns, Painted Signs, Path Lamps). 1.5/3/5m path widths (mirror Hoe). Replant Grass in 3 widths (1.5/3/5m) mirroring the path widths — each restores grass over the stated footprint like the vanilla Cultivator's "Grass" mode (scales only the grass/paint radius, NOT cultivate, no terrain raise/level at any width). Clear Vegetation deferred to v0.2.0. |
+| Patch surface | Clone of vanilla `Hoe` ItemDrop + a from-scratch spade-only PieceTable (`Trailblazing`). Six terrain-op pieces (`piece_sbpr_path_{narrow,standard,wide}` + `piece_sbpr_replant_{narrow,standard,wide}`) are built **ADDITIVELY as modern `TerrainOp` pieces** (v0.2.17, card t_6fc9b3fa, ADR-0006) — `new GameObject()` + `Piece` + `TerrainOp`, NO ZNetView, NOT registered in ZNetScene — mirroring vanilla `path_v2` (Dirt, paintR 2.0) / `replant_v2` (Reset, paintR 2.2), scaling only `m_settings.m_paintRadius` to 1.5/3/5 m and never writing level/smooth/raise. This replaced the pre-0.2.17 clone of the LEGACY `path`/`replant` `TerrainModifier` donors, whose persistent networked pieces fought for precedence on a shared tile (the "grass fights path" bug). A server-only one-time `ZNet.LoadWorld` postfix (`LegacyTerrainOpZdoCleanup`) destroys legacy `piece_sbpr_{path,replant}_*` ZDOs left in existing worlds. **Placement-ripple preview:** a `Player.UpdatePlacementGhost` postfix (`PlacementMarkerRadiusPatch`) sizes the aiming ripple to the active op's width (see Patched-vanilla entry below) — client-cosmetic, no effect on the op's real radius. |
 | Status | SPEC LOCKED |
 | Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
 
@@ -154,7 +155,7 @@ Each entry has:
 | Field | Value |
 |---|---|
 | Display name | Red Pigment / White Pigment / Black Pigment / Blue Pigment |
-| Prefab name | `SBPR_Item_PigmentRed` / `_White` / `_Black` / `_Blue` |
+| Prefab name | `SBPR_InkRed` / `SBPR_InkWhite` / `SBPR_InkBlack` / `SBPR_InkBlue` — **save/wire contract, do NOT rename** (placed signs/cairns store these strings). Display names + code identifiers were unified to "Pigment" 2026-06-07; the prefab string keeps its historical `SBPR_Ink*` spelling on purpose. |
 | Type | `ItemDrop` (Material) |
 | Mod | Trailborne |
 | Biome tier | Meadows (R/W/B), Black Forest (Blue via blueberry) |
@@ -163,12 +164,12 @@ Each entry has:
 | Recipe (W) | 1 Bone Fragment → 2 White Pigment |
 | Recipe (B) | 1 Coal → 2 Black Pigment |
 | Recipe (Blue) | 1 Blueberry → 2 Blue Pigment |
-| Function | Crafting ingredient for Cairn Markers and Painted Signs (color binding). |
+| Function | Crafting ingredient: consumed at craft time to bind a Cairn Marker's color; consumed at paint time (one per filled color slot) via the Painted Sign panel to paint/repaint a placed sign. |
 | Stack size | 20 |
 | Weight | 0.1 |
 | Patch surface | None — pure ObjectDB registration |
 | Status | SPEC LOCKED |
-| Source spec | `specs/2026-06-03-trailborne-v1/planning/requirements.md` |
+| Source spec | `docs/v0.1.0/planning/requirements.md` §A2.5 |
 
 ### Status Effects
 *(none for Trailborne v1)*
@@ -177,7 +178,178 @@ Each entry has:
 
 - **Cartography Table** — v1 disables build AND functionality on existing instances
 - **Minimap** — v1 nomap-config controls visibility (nomap=ON → no map; nomap=OFF → minimap only, no M-key, no north indicator)
-- **Vanilla Sign** — pin emission patched to use SBPR two-tone pin variants when Painted Sign nearby
+- **Vanilla Sign** — the placed Painted Sign's text-edit interaction is intercepted to open a custom combined Paint+Text uGUI panel (two-tone: text color + border color, pigment cost per slot). Non-SBPR signs fall through to vanilla. (Combined-panel + two-tone model, Daniel 2026-06-05; supersedes the 6/04 apply-ink model.)
+- **Placement marker ripple (`Player.UpdatePlacementGhost` → `CircleProjector`)** — client-cosmetic. Vanilla's aiming ripple (the animated ground ring) is a fixed-radius `CircleProjector` (~5 m); a `Player.UpdatePlacementGhost` postfix sizes it to the **active spade op's effect radius** (1.5 / 3 / 5 m) so the preview matches the real affected area, and restores the captured vanilla default whenever the ghost is **not** one of our six spade ops (so a vanilla Hoe/Cultivator placement is never resized). Gated on **piece identity** (our op prefab names via `Trailblazing.TryGetSpadeOpRadius`), not the server-sanity doctrine, because it is a local preview only. **No recipe/data change** — the op already applied at its true radius; this only fixes the misleading preview. (Request 1, spike `docs/investigations/2026-06-07-terrain-placement-ripple-magnitude-spike.md`; implemented 2026-06-07.)
+
+---
+
+## Trailborne v2 (Black Forest) — Cartography
+
+> Spec: `docs/v2/planning/requirements.md` + `docs/v2/planning/cartography-impl-spec.md`.
+> Three interlocking features (Surveyor's Table + Local Map + Cartographer's Kit). The
+> Table is the FOUNDATION (lowest risk); the Local Map viewer (highest risk) builds on it.
+
+### Pieces
+
+#### Surveyor's Table
+
+| Field | Value |
+|---|---|
+| Display name | Surveyor's Table |
+| Prefab name | `piece_sbpr_surveyors_table` |
+| Type | `Piece` (placed station; custom `SurveyorTableTag : MonoBehaviour`, Hoverable + Interactable) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed in-world via the **Trailblazer's Spade build menu** ('Trail' tab), like every Spade-placed SBPR piece. (Architect REVERSED the proposed bench-in-range lean, 2026-06-10.) |
+| Recipe (build) | Fine Wood ×10 + Bronze ×2 + Deer Hide ×4 + Bone Fragments ×8 |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`, like all spade pieces; `EnsureCategory` guards drift) |
+| Function | Retains a **shared, cumulative, windowed 1000 m survey** of its own disc, persisted compressed in the Table ZDO (`ZDOVars.s_data`) like vanilla MapTable. **Must be NAMED before it will bind/imprint maps** (issue 10, §1.6): an unnamed Table prompts the player to name it (vanilla `TextInput` rename dialog) and refuses to imprint until named; the name persists per-instance (owner-write `SBPR_TableName` ZDO) and shows in the hover + as the viewer title. **Using it (E)** merges the surveyor's in-disc explored fog + in-disc shareable pins into the shared record (cumulative OR-merge; beyond-1000 m dropped — C5) and opens the forked viewer on the SHARED data with **pin removal enabled** (D4). **Imprinting a Local Map (issue 6, §2I): look at the Table and press the hotbar number (1–8) of the slot holding the blank Local Map** — that one map is imprinted with the Table's survey (wrong/empty/non-map slot safely refused; Use no longer auto-imprints). Ward-gated (`PrivateArea.CheckAccess`) like vanilla. Persists across server restart (AT-TABLE-PERSIST). |
+| Naming (issue 10) | Per-instance name in `SBPR_TableName` (owner-write ZDO string; the KEY string is LOCK/never-rename — the player VALUE is freely re-nameable, see below). Set via the vanilla `TextInput`/`TextReceiver` rename dialog (the Tameable/Sign/Portal mechanism — NOT a custom uGUI panel; NOT shared with the marker-namable card per Daniel 2026-06-11). **Bind-gate:** imprint is refused while the name is empty (§1.6.4). **RE-name (issue 3, §1.6.5):** an already-named Table is re-named with **`[Use]+Alt`** (KBM Shift+E; vanilla `Tameable` precedent decomp `:27075`) — the named-table hover advertises `[$KEY_AltPlace + $KEY_Use] $hud_rename`; the dialog pre-fills the current name (edit, not retype); re-naming changes FUTURE imprints only (already-imprinted maps keep their stamped `sbpr_map_name` — no migration). The name is stamped onto imprinted Local Maps (`sbpr_map_name`, §2A.6) and shown as the viewer title (§2B.1). AT-TABLENAME-1..8 + AT-TABLE-RENAME / -DISCOVERABLE / -NOMIGRATE / -NOREGRESS. **IMPLEMENTED 2026-06-12 (card t_41482aa3, build 0/0):** `SurveyorTableTag` implements `TextReceiver`; unnamed Table on Use → `$hud_rename` dialog (always prompt, the spec-sanctioned variant) + Center message, no imprint; censored read/write via `CensorShittyWords.FilterUGC`. **RE-name affordance ADDED 2026-06-15 (card t_91e81d80, build 0/0):** named + Alt-Use → re-name dialog (context-aware message), hover advertisement. [hold] PR, in-game verify pending. |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructPieceShell` builds the networked skeleton (ZNetView + Piece + WearNTear + collider) from scratch; the vanilla `piece_cartographytable` is read ONLY as a visual blueprint and its mesh subtree (`new`, material `Cartographer_mat`) is grafted as a ZNetView-free cosmetic child (`Assets.GraftVisualSubtree`). NEVER instantiates the vanilla MapTable prefab. HP 800 (tunable v0.2+). Collider/material/HP are visual-polish flags for Daniel's in-game pass. |
+| Patch surface | None on the Table itself. `SurveyorTableTag` is self-contained: survey + ZDO persistence (owner-write via `ZNetView.IsOwner`/`InvokeRPC` like vanilla MapTable `RPC_MapData`), contribute-on-use, ward gate, pin-removal backend (`ICartographyPinEditor`), and (issue 10) the `SBPR_TableName` ZDO + `TextInput` naming dialog + bind-gate — all non-Harmony. The forked viewer is the separate card t_7b616020; the `CartographyViewer` seam decouples them. Windowed-fog cell math = `BoundedMapMath` (productionized spike seam t_e8bbbe48). *(The name-display Harmony patch lives on the Local Map item side — §2A.6b, see the Local Map row.)* |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 1, card t_2715661d, 2026-06-10; `[hold]` PR, awaiting Daniel merge + in-game verify). **Naming + bind-gate (`SBPR_TableName`) + viewer title = IMPLEMENTED 2026-06-12 (issue 10, card t_41482aa3), build 0/0, `[hold]` PR awaiting Daniel review + in-game verify (AT-TABLENAME-1/2/4/5).** **logs-green ≠ playable.** |
+| Source spec | `docs/v2/planning/requirements.md` §1 + `docs/v2/planning/cartography-impl-spec.md` §1 |
+
+### Items (v2 cartography)
+
+#### Local Map
+
+| Field | Value |
+|---|---|
+| Display name | Local Map |
+| Prefab name | `SBPR_LocalMap` |
+| Type | `ItemDrop`, **`ItemType.TwoHandedWeapon`** (=14, architect lock PR #94) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) — NOT the Surveyor's Table |
+| Recipe (craft) | Deer Hide ×2 + Fine Wood ×4 (amount 1) |
+| Function | A field map, **blank when crafted**. **Imprint at a Surveyor's Table** (which must be NAMED first — issue 10, §1.6) copies a SNAPSHOT (not a live link) of that table's windowed 1000 m survey + bound-origin onto the item instance, AND stamps the Table's name onto the item so its inventory title reads e.g. **"Map: Northern Outpost"** (distinguishable from other bound maps — §2A.6). **Imprint trigger (issue 6, §2I): look at the Table and press the hotbar number (1–8) of this map's slot** — only that one map is imprinted (replaces the old auto-imprint-on-Use). **Two-handed equip** hard-unequips weapon+shield (never hides — block-clears by construction via the vanilla `TwoHandedWeapon` `EquipItem` branch); a left-hand **Torch** is allowed back (lit map at night). **Minimap binding durable while in inventory; reverts to no-map the instant it leaves.** **Full-screen bounded view requires it actively EQUIPPED**, opened with **Use (E)** (§2G; reliability fix issue 6 §2I) and shows the Table name as an on-screen title (§2B.1). Field view is read-only (no pin editing). |
+| Storage | Per-instance in `ItemDrop.ItemData.m_customData` (`sbpr_map_blob` = Base64(`Utils.Compress`(windowed `SurveyData`)), `sbpr_map_bound` = origin X;Z, and — issue 10 — `sbpr_map_name` = the imprinted Table name; all LOCK, never rename). **Verified at build** to round-trip `Inventory.Save/Load` (player profile ZPackage) AND the dropped-item ZDO on this game version — so it persists restart/drop/trade; no ZDO "map case" fallback needed. (`m_customData` is the ONLY per-instance survivable store: `m_shared` is ref-shared across instances + reassigned from the prefab on every load, so it can't carry a per-instance name — §2A.6.) One format with the Table + viewer (§2C). |
+| Patch surface | `LocalMapEquipPatch` — prefix+postfix on `Humanoid.EquipItem(ItemData,bool)` (overload-disambiguated): the torch exception (C12/AT-MAP-TORCH). `LocalMapBootstrapPatch` — postfix on `Minimap.Start` attaching the client-only `LocalMapController` (carry/equip state machine). **(Issue 10, IMPLEMENTED 2026-06-12, card t_41482aa3)** `LocalMapTooltipNamePatch` (Postfix on private `InventoryGrid.CreateItemTooltip` → overwrites `UITooltip.m_topic`, the title) + `LocalMapHoverNamePatch` (Postfix on `ItemDrop.GetHoverName` → world-drop hover) substitute the bare `sbpr_map_name` (with a `"Map: "` display prefix) for the title — **guarded on presence of the `sbpr_map_name` key** (not `m_dropPrefab`, which is `[NonSerialized]`), pure pass-through otherwise; both `PatchAll`-registered in `Plugin.Awake` (PatchCheck-guarded, AT-TABLENAME-8). Combat suppressed by empty `m_attack`/`m_secondaryAttack` animations (`HavePrimaryAttack`/`HaveSecondaryAttack` false → no LMB/RMB/block — AT-MAP-BLOCKCLEAR). Item built by the repo's clone-and-reshape idiom (donor `Hoe`, like the Spade): type reshaped to TwoHandedWeapon, build PieceTable nulled, attacks emptied. |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 2, card t_cb831069; merged to `integ/v2-cartography` via PR #101, awaiting Daniel's integ→v1 merge + in-game verify). **Name inheritance (`sbpr_map_name` + title patches) + viewer title = IMPLEMENTED 2026-06-12 (issue 10, card t_41482aa3), build 0/0, [hold] PR awaiting Daniel review + in-game verify (AT-TABLENAME-3/4/5).** **logs-green ≠ playable** — the in-game pixel render + equip feel + name-on-item are F9/in-hand checks. |
+| Source spec | `docs/v2/planning/requirements.md` §2 + `docs/v2/planning/cartography-impl-spec.md` §2 |
+
+#### Forked map viewer (`MapViewer`) — not a craftable
+
+The bounded forked viewer is the render engine shared by the Local Map (field, read-only)
+and the Surveyor's Table (TableEdit, pin removal). It is **not an item/piece** (no recipe,
+no dataset row of its own); it registers behind the `CartographyViewer` seam. Productionized
+from the GO-WITH-CAVEATS spike (`t_e8bbbe48`): paints OUR windowed fog `Texture2D` onto a
+standalone uGUI `Canvas`/`RawImage` at fixed zoom (NOT vanilla's 4-texture shader composite,
+NOT vanilla's nomap-suppressed map roots), hard 1000 m disc clip, polar edge-arrow clamp to
+the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
+
+#### Cartographer's Kit
+
+| Field | Value |
+|---|---|
+| Display name | Cartographer's Kit |
+| Prefab name | `SBPR_CartographersKit` |
+| Type | `ItemDrop`, **`ItemType.Utility` (= 18)** — the Utility slot (player's `m_utilityItem`), same slot as Megingjord / Wishbone. Coexists with any weapon / shield / Local Map; never a hand item (AT-KIT-COEXIST). |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
+| Recipe (craft) | Red Pigment ×10 + White Pigment ×10 + Blue Pigment ×10 + Black Pigment ×10 + Fine Wood ×4 → 1 (the **40-pigment cost IS the gate**; pigments referenced via `Pigments.Pigment{Red,White,Blue,Black}Name`, values `SBPR_Ink*`) |
+| Function | **Gates the personal auto-map's passive fog reveal.** Kit worn → walking reveals fog (vanilla `Minimap.UpdateExplore` runs); Kit absent → ZERO passive reveal (AT-KIT-GATE). The fog it accumulates is what gets imprinted at a Surveyor's Table. **NO discovery-flag system** (C10) — a normal recipe surfaced the vanilla way (`IsKnownMaterial`). |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructItemShell` builds the networked item skeleton (ZNetView + ZSyncTransform + Rigidbody + collider + ItemDrop with a FRESH SharedData) from scratch; NEVER clones a vanilla item (the pre-ADR Pigments/cairn-marker pattern). World-drop mesh grafted as a ZNetView-free cosmetic child off the vanilla `LeatherScraps` blueprint (`Assets.GraftVisualSubtree`, child `attach`). Inventory icon `cartographers_kit_v0.1.png` (v0.1 placeholder; icon is MANDATORY — the crafting UI indexes `m_icons[0]`). Utility items have no worn-body attach visual. Mesh/icon are visual-polish flags for Daniel's in-game pass. |
+| Patch surface | **Harmony Prefix on `Minimap.UpdateExplore(float, Player)`** (decomp :48005) — no-ops the personal walking-reveal fog write unless the local player wears the Kit. Gates ONLY `UpdateExplore` (the single personal-reveal entry), NOT `Explore` directly (also reached from shared-data merges that must work without the Kit). Equipped-Kit detection via public `Inventory.GetEquippedItems()` + `m_dropPrefab` name (`m_utilityItem` is protected). Client-only by construction (no Minimap on the dedicated server); fails OPEN on error. **Touches the same Minimap explore path the Local-Map viewer (t_cb831069) reads — one fog-write model, not forked.** |
+| Status | IMPLEMENTED (code + spec + SpecCheck row 3, card t_65fcfe5c, 2026-06-10; merged to `integ/v2-cartography` via PR #102, awaiting Daniel's integ→v1 merge + in-game verify). **logs-green ≠ playable.** |
+| Source spec | `docs/v2/planning/requirements.md` §3 + `docs/v2/planning/cartography-impl-spec.md` §3 |
+
+> **v2 cartography tier status:** the **Surveyor's Table** (`piece_sbpr_surveyors_table`, #99),
+> **Local Map** + **forked map viewer** (`SBPR_LocalMap` / `MapViewer`, #101), and the
+> **Cartographer's Kit** (`SBPR_CartographersKit`, #102) are ALL implemented and merged onto
+> `integ/v2-cartography`. The branch awaits Daniel's in-game playtest + the final integ→v1
+> merge gate. **logs-green ≠ playable** until that pass.
+
+## Trailborne v2 (Black Forest) — Marker Signs / WorldPins
+
+> v2 cartography tier. These four Marker Sign pieces are the **WorldPin substrate**
+> the tier consumes (the Surveyor's Table edits WorldPins; the Local Map renders them).
+> Design lock: `docs/design/marker-signs-worldpin.md`; impl spec:
+> `docs/v2/planning/marker-signs-impl-spec.md`. Shipped in build-order milestones:
+> **M1 = the four pieces + tag + spade wiring + SpecCheck (this entry)**; the Shift+E
+> pin/unpin gesture + the WorldPin projection/reconcile engine are gated follow-ups
+> (see the impl card t_0c7b782d review-required handoff — the durable cross-player
+> unpin needs a server-authoritative scan/RPC the spec deferred to the cartography
+> Table card).
+
+### Pieces
+
+#### Marker Signs (POI / Mining / Shelter / Portal)
+
+| Field | Value |
+|---|---|
+| Display name | Marker: Point of Interest / Marker: Mining / Marker: Shelter / Marker: Portal |
+| Prefab name | `piece_sbpr_marker_poi` / `piece_sbpr_marker_mining` / `piece_sbpr_marker_shelter` / `piece_sbpr_marker_portal` — **save/wire contract, do NOT rename** (placed markers store these as the ZDO-keyed pin identity). Four distinct pieces, NOT one piece with a type selector (Q3). |
+| Type | `Piece` (Sign variant — carries a vanilla `Sign` so the paint/text panel + interaction stack apply) |
+| Mod | Trailborne (v2) |
+| Biome tier | Black Forest (v2 cartography tier) |
+| Craft station | None to place — on the **Trailblazer's Spade build menu** ('Trail' tab, Pillar 1: Spade never Hammer). `Piece.m_craftingStation = null`. |
+| Recipe | 2 Wood + 1 Greydwarf eye each (placed cost). The +1 Greydwarf eye is a **Black Forest availability gate**, not a cost tax — the eye is a Common BF drop, so it simply proves the player reached the Black Forest and killed a Greydwarf (this makes the recipe match the Black Forest biome tier above; previously the recipe was Meadows-wood-only). Markers stay cheap; the map pin is still the value-add. Locked by Daniel 2026-06-11. Token `GreydwarfEye` confirmed (prefab_index + wiki Internal ID). |
+| Function | A buildable trail marker that, on **Shift+use**, pins/unpins itself on the player's map with a **custom type-coded marker icon** (magnifying glass / pickaxe / tent / circle). The pin is a durable, ZDOID-keyed WorldPin that disappears when the sign is destroyed — including destroyed while its zone is unloaded / the placer is offline (derive-by-scan reconcile). Primary use (E) opens a dedicated reference panel showing the marker icon, name, pin state, a Pin/Unpin button, **and a textbox to give the marker a custom name** (ENHANCEMENT, card t_62af5802) — that name becomes the map pin's label (dynamically: it re-projects on commit, no relog), falling back to the type label (e.g. "Point of Interest") when left blank. |
+| Visual notes | **ADDITIVE construction (ADR-0006, AT-PIN-ADR0006)** — `new GameObject()` + `AddComponent` of Piece + WearNTear + ZNetView(`m_persistent=true`) + Sign + `MarkerSignTag` + a root BoxCollider. The board plank + 2m post are grafted by **reading** the vanilla `sign` / `wood_pole2` mesh+material references (NOT an Instantiate-then-strip of those ZNetView-bearing prefabs). A minimal additive world-space TMP widget is built and bound to `Sign.m_textWidget` so the vanilla Sign poll has a widget to write into (a null widget would NRE). First cut: **piece build-icon art = the marker icon art** (Daniel: "for now, just make the piece art the icon art"); the "icon overlaid on the piece art" is v2.1 polish. Placeholder glyph PNGs in `assets/icons/items/marker_{poi,mining,shelter,portal}_v0.1.png` (regenerable at the same filename via `scripts/gen_marker_icons_v01.py`). Board/post geometry: the board is **crown-anchored** to the planted pole top + **stood off the post's near side face** (no embed, sub-mm anti-z-fight kiss gap), and the post foot is **planted at y=0 with a post-foot ground collider** so the placed marker seats flush — the same silhouette as the Painted Sign, shared via `Runtime/SignGeometry.cs` (constants + crown/standoff math + foot collider + placed-instance neutralize), so the markers and the Painted Sign can never drift again (card t_cc093d04, spec `docs/v2/planning/marker-signs-geometry-fix-impl-spec.md`). |
+| Patch surface | Registration via `MarkerSigns.RegisterPrefabs` (Registrar fan-out) + ODB resource rebuild + spade-table add in `Trailblazing`. `SignInteractPatch` recognises `MarkerSignTag`: **primary E → dedicated `MarkerSignPanel`** (icon + name + pin-state + Pin/Unpin button — NOT the pigment `SignPaintPanel`, which hard-requires a `SignTag` and has no marker colors); **Shift+E (`alt==true`) → toggle `SBPR_Pinned` + project/remove the WorldPin** (fast path). WorldPin engine in `WorldPins.cs` (`AddPin save:false` + `m_icon` override + derive-by-scan reconcile); triggers in `WorldPinReconcilePatches.cs` (`Minimap.SetMapMode` map-open, throttled `Minimap.Update` tick, `Minimap.Awake` stale-projection reset). Destroy hook = `MarkerSignTag` subscribes `WearNTear.m_onDestroyed` (public `Action`, no Harmony) → `WorldPins.OnMarkerDestroyed`. `SignPanelInputBlock` widened to gate on either panel (`AnyOpen`). |
+| ZDO fields | `SBPR_MarkerType` (string: poi/mining/shelter/portal), `SBPR_Pinned` (bool), `SBPR_PinName` (string: player's custom pin label — ENHANCEMENT card t_62af5802; empty = fall back to type `PinLabel`; drives the WorldPin label), `SBPR_PinIconColor` + `SBPR_PinTextColor` (RESERVED, unused first cut — Q1 defers per-pin color; reserved so the fast-follow needs no ZDO migration). Owner-write via ZNetView. All keys are locked wire contracts — never rename. |
+| Status | **M1+M2+M3 IMPLEMENTED** (card t_0c7b782d): 4 additive pieces + tag + spade wiring + SpecCheck +4 rows (M1); WorldPin projection + derive-by-scan reconcile engine + triggers (M2); Shift+E pin/unpin gesture + dedicated MarkerSignPanel + WearNTear destroy hook (M3). Build 0/0. **logs-green ≠ playable** — AT-MARK-1/2, AT-PIN-PERSIST, AT-PIN-DESTROY-LOADED/DURABLE, AT-PIN-ADR0006, AT-PILLAR-2 close only on Daniel's in-game check. **MVP scope:** renders to the player-centered minimap circle (v1 nerfs the full map); the 1000 m disc-bound, server-authoritative-RPC variant is deferred to the cartography viewer cards (both currently archived/triage). |
+| Source spec | `docs/design/marker-signs-worldpin.md` + `docs/v2/planning/marker-signs-impl-spec.md` |
+
+### Patched vanilla entities (v2)
+
+- **Minimap (WIRED, M2/M3, card t_0c7b782d)** — the WorldPin projection calls `Minimap.AddPin(..., save:false)` + overrides `PinData.m_icon` with the custom marker sprite (a `save:false` projection so vanilla never persists our pins), reconciled by a derive-by-scan over live marker-sign ZDOs (`ZDOMan.GetAllZDOsWithPrefabIterative`). Trigger postfixes: `Minimap.SetMapMode` (map-open full reconcile), throttled `Minimap.Update` (periodic tick), `Minimap.Awake` (stale-projection reset for fresh-map rebuild). Renders to the player-centered minimap circle in the v1 MVP (no disc bound); the 1000 m disc-bound, server-authoritative-scan variant is deferred to the cartography viewer cards.
+
+---
+
+## Trailborne v2 (Black Forest) — Portal Seed → Ancient Portal
+
+> **Status: SPECCED 2026-06-13 (architect card t_9a5540b2).** Design:
+> `docs/design/pocket-portal.md` + `docs/design/ancient-portal-placeholder-art.md`.
+> Buildable spec: `docs/v2/planning/ancient-portal-impl-spec.md`. A two-prefab feature on
+> the **cairn pattern** — an item (the Seed) whose recipe is checked, and a piece (the
+> Portal) whose build cost IS that item, so break→seed is free vanilla `DropResources`.
+> Impl is the engineer-systems child of the spec card. **SpecCheck delta +2.**
+
+### Items
+
+#### Portal Seed
+
+| Field | Value |
+| --- | --- |
+| Display name | Portal Seed |
+| Prefab name | `SBPR_PortalSeed` |
+| Type | `ItemDrop` (`ItemType.Material`) — a carried build ingredient, consumed by the Ancient Portal piece (cairn-marker pattern) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
+| Recipe | 1 Ancient seed (`AncientSeed`) + 20 Greydwarf eye (`GreydwarfEye`) + 2 Surtling core (`SurtlingCore`), amount 1 |
+| Weight / stack | **25 kg**, `m_maxStackSize = 1` (one-per-slot — 25 kg × stack defeats the carry-one fantasy) |
+| Function | Plant with the **Hammer** (no station in range) → grows over ~15 s into an Ancient Portal. Dropped back (×1) when an Ancient Portal is destroyed — replantable. 🟡 Ectoplasm as an eye/core substitute is a **playtest-contingent** tuning lever, NOT in the first build. |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructItemShell` + a grafted script-free root/seed mesh child. Ship a real icon PNG (SpecCheck C1 screams if it's the fallback). |
+| Patch surface | None (additive item + recipe). |
+| Status | SPEC LOCKED |
+| Source spec | `docs/v2/planning/ancient-portal-impl-spec.md` §2 |
+
+### Pieces
+
+#### Ancient Portal
+
+| Field | Value |
+| --- | --- |
+| Display name | Ancient Portal |
+| Prefab name | `piece_sbpr_ancient_portal` |
+| Type | `Piece` + real vanilla `TeleportWorld` + custom `AncientPortalTag : MonoBehaviour` (grow timer) |
+| Mod | Trailborne |
+| Biome tier | Black Forest |
+| Build menu | **Hammer** PieceTable (`m_category = Misc`; `m_craftingStation = null` — no bench in range). Hammer exception to design-pillars Pillar 1 (Daniel 2026-06-13) — it's a deployable convenience, not a trail mark. |
+| Placement surface | **Solid earth only** (`m_groundOnly = true`) — ghost is valid on dirt/grass/rock terrain, REJECTED on any wood/stone floor or built piece (Daniel 2026-06-13: *"built on solid earth, not on structures"*). |
+| Recipe (build cost) | **1 Portal Seed** (`SBPR_PortalSeed`, recoverable) → break returns the seed via vanilla `Piece.DropResources` on every destroy path |
+| Durability | **300** HP (= 75% of vanilla portal's 400 — "more fragile"; Wood material; no rain decay for v1, `m_noRoofWear = true`). DECIDED by Daniel 2026-06-13 — supersedes the earlier fabricated "175" (never Daniel's word, retracted with the "150–200 lean"). |
+| Geometry | **Horizontal overhead ring**, ~3 m tall × ~3 m wide; ring at the top → jump up into it. `TeleportWorldTrigger` BoxCollider repositioned horizontal/overhead (the main novel-geometry risk). |
+| Function | Otherwise a **regular vanilla portal**: identical `ZDOVars.s_tag` pairing, identical teleport, **keeps the ore/metal ban** (`m_allowAllItems` left false; `Inventory.IsTeleportable` enforces). 🔴 **Requires registering the prefab hash in `Game.instance.PortalPrefabHash`** or it places + grows but never tag-pairs. ~15 s scale-lerp grow (ZDO-stamped plant time, relog-durable). **Proximity/connected effect matches vanilla** (issue 1, 2026-06-15): emission glow lerp (black↔HDR-orange) + `_target_found_red` "target found" shimmer within 3 m of a connected portal — see impl-spec §3.5.1. |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructPieceShell` + grafted script-free meshes: `portal_wood`→`small_portal` ring (rotated flat, ×0.71), `Greydwarf_Root`→`default` tendrils, `stubbe` legs. PLUS the `portal_wood`→`_target_found_red` EFFECT subtree (particles+light+audio+EffectFade, grafted via `Assets.GraftEffectSubtree` — kept, not stripped) wired to `TeleportWorld.m_target_found` for the connected-portal shimmer. **OMIT** the donor's PlayerBase EffectArea / GuidePoint / portal_destruction / LODGroup. |
+| Patch surface | **None** — TeleportWorld + trigger + ZDO grow timer + PortalPrefabHash add are all non-Harmony component wiring. (If a patch creeps in, register it in `Plugin.Awake` or PatchCheck ERRORs.) |
+| Status | SPEC LOCKED |
+| Source spec | `docs/v2/planning/ancient-portal-impl-spec.md` §3 |
 
 ---
 
@@ -193,9 +365,9 @@ Each entry has:
 ## Future SBPR mods (not yet specced)
 
 - **Guardian Stones** family — server worldbuilding (separate mod, separate spec)
-- **Map Station** (Trailborne v2)
+- **Local Maps** + **Cartographer's Kit** (Trailborne v2 cartography — SPECCED, see `docs/v2/planning/`; the **Surveyor's Table** of this tier is now IMPLEMENTED — see the "Trailborne v2 (Black Forest)" section above)
 - **Real Tents** (Trailborne v2)
-- **Pocket Portal / Twisted Portal** (Trailborne v3+)
+- **Twisted Portal** (Trailborne v3+ — the endgame no-restriction portal; distinct from the v2 Ancient Portal, which is the convenience portal that KEEPS the ore ban). *(The "Pocket Portal" idea was rethemed + specced as the v2 **Portal Seed → Ancient Portal** above.)*
 - **Iron Compass** (Trailborne v3+, optional)
 - **Seer's Stone** (Trailborne v4+)
 

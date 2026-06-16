@@ -24,6 +24,12 @@ namespace SBPR.Trailborne.Features.Trailhead
 
         private const string IconFile          = "trailblazers_spade_v0.1.png";
 
+        // Path Lamp visual height multiplier (Daniel 2026-06-05 playtest: "scale the
+        // prefab 3x vertically and move the center point up to match"). The cloned
+        // ground-torch is scaled 3× tall about its foot so the base stays planted and
+        // the flame rides to the new top — see Assets.ScaleVisualHeightAboutFoot.
+        private const float LampHeightScale = 3f;
+
         // ───────────────────────────────────────────────
         // PREFAB REGISTRATION (called from ZNetScene.Awake postfix)
         // ───────────────────────────────────────────────
@@ -40,6 +46,17 @@ namespace SBPR.Trailborne.Features.Trailhead
             var clone = Assets.ClonePrefab(SourceWorkbench, ExplorersBenchName);
             if (clone == null) return;
 
+            // The vanilla Workbench prefab carries a GuidePoint component — the
+            // proximity hook that makes Hugin/the raven pop the "you built a
+            // workbench" tutorial. Our clone inherits it, so Hugin wrongly
+            // greets the Explorer's Bench as if it were a Workbench. The bench is
+            // its own station; strip the inherited tutorial hook so no raven fires
+            // on first placement. (Path Lamp's source, piece_groundtorch_wood,
+            // carries no GuidePoint, so only the bench needs this.)
+            int removed = Assets.StripGuidePoints(clone);
+            if (removed > 0)
+                Plugin.Log.LogInfo($"[Trailborne] Stripped {removed} inherited GuidePoint(s) (Hugin tutorial) from {ExplorersBenchName}.");
+
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
             {
@@ -54,10 +71,28 @@ namespace SBPR.Trailborne.Features.Trailhead
                     BuildReq("TrophyDeer", 1),
                 };
             }
-            // Already a CraftingStation (workbench is one) — leave m_name unchanged so
-            // existing recipes that name "piece_workbench" don't accidentally collide.
+            // Give the clone its OWN CraftingStation identity (spec: requirements.md
+            // ~line 119 + ADR-0003 — "its own CraftingStation, NOT the vanilla Workbench").
+            // Two independent things are required for that, and the bench needs BOTH:
+            //
+            //   1. A distinct m_name. Recipes keyed to a station are matched by station
+            //      name, so a name that differs from the Workbench's keeps Workbench-keyed
+            //      recipes off the bench. (This was already in place — it was never the
+            //      cause of the vanilla-craftables leak below.)
+            //
+            //   2. m_showBasicRecipies = false. The vanilla Workbench is the ONLY station
+            //      that surfaces the stationless "basic" recipes you can otherwise craft by
+            //      hand (Club, Torch, Stone Axe, Hammer, Hoe, rag armor, …). A raw clone
+            //      inherits that flag = true, so the Explorer's Bench wrongly offered all of
+            //      them (playtest, Daniel 2026-06-04, card t_30f97042). Every other vanilla
+            //      station (forge, stonecutter, cauldron, …) ships this false; we match them
+            //      so ONLY Trailborne recipes appear here.
             var station = clone.GetComponent<CraftingStation>();
-            if (station != null) station.m_name = "Explorer's Bench";
+            if (station != null)
+            {
+                station.m_name              = "Explorer's Bench";
+                station.m_showBasicRecipies = false;
+            }
 
             Assets.RegisterPrefabInZNetScene(clone);
             Plugin.Log.LogInfo($"[Trailborne] Registered piece: {ExplorersBenchName}");
@@ -73,29 +108,48 @@ namespace SBPR.Trailborne.Features.Trailhead
             if (piece != null)
             {
                 piece.m_name        = "Path Lamp";
-                piece.m_description = "A standing lamp for marking trails after dark.";
-                piece.m_category    = Piece.PieceCategory.Furniture;
+                piece.m_description = "A tall standing lamp for marking trails after dark.";
+                // SPADE menu home (design pillar: Explorer-placed pieces live on the
+                // Trailblazer's Spade, not the Hammer). The spade's PieceTable declares
+                // only the Misc category ('Trail' tab), so the lamp MUST be Misc to
+                // render there — Furniture would bucket into a tab the table doesn't have.
+                piece.m_category    = Piece.PieceCategory.Misc;
                 piece.m_icon        = Assets.LoadPngAsSprite(IconFile);
                 piece.m_resources   = new[]
                 {
                     BuildReq("Wood", 3),       // Meadows-tier
                     BuildReq("Resin", 2),
                 };
+                // NO station-proximity gate to PLACE the lamp (Daniel 2026-06-05: "for
+                // the path light and sign, no bench requirement"). The vanilla
+                // ground-torch clone inherits m_craftingStation = Workbench; clear it
+                // so the lamp places anywhere. (Build COST unchanged — 3 Wood + 2 Resin.)
+                piece.m_craftingStation = null;
             }
 
+            // Scale the lamp 3× vertically with the base kept planted on the ground and
+            // the flame/light riding up to the new top (Daniel 2026-06-05). Runs on
+            // server + every client (ZNetScene.Awake postfix), so the taller shape is
+            // baked into the registered prefab and syncs by construction.
+            Assets.ScaleVisualHeightAboutFoot(clone, LampHeightScale);
+
             Assets.RegisterPrefabInZNetScene(clone);
-            Plugin.Log.LogInfo($"[Trailborne] Registered piece: {PathLampName}");
+            Plugin.Log.LogInfo($"[Trailborne] Registered piece: {PathLampName} (3× tall; spade menu)");
         }
 
         // ───────────────────────────────────────────────
-        // OBJECTDB WIRING — rebuild bench/lamp resources + hammer pieces
+        // OBJECTDB WIRING — rebuild bench/lamp resources; bench → Hammer menu,
+        // lamp → SPADE menu (added in Trailblazing.DoObjectDBWiring).
         // ───────────────────────────────────────────────
 
         public static void DoObjectDBWiring(ZNetScene zns)
         {
-            // Pieces into Hammer build menu + REBUILD their resource lists
-            // now that ODB is populated. (Pieces built at ZNetScene.Awake
-            // had unresolved m_resItem for any non-vanilla prefab.)
+            // REBUILD resource lists now that ODB is populated (pieces built at
+            // ZNetScene.Awake had unresolved m_resItem for any non-vanilla prefab).
+            // The Explorer's Bench is a crafting STATION the player builds with the
+            // Hammer (a settler's-tool action, NOT an Explorer-placed trail piece), so
+            // it stays on the Hammer table. The Path Lamp is an Explorer-placed trail
+            // piece and moves to the Spade menu per the design pillar.
             var hammerTable = Assets.GetHammerPieceTable();
             if (zns == null) return;
 
@@ -111,18 +165,31 @@ namespace SBPR.Trailborne.Features.Trailhead
                         BuildReq("Stone", 4),
                         BuildReq("TrophyDeer", 1),
                     };
-                if (hammerTable != null) Assets.AddPieceToTable(table, hammerTable);
+                // Name-based dedup: a re-join re-clones the bench into a fresh
+                // GameObject, and the vanilla Hammer table persists across scene
+                // reloads, so reference-based add would stack a 2nd, 3rd… bench in the
+                // menu (the "two Explorer's Benches" playtest bug). AddOrReplaceByName
+                // strips any stale same-named entry first → always exactly one.
+                if (hammerTable != null) Assets.AddOrReplacePieceByName(table, hammerTable);
             }
             if (lamp != null)
             {
                 var lampPiece = lamp.GetComponent<Piece>();
                 if (lampPiece != null)
+                {
                     lampPiece.m_resources = new[]
                     {
                         BuildReq("Wood", 3),
                         BuildReq("Resin", 2),
                     };
-                if (hammerTable != null) Assets.AddPieceToTable(lamp, hammerTable);
+                    // Re-assert no station-proximity gate to place (Daniel 2026-06-05).
+                    lampPiece.m_craftingStation = null;
+                }
+                // Path Lamp goes on the SPADE build menu now, not the Hammer. The
+                // AddPieceToTable into the spade-only PieceTable happens in
+                // Trailblazing.DoObjectDBWiring (Registrar runs Trailblazing AFTER
+                // Trailhead, and the lamp prefab is already registered from the earlier
+                // RegisterPrefabs pass, so the lookup there resolves).
             }
         }
 

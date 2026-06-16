@@ -2,71 +2,78 @@
 
 Server-gated Valheim mods built under the SBPR namespace (Starbright + Polyphony/Requiem).
 
-> **Doctrine.** These mods are designed to enrich gameplay on private SBPR servers only.
+> **Doctrine.** These mods enrich gameplay on private SBPR servers only.
 > Distribution plumbing (BepInEx, Thunderstore) is third-party and used as-is.
-> All gameplay behavior is a clean-room reimplementation — no IronGate code is reproduced
-> in this repository.
+> Gameplay behavior is the authors' own work — vanilla Valheim source may be
+> read and adapted (it's the game we mod). **Other mods' code is not copied
+> directly**; where we reproduce another mod's functionality we use a clean-room
+> RE process (separate reviewer + implementer / Chinese wall). No copyrighted
+> source (game binaries, decompiled IronGate source, other mods' source) is
+> committed here.
 
 ## Status
 
-Pre-build. Currently in the **design phase** for the first family.
+**Active development — Trailborne v0.1.0 playtest.** The first mod (Trailborne)
+builds, deploys to the Niflheim server, and is in client playtest. Build + release
+are automated via GitHub Actions.
 
-For an overview of what we're building and how it plays, read
-[**PLAYER_GUIDE.md**](PLAYER_GUIDE.md) — elevator pitch + progression track + player's
-guide, all in one document.
+New here? Read in this order:
+1. [**PLAYER_GUIDE.md**](PLAYER_GUIDE.md) — what Trailborne is and how it plays.
+2. [**CONTRIBUTING.md**](CONTRIBUTING.md) — how to work in this repo (spec-first!).
+3. [**AGENTS.md**](AGENTS.md) — condensed operating rules for AI coding agents.
 
-## Mod families
+## Trailborne (Family 1 — Nomap / Hardcore Navigation)
 
-### Family 1 — Nomap / Hardcore Navigation
-"Maps are a luxury, not a right." Each biome unlocks a navigation tier; the cartography
-table is rebalanced toward a late-game role; on-demand map *making* becomes a
-mid-progression craft; map *viewing* is a Mistlands-tier convenience.
+"Maps are a luxury, not a right." Trailborne replaces the free minimap with
+player-built navigation infrastructure. v0.1.0 ships:
 
-Design doc: [`docs/design/nomap.md`](docs/design/nomap.md)
+- **Explorer's Bench** — Meadows-tier crafting station (its own station, not the
+  vanilla Workbench), gates the Trailborne progression.
+- **Trailblazer's Spade** — hand-tool for laying paths and ground ops.
+- **Pigments + Painted Signs** — craft inks, place signs, paint them by color.
+- **Path Lamps** — standing lights for marking trails.
+- **Cairns** — maintained 5-tier stone landmarks with comfort + decay lifecycle.
 
-Nine modules currently in scope:
-1. Explorer's Bench (Meadows crafting station)
-2. Trailblazer's Tools (signage + roadwork hand-tool)
-3. Trail signage (Sign + Beacon variants)
-4. Traveler's Storage (public + per-player private chest)
-5. Traveler's Tent (sleep without setting spawn)
-6. Pocket Portal (stackable, one-shot portal piece)
-7. Twisted Portal (charged accessory, ignores `NoPortals`, through-terrain rune-name overlay)
-8. Map table rebalance (zoom cap, 1000 m visibility, no scroll)
-9. Iron Compass (Swamps-tier HUD overlay)
-10. Seer's Stone (Alt+E pin-by-look, auto-merges nearby pins)
+Durable design intent: [`docs/design/`](docs/design/). The locked spec:
+[`docs/v0.1.0/planning/requirements.md`](docs/v0.1.0/planning/requirements.md).
 
-### Family 2 — Guardian Stones
-Reserved. Brief pending.
+## Architecture
 
-## Architecture (planned)
+- **`SBPR.Trailborne`** — the mod. BepInEx 5 / HarmonyX, `net48`. Every patch
+  tops with a server-gate (`ServerContext.OnSBServer`) so it is a no-op on
+  unrelated servers/worlds.
+- **Spec-first + drift-checked.** `SBPR.Trailborne/Runtime/SpecCheck.cs` validates
+  the live recipe set against the locked spec at server boot and logs ERROR on
+  drift. Spec and code change together — see CONTRIBUTING.md.
+- **CI/Release** — [`.github/workflows/`](.github/workflows/): build + reflection
+  drift-guard on every PR; tag-driven, publish-then-PR releases.
 
-- **SBPR.Pact** — shared lib: server gating (`SBPRContext.OnSBServer`), asset bundle
-  loader, prefab registration helpers, localization wiring.
-- **SBPR.Nomap** — Family 1 mod, depends on Pact.
-- Each mod tops every patch with `if (!SBPRContext.OnSBServer) return;` so installs on
-  unrelated servers/world are no-ops.
+## Build
 
-Build pipeline target: BepInEx 5 / Mono Cecil, Harmony 2, Unity asset bundle baked from
-a sidecar Unity project (not committed; built artifacts only).
+```bash
+scripts/setup.sh        # auto-detect Valheim + write .env   (Windows: scripts/setup.ps1)
+scripts/fetch-sdk.sh    # fetch pinned BepInEx pack into .sdk/
+dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release
+```
 
-Distribution: Thunderstore once the first mod ships.
+Clean build = 0 errors, **0 warnings** (`<TreatWarningsAsErrors>` is ON — any
+new warning fails the build). No machine-specific paths are committed; see
+[`.env.example`](.env.example).
+
+## Documentation
+
+Contributor + design docs live under [`docs/`](docs/), organized by **semver**.
+Every folder carries a `README.md` (human orientation) **and** an `index.md`
+(machine-readable manifest) — the convention is in
+[`docs/decisions/`](docs/decisions/) (ADRs) and the `sbpr-docs-conventions` skill.
+Doc freshness is signalled by a `status:` field in each doc's frontmatter
+(`current` / `living` / `historical` / `superseded`). Start at
+[`docs/README.md`](docs/README.md).
+
+## Server
+
+**Niflheim** — private SBPR server, the smoke-test target before any release.
 
 ## License
 
 MIT. Code only. No IronGate assets, no decompiled source, no game binaries.
-
-## Documentation
-
-Contributor and design documentation lives under [`docs/`](docs/):
-
-- [`docs/design/`](docs/design/) — durable design intent (vision, pillars, investigations)
-- [`docs/v0.1.0/`](docs/v0.1.0/) — specs, planning, and playtest logs for the v0.1.0 release
-- [`docs/datasets/`](docs/datasets/) — reference data tables (pieces, craftables, recipes)
-
-Each folder carries a `README.md` (orientation) and an `index.md` (machine-readable
-manifest). Start at [`docs/README.md`](docs/README.md).
-
-## Server
-
-Niflheim — private SBPR server. Smoke-test target before any release.

@@ -8,6 +8,11 @@ build/
 *.suo
 *.zip
 
+# Exception: bundled third-party mods we ship in the modpack ARE committed.
+# Their DLLs are redistributable artifacts (known version, pinned, license-carried),
+# not build output — so they must escape the blanket *.dll ignore above.
+!assets/bundled-mods/**/*.dll
+
 # Unity sidecar (not committed)
 unity-project/Library/
 unity-project/Temp/
@@ -52,3 +57,5 @@ src/**/obj/
 
 # Transient PR handoff artifacts (format-patch dumps, bundles, full-diffs)
 .pr-c-handoff/
+/dist/
+/.ci/

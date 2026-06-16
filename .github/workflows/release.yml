@@ -1,0 +1,238 @@
+name: Release
+
+# Automates the modpack release that was done by hand on 2026-06-04 — but in the
+# SAFE order, with an immutable artifact, so the "broken window" that happened
+# that night (new zip uploaded while the installer still pinned the old hash)
+# can never recur.
+#
+# Trigger: push a tag like  v0.1.0-playtest  or  v0.2.0 .
+#
+# Flow:
+#   1. Build the mod against the free dedicated-server assemblies (SteamCMD).
+#   2. Pack the modpack DETERMINISTICALLY (scripts/pack-modpack.sh) → zip + sha256.
+#   3. Create/refresh the GitHub Release for THIS tag and upload the assets.
+#      (Each tag owns its own asset — we never mutate a previously-shipped one.)
+#   4. Open a PR against main that bumps installer.ps1's ExpectedSha256 to the
+#      new hash. The PR is Daniel's gate. CRUCIAL: until he merges it, the live
+#      installer keeps pinning the PREVIOUS hash and keeps serving the PREVIOUS
+#      asset — which still exists — so there is never a moment where the public
+#      one-liner is broken. Publish-then-PR, not mutate-then-scramble.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)build a release for, e.g. v0.1.0-playtest'
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # create releases, upload assets
+  pull-requests: write   # open the installer-pin bump PR
+
+env:
+  VALHEIM_SERVER_APPID: '896660'
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (the tag)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+          fetch-depth: 0
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Compute weekly cache epoch
+        id: weekstamp
+        run: echo "week=$(( $(date +%s) / 604800 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Valheim server assemblies
+        id: cache-valheim
+        uses: actions/cache@v5
+        with:
+          path: ~/valheim-server/valheim_server_Data/Managed
+          key: valheim-managed-${{ env.VALHEIM_SERVER_APPID }}-week${{ steps.weekstamp.outputs.week }}
+          # Prefix fallback: even when the exact key differs from CI's (CI embeds a
+          # workflow-file hash and the week epoch rolls), restore ANY recent
+          # valheim-managed-<appid>-* cache so Release reuses a warm Managed folder
+          # instead of always cold-fetching via the flaky SteamCMD path. Defence in
+          # depth alongside the hardened fetch step below — see the 2026-06-06
+          # release-workflow-steamcmd investigation. (Cache scoping still applies: a
+          # tag ref reads default-branch + its own caches; the retry step covers the
+          # case where no readable warm cache exists.)
+          restore-keys: |
+            valheim-managed-${{ env.VALHEIM_SERVER_APPID }}-
+
+      - name: Install SteamCMD + fetch server assemblies (on cache miss)
+        if: steps.cache-valheim.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo add-apt-repository -y multiverse
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          echo steam steam/question select "I AGREE" | sudo debconf-set-selections
+          echo steam steam/license note '' | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y steamcmd
+          # The Steam fetch is the flaky step that has failed every recent Release
+          # run (transient apt mirror / Steam rate-limit-timeout / runner disk
+          # pressure during a multi-hundred-MB pull). Harden per the 2026-06-06
+          # investigation: (1) retry up to 3× with linear backoff, (2) loop on the
+          # ARTIFACT existing — not steamcmd's exit code, which it lies about — and
+          # (3) drop `validate` (it re-hashes every file: slower + more
+          # timeout-prone; the anonymous download is already Steam-integrity-checked).
+          MANAGED="$HOME/valheim-server/valheim_server_Data/Managed"
+          n=0
+          until [ -f "$MANAGED/assembly_valheim.dll" ] || [ "$n" -ge 3 ]; do
+            n=$((n+1))
+            echo "::group::steamcmd attempt $n/3"
+            steamcmd +force_install_dir "$HOME/valheim-server" \
+                     +login anonymous \
+                     +app_update "$VALHEIM_SERVER_APPID" \
+                     +quit || true
+            echo "::endgroup::"
+            [ -f "$MANAGED/assembly_valheim.dll" ] && break
+            echo "attempt $n did not produce the Managed assemblies; sleeping $((n*15))s before retry"
+            sleep $((n*15))
+          done
+          # Real success gate — the DLL is present or the step fails loudly.
+          ls "$MANAGED/assembly_valheim.dll"
+
+      - name: Configure build reference paths
+        run: |
+          echo "VALHEIM_MANAGED=$HOME/valheim-server/valheim_server_Data/Managed" >> "$GITHUB_ENV"
+          bash scripts/fetch-sdk.sh
+          echo "BEPINEX_CORE=$GITHUB_WORKSPACE/.sdk/BepInExPack_Valheim/BepInEx/core" >> "$GITHUB_ENV"
+
+      - name: Build (Release)
+        run: |
+          dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release
+          test -f src/SBPR.Trailborne/bin/Release/SBPR.Trailborne.dll
+
+      - name: Pack modpack (deterministic)
+        id: pack
+        run: |
+          set -euo pipefail
+          bash scripts/pack-modpack.sh \
+            --dll src/SBPR.Trailborne/bin/Release/SBPR.Trailborne.dll \
+            --out dist | tee pack.out
+          grep -E '^MODPACK_(ZIP|SHA256|VERSION)=' pack.out >> "$GITHUB_OUTPUT"
+
+      - name: Create / update the release for THIS tag and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.name }}'
+          ZIP='${{ steps.pack.outputs.MODPACK_ZIP }}'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists — uploading/refreshing assets (clobber)."
+            gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
+          else
+            echo "Creating release $TAG."
+            gh release create "$TAG" "$ZIP" "$ZIP.sha256" \
+              --title "Trailborne $TAG" \
+              --notes "Automated Trailborne modpack release for \`$TAG\`.
+
+          **Modpack SHA256:** \`${{ steps.pack.outputs.MODPACK_SHA256 }}\`
+
+          The companion PR bumping \`installer.ps1\`'s pinned checksum is opened
+          automatically — merge it to point the public one-liner at this build.
+          Until then the previous release keeps serving safely."
+          fi
+
+      # ── Open the installer-pin bump as a PR (Daniel's gate). Safe to sit:
+      # the live installer keeps pinning the OLD hash / serving the OLD asset
+      # until this merges. No broken window. ────────────────────────────────
+      - name: Bump installer.ps1 pinned SHA on a branch
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NEWSHA='${{ steps.pack.outputs.MODPACK_SHA256 }}'
+          TAG='${{ steps.tag.outputs.name }}'
+          ZIP='${{ steps.pack.outputs.MODPACK_ZIP }}'
+          # The installer must pin BOTH the URL and the SHA of the SAME published
+          # asset. A SHA-only bump (the bug fixed here, 2026-06-07) leaves ModpackUrl
+          # pointing at the PREVIOUS tag's zip → installer downloads the old zip,
+          # checks it against the new hash → checksum-mismatch abort on every install.
+          # Reconstruct the new asset URL from the tag + the actual packed filename.
+          ZIPNAME="$(basename "$ZIP")"
+          NEWURL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ZIPNAME}"
+          git fetch origin main
+          git checkout -B "chore/installer-sha-${TAG}" origin/main
+          OLDSHA=$(grep -oE "ExpectedSha256=[^,]*'[0-9a-f]{64}'" installer.ps1 | grep -oE '[0-9a-f]{64}' || true)
+          OLDURL=$(grep -oE "ModpackUrl[^,]*'https://[^']*'" installer.ps1 | grep -oE "https://[^']*" || true)
+          if [ "$OLDSHA" = "$NEWSHA" ] && [ "$OLDURL" = "$NEWURL" ]; then
+            echo "Installer already pins ${TAG} (URL + SHA match) — no PR needed."
+            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Bump BOTH lines. Use '|' as the sed delimiter for the URL (it contains '/').
+          sed -i -E "s/(ExpectedSha256= ')[0-9a-f]{64}(')/\1${NEWSHA}\2/" installer.ps1
+          sed -i -E "s|(ModpackUrl    = ')https://[^']*(')|\1${NEWURL}\2|" installer.ps1
+          # Verify BOTH landed — fail loudly if either didn't (prevents a half-pin).
+          grep -q "$NEWSHA" installer.ps1 || { echo "sed failed to update SHA"; exit 1; }
+          grep -qF "$NEWURL" installer.ps1 || { echo "sed failed to update URL"; exit 1; }
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(installer): pin modpack URL + SHA256 for ${TAG}
+
+          Auto-generated by the release workflow. Points the client installer at
+          the freshly-published ${TAG} modpack asset (both URL and checksum).
+
+            old url: ${OLDURL:-<none>}
+            new url: ${NEWURL}
+            old sha: ${OLDSHA:-<none>}
+            new sha: ${NEWSHA}"
+          git push -u origin "chore/installer-sha-${TAG}" --force
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open the installer-pin PR
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.name }}'
+          NEWSHA='${{ steps.pack.outputs.MODPACK_SHA256 }}'
+          gh pr create \
+            --base main \
+            --head "chore/installer-sha-${TAG}" \
+            --title "chore(installer): pin modpack SHA256 → ${TAG}" \
+            --body "Automated by the release workflow after publishing the **${TAG}** modpack.
+
+          Bumps \`installer.ps1\`'s \`ExpectedSha256\` to the new artifact:
+          \`\`\`
+          ${NEWSHA}
+          \`\`\`
+
+          **Safe to review unhurried.** The previously-released asset is still
+          published and the live installer still pins the previous hash, so the
+          public one-liner keeps working until you merge this. Merging flips the
+          installer to serve the ${TAG} build. (This is the ordering that avoids
+          the 2026-06-04 broken-window: publish-then-PR, never mutate-then-pin.)
+
+          🤖 Generated by .github/workflows/release.yml"
