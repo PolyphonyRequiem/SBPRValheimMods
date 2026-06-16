@@ -79,6 +79,25 @@ namespace SBPR.Trailborne
         // NoMapEnforcer.ShouldEnforceNoMap; the boot-log fires either way (the honesty rule).
         internal static ConfigEntry<bool>  EnforceNoMap           = null!;  // set in Awake via Config.Bind
 
+        // ── v3 Swamp: Sunstone Lens (solar-charged detection trinket, card t_2fd7bc7f) ──
+        // The charge economy + detection are LIVE config so Daniel can tune the "top up in the
+        // open, spend in the dark" rhythm on a joined client without a rebuild (the design
+        // note's open "charge economy" knob). Nullable + ?.Value-accessed from the feature so a
+        // no-Plugin unit context falls back to SunstoneLens.Default* consts (single source of
+        // truth). Bound in Awake.
+        internal static ConfigEntry<float>? LensMaxCharge     = null;  // battery capacity (durability max)
+        internal static ConfigEntry<float>? LensDrainPerSec   = null;  // ↓ charge/sec while worn & not charging
+        internal static ConfigEntry<float>? LensChargePerSec  = null;  // ↑ charge/sec while in the sun
+        internal static ConfigEntry<float>? LensDetectRadius  = null;  // metres; hostiles within are revealed
+        internal static ConfigEntry<float>? LensDetectInterval = null; // seconds between detection sweeps
+        // Optional clear-weather env-name allowlist (comma-separated config → this set). EMPTY
+        // (default) means the recharge gate is driven purely by EnvSetup.m_isWet + IsDaylight()
+        // (the env names are authored in Unity assets, not the decomp, so we don't hardcode them).
+        // A server MAY pin specific clear env names to exclude a dry-but-dim weather.
+        internal static readonly System.Collections.Generic.HashSet<string> LensClearWeatherNames =
+            new System.Collections.Generic.HashSet<string>();
+        internal static ConfigEntry<string>? LensClearWeatherNamesRaw = null;
+
         private void Awake()
         {
             Log = Logger;
@@ -262,6 +281,37 @@ namespace SBPR.Trailborne
                 "let the vanilla global map coexist (debug / non-cartography server). The Mistlands tier " +
                 "advancement lifts NoMap independently of this flag.");
 
+            // v3 Swamp — Sunstone Lens charge economy + detection (card t_2fd7bc7f). Defaults
+            // mirror SunstoneLens.Default* consts (single source of truth). A full 100-unit
+            // battery ≈ 5 min of detection / ≈ 1.7 min of sun to refill — the "top up in the
+            // open, spend in the Swamp's dark" rhythm. Live-tunable per the charge-economy knob.
+            LensMaxCharge = Config.Bind(
+                "SunstoneLens", "MaxCharge", SBPR.Trailborne.Features.Sunstone.SunstoneLens.DefaultMaxCharge,
+                "Battery capacity of the Sunstone Lens (its max durability = max stored sunlight).");
+            LensDrainPerSec = Config.Bind(
+                "SunstoneLens", "DrainPerSecond", SBPR.Trailborne.Features.Sunstone.SunstoneLens.DefaultDrainPerSec,
+                "Charge drained per second while the Lens is worn and NOT recharging (constant, independent of detected count).");
+            LensChargePerSec = Config.Bind(
+                "SunstoneLens", "ChargePerSecond", SBPR.Trailborne.Features.Sunstone.SunstoneLens.DefaultChargePerSec,
+                "Charge gained per second while in clear daylight, dry, outdoors, outside the Swamp.");
+            LensDetectRadius = Config.Bind(
+                "SunstoneLens", "DetectRadius", SBPR.Trailborne.Features.Sunstone.SunstoneLens.DefaultDetectRadius,
+                "Radius (metres) within which the charged Lens reveals hostile creatures.");
+            LensDetectInterval = Config.Bind(
+                "SunstoneLens", "DetectIntervalSeconds", SBPR.Trailborne.Features.Sunstone.SunstoneLens.DefaultDetectInterval,
+                "Seconds between detection sweeps (HUD-driven; lower = snappier, slightly costlier).");
+            LensClearWeatherNamesRaw = Config.Bind(
+                "SunstoneLens", "ClearWeatherNames", "",
+                "OPTIONAL comma-separated allowlist of clear/sunny weather env names that count as 'sun' for " +
+                "recharging. EMPTY (default) means any non-wet daylight weather recharges (driven by EnvSetup.m_isWet). " +
+                "Pin specific names only to exclude a dry-but-dim weather.");
+            LensClearWeatherNames.Clear();
+            foreach (var raw in (LensClearWeatherNamesRaw.Value ?? "").Split(','))
+            {
+                var nm = raw.Trim();
+                if (nm.Length > 0) LensClearWeatherNames.Add(nm);
+            }
+
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
@@ -427,6 +477,20 @@ namespace SBPR.Trailborne
             // registered here or it ships dead and PatchCheck ERRORs at boot (the t_564f695a
             // unregistered-patch lesson).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.SurveyorTableHotbarImprintPatch));
+
+            // v3 Swamp — Sunstone Lens (card t_2fd7bc7f). Two client-relevant patches:
+            //  • SunstoneLens.DrainGate: Prefix on the PRIVATE Humanoid.DrainEquipedItemDurability
+            //    (:13227) that takes over the per-tick durability change for OUR lens — drains at a
+            //    fixed rate or RECHARGES in the sun, clamps to [0,max], and skips vanilla so the
+            //    lens never breaks/unequips/destroys at zero (AC#5 inert-not-consumed). Pure
+            //    pass-through for every other item / non-local player; inert on the dedicated server.
+            //  • SunstoneLensHudOverlay.HudBootstrap: Postfix on Hud.Awake that builds the
+            //    client-only detection HUD overlay under Hud.m_rootObject (the Iron Compass render
+            //    doctrine — NoMap-safe, unlike minimap pins). Never fires on the dedicated server.
+            // Both MUST be registered here or they ship dead and PatchCheck ERRORs at boot (the
+            // unregistered-patch lesson). Nested patch containers are registered by their declaring type.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Sunstone.SunstoneLens.DrainGate));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.HudBootstrap));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
