@@ -31,6 +31,16 @@ Planning artifacts for the Black Forest tier. Same role as
   ore-ban. Calls out the **`PortalPrefabHash` registration** the design missed (without it
   portals place + grow but never tag-pair). SpecCheck delta = **+2** (1 item recipe + 1
   piece).
+- **`map-provider-binding-impl-spec.md`** — the buildable *how* for the **equipped-local-map
+  provider binding + carry-state minimap disc** (design lock:
+  [`../../design/map-provider-model.md`](../../design/map-provider-model.md) §2/§3.2/§6/§7).
+  The provider state machine (equip = provider, survives unequip, unbinds on re-equip /
+  leave-inventory / death, most-recent-equipped-still-carried wins) feeding a **circular
+  rotate-to-heading minimap disc** that reuses the §2H.1 viewer at minimap scale (inherits the
+  #159 edge-bleed clip), gated to nomap-ON so it does not displace the vanilla minimap in
+  nomap-off. Refrains card `t_1d1b505b` (issue 5 "carry disc"). One render question — disc
+  **centring** (§7 "player-centered" vs §2H.1 "table-centred") — is left **OPEN for Daniel**.
+  SpecCheck delta = **+0** (presentation + provider state on existing prefabs).
 
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
