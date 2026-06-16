@@ -103,8 +103,19 @@ DO need a per-frame re-apply.** `m_iconElement` is a uGUI `Image` → `.color` i
 settable, but `UpdatePins` **forces `pin.m_iconElement.color` every frame**
 (:47834, `color2 = (m_ownerID != 0) ? grey : Color.white`) and the label color
 likewise. So a custom tint would be stomped each frame and require a re-apply pass.
-**Q1 defers color**, so this re-apply pass is **out of scope for the first cut** —
-but the WorldPin model reserves the color fields so the fast-follow is cheap.
+**Q1 defers color**, so this re-apply pass was out of scope for the first cut — but the
+WorldPin model reserved the color fields so the fast-follow was cheap.
+
+> **✅ IMPLEMENTED (color fast-follow, card t_3d7aaa90).** The reserved fields are now
+> active: per-pin icon tint + label text color, stored as HTML hex in
+> `SBPR_PinIconColor`/`SBPR_PinTextColor` (no ZDO migration), re-applied each pin rebuild
+> by a `Minimap.UpdatePins` postfix → `WorldPins.ReapplyColors` (the predicted re-apply
+> pass), edited via two swatch rows in `MarkerSignPanel`. Pillar 2 is preserved: color is
+> an optional personal convenience layered on the TYPE icon, unset = today's default. Full
+> spec: impl-spec §8. **Caveat:** vanilla only draws pin *labels* on the large map, which
+> the v1 minimap-circle MVP nerfs — so the **icon tint shows now**, the **label color is
+> wired/persisted but only renders once the large-map/viewer target is live** (same
+> deferral shape as the rest of the large-map WorldPin story).
 
 **V3 — Vanilla pins live in the PLAYER PROFILE, client-side, not world state.**
 `Minimap` saves/loads pins via `Game.instance.GetPlayerProfile().SetMapData /

@@ -23,9 +23,15 @@ namespace SBPR.Trailborne.Features.MarkerSigns
     ///     write, the same pattern as SBPR_Pinned. 🔒 LOCKED wire contract — never rename
     ///     (a rename orphans the custom name on every placed marker). An existing marker
     ///     that never wrote a name reads "" and the fallback takes over (AT-MARKER-NAME-6).
-    ///   • SBPR_PinIconColor (string) — RESERVED, unused in the first cut (Q1 defers per-
-    ///     pin color). Reserved now so the color fast-follow needs no ZDO migration.
-    ///   • SBPR_PinTextColor (string) — RESERVED, unused in the first cut. Same.
+    ///   • SBPR_PinIconColor (string) — per-pin icon TINT as an HTML hex string
+    ///     ("#RRGGBB"; "" = unset = vanilla white/default). Owner-write, the same pattern
+    ///     as SBPR_PinName. Read by WorldPins.ReapplyColors and re-stamped on every pin
+    ///     rebuild to defeat vanilla Minimap.UpdatePins' per-rebuild white stomp
+    ///     (impl-spec §8). 🔒 LOCKED wire contract — never rename. Activated by the color
+    ///     fast-follow (card t_3d7aaa90); NO ZDO migration (the key was reserved at the
+    ///     first cut, so a pre-existing marker reads "" and renders the default).
+    ///   • SBPR_PinTextColor (string) — per-pin label TEXT color, identical hex format +
+    ///     unset rules. Same owner-write pattern, same re-apply pass, same locked contract.
     ///
     /// 🔴 Destroy hook (design §4.3 / impl-spec §4.2): we subscribe the marker's
     /// <c>WearNTear.m_onDestroyed</c> — a PUBLIC <c>Action</c> field fired owner-side
@@ -172,6 +178,49 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             if (nview == null || nview.GetZDO() == null) return false;
             if (!nview.IsOwner()) nview.ClaimOwnership();
             nview.GetZDO().Set(MarkerSigns.ZdoPinName, name ?? "");
+            return true;
+        }
+
+        /// <summary>Current per-pin icon TINT from the ZDO as an HTML hex string ("" on the
+        /// ghost / no ZDO / unset). Empty is the canonical "unset" sentinel; the color
+        /// re-apply pass (WorldPins.ReapplyColors) leaves the pin at vanilla white when this
+        /// is empty (impl-spec §8 — the default type-coded rendering). The key was reserved
+        /// at the first cut, so a pre-existing marker that never wrote a color reads "" with
+        /// no NRE / orphan — no ZDO migration.</summary>
+        public string ReadPinIconColor()
+        {
+            if (nview == null || nview.GetZDO() == null) return "";
+            return nview.GetZDO().GetString(MarkerSigns.ZdoPinIconColor, "");
+        }
+
+        /// <summary>Owner-write the per-pin icon tint (an HTML hex string, or "" to clear
+        /// back to the default). Returns false if the ZDO isn't ready (ghost / uninitialised).
+        /// Mirrors WritePinName's owner-claim shape verbatim; a null hex coerces to "" (unset).
+        /// The value lives in the marker-sign ZDO, so it persists across relog/restart and
+        /// replicates to other clients with the rest of the marker's ZDO state.</summary>
+        public bool WritePinIconColor(string hex)
+        {
+            if (nview == null || nview.GetZDO() == null) return false;
+            if (!nview.IsOwner()) nview.ClaimOwnership();
+            nview.GetZDO().Set(MarkerSigns.ZdoPinIconColor, hex ?? "");
+            return true;
+        }
+
+        /// <summary>Current per-pin label TEXT color from the ZDO as an HTML hex string ("" =
+        /// unset = vanilla white). Same contract as <see cref="ReadPinIconColor"/>.</summary>
+        public string ReadPinTextColor()
+        {
+            if (nview == null || nview.GetZDO() == null) return "";
+            return nview.GetZDO().GetString(MarkerSigns.ZdoPinTextColor, "");
+        }
+
+        /// <summary>Owner-write the per-pin label text color (HTML hex, or "" to clear). Same
+        /// owner-claim + null-coercion shape as <see cref="WritePinIconColor"/>.</summary>
+        public bool WritePinTextColor(string hex)
+        {
+            if (nview == null || nview.GetZDO() == null) return false;
+            if (!nview.IsOwner()) nview.ClaimOwnership();
+            nview.GetZDO().Set(MarkerSigns.ZdoPinTextColor, hex ?? "");
             return true;
         }
 
