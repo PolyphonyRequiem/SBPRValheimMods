@@ -428,6 +428,15 @@ namespace SBPR.Trailborne
             // unregistered-patch lesson).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.SurveyorTableHotbarImprintPatch));
 
+            // ⚠️ THROWAWAY PHASE-0 SPIKE (card t_5baa81c9) — water-repel divot feasibility. ⚠️
+            // Wired ONLY on the spike/water-repel-drought-t_5baa81c9 branch. Do NOT merge to v1.
+            // Two [HarmonyPatch] classes (the GetWaterSurface postfix + the `drought` console
+            // command); BOTH must be registered or PatchCheck.Run() ERRORs at boot (the
+            // unregistered-patch lesson). Source of truth: docs/design/stone-of-drought-feasibility.md.
+            // Remove this block (and src/SBPR.Trailborne/Spike/) before any real Phase-1 build.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Spike.WaterRepelSpike));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Spike.WaterRepelSpikeCommand));
+
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
             // Patch-registration watchdog (sibling of SpecCheck, card t_e8d24102). MUST be
