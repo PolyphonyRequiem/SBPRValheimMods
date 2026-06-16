@@ -5,6 +5,7 @@ using SBPR.Trailborne.Features.Cairns;
 using SBPR.Trailborne.Features.MarkerSigns;
 using SBPR.Trailborne.Features.Cartography;
 using SBPR.Trailborne.Features.Portals;
+using SBPR.Trailborne.Features.Sunstone;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -154,6 +155,31 @@ namespace SBPR.Trailborne.Runtime
             new RecipeSpec {
                 Piece = Portals.PortalPieceName, Station = null,
                 Resources = new[] { R(Portals.SeedItemName, 1) }
+            },
+            // ── v3 Swamp: Sunstone material + Sunstone Lens (card t_2fd7bc7f) ──
+            // Sunstone — standalone Material resource. PROVISIONAL craft recipe (placeholder so it
+            // is obtainable today; intended source is loot — swamp surface chests + rare Draugr
+            // Elite drop, with a Daniel-reserved rarity knob — split to a follow-up card). The
+            // craft is Iron ×1 + Crystal ×2 at the Explorer's Bench. If this recipe changes (or is
+            // removed when the loot economy lands), this row + docs/v3 spec §6 move together.
+            new RecipeSpec {
+                Item = SunstoneLens.SunstoneName, Station = "piece_sbpr_explorers_bench", Amount = 1,
+                Resources = new[] {
+                    R("Iron", SunstoneLens.SunstoneIronCost),
+                    R("Crystal", SunstoneLens.SunstoneCrystalCost),
+                }
+            },
+            // Sunstone Lens — additive Trinket accessory, crafted at the Explorer's Bench from
+            // Sunstone ×2 + Iron ×1 + Guck ×3, amount 1. Sunstone referenced via the const so a
+            // rename can't drift the recipe; it registers into ODB earlier in the same wiring pass.
+            // Item-only shape (Station + Amount set; Piece null). LOCKED per docs/v3 spec §0/§6.
+            new RecipeSpec {
+                Item = SunstoneLens.LensName, Station = "piece_sbpr_explorers_bench", Amount = 1,
+                Resources = new[] {
+                    R(SunstoneLens.SunstoneName, SunstoneLens.LensSunstoneCost),
+                    R("Iron", SunstoneLens.LensIronCost),
+                    R("Guck", SunstoneLens.LensGuckCost),
+                }
             },
         };
 
