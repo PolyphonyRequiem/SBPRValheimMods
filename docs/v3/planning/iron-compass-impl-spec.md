@@ -1,6 +1,6 @@
 ---
 title: "Iron Compass — HUD compass overlay, the earned no-map orientation payoff (v3 impl spec)"
-status: implemented
+status: current
 purpose: "Build-ready architect spec for the v3 Swamp-tier Iron Compass: a worn Trinket accessory whose HUD overlay finally grants the cardinal orientation the no-map pillar deliberately withholds — WITHOUT ever touching the local map. Converts the locked design (docs/design/nomap.md §8, requirements.md §566, PARKED §v3) + card t_d35405e3 acceptance criteria into a buildable HOW: the additive ItemDrop, the Hud.Awake postfix that mounts an SBPR_CompassHud UGUI overlay under Hud.instance.m_rootObject, the camera-yaw-driven needle with lag, the pitch→tilt map, and the equip-gate. Corrects the design doc's HaveItem carry-gate to the GetEquippedItems() slot equip-gate the Cartographer's Kit already proves in-repo, and surfaces the card's misread of requirements.md:696 (custom mesh is DEFERRED to v0.2+, not mandated) as an open question for Daniel. Authored by the architect spec-pass (card t_d35405e3); Daniel gates the merge. IMPLEMENTED in card t_ee61472f (2026-06-17) — Daniel's Q1–Q4 answers folded in (recipe Iron×4/Ooze×2/RedPigment×1; sprite HUD, world mesh deferred; lerp lag Config.Bind-tunable; anchor a Config enum default TopCenter, NoMap-safe, extensible to the carry-disc + Eye-of-Odin minimap)."
 ---
 
