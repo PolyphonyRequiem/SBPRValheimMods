@@ -46,8 +46,18 @@ namespace SBPR.Trailborne.Features.Cartography
         private float _nextPoll;
 
         // Last-seen state, so we only act (open/close/log) on a transition.
-        private bool _hadMapCarried;
         private bool _hadMapEquipped;
+
+        // §3 (map-provider-binding-impl-spec): the PROVIDER — the active provider Local Map
+        // instance, or null. Identity is the ItemData INSTANCE reference (not prefab/display name —
+        // every SBPR_LocalMap shares those). The instance is stable while the item lives in the
+        // inventory, which is exactly the provider's lifetime. Client-only, session-scoped (null on
+        // relog until the player next equips a map — §3.1). Survives unequip while still carried.
+        private ItemDrop.ItemData? _provider;
+
+        // §4.3/§4.4: disc bind transition tracker, so we log bind/unbind once (not every poll) and
+        // can tear down on the unbind edge. Mirrors the old _hadMapCarried transition style.
+        private bool _minimapBound;
 
         // Singleton-ish: the live controller, so the equip patch / table can query state.
         public static LocalMapController? Instance { get; private set; }
@@ -80,7 +90,7 @@ namespace SBPR.Trailborne.Features.Cartography
             var player = Player.m_localPlayer;
             if (player == null)
             {
-                if (_hadMapCarried || _hadMapEquipped) ClearBinding("no local player");
+                if (_minimapBound || _hadMapEquipped || _provider != null) ClearBinding("no local player");
                 _equippedMap = null; _mapEquipped = false;
                 return;
             }
@@ -120,50 +130,112 @@ namespace SBPR.Trailborne.Features.Cartography
                     OpenFullView(_equippedMap);
             }
 
-            // ── THROTTLED: the heavier inventory/equip state scan + transitions ──
+            // ── THROTTLED: provider state machine (§3) + disc bind/unbind drive (§4.4, §5) ──
             float now = Time.realtimeSinceStartup;
             if (now < _nextPoll) return;
             _nextPoll = now + PollSeconds;
 
             var equippedMap = GetEquippedLocalMap(player);
-            var carriedMap  = equippedMap ?? GetCarriedLocalMap(player);
             _equippedMap = equippedMap;
-
-            bool mapCarried  = carriedMap != null;
             bool mapEquipped = equippedMap != null;
             _mapEquipped = mapEquipped;
 
-            // ── Transition: carried-state changed (AT-MAP-DURABLE) ──
-            if (mapCarried != _hadMapCarried)
+            // ── §3 PROVIDER STATE MACHINE ───────────────────────────────────────────────
+            // §3.2 BIND: equipping a map (that isn't already the provider) makes it the provider —
+            //   this IS the most-recent-equipped tie-break (equip A → A; later equip B → B). No
+            //   separate equip hook: assigning on "equipped ≠ provider" is sufficient.
+            if (mapEquipped && !ReferenceEquals(equippedMap, _provider))
             {
-                if (mapCarried)
-                    Plugin.Log.LogInfo("[Trailborne/Cartography] Local Map bound (in inventory) — minimap follows its 1000 m disc.");
-                else if (!tableViewOwnsViewer)
-                    ClearBinding("map left inventory");
-                _hadMapCarried = mapCarried;
+                _provider = equippedMap;
+                Plugin.Log.LogInfo("[Trailborne/Cartography] Local Map provider set (equipped).");
+            }
+            // §3.3 HOLD / §3.4 UNBIND: with a provider but none equipped this poll, the provider
+            //   persists ONLY while still carried. The single ContainsItem check covers all three
+            //   unbind paths (drop / trade / death all remove the instance from the live inventory).
+            else if (_provider != null)
+            {
+                var inv = player.GetInventory();
+                if (inv == null || !inv.ContainsItem(_provider))
+                {
+                    _provider = null; // §3.4 unbind — disc torn down below on the bind-state transition
+                    Plugin.Log.LogInfo("[Trailborne/Cartography] Local Map provider cleared (left inventory).");
+                }
             }
 
-            // ── Transition: equipped-state changed (AT-MAP-EQUIP) ── close on unequip.
+            // ── §4.4 + §5 DISC DRIVE: render the disc iff (provider bound + imprinted + nomap ON). ──
+            // §5: gate the RENDER (not the provider) on the live client nomap flag. In nomap-OFF the
+            //   vanilla global minimap owns the corner — the local-map disc must stand down there
+            //   (design §6). The provider machine above still runs in both modes (the full view +
+            //   future dual-write key on it); only the minimap render is nomap-on-gated.
+            bool shouldBindDisc = _provider != null
+                                  && Game.m_noMap                       // §5 — nomap-ON only
+                                  && LocalMap.IsImprinted(_provider!)   // §3.5 — blank provider shows no disc
+                                  && LocalMap.ReadSurvey(_provider!) != null;
+
+            if (shouldBindDisc)
+                DriveMinimapDisc(_provider!);
+            else
+                UnbindMinimapDisc();
+
+            // ── Transition: equipped-state changed (AT-MAP-EQUIP) ── close the FULL VIEW on unequip.
+            // (The disc is independent — it stays bound to the still-carried provider underneath.)
             if (mapEquipped != _hadMapEquipped)
             {
                 if (!mapEquipped && !tableViewOwnsViewer) CloseFullView("map unequipped");
                 _hadMapEquipped = mapEquipped;
             }
 
-            // Keep the viewer's bound survey fresh while equipped (the imprinted snapshot is
-            // static, but the player marker / WorldPins reconcile move — the viewer redraws).
-            // Only when WE own the open viewer (field mode), never over a Table session.
+            // Keep the full view's bound survey fresh while equipped + WE own the open viewer.
             if (mapEquipped && CartographyViewer.IsViewerOpen
                 && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly)
                 RefreshOpenView(equippedMap!);
 
-            // §2G.2: the equipped HUD prompt ("[E] Open map") so a held map never reads as an
-            // inert hoe. Shown only while a map is EQUIPPED and the field viewer is NOT open
-            // (the open-prompt and the viewer's own "[Esc] Close map" exit prompt are mutually
-            // exclusive). Refreshed on the poll cadence — cheap, no need every frame.
+            // §2G.2: the equipped HUD prompt ("[E] Open map"). Shown only while EQUIPPED and the
+            // field viewer is NOT open.
             bool fieldViewOpen = CartographyViewer.IsViewerOpen
                                  && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly;
             UpdateEquippedPrompt(mapEquipped && !fieldViewOpen);
+        }
+
+        // ── §4.4 disc bind/unbind helpers (drive the carry minimap from provider state) ──
+
+        /// <summary>
+        /// §4.4: build the MapViewRequest for the provider's imprinted survey and (idempotently) show
+        /// + refresh the carry minimap disc. Logs once on the bind transition (not every poll). The
+        /// viewer renders it player-centred (R1), table-anchored shroud, no edge-arrow.
+        /// </summary>
+        private void DriveMinimapDisc(ItemDrop.ItemData provider)
+        {
+            var survey = LocalMap.ReadSurvey(provider);
+            if (survey == null) { UnbindMinimapDisc(); return; } // defensive — gate already checked
+
+            LocalMap.TryGetBoundOrigin(provider, out var origin);
+            CartographyViewer.BindMinimap(new MapViewRequest
+            {
+                Survey       = survey,
+                BoundOrigin  = origin,
+                RadiusMeters = SurveyRadiusMeters,
+                Mode         = MapViewerMode.FieldReadOnly, // read-only; the viewer also forces this
+                PinEditor    = null,
+                Title        = string.Empty,                // a minimap shows no cartouche
+                Minimap      = true,
+            });
+
+            if (!_minimapBound)
+            {
+                _minimapBound = true;
+                Plugin.Log.LogInfo("[Trailborne/Cartography] Carry minimap disc bound (provider imprinted, nomap on).");
+            }
+        }
+
+        /// <summary>§4.3: tear the disc down on the unbind transition (provider cleared / blank /
+        /// nomap-off). Idempotent — only logs + calls UnbindMinimap on the bound→unbound edge.</summary>
+        private void UnbindMinimapDisc()
+        {
+            if (!_minimapBound) return;
+            _minimapBound = false;
+            CartographyViewer.UnbindMinimap();
+            Plugin.Log.LogInfo("[Trailborne/Cartography] Carry minimap disc unbound.");
         }
 
         /// <summary>
@@ -310,7 +382,8 @@ namespace SBPR.Trailborne.Features.Cartography
         private void ClearBinding(string why)
         {
             CloseFullView(why);
-            _hadMapCarried = false;
+            UnbindMinimapDisc();   // §4.3 tear the disc down with the rest of the binding
+            _provider = null;       // §3.4 the provider is gone (no player / world teardown)
             _hadMapEquipped = false;
         }
 
@@ -326,16 +399,11 @@ namespace SBPR.Trailborne.Features.Cartography
             return null;
         }
 
-        /// <summary>Any carried Local Map instance (equipped or not), or null.</summary>
-        private static ItemDrop.ItemData? GetCarriedLocalMap(Player player)
-        {
-            var inv = player.GetInventory();
-            if (inv == null) return null;
-            List<ItemDrop.ItemData> all = inv.GetAllItems();
-            foreach (var it in all)
-                if (IsLocalMap(it)) return it;
-            return null;
-        }
+        // NOTE (§8): GetCarriedLocalMap was RETIRED in the provider-binding rework. Its "first
+        // carried map in inventory" selection is wrong for the provider model — the provider is the
+        // most-recently-EQUIPPED still-carried map (§3.3), tracked as an instance reference in
+        // _provider, not re-derived by scanning the inventory each poll. Carry-presence is now tested
+        // via Inventory.ContainsItem(_provider) (§3.4), so no "find any carried map" probe is needed.
 
         private static bool IsLocalMap(ItemDrop.ItemData? item)
         {

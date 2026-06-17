@@ -430,6 +430,19 @@ with the Table via the `CartographyViewer` seam).
 
 #### 2A.4 Binding durability (D1 / C3)
 
+> **🟢 CARRY PATH NOW RENDERS (2026-06-16, map-provider-binding-impl-spec, card t_7dd54899).**
+> §2A.4's "minimap binding is durable while carried" is now realized as an actual rendered
+> **circular minimap disc**, not just controller state + a log line. The carry selection is the
+> **provider state machine** (map-provider-binding-impl-spec §3): the provider is the
+> most-recently-**equipped** still-carried Local Map (instance identity, not "first in
+> inventory"); it persists through unequip while `Inventory.ContainsItem` holds and unbinds on
+> drop/trade/death. While bound **and nomap is ON** (§5), `LocalMapController` drives
+> `CartographyViewer.BindMinimap` → the disc renders the provider's 1000 m survey via a scaled,
+> player-centred instance of the §2H.1 viewer (see §2H.1 banner). The old `GetCarriedLocalMap`
+> "first carried" probe is **retired**. Read map-provider-binding-impl-spec before touching the
+> carry/provider path — it supersedes the "hook inventory-changed; first carried map" wording in
+> the bullets below.
+
 > **⚠️ OPEN PATH SUPERSEDED (2026-06-11, issue 7 → §2F).** The §2 IMPL STATUS banner above
 > and the last bullet below originally said the Local Map's full view is ACTIVATED by the
 > vanilla **"Map" button** ("otherwise dead under nomap"). Daniel's v0.2.19-playtest proves
@@ -1704,6 +1717,30 @@ code move together in that PR.
 > worker owns the whole transform model) both STAND; only the *centring* model inverts.
 
 #### 2H.1 — Orientation-model re-lock: fixed-window, TABLE-centred, circular (issues #2/#3/#4/#9, 2026-06-12, card t_05e702ee)
+
+> **🟢 VIEWER NOW INSTANCED AT TWO SCALES (2026-06-16, map-provider-binding-impl-spec, card
+> t_7dd54899).** This §2H.1 circular viewer is now factored into a shared surface (`MapSurface`)
+> built ONCE and instanced twice: (a) the **full-screen MODAL** full view — table-centred,
+> backdrop + Esc/title prompts, the playtested §2H.1 behaviour **unchanged**; and (b) a small,
+> corner-anchored, passive **carry minimap DISC** that reuses the SAME layer tree + #159 hard
+> alpha-clip bezel (bezel inset/ring now parameterized by **fraction-of-target-edge**, so the
+> ~200 px disc scales the clip down instead of inheriting 900 px-absolute insets). One renderer,
+> two configs — never a parallel circular implementation.
+>
+> **🔴 R1 — the DISC centring DIVERGES from §2H.1's table-centred lock (Daniel, 2026-06-16, card
+> t_1d1b505b thread).** §2H.1 mechanic 1 (table-centred, no pan) and mechanic 2 (off-disc
+> edge-arrow) remain the lock **for the full-view MODAL**. The **disc** does NOT inherit them:
+> Daniel resolved R1 as **player-centred camera + table-anchored shroud**. Concretely on the disc:
+> the player marker is pinned **dead-centre** and the survey **scrolls under** it (player-centred —
+> reads like a real minimap); BUT the revealed area stays **anchored to the imprinted 1000 m bound**
+> (table-anchored shroud), so walking toward the survey edge makes shroud **creep in** from that
+> side and leaving the disc entirely goes **all shroud**; and the **edge-arrow is REMOVED** for the
+> disc (a player-centred camera can't fall off the window, so §2H.1 mechanic 2 has no meaning
+> there). This is NOT a return to the rejected v0.2.22 player-centred model — that one let the
+> *shroud* follow the player (infinite fog); here the shroud stays a finite, earned, table-anchored
+> survey. Implemented as: player-centred shader reframe (`_mapCenter` = player) + a player-centred
+> shroud mask resampled against the table-anchored survey + dead-centre marker, all inside the
+> circular bezel. The modal's §2H.1 path below is byte-unchanged.
 
 > **Status: BUG/DESIGN — ORIENTATION-MODEL RE-LOCK.** Supersedes §2H's "P2 player-centred
 > minimap" LOCKED ROUTE. Resolves four v0.2.22-playtest bugs that are **one model**, not four
