@@ -353,6 +353,57 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 
 ---
 
+## Trailborne v3 (Swamp) — Sunstone Lens (solar-charged monster detection)
+
+> **Status: IMPLEMENTED 2026-06-16 (engineer-systems card t_2fd7bc7f).** Design (theme +
+> material + sourcing): `docs/design/swamp-detection-item.md` (PR #144). Buildable spec:
+> `docs/v3/planning/sunstone-lens-impl-spec.md`. The **first v3 Swamp-tier** content. A
+> Trinket-slot accessory whose **durability is a solar battery**: recharges in clear
+> daylight, drains at a fixed rate while worn, and reveals nearby hostiles via a HUD overlay
+> while charged. Built on confirmed base-game APIs only (ADR-0001); reproduces the Rune Magic
+> "rune of detection" *behaviour* from vanilla primitives (`BaseAI.IsEnemy`) — no third-party
+> mod code. **logs-green ≠ playable** — Daniel verifies AT-LENS-* in-game.
+
+### Items
+
+#### Sunstone (material)
+
+| Field | Value |
+|---|---|
+| Display name | Sunstone |
+| Prefab name | `SBPR_Sunstone` — **save/wire contract, do NOT rename** |
+| Type | `ItemDrop`, `ItemType.Material`, stack 20, weight 0.3 |
+| Mod | Trailborne (v3) |
+| Biome tier | Swamp |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
+| Recipe (craft) | **PROVISIONAL placeholder** — Iron ×1 + Crystal ×2 → 1. Exists so the material is obtainable today (AC#1); Sunstone's **intended source is loot** (swamp surface chests + rare Draugr Elite drop, with a Daniel-reserved rarity knob — see `swamp-detection-item.md` §Sourcing). The loot economy is a **follow-up card** (t_1fcbb780); this craft is the bridge until then (keep as alt-path or remove on loot-economy landing — Daniel's call). |
+| Function | A **standalone resource** (Daniel's 2026-06-13 amendment) modelled after Iceland-spar / the Viking *sólarsteinn*. The Sunstone Lens is its **first consumer**, not its only use — future v3 crafts can draw on the same resource. 🔴 **NO Sunstone in vanilla** (0 wiki hits) — authored fiction, not a reskin. |
+| Visual notes | Clones `Coins` (the established tiny-Material pattern, same as Pigments; ADR-0006 carves out tiny Material items the same way). Inventory icon `sunstone_v0.1.png` (v0.1 placeholder; falls back to the Coins donor icon if the PNG is missing — SpecCheck C1 screams at boot if so). |
+| Patch surface | Registration via `SunstoneLens.RegisterPrefabs` / `DoObjectDBWiring` (Registrar fan-out). No Harmony. |
+| Status | IMPLEMENTED (code + spec + SpecCheck item row, card t_2fd7bc7f). Build 0/0. **logs-green ≠ playable.** |
+| Source spec | `docs/design/swamp-detection-item.md` + `docs/v3/planning/sunstone-lens-impl-spec.md` §6 |
+
+#### Sunstone Lens (the detector)
+
+| Field | Value |
+|---|---|
+| Display name | Sunstone Lens |
+| Prefab name | `SBPR_SunstoneLens` — **save/wire contract, do NOT rename** (every crafted instance + the recipe key on it) |
+| Type | `ItemDrop`, **`ItemType.Trinket` (= 24)** — the player's dedicated `m_trinketItem` slot (the Bog-Witch demister slot), SEPARATE from the Utility slot. 🔴 **Resolves the cross-card Utility-slot contention:** the Lens coexists with the Cartographer's Kit (Utility). It DOES share the Trinket slot with the future Iron Compass — a deliberate exploration-tool choice (wear threat-sense OR orientation, not both), flagged for Daniel, not pre-decided. |
+| Mod | Trailborne (v3) |
+| Biome tier | Swamp |
+| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
+| Recipe (craft) | **Sunstone ×2 + Iron ×1 + Guck ×3 → 1.** Every material has a sentence: Sunstone = the solar core; Iron = the Swamp-tier frame AND the tier gate (Iron needs Sunken-Crypt scrap to smelt); Guck = the Swamp-surface housing/adhesive. `m_maxQuality = 1`. Sunstone referenced via the `SunstoneLens.SunstoneName` const (never a literal). |
+| Function | **Energy = durability, modelled as a solar battery.** Recharges (durability ↑) ONLY in clear weather AND daylight AND not wet AND outdoors AND outside the Swamp (`EnvMan.IsDaylight`/`IsWet` + `EnvSetup.m_isWet` + `Player.InShelter` + biome ≠ Swamp). The Swamp is always-wet/overcast so it can **never charge there** — the "sun battery in the sunless mire" tension. Drains (durability ↓) at a **fixed rate while worn**, independent of how many hostiles are detected. While worn AND charged, reveals nearby **hostile** creatures (vanilla `BaseAI.IsEnemy` filter over `Character.GetAllCharacters` within a radius — tamed/friendly/players excluded) on a HUD overlay. At **zero charge it goes inert** (detection off) but is **NOT consumed/broken** and stays equipped; works again after recharging (AC#5). |
+| Render | **HUD overlay** (`Hud.Awake` postfix → MonoBehaviour under `Hud.m_rootObject`), the Iron Compass doctrine (`nomap.md` §8). 🔴 **NOT minimap pins** — the SB server runs NoMap by default (NoMapEnforcer sets `GlobalKeys.NoMap`), so pins have no surface; a HUD overlay works regardless of map state. v0.1 = threat count + nearest distance/bearing tick + charge % (functional placeholder; polished art is a v0.x follow-up). |
+| Visual notes | **Additive (ADR-0006)** — `Assets.ConstructItemShell` builds the networked item skeleton from scratch (NEVER clones a vanilla item). World-drop mesh grafted as a ZNetView-free cosmetic child off the vanilla `Crystal` blueprint (`Assets.GraftVisualSubtree`, child `attach`). Inventory icon `sunstone_lens_v0.1.png` (v0.1 placeholder; icon MANDATORY — crafting UI indexes `m_icons[0]`; `ConstructItemShell` pre-seeds a magenta fallback + SpecCheck C1 screams if the real PNG didn't ship). |
+| Patch surface | **(1) Harmony Prefix on `Humanoid.DrainEquipedItemDurability(ItemData, float)`** (decomp :13227) — for OUR lens on the LOCAL player only: drains at the fixed rate or recharges in the sun, clamps to [0, max], returns false to SKIP vanilla so the break/unequip/destroy-at-zero branch is NEVER reached (AC#5). Pure pass-through for every other item / non-local player; fails OPEN. **(2) Harmony Postfix on `Hud.Awake`** — builds the client-only detection HUD overlay. Both registered in `Plugin.Awake` (PatchCheck asserts they wove); inert on the dedicated server. Equipped-lens detection via public `Inventory.GetEquippedItems()` + `m_dropPrefab` name (`m_trinketItem` is protected). |
+| Config | `SunstoneLens` section (live-tunable): `MaxCharge` (100), `DrainPerSecond` (0.33 ≈ 5 min full→empty), `ChargePerSecond` (1.0 ≈ 1.7 min empty→full), `DetectRadius` (30 m), `DetectIntervalSeconds` (0.5), `ClearWeatherNames` (optional allowlist; empty = m_isWet-driven). |
+| Status | IMPLEMENTED (code + spec + SpecCheck item row, card t_2fd7bc7f, 2026-06-16). Build 0/0. **logs-green ≠ playable** — AT-LENS-CHARGE/NOCHARGE-SWAMP/DETECT/DRAIN-CONST/ZERO-INERT close only on Daniel's in-game check. |
+| Source spec | `docs/v3/planning/sunstone-lens-impl-spec.md` §1-§5 |
+
+---
+
 ## Trailborne v1.1 (planned, not yet specced)
 
 - Ember Lamps
