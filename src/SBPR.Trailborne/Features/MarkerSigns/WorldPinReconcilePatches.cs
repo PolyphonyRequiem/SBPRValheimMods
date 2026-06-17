@@ -110,5 +110,34 @@ namespace SBPR.Trailborne.Features.MarkerSigns
                 Plugin.Log.LogWarning($"[Trailborne/WorldPins] periodic reconcile suppressed: {e.Message}");
             }
         }
+
+        // ── Per-rebuild color re-apply: defeat vanilla's white color stomp. ──────────────
+        // Vanilla Minimap.UpdatePins forces every pin's icon color (decomp :47833) and its
+        // label text color (:47834-:47836) back to white for our save:false / ownerID==0
+        // pins on EVERY pin rebuild (pan / zoom / add / remove / mode change — gated by the
+        // private m_pinUpdateRequired flag, so it is NOT literally per-frame). A custom per-
+        // pin tint would therefore be stomped the next rebuild. This POSTFIX re-stamps the
+        // custom icon tint + label color AFTER UpdatePins runs, reading the live marker-sign
+        // ZDO as the source of truth (WorldPins.ReapplyColors). Because the postfix runs
+        // synchronously immediately after UpdatePins (same call stack, before any render),
+        // there is no rendered frame on white — no flicker (impl-spec §8.3).
+        //
+        // UpdatePins is also the ONLY place vanilla lazily (re)creates pin.m_iconElement, so
+        // this postfix is the correct seam: the icon Image is guaranteed live here. Patching
+        // the private method by string name is the same proven shape as the Awake/Update
+        // hooks above. Auto-registered via Plugin.cs PatchAll(typeof(WorldPinReconcilePatches)).
+        [HarmonyPatch(typeof(Minimap), "UpdatePins")]
+        [HarmonyPostfix]
+        public static void UpdatePins_Postfix()
+        {
+            try
+            {
+                WorldPins.ReapplyColors();
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/WorldPins] UpdatePins color re-apply suppressed: {e.Message}");
+            }
+        }
     }
 }

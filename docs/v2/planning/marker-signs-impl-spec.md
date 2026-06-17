@@ -207,8 +207,8 @@ re-apply on spawn).
 | `SBPR_MarkerType` | string | the marker type key (`poi`/`mining`/`shelter`/`portal`). Usually derivable from the prefab name, but stored so a scan can read it off the ZDO without a prefab→type map. |
 | `SBPR_Pinned` | bool (int 0/1) | is this marker currently pinned on the placer's map? Toggled by Shift+E. |
 | `SBPR_PinName` | string | **the player's custom name for this marker (ENHANCEMENT, card t_62af5802, §7).** Empty/unset = fall back to the type's `PinLabel`. Drives the WorldPin's on-map label. Owner-write, same pattern as `SBPR_Pinned`. A new wire contract — lock it, never rename (a rename orphans the names on every placed marker). |
-| `SBPR_PinIconColor` | string | **RESERVED, unused in first cut** (Q1 defers color). Empty = default. Reserve the key now so the fast-follow doesn't need a ZDO migration. |
-| `SBPR_PinTextColor` | string | **RESERVED, unused in first cut.** Same. |
+| `SBPR_PinIconColor` | string | **per-pin icon TINT, HTML hex (`"#RRGGBB"`; `""` = unset = default white). Activated by the color fast-follow (§8, card t_3d7aaa90).** Owner-write, same pattern as `SBPR_PinName`; re-applied each pin rebuild (§8.2). No ZDO migration (reserved at first cut). |
+| `SBPR_PinTextColor` | string | **per-pin label TEXT color, HTML hex, same format + unset rules (§8).** Same owner-write pattern, same re-apply pass. |
 
 - Owner-write pattern: `if (!nview.IsOwner()) nview.ClaimOwnership(); nview.GetZDO()
   .Set(key, value);` — copy `SignTag.WriteColors` (`SignTag.cs:97-105`) verbatim in
@@ -608,8 +608,8 @@ Notes the implementer MUST honor:
 | Marker-type ZDO field | `SBPR_MarkerType` | ZDO string |
 | Pinned-state ZDO field | `SBPR_Pinned` | ZDO bool |
 | Pin custom-name ZDO field | `SBPR_PinName` | ZDO string (custom label; §7) |
-| Pin icon-color (reserved) | `SBPR_PinIconColor` | ZDO string (unused first cut) |
-| Pin text-color (reserved) | `SBPR_PinTextColor` | ZDO string (unused first cut) |
+| Pin icon-color | `SBPR_PinIconColor` | ZDO string (HTML hex; "" = unset — §8, card t_3d7aaa90) |
+| Pin text-color | `SBPR_PinTextColor` | ZDO string (HTML hex; "" = unset — §8) |
 | Marker sprites | `assets/icons/items/marker_{poi,mining,shelter,portal}_v0.1.png` | PNG |
 
 > Prefab-name + ZDO-key strings are **save/wire contracts** the moment a piece is
@@ -838,5 +838,162 @@ two sites can't drift. This satisfies AT-MARKER-NAME-3 and AT-MARKER-NAME-5.
 
 Per AGENTS.md the implementer moves the code AND these spec rows in the SAME PR. No
 `SpecCheck.cs` change (no recipe impact). The reserved color fields
-(`SBPR_PinIconColor`/`SBPR_PinTextColor`) remain out of scope — do NOT fold the pin
-icon/color "more pin art" `/queue` item into this card.
+(`SBPR_PinIconColor`/`SBPR_PinTextColor`) were out of scope for the §7 name card — the
+**color fast-follow (§8 below, card t_3d7aaa90)** is the card that activates them.
+
+## 8. FAST-FOLLOW: per-pin icon tint + label text color (card t_3d7aaa90)
+
+> **STATUS: IMPLEMENTED (card t_3d7aaa90, engineer-systems).** Activates the two
+> reserved color ZDO fields (`SBPR_PinIconColor` / `SBPR_PinTextColor`) — **no ZDO
+> migration** (they were reserved at the first cut, §2.1). The accessors on
+> `MarkerSignTag`, the `MarkerSigns` palette + hex parse/format helpers, the
+> `WorldPins.ReapplyColors` per-rebuild re-apply pass, the `Minimap.UpdatePins` postfix
+> that drives it, and the two swatch rows in `MarkerSignPanel` are all built and compile
+> 0/0 (`TreatWarningsAsErrors` ON). **logs-green ≠ playable**: AT-PIN-COLOR-1…6 close
+> only on Daniel's in-game check (set a color, see it on the map pin; relog; have a
+> second client see it).
+
+This section ADDS the deferral Q1 left open (design §1 Q1: "icons first; icon-tint +
+text-color are a documented fast-follow"). Q1 shipped the 4 fixed type-coded icons with
+no per-pin color; this card layers an **optional** per-pin icon tint + label text color
+on top. The design viability finding (design §4.1 **V2**) already proved the mechanism:
+icon/text color are settable but vanilla **stomps them on every pin rebuild**, so unlike
+the stable `m_icon` override they need a **re-apply pass**.
+
+### 8.1 Decision A — persistence: the two reserved ZDO strings, owner-write, hex-valued
+
+Store each color as a plain HTML hex string (`"#RRGGBB"`; `""` = unset) in the already-
+reserved keys. Accessors on `MarkerSignTag` mirror `ReadPinName`/`WritePinName` verbatim:
+
+```csharp
+public string ReadPinIconColor()  // "" on ghost / no ZDO / unset
+public bool   WritePinIconColor(string hex)   // owner-claim + Set; null → ""
+public string ReadPinTextColor()
+public bool   WritePinTextColor(string hex)
+```
+
+- **No ZDO migration.** The keys were reserved at the first cut, so an existing placed
+  marker that never wrote a color reads `""` → default rendering. **AT-PIN-COLOR-6.**
+- **Store the HEX, not a palette index/key.** The stored value is self-describing, so a
+  future palette revision can never orphan a placed marker's color — any valid hex re-
+  parses regardless of whether it is still offered in the swatch row. The palette
+  (`MarkerSigns.PinPalette`, 6 neutral hues) is **UI-only**.
+- **Cross-client sync rides ZDO replication.** The color lives in the marker-sign ZDO,
+  so it persists across relog/restart (owner-write, same durability as `SBPR_Pinned`)
+  and replicates to other clients with the rest of the marker's ZDO state — no extra
+  RPC. **AT-PIN-COLOR-2, AT-PIN-COLOR-4.**
+
+### 8.2 Decision B — the re-apply pass (defeat vanilla's per-rebuild color stomp)
+
+The load-bearing difference from the name feature. Vanilla `Minimap.UpdatePins`
+(decomp `:47832-:47836`) forces, for every pin, `m_iconElement.color` and the label
+`PinNameText.color` to `color2 = (m_ownerID != 0) ? grey : Color.white`. Our WorldPins
+are `save:false` with `m_ownerID == 0`, so **both are forced to white on every pin
+rebuild** (pan / zoom / add / remove / mode change — gated by the private
+`m_pinUpdateRequired`, so NOT literally per-frame, but any time vanilla re-stamps).
+
+- **Re-apply lands in `WorldPins.ReapplyColors()`** — iterate the existing `Projected`
+  map, read each sign's **live ZDO** (the source of truth, design §3 "no second data
+  structure"; `ZDOMan.GetZDO(ZDOID)` is public), parse the two hex strings, and stamp
+  `pin.m_iconElement.color` / `pin.m_NamePinData.PinNameText.color`. Unset/unparseable →
+  leave vanilla white (default rendering preserved). **AT-PIN-COLOR-3, AT-PIN-COLOR-5.**
+- **Driven by a `Minimap.UpdatePins` POSTFIX** (`WorldPinReconcilePatches.UpdatePins_Postfix`).
+  Runs synchronously right after the stomp, before the frame renders → no white flash.
+  `UpdatePins` is also the ONLY place vanilla lazily (re)creates `pin.m_iconElement`, so
+  the postfix is the correct seam (the icon Image is guaranteed live there). Auto-
+  registered via the existing `Plugin.cs` `PatchAll(typeof(WorldPinReconcilePatches))` —
+  **no Plugin.cs change**, and PatchCheck asserts it wove.
+- **Unity-null discipline:** `DestroyPinMarker` destroys the icon GameObject WITHOUT
+  nulling the C# field, so `m_iconElement` can be a destroyed-but-non-null reference —
+  the `!= null` guards invoke Unity's overload (destroyed → null), so an off-screen pin
+  is skipped cleanly, never NREs.
+
+### 8.3 Decision C — UI: two swatch rows in `MarkerSignPanel`
+
+Same self-contained-panel rationale as the name field (§7.1). Two rows — **Icon tint**
+and **Label color** — each a leading "None" (clear-to-default) tile then one tile per
+`PinPalette` hue, mirroring `SignPaintPanel`'s swatch discipline (flat pigment fill =
+the content; gold selection outline; "∅" glyph on the clear tile). Seeded from the ZDO
+on open so reopening shows the stored selection.
+
+### 8.4 Decision D — commit model: immediate on click (no separate Apply)
+
+Unlike the name's text-commit (`onEndEdit`), a swatch click is an explicit gesture, so
+it commits immediately (like the panel's own Pin/Unpin button):
+
+1. Toggle the selection (clicking the active hue clears to default — either the hue or
+   the "None" tile clears it).
+2. Owner-write the ZDO (`WritePinIconColor` / `WritePinTextColor`); no-op if unchanged.
+3. `WorldPins.ReapplyColors()` to re-stamp the live pin NOW. **Crucially this is NOT a
+   `RemoveProjected`+`ProjectPinnedNow` re-project** (the name's dynamic path): the
+   color is re-read live from the ZDO by the postfix every rebuild, so once the ZDO is
+   written a single re-stamp suffices and is a CLIENT-ONLY no-op when the pin isn't
+   currently projected (map closed / not pinned) — the next natural rebuild applies it
+   from the ZDO. **AT-PIN-COLOR-1 (icon tint live on the minimap circle).**
+
+> **🔴 Honest scope boundary — label color visibility (the v1 map nerf).** Vanilla only
+> renders a pin's **text label on the LARGE map** (`UpdatePins :47853`,
+> `m_mode == MapMode.Large && m_largeZoom < m_showNamesZoom`). The v1 MVP **nerfs the
+> full M-key map** (the live render target is the player-centered minimap circle, §3).
+> So the **icon tint is visible now** on the minimap circle, but the **label text color
+> is wired correctly yet only visibly exercised once the large map / cartography viewer
+> is the render target** — the same documented-deferral shape as the rest of the large-
+> map WorldPin story (§3.2 / §7.4 multiplayer-propagation note). Both colors persist and
+> replicate regardless; this is purely about WHERE the label renders. Do not claim the
+> label color is on-screen-verified on the minimap circle — it is not (the minimap circle
+> shows no label).
+
+### 8.5 Decision E — Pillar 2 guardrail (color stays emergent, not a meaning-channel)
+
+The marker **TYPE/icon** carries the meaning (magnifying glass = POI, pickaxe = mining);
+color is an **optional personal-labelling convenience layered on top**, never a competing
+classification axis (design §Pillar 2, marker §0). Enforced by construction:
+
+- The palette is a neutral set of distinguishable hues with **no assigned semantics** —
+  there is no "red = danger" mapping in code or UI copy.
+- **Unset is the default and preserves today's rendering exactly** (white icon tint +
+  white label = the current type-coded look). A player who never opens the color rows
+  sees no change. **AT-PILLAR-2 (color guardrail).**
+- The icon **sprite** (the type glyph) is never re-skinned by color — only its tint
+  Image color — so the type remains legible at every tint. **AT-PIN-COLOR-1.**
+
+### 8.6 Acceptance criteria (AT-PIN-COLOR-1…6)
+
+- **AT-PIN-COLOR-1** — a player sets a per-pin icon tint via the panel; the pinned
+  marker's minimap-circle icon shows that tint; leaving it unset shows the default white.
+- **AT-PIN-COLOR-2** — icon tint + text color persist across relog and server restart
+  (owner-write ZDO, same durability as `SBPR_Pinned`).
+- **AT-PIN-COLOR-3** — the custom tint survives vanilla's per-rebuild color stomp via the
+  `UpdatePins` postfix re-apply (pan/zoom/re-open does not revert it to white).
+- **AT-PIN-COLOR-4** — a second connected client sees the custom colors (ZDO replication;
+  visible on that client's next pin rebuild / projection).
+- **AT-PIN-COLOR-5 (fallback)** — an unset (or unparseable/legacy) color renders the
+  default white, never an NRE or a black pin.
+- **AT-PIN-COLOR-6 (ZDO contract)** — `SBPR_PinIconColor`/`SBPR_PinTextColor` are locked
+  wire fields (no rename); a pre-existing placed marker with no color reads the default
+  cleanly — **no ZDO migration**.
+- **Label-color render caveat (§8.4)** — text color is wired + persisted but only renders
+  where vanilla draws pin labels (the large map), which the v1 minimap-circle MVP does not
+  surface; closes on Daniel's check once the large-map/viewer render target is live.
+- **SpecCheck impact: NONE.** Color is ZDO wire state, not a recipe row — `SpecCheck.cs`
+  is untouched; the +4 build-piece manifest is unchanged.
+- **No manifest impact / no new pin art** — the 4 fixed type-coded icons and their
+  meanings are unchanged; no recipe count change.
+- **logs-green ≠ playable** — closes only when Daniel sets a color in-game and sees it on
+  the map pin (and a second client sees it).
+
+### 8.7 Where the work lands + the spec-and-code-together obligation
+
+| Concern | File | Change |
+|---|---|---|
+| ZDO accessors | `Features/MarkerSigns/MarkerSignTag.cs` | `Read/WritePinIconColor` + `Read/WritePinTextColor`; field-contract doc block updated (RESERVED → active) |
+| Palette + hex parse/format | `Features/MarkerSigns/MarkerSigns.cs` | `PinPalette`, `TryParseColor`, `FormatColor`; Pillar-2 guardrail comment |
+| Re-apply pass | `Features/MarkerSigns/WorldPins.cs` | `ReapplyColors()` — live-ZDO read + stamp icon/text color |
+| Postfix trigger | `Features/MarkerSigns/WorldPinReconcilePatches.cs` | `Minimap.UpdatePins` postfix → `ReapplyColors` (auto-registered, no Plugin.cs change) |
+| Swatch UI | `Features/Signs/MarkerSignPanel.cs` | two color rows, seed from ZDO, commit-on-click + re-stamp |
+| Spec (this doc) | `docs/v2/planning/marker-signs-impl-spec.md` | §8 (this section) + §2.1/§6 field-row status |
+| Design lock | `docs/design/marker-signs-worldpin.md` | §4.1 V2 note flipped deferred → implemented |
+| Dataset | `docs/datasets/PIECES_AND_CRAFTABLES.md` | marker ZDO-fields row notes the active color fields |
+
+Per AGENTS.md the implementer moves the code AND these spec rows in the SAME PR. No
+`SpecCheck.cs` change (no recipe impact).

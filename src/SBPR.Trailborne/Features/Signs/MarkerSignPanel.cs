@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using SBPR.Trailborne.Features.MarkerSigns;
@@ -52,6 +53,17 @@ namespace SBPR.Trailborne.Features.Signs
         private Text? _pinBtnLabel;
         private Font? _font;
 
+        // Per-pin color selections (HTML hex; "" = unset = default white rendering). Seeded
+        // from the marker-sign ZDO on open, written owner-side on swatch click + re-projected
+        // if pinned so the change shows live (impl-spec §8). Mirrors _selText/_selBorder in
+        // SignPaintPanel, but commits immediately on click (no separate Apply button — the
+        // marker panel acts on each gesture, like its Pin/Unpin button).
+        private string _selIconColor = "";
+        private string _selTextColor = "";
+        // (hex, selection-outline) per swatch so RefreshColorHighlights can mark the active one.
+        private readonly List<(string hex, Outline outline)> _iconSwatches = new List<(string, Outline)>();
+        private readonly List<(string hex, Outline outline)> _textSwatches = new List<(string, Outline)>();
+
         // The custom pin name length cap (impl-spec §7.5). Enforced on the InputField AND
         // at commit so a programmatic/pasted over-long value can't bypass the field cap.
         private const int PinNameMaxLen = 32;
@@ -73,6 +85,13 @@ namespace SBPR.Trailborne.Features.Signs
         private static readonly Color CInputPlaceholderOnSkin = new Color(0.35f, 0.30f, 0.22f, 1f);
         private static readonly Color CInputPlaceholderOnFlat = new Color(0.70f, 0.67f, 0.58f, 1f);
         private static readonly Color CInputFill = new Color(0.06f, 0.06f, 0.05f, 1f);
+
+        // Color-swatch selection outline: gold (matches the frame) when selected, dim brown
+        // when not. The "None"/unset tile gets a neutral dark fill so it reads as "clear,"
+        // not as a color (mirrors SignPaintPanel.CSwatchNone discipline).
+        private static readonly Color CSwatchSelected = new Color(0.85f, 0.70f, 0.32f, 1f);
+        private static readonly Color CSwatchUnselected = new Color(0.30f, 0.26f, 0.18f, 0.9f);
+        private static readonly Color CSwatchNone = new Color(0.18f, 0.17f, 0.15f, 1f);
 
         // ── Public entry point ───────────────────────────────────────
 
@@ -121,6 +140,11 @@ namespace SBPR.Trailborne.Features.Signs
         {
             _sign = sign;
             _tag = tag;
+            // Seed the color selections from the persisted ZDO BEFORE building the window, so
+            // BuildColorRow can mark the active swatch on open (impl-spec §8 — reopening shows
+            // the stored color selected). Empty = unset = the "None" tile is the active one.
+            _selIconColor = tag != null ? tag.ReadPinIconColor() : "";
+            _selTextColor = tag != null ? tag.ReadPinTextColor() : "";
             RebuildWindow();
             if (_root != null) _root.SetActive(true);
             RefreshDynamic();
@@ -171,6 +195,8 @@ namespace SBPR.Trailborne.Features.Signs
             _iconImage = null; _titleLabel = null; _stateLabel = null;
             _nameInput = null;
             _pinBtn = null; _pinBtnLabel = null;
+            _iconSwatches.Clear();
+            _textSwatches.Clear();
 
             _window = MakeImage(_root.transform, "Window", CWindow);
             var wrt = _window.GetComponent<RectTransform>();
@@ -222,6 +248,13 @@ namespace SBPR.Trailborne.Features.Signs
             _nameInput = MakeInputField(t, "NameInput", placeholder, 40);
             _nameInput.text = _tag != null ? _tag.ReadPinName() : "";
             _nameInput.onEndEdit.AddListener(_ => CommitPinName());
+
+            // Per-pin color rows (impl-spec §8). Icon tint + label text color, each a swatch
+            // row with a leading "None" (clear-to-default) tile then one tile per palette hue.
+            // Pillar-2: color is an optional personal-labelling convenience layered on top of
+            // the TYPE icon — leaving both unset preserves today's default white rendering.
+            BuildColorRow(t, "IconColorRow", "Icon tint", isText: false);
+            BuildColorRow(t, "TextColorRow", "Label color", isText: true);
 
             // Pin-state line.
             _stateLabel = MakeLabel(t, "State", "", 16, FontStyle.Italic, TextAnchor.MiddleCenter, 24);
@@ -314,6 +347,170 @@ namespace SBPR.Trailborne.Features.Signs
             {
                 Plugin.Log.LogError($"[Trailborne/MarkerSigns] Panel pin-name commit failed: {e}");
             }
+        }
+
+        // ── Per-pin color rows (impl-spec §8) ────────────────────────
+
+        /// <summary>
+        /// Build one color swatch row: a fixed-width caption, then a "None" (clear-to-default)
+        /// tile followed by one tile per <see cref="MarkerSignsType.PinPalette"/> hue. Clicking
+        /// a tile commits immediately (owner-writes the ZDO + re-stamps the live pin). The
+        /// active selection (seeded from the ZDO in ShowFor) is marked by RefreshColorHighlights.
+        /// </summary>
+        private void BuildColorRow(Transform parent, string name, string caption, bool isText)
+        {
+            var section = new GameObject(name);
+            section.transform.SetParent(parent, false);
+            section.AddComponent<RectTransform>();
+            var row = section.AddComponent<HorizontalLayoutGroup>();
+            row.spacing = 6f;
+            row.childAlignment = TextAnchor.MiddleLeft;
+            row.childControlWidth = false;
+            row.childControlHeight = false;
+            row.childForceExpandWidth = false;
+            row.childForceExpandHeight = false;
+            AddLayoutElement(section, minHeight: 42);
+
+            var lbl = MakeLabel(section.transform, "Caption", caption, 14, FontStyle.Normal,
+                TextAnchor.MiddleLeft, 38);
+            AddLayoutElement(lbl.gameObject, preferredWidth: 96);
+
+            var list = isText ? _textSwatches : _iconSwatches;
+
+            // "None" tile first — clears back to the default white rendering (Pillar-2:
+            // unset keeps today's type-coded look). Carries the unset sentinel "".
+            var noneOutline = MakeColorSwatch(section.transform, $"{(isText ? "T" : "I")}_none",
+                CSwatchNone, isNone: true, () => OnColorSwatchClicked("", isText));
+            list.Add(("", noneOutline));
+
+            // Then one tile per palette hue. We store the HEX (not an index) so the selection
+            // is self-describing and a palette revision can't orphan a placed marker's color.
+            foreach (var (hex, _) in MarkerSignsType.PinPalette)
+            {
+                var fill = MarkerSignsType.TryParseColor(hex, out var c) ? c : Color.gray;
+                var capture = hex;
+                var outline = MakeColorSwatch(section.transform, $"{(isText ? "T" : "I")}_{hex}",
+                    fill, isNone: false, () => OnColorSwatchClicked(capture, isText));
+                list.Add((hex, outline));
+            }
+
+            RefreshColorHighlights();
+        }
+
+        /// <summary>
+        /// One color tile: a flat fill <see cref="Image"/> + <see cref="Button"/> + a selection
+        /// <see cref="Outline"/> (gold when active). The "None" tile is skinned with the vanilla
+        /// button sprite + an "∅" glyph so "clear" reads distinctly from a hue; color tiles keep
+        /// their flat pigment fill (the color IS the content — mirrors SignPaintPanel.MakeSwatch).
+        /// Returns the selection Outline so RefreshColorHighlights can recolor it.
+        /// </summary>
+        private Outline MakeColorSwatch(Transform parent, string name, Color fill, bool isNone, Action onClick)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.AddComponent<RectTransform>();
+            var img = go.AddComponent<Image>();
+            img.color = fill;
+            var btn = go.AddComponent<Button>();
+            btn.targetGraphic = img;
+            btn.interactable = true;
+            if (isNone) VanillaUISkin.SkinButton(btn, img);
+
+            var outline = go.AddComponent<Outline>();
+            outline.effectColor = CSwatchUnselected;
+            outline.effectDistance = new Vector2(2f, -2f);
+
+            AddLayoutElement(go, minHeight: 36);
+            var le = go.GetComponent<LayoutElement>();
+            if (le != null) { le.preferredWidth = 36; le.preferredHeight = 36; }
+
+            if (onClick != null) btn.onClick.AddListener(() => onClick());
+
+            if (isNone)
+            {
+                var glyph = new GameObject("NoneGlyph");
+                glyph.transform.SetParent(go.transform, false);
+                var grt = glyph.AddComponent<RectTransform>();
+                grt.anchorMin = Vector2.zero; grt.anchorMax = Vector2.one;
+                grt.offsetMin = Vector2.zero; grt.offsetMax = Vector2.zero;
+                var gt = glyph.AddComponent<Text>();
+                gt.font = _font ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+                gt.fontSize = 16;
+                gt.fontStyle = FontStyle.Bold;
+                gt.alignment = TextAnchor.MiddleCenter;
+                gt.color = CLabel;
+                gt.text = "\u2205"; // ∅
+                gt.horizontalOverflow = HorizontalWrapMode.Overflow;
+                gt.verticalOverflow = VerticalWrapMode.Overflow;
+            }
+            return outline;
+        }
+
+        /// <summary>
+        /// Swatch click: toggle the selection (clicking the active hue clears to default, so
+        /// either the hue itself or the "None" tile clears it), then commit immediately. Empty
+        /// hex is the unset sentinel.
+        /// </summary>
+        private void OnColorSwatchClicked(string hex, bool isText)
+        {
+            if (isText)
+                _selTextColor = (_selTextColor == hex) ? "" : hex;
+            else
+                _selIconColor = (_selIconColor == hex) ? "" : hex;
+
+            CommitColor(isText);
+            RefreshColorHighlights();
+        }
+
+        /// <summary>
+        /// Owner-write the selected per-pin color to the ZDO and re-stamp the live pin NOW so
+        /// the change shows immediately for the editing client (impl-spec §8.4). Unlike the pin
+        /// NAME (which is baked into the PinData at AddPin and needs a remove+re-project), the
+        /// color is re-read live from the ZDO by the UpdatePins postfix on every rebuild — so
+        /// once the ZDO is written, a single <see cref="WorldPins.ReapplyColors"/> stamps the
+        /// already-projected pin. That call is a CLIENT-ONLY no-op when the pin isn't currently
+        /// projected (map closed / not pinned), in which case the next natural rebuild applies
+        /// it from the ZDO. No-ops cleanly on the ghost (WriteX returns false).
+        /// </summary>
+        private void CommitColor(bool isText)
+        {
+            if (_tag == null) return;
+            try
+            {
+                if (isText)
+                {
+                    if (_selTextColor == _tag.ReadPinTextColor()) return; // unchanged
+                    if (!_tag.WritePinTextColor(_selTextColor)) return;   // ghost / not ready
+                }
+                else
+                {
+                    if (_selIconColor == _tag.ReadPinIconColor()) return; // unchanged
+                    if (!_tag.WritePinIconColor(_selIconColor)) return;   // ghost / not ready
+                }
+
+                // Re-stamp the live pin immediately (no-op if not currently projected).
+                WorldPins.ReapplyColors();
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError($"[Trailborne/MarkerSigns] Panel pin-color commit failed: {e}");
+            }
+        }
+
+        /// <summary>Mark the active swatch in each row with the gold selection outline; all
+        /// others get the dim unselected outline. Driven on open + after every click.</summary>
+        private void RefreshColorHighlights()
+        {
+            void Mark(List<(string hex, Outline outline)> list, string sel)
+            {
+                foreach (var (hex, outline) in list)
+                {
+                    if (outline == null) continue;
+                    outline.effectColor = (hex == sel) ? CSwatchSelected : CSwatchUnselected;
+                }
+            }
+            Mark(_iconSwatches, _selIconColor);
+            Mark(_textSwatches, _selTextColor);
         }
 
         // ── Dynamic refresh ──────────────────────────────────────────
