@@ -36,4 +36,15 @@ impl-spec. Each carries its open questions inline.
 - **[`PARKED-2026-06-03.md`](PARKED-2026-06-03.md)** — resume point from the
   2026-06-03 session. Where work paused and what the next agenda is.
 
-See [`index.md`](index.md) for the machine-readable manifest.
+## Seeds & future-tier brainstorms
+
+Idea-tier captures for tiers not yet in active build — held in a grounded,
+promotable shape until Daniel rates them up to their own design docs and cards:
+
+- **[`maritime-exploration-tools.md`](maritime-exploration-tools.md)** — v5 Plains
+  sailing tier: lighthouses (the v3 Beacon's promotion), fog buoys, and the wider
+  sea-navigation set (Star Glass, route/depth/harbor markers, sextant). Brainstorm
+  only; open questions left open.
+
+See [`index.md`](index.md) for the machine-readable manifest of *all* design docs
+(including the per-feature design specs not called out above).
