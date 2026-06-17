@@ -225,6 +225,65 @@ namespace SBPR.Trailborne.Features.MarkerSigns
         public static int ProjectedCount => Projected.Count;
 
         /// <summary>
+        /// Re-stamp the custom per-pin icon TINT + label TEXT color onto every projected
+        /// WorldPin, reading each sign's LIVE ZDO as the source of truth (impl-spec §8). This
+        /// is the per-rebuild re-apply pass that defeats vanilla's color stomp: vanilla
+        /// <c>Minimap.UpdatePins</c> forces our pins' <c>m_iconElement.color</c> and label
+        /// color back to white on every pin rebuild (decomp :47832-:47836, because our pins
+        /// are <c>save:false</c> / <c>m_ownerID==0</c>). Called from the <c>UpdatePins</c>
+        /// POSTFIX (<see cref="WorldPinReconcilePatches"/>) so it runs synchronously right
+        /// after the stomp, before the frame renders — no white flash.
+        ///
+        /// Reading the ZDO live (rather than caching the color on projection) is deliberate:
+        /// it keeps ONE source of truth (the marker-sign ZDO, design §3 "no second data
+        /// structure") and makes cross-client propagation FREE — another client's color edit
+        /// replicates with the ZDO and shows here on the next rebuild, no extra plumbing.
+        ///
+        /// An UNSET color (empty ZDO string / unparseable) is left untouched, so the pin
+        /// keeps vanilla's default white — today's type-coded rendering is preserved exactly
+        /// (AT-PIN-COLOR-1/5). Every UI ref is Unity-null-guarded: <c>UpdatePins</c> →
+        /// <c>DestroyPinMarker</c> destroys the icon GameObject WITHOUT nulling the C# field
+        /// (decomp :47795-:47802), so <c>m_iconElement</c> can be a destroyed-but-non-null
+        /// reference — the <c>!= null</c> checks below invoke Unity's overload, which reports
+        /// destroyed objects as null, so an off-screen pin is skipped cleanly. CLIENT-ONLY
+        /// (no-ops without a Minimap instance / ZDOMan).
+        /// </summary>
+        public static void ReapplyColors()
+        {
+            if (Minimap.instance == null || Projected.Count == 0) return;
+            var zm = ZDOMan.instance;
+            if (zm == null) return;
+
+            foreach (var kv in Projected)
+            {
+                var pin = kv.Value;
+                if (pin == null) continue;
+
+                // Source of truth = the live marker-sign ZDO. Gone (sign unloaded/destroyed)?
+                // Skip — the next Reconcile removes the stale pin; we don't render-touch it.
+                ZDO? zdo = zm.GetZDO(kv.Key);
+                if (zdo == null) continue;
+
+                // Icon tint. Unset/unparseable → leave vanilla white (default rendering).
+                if (MarkerSigns.TryParseColor(zdo.GetString(MarkerSigns.ZdoPinIconColor, ""), out var iconColor)
+                    && pin.m_iconElement != null)
+                {
+                    pin.m_iconElement.color = iconColor;
+                }
+
+                // Label text color. The name widget is created lazily inside UpdatePins (which
+                // already ran), but Unity-null-guard both the data and the TMP_Text: the name
+                // GameObject is toggled active/inactive by zoom, and the TMP ref can lag a
+                // freshly (re)created pin. Unset/unparseable → leave vanilla white.
+                if (MarkerSigns.TryParseColor(zdo.GetString(MarkerSigns.ZdoPinTextColor, ""), out var textColor)
+                    && pin.m_NamePinData != null && pin.m_NamePinData.PinNameText != null)
+                {
+                    pin.m_NamePinData.PinNameText.color = textColor;
+                }
+            }
+        }
+
+        /// <summary>
         /// Collect the LIVE pinned marker-signs inside a disc, projected as the cartography
         /// <see cref="Cartography.SurveyPin"/> shape, so the forked bounded viewer (card
         /// t_cb831069) renders THE SAME pin model the minimap circle uses — impl spec §2B:

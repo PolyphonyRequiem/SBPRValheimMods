@@ -112,6 +112,52 @@ namespace SBPR.Trailborne.Features.MarkerSigns
             return null;
         }
 
+        // ── Per-pin color palette + parsing (color fast-follow, card t_3d7aaa90) ─────────
+        //
+        // 🔴 PILLAR-2 GUARDRAIL (design/design-pillars.md, marker-signs-worldpin.md §Pillar
+        // 2): color is an EMERGENT, optional, personal-labelling convenience layered ON TOP
+        // of the marker TYPE — it is NOT a competing meaning-channel. The marker's TYPE/icon
+        // (magnifying glass = POI, pickaxe = mining, …) still carries the meaning; this
+        // palette is a neutral set of distinguishable hues with NO assigned semantics, so a
+        // player can personally organize their own pins without color becoming a second,
+        // rival classification axis. Leaving a pin's color UNSET keeps today's default
+        // type-coded rendering (white icon tint + white label) untouched.
+        //
+        // The color is stored in the marker-sign ZDO as a plain HTML hex string ("#RRGGBB";
+        // "" = unset). We store the hex itself (NOT a palette index/key) so the stored value
+        // is self-describing and a future palette revision can never orphan a placed marker's
+        // color — any valid hex always re-parses regardless of whether it is still offered in
+        // the swatch row. The palette below is UI-only (the swatches the panel renders).
+        public static readonly (string Hex, string Display)[] PinPalette =
+        {
+            ("#E03A3A", "Red"),
+            ("#E8842B", "Orange"),
+            ("#E8D33B", "Yellow"),
+            ("#54B847", "Green"),
+            ("#4A90E2", "Blue"),
+            ("#9B59B6", "Purple"),
+        };
+
+        /// <summary>
+        /// Parse a stored per-pin color hex string into a <see cref="Color"/>. Returns false
+        /// (and leaves <paramref name="color"/> at white) for the unset sentinel ("" / null /
+        /// whitespace) or any unparseable value — callers treat a false return as "use the
+        /// vanilla default," so a corrupt/legacy value degrades gracefully to the default
+        /// rendering rather than throwing. Built on Unity's HTML-color parser (handles
+        /// "#RGB", "#RRGGBB", "#RRGGBBAA", and the named CSS colors).
+        /// </summary>
+        public static bool TryParseColor(string hex, out Color color)
+        {
+            color = Color.white;
+            if (string.IsNullOrWhiteSpace(hex)) return false;
+            return ColorUtility.TryParseHtmlString(hex.Trim(), out color);
+        }
+
+        /// <summary>Format a <see cref="Color"/> as the "#RRGGBB" hex string stored in the ZDO
+        /// (alpha dropped — pin tints are opaque). The inverse of <see cref="TryParseColor"/>
+        /// for the values the palette offers.</summary>
+        public static string FormatColor(Color c) => "#" + ColorUtility.ToHtmlStringRGB(c);
+
         // ───────────────────────────────────────────────
         // PREFAB REGISTRATION (ZNetScene.Awake postfix, via Registrar)
         // ───────────────────────────────────────────────
