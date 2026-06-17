@@ -105,6 +105,18 @@ namespace SBPR.Trailborne.Features.Portals
         private const float EnvelopeHeight = 3f;
         private const string IconFile = "portal_seed_v0.1.png";
 
+        // ── Leg geometry (SHARED by the visual legs AND their structural colliders so the
+        //    two never drift — an axe swing must land where the leg is SEEN). 3 posts on a
+        //    1.2 m-radius ring, 120° apart. DESK-ESTIMATED, flagged AT-GEOMETRY. ──────────
+        private const int   LegCount  = 3;
+        private const float LegRadius = 1.2f;
+        // Per-leg SOLID structural post collider: ~0.5 m square footprint (≈ the visible
+        // stubbe-leg cross-section) spanning ground → just past the ring (y ∈ [0, 3.5]).
+        // Thin enough that the ~1.6 m gaps between the 3 posts let the player walk in and
+        // stand under / jump into the overhead ring; tall+wide enough to be an easy axe
+        // target. Replaces the old single centre slab that walled off ground-level approach.
+        private static readonly Vector3 LegColliderSize = new Vector3(0.5f, EnvelopeHeight + 0.5f, 0.5f);
+
         // ── Donor blueprints (read-only, never cloned — ADR-0006) ───────────────────
         private const string DonorPortal = "portal_wood";       // ring (New/small_portal) + effect donor
         private const string DonorRoot   = "Greydwarf_Root";    // root tendrils (default mesh)
@@ -219,8 +231,11 @@ namespace SBPR.Trailborne.Features.Portals
                 ring.transform.localScale    = new Vector3(0.71f, 0.71f, 0.71f); // ~3 m wide
             }
 
-            // Legs: 3 thin tall pillars (scaled-down stubbe stump) holding the ring overhead.
-            BuildLegs(stumpBlueprint, visualRoot);
+            // Legs: 3 thin tall pillars (scaled-down stubbe stump) holding the ring overhead,
+            // EACH with its own SOLID structural post collider on the piece root (built inside
+            // BuildLegs) so the structure stays axe-hittable + deconstructable while the open
+            // gaps between posts let the player walk in and stand under / jump into the ring.
+            BuildLegs(stumpBlueprint, visualRoot, go);
 
             // Roots: a couple of tendrils weaving up toward the ring (placeholder; art pass later).
             BuildRoots(rootBlueprint, visualRoot);
@@ -294,13 +309,19 @@ namespace SBPR.Trailborne.Features.Portals
             //    via GetComponentInChildren<TeleportWorldTrigger> and toggles its collider. ──
             BuildOverheadTrigger(go);
 
-            // ── Resize the root WearNTear/placement collider to cover the visible envelope so
-            //    axe/deconstruct hits land on the structure (the shell defaults a unit box). ──
+            // ── ROOT collider: collapse the shell's unit box from a full-height CENTRE SLAB
+            //    (the old 2.0 × 3.5 × 1.0 m wall that blocked ground-level approach / standing
+            //    under the ring) down to a THIN GROUND PAD hugging the base. It still gives the
+            //    base mass a hit/deconstruct target, but clears the central column from ~0.3 m
+            //    upward so the player can walk straight in, stand directly under the overhead
+            //    ring, and jump up into it. The 3 SOLID leg-post colliders (BuildLegs) carry the
+            //    rest of the axe/deconstruct hit surface up the structure's height. SOLID
+            //    (non-trigger) so it still reads as structure to WearNTear support + hits. ──────
             var rootBox = go.GetComponent<BoxCollider>();
             if (rootBox != null)
             {
-                rootBox.size = new Vector3(2.0f, EnvelopeHeight + 0.5f, 1.0f);
-                rootBox.center = new Vector3(0f, (EnvelopeHeight + 0.5f) * 0.5f, 0f);
+                rootBox.size = new Vector3(2.0f, 0.3f, 2.0f);   // wide, ankle-low base pad
+                rootBox.center = new Vector3(0f, 0.15f, 0f);     // sits on the ground, centre clear above
             }
 
             // ── The grow timer (plant → ~15 s scale-lerp → activate; relog-durable). ────
@@ -313,21 +334,44 @@ namespace SBPR.Trailborne.Features.Portals
         }
 
         /// <summary>Build 3 thin tall legs from the scaled-down stubbe stump mesh, planted at
-        /// the base around the center, holding the ring overhead. Placeholder transforms —
-        /// flagged for AT-GEOMETRY in-game tuning.</summary>
-        private static void BuildLegs(GameObject? stumpBlueprint, GameObject visualRoot)
+        /// the base around the center, holding the ring overhead, AND give each leg its own
+        /// SOLID (non-trigger) structural post collider on the piece root so the structure is
+        /// axe-hittable / deconstructable WITHOUT walling off the ground-level approach. The
+        /// player walks between the ~1.6 m gaps to stand under / jump into the ring. Mesh
+        /// transforms + collider placement DESK-ESTIMATED — flagged for AT-GEOMETRY in-game
+        /// tuning.</summary>
+        /// <param name="pieceRoot">The piece root (TeleportWorld/WearNTear host). Leg COLLIDERS
+        /// parent here (fixed world geometry, like the overhead trigger), so an axe/deconstruct
+        /// ray walking GetComponentInParent up from a post resolves the WearNTear/Piece. The
+        /// collider must NOT live under the grow-scaled visual root or its size would lerp.</param>
+        private static void BuildLegs(GameObject? stumpBlueprint, GameObject visualRoot, GameObject pieceRoot)
         {
-            if (stumpBlueprint == null) return;
             // stubbe mesh ≈ 9.8 (X) × 4.4 (Y) × 6.95 (Z). Thin it hard on X/Z and stretch Y to
             // make a ~3.5 m post ~0.6 m thick.
             var legScale = new Vector3(0.06f, 0.8f, 0.06f);
-            const float radius = 1.2f;
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < LegCount; i++)
             {
+                float ang = (Mathf.PI * 2f / LegCount) * i;
+                var legPos = new Vector3(Mathf.Cos(ang) * LegRadius, 0f, Mathf.Sin(ang) * LegRadius);
+
+                // (a) Structural post collider on the PIECE ROOT (fixed geometry — never
+                //     grow-scaled). SOLID (isTrigger stays false) so it (1) is an axe/
+                //     deconstruct hit target and (2) blocks walking THROUGH a post — while the
+                //     gaps between posts stay open for the walk-up/stand-under path. Inherits
+                //     the piece's "Default" layer (in the build remove-mask + WearNTear hit
+                //     mask + character collision), so no explicit layer assignment is needed.
+                var legCollider = new GameObject("SBPR_PortalLegCollider" + i);
+                legCollider.transform.SetParent(pieceRoot.transform, worldPositionStays: false);
+                legCollider.transform.localPosition = legPos;
+                var legBox = legCollider.AddComponent<BoxCollider>();
+                legBox.size = LegColliderSize;
+                legBox.center = new Vector3(0f, LegColliderSize.y * 0.5f, 0f);   // base on the ground
+
+                // (b) Visual leg mesh on the grow-scaled VISUAL root (cosmetic; placeholder).
+                if (stumpBlueprint == null) continue;
                 var leg = Assets.GraftMeshFromBlueprint(stumpBlueprint, visualRoot, "SBPR_PortalLeg" + i, "cylinder");
                 if (leg == null) continue;
-                float ang = (Mathf.PI * 2f / 3f) * i;
-                leg.transform.localPosition = new Vector3(Mathf.Cos(ang) * radius, 0f, Mathf.Sin(ang) * radius);
+                leg.transform.localPosition = legPos;
                 leg.transform.localScale = legScale;
                 leg.transform.localRotation = Quaternion.identity;
             }
