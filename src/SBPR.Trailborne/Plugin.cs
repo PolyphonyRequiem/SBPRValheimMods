@@ -98,6 +98,19 @@ namespace SBPR.Trailborne
             new System.Collections.Generic.HashSet<string>();
         internal static ConfigEntry<string>? LensClearWeatherNamesRaw = null;
 
+        // ── v3 Swamp: Iron Compass (camera-yaw HUD compass overlay, card t_ee61472f) ──
+        // The needle-lag feel + the overlay anchor/size/position are LIVE config so Daniel can
+        // converge "a little lag is good" and place the dial on a joined client without a rebuild
+        // (Q3 + Q4 — the client-visual-can't-be-verified-headless rule, same as the cairn banner).
+        // Nullable + ?.Value-accessed from SBPR_CompassHud so a no-Plugin unit context falls back
+        // to SBPR_CompassHud.Default* consts (single source of truth). Bound in Awake.
+        internal static ConfigEntry<float>? CompassNeedleLag = null;  // LerpAngle rate (deg-equiv); higher = snappier
+        internal static ConfigEntry<float>? CompassMaxTilt   = null;  // max dial-face tilt at full look up/down (deg)
+        internal static ConfigEntry<SBPR.Trailborne.Features.Exploration.CompassAnchor>? CompassAnchor = null; // HUD anchor (enum, default TopCenter)
+        internal static ConfigEntry<float>? CompassSize      = null;  // dial footprint, px square
+        internal static ConfigEntry<float>? CompassOffsetX   = null;  // nudge from the anchor, px (+right)
+        internal static ConfigEntry<float>? CompassOffsetY   = null;  // nudge from the anchor, px
+
         private void Awake()
         {
             Log = Logger;
@@ -312,6 +325,54 @@ namespace SBPR.Trailborne
                 if (nm.Length > 0) LensClearWeatherNames.Add(nm);
             }
 
+            // v3 Swamp — Iron Compass HUD overlay (card t_ee61472f). Needle-lag feel (Q3) +
+            // anchor/size/position (Q4) are LIVE config: a camera-driven HUD widget can't be
+            // verified headless (the cairn-banner lesson), so Daniel converges the lag and places
+            // the dial on a joined client in ONE session, then we bake the chosen values into the
+            // SBPR_CompassHud.Default* consts. Range-clamped so a fat-finger in the .cfg can't
+            // blow the dial up. Defaults mirror those consts (single source of truth).
+            CompassNeedleLag = Config.Bind(
+                "IronCompass", "NeedleLag",
+                SBPR.Trailborne.Features.Exploration.SBPR_CompassHud.DefaultNeedleLag,
+                new ConfigDescription(
+                    "Needle smoothing rate for the 'slight lag' (Q3): the needle lerps toward true heading at "
+                    + "Mathf.LerpAngle(cur, target, dt * THIS). HIGHER = snappier (less lag); LOWER = laggier/dreamier. "
+                    + "Daniel: 'a little lag is good, might need tuning' — converge in a joined session, then we bake it.",
+                    new AcceptableValueRange<float>(0.5f, 30f)));
+            CompassMaxTilt = Config.Bind(
+                "IronCompass", "MaxTiltDegrees",
+                SBPR.Trailborne.Features.Exploration.SBPR_CompassHud.DefaultMaxTilt,
+                new ConfigDescription(
+                    "Max dial-face tilt (degrees) at full look up/down — the subtle 3D-instrument feel (design §8 '~45°'). "
+                    + "0 = flat dial (no tilt); 45 = the design default. Looking level always returns the face flat.",
+                    new AcceptableValueRange<float>(0f, 80f)));
+            CompassAnchor = Config.Bind(
+                "IronCompass", "Anchor",
+                SBPR.Trailborne.Features.Exploration.CompassAnchor.TopCenter,
+                "Where the compass overlay anchors on the HUD (Q4). TopCenter (default) is NoMap-safe — it works "
+                + "with the SB server's default no-minimap. BelowMapDisc / OnMapDiscOverlay / EyeOfOdinMinimap are "
+                + "RESERVED for when their dock targets exist (the carry-state Local Map disc; the future Eye-of-Odin "
+                + "global minimap) and currently fall back to TopCenter with a one-time log.");
+            CompassSize = Config.Bind(
+                "IronCompass", "SizePx",
+                SBPR.Trailborne.Features.Exploration.SBPR_CompassHud.DefaultSize,
+                new ConfigDescription(
+                    "Dial footprint in pixels (square) at the reference canvas scale. The needle + labels scale with it.",
+                    new AcceptableValueRange<float>(48f, 400f)));
+            CompassOffsetX = Config.Bind(
+                "IronCompass", "OffsetXPx",
+                SBPR.Trailborne.Features.Exploration.SBPR_CompassHud.DefaultOffsetX,
+                new ConfigDescription(
+                    "Horizontal nudge from the anchor in pixels (+ = right). 0 keeps it centered under TopCenter.",
+                    new AcceptableValueRange<float>(-960f, 960f)));
+            CompassOffsetY = Config.Bind(
+                "IronCompass", "OffsetYPx",
+                SBPR.Trailborne.Features.Exploration.SBPR_CompassHud.DefaultOffsetY,
+                new ConfigDescription(
+                    "Vertical nudge from the anchor in pixels. Under TopCenter the anchor pivot is the screen's top edge, "
+                    + "so a NEGATIVE value drops the dial down into view (default ≈ -94).",
+                    new AcceptableValueRange<float>(-1080f, 1080f)));
+
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
@@ -491,6 +552,15 @@ namespace SBPR.Trailborne
             // unregistered-patch lesson). Nested patch containers are registered by their declaring type.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Sunstone.SunstoneLens.DrainGate));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.HudBootstrap));
+
+            // v3 Swamp — Iron Compass (card t_ee61472f). ONE client-relevant patch:
+            //  • CompassHudBootstrapPatch: Postfix on Hud.Awake that mounts the client-only
+            //    SBPR_CompassHud overlay under Hud.m_rootObject (the no-map orientation payoff —
+            //    a camera-yaw needle with lag + pitch tilt, NoMap-safe, NEVER a north arrow on the
+            //    map). The item + recipe are otherwise patch-free; only the overlay-mount needs
+            //    Harmony. MUST be registered here or it ships dead and PatchCheck ERRORs at boot
+            //    (the t_564f695a unregistered-patch lesson). Never fires on the dedicated server (no Hud).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Exploration.CompassHudBootstrapPatch));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 

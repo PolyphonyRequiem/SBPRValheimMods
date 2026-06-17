@@ -1,7 +1,7 @@
 ---
 title: "Iron Compass — HUD compass overlay, the earned no-map orientation payoff (v3 impl spec)"
-status: proposed
-purpose: "Build-ready architect spec for the v3 Swamp-tier Iron Compass: a worn Trinket accessory whose HUD overlay finally grants the cardinal orientation the no-map pillar deliberately withholds — WITHOUT ever touching the local map. Converts the locked design (docs/design/nomap.md §8, requirements.md §566, PARKED §v3) + card t_d35405e3 acceptance criteria into a buildable HOW: the additive ItemDrop, the Hud.Awake postfix that mounts an SBPR_CompassHud UGUI overlay under Hud.instance.m_rootObject, the camera-yaw-driven needle with lag, the pitch→tilt map, and the equip-gate. Corrects the design doc's HaveItem carry-gate to the GetEquippedItems() slot equip-gate the Cartographer's Kit already proves in-repo, and surfaces the card's misread of requirements.md:696 (custom mesh is DEFERRED to v0.2+, not mandated) as an open question for Daniel. Authored by the architect spec-pass (card t_d35405e3); Daniel gates the merge."
+status: implemented
+purpose: "Build-ready architect spec for the v3 Swamp-tier Iron Compass: a worn Trinket accessory whose HUD overlay finally grants the cardinal orientation the no-map pillar deliberately withholds — WITHOUT ever touching the local map. Converts the locked design (docs/design/nomap.md §8, requirements.md §566, PARKED §v3) + card t_d35405e3 acceptance criteria into a buildable HOW: the additive ItemDrop, the Hud.Awake postfix that mounts an SBPR_CompassHud UGUI overlay under Hud.instance.m_rootObject, the camera-yaw-driven needle with lag, the pitch→tilt map, and the equip-gate. Corrects the design doc's HaveItem carry-gate to the GetEquippedItems() slot equip-gate the Cartographer's Kit already proves in-repo, and surfaces the card's misread of requirements.md:696 (custom mesh is DEFERRED to v0.2+, not mandated) as an open question for Daniel. Authored by the architect spec-pass (card t_d35405e3); Daniel gates the merge. IMPLEMENTED in card t_ee61472f (2026-06-17) — Daniel's Q1–Q4 answers folded in (recipe Iron×4/Ooze×2/RedPigment×1; sprite HUD, world mesh deferred; lerp lag Config.Bind-tunable; anchor a Config enum default TopCenter, NoMap-safe, extensible to the carry-disc + Eye-of-Odin minimap)."
 ---
 
 # Iron Compass — HUD compass overlay, the earned no-map orientation payoff
@@ -39,11 +39,15 @@ manifest impact.
 > + `AddComponent<Image>()`/`RectTransform` parented under the existing `Hud.m_rootObject`, reading
 > no vanilla prefab as a mutable base.
 
-> 🔴 **STATUS: PROPOSED — gated on Daniel.** This spec is build-ready in its mechanics but blocks on
-> **4 open questions (§1)** — the recipe/tier numbers, the mesh-art deferral the card misread, the
-> needle-lag feel, and the overlay anchor. Each has a proposed default grounded in precedent; none is
-> silently chosen because they are pacing/UX/art-scope calls that are Daniel's. The impl card does
-> **not** get cut until Daniel answers. See §1 and the §8 decision log.
+> ✅ **STATUS: IMPLEMENTED (card t_ee61472f, 2026-06-17) — Daniel gated.** This spec was
+> build-ready in its mechanics and blocked on **4 open questions (§1)**. **Daniel answered all
+> four on 2026-06-17** (recipe `Iron ×4 + Ooze ×2 + Red Pigment ×1`; sprite HUD with the held
+> world-mesh deferred to v0.2+; lerp lag Config.Bind-tunable; anchor a Config **enum** default
+> `TopCenter`, NoMap-safe, scaffolded to extend to the carry-disc + the future Eye-of-Odin
+> minimap). Those answers (which **supersede the architect defaults below**) are folded into §1
+> and the code. The implementation lives in `src/SBPR.Trailborne/Features/Exploration/`
+> (`IronCompass.cs`, `SBPR_CompassHud.cs` + the `CompassHudBootstrapPatch`). Build 0/0.
+> **logs-green ≠ playable** — the AT-COMPASS-* close on Daniel's in-game playtest.
 
 ---
 
@@ -52,9 +56,9 @@ manifest impact.
 `Runtime/SpecCheck.cs` holds the recipe drift manifest. This feature adds **+1 entry** (one new
 item recipe — the compass is a single craftable Trinket, no build piece):
 
-| # | Manifest entry | Kind | Resources (proposed — gated on Q1) | Station |
+| # | Manifest entry | Kind | Resources (LOCKED — Daniel Q1, 2026-06-17) | Station |
 |---|---|---|---|---|
-| 1 | `SBPR_IronCompass` | item recipe (amount 1) | **see Q1 / §3.2 — tier numbers gate final costs** (proposed: `Iron ×2, FineWood ×4, LeatherScraps ×4`) | `piece_sbpr_explorers_bench` |
+| 1 | `SBPR_IronCompass` | item recipe (amount 1) | **`Iron ×4, Ooze ×2, Red Pigment ×1`** (`Iron` + `Ooze` vanilla; Red Pigment = `SBPR_InkRed` via `Pigments.PigmentRedName`) | `piece_sbpr_explorers_bench` |
 
 **Resource prefab-name caveats (must match vanilla internal IDs / SBPR consts, or SpecCheck flags a
 NULL `m_resItem`) — verified this pass against the wiki corpus `Internal ID` field
@@ -80,6 +84,27 @@ SpecCheck row move in the **same PR** (spec-first rule).
 ---
 
 ## 1. Open questions for Daniel (the card's gate — answer before impl)
+
+> ✅ **ALL FOUR RESOLVED by Daniel 2026-06-17 — these answers SUPERSEDE the architect-proposed
+> defaults in the Q-blocks below (kept verbatim as decision history; do not delete — annotate).**
+> The implementation (card t_ee61472f) is built to these answers, not the proposed defaults:
+> - **Q1 recipe — LOCKED:** `Iron ×4 + Ooze ×2 + Red Pigment ×1` @ Explorer's Bench (NOT the
+>   proposed `Iron ×2 / FineWood ×4 / LeatherScraps ×4`). Iron = the Swamp tier gate; Ooze = the
+>   Swamp Blob/Oozer drop (wet resin bedding the needle); Red Pigment = `SBPR_InkRed` (the north
+>   tip). SpecCheck row 1 + the dataset row carry this exact tuple. (`IronCompass.cs` §3.2.)
+> - **Q2 mesh — SPRITES for the HUD; world mesh DEFERRED.** The overlay is 2D UGUI → a sprite is
+>   the native tool; v0.1 draws the dial + needle from procedural UGUI primitives (legible, zero
+>   art dependency) with `Image` components so an authored sprite drops in later. The held-trinket
+>   *world* mesh is deferred to v0.2+ (the `:696` deferral Daniel kept); placeholder item art +
+>   the `iron_compass_v0.1.png` icon are fine for v1.
+> - **Q3 lag — ENABLED, Config.Bind-tunable.** `IronCompass.NeedleLag` (default 8, range 0.5–30)
+>   drives `Mathf.LerpAngle(cur, target, dt * rate)`. Converge the feel in one joined session, then
+>   bake into `SBPR_CompassHud.DefaultNeedleLag`.
+> - **Q4 anchor — Config.Bind ENUM, default `TopCenter`, NoMap-safe.** `CompassAnchor` ships with
+>   `TopCenter` (v1, wired) + `BelowMapDisc` / `OnMapDiscOverlay` (dock to the carry-state Local
+>   Map disc, t_7dd54899) + `EyeOfOdinMinimap` (forward-ref) scaffolded from day one — the unwired
+>   cases resolve to `TopCenter` with a one-time log until their dock targets exist. Anchor/size/
+>   offset are all `Config.Bind`-tunable (`IronCompass` section).
 
 The card body and the design note leave four things genuinely Daniel's to call. As architect I
 have a proposed default for each (grounded in precedent), but all four are pacing / art-scope / UX
