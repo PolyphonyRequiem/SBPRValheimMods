@@ -132,6 +132,17 @@ This is the trickiest one in the nomap track. Vanilla `Container` (line 101699) 
 
 ## 7. Twisted Portal (THE BIG ONE)
 
+> 🟢 **SPECCED → `docs/v3/planning/twisted-portal-impl-spec.md`** (architect spec-pass, card
+> t_f9cab392). Read that to implement; the notes below are the historical anchors, kept for
+> reference. Two factual drifts the spec-pass corrected: (1) the ZDOMan API is
+> **`GetAllZDOsWithPrefabIterative`** (`:65497`), not `GetAllZDOsWithPrefab(int)` as written below;
+> (2) the food item is **`Pukeberries`** (internal id `Pukeberries`), not "bukeberries". The spec
+> also catches a multiplayer gotcha this note missed — a client only holds portal ZDOs within
+> ~64–128 m, so the "300m client-side query" works in singleplayer but is short on a dedicated
+> server; the spec routes travel through **server-side rune-name pairing** and treats the 300m
+> overlay as a best-effort client cosmetic. **The feature is BLOCKED on three Daniel decisions**
+> (coexist-vs-replace, charge economy, destination UX) — see the spec's §1/§2.
+
 This is the gnarly one. Spec: distinct namespace from vanilla portals, no-portal-restriction override, 300m range, on-step shows visible portal names through terrain, charged accessory burns durability per teleport, food restores durability, bukeberries are a "purge accelerator", charge syncs across stacks while in inventory.
 
 **Patch surface:**
