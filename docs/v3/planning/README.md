@@ -19,6 +19,11 @@ Planning + impl specs for the **v3 Swamp tier** of SBPR Trailborne.
   `Assets.GraftTorchFire` eternal-flame pattern. **status: proposed** — 4 open questions
   await Daniel's confirm before build; the Beacon is the named seed for the §v5 lighthouse
   promotion.
+- [`sunstone-lens-impl-spec.md`](sunstone-lens-impl-spec.md) — the
+  build-ready spec for the **Sunstone Lens**, a Trinket-slot solar-charged
+  monster-detection accessory (card t_2fd7bc7f). Recharges its durability as energy in
+  clear daylight, drains at a fixed rate while worn, and reveals nearby hostiles via a
+  HUD overlay while charged. First consumer of the standalone **Sunstone** material.
 - [`iron-compass-impl-spec.md`](iron-compass-impl-spec.md) — architect+spec for the v3
   **Iron Compass** (card t_d35405e3): a worn, iron-gated **Trinket** whose **HUD overlay** finally
   grants the cardinal orientation the no-map pillar deliberately withholds — *without ever touching

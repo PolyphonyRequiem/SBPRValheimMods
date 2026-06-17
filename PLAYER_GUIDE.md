@@ -213,6 +213,29 @@ Materials lock-in includes abomination roots, ancient bark, surtling cores, and 
 wraith chain. This is genuinely late-Swamps content; tuning will follow once we've
 played the early progression.
 
+**The Sunstone Lens** is the first Swamp tool that's actually built. The Swamp is dark,
+wet, and every single thing in it wants you dead — so this is a charm you *charge in the
+sun and spend in the gloom*. It's a **sunstone** (the old Viking sun-finding crystal)
+set in an iron frame, worn in your trinket slot. Hold it to the open sky on a clear day
+and it drinks the light — you'll watch its durability bar fill like a battery. Carry that
+stored light into the Swamp and, while it lasts, it senses what moves in the dark: a HUD
+readout warns you how many hostiles are near, how far the closest one is, and roughly
+which way it's lurking.
+
+The catch is the whole point. It **only charges in clear daylight, out in the open, when
+you're dry** — never in rain, never at night, never under a roof, and *never in the
+Swamp itself* (it's always raining in the mire, so the stone stays dim there). It drains
+at a steady rate the whole time you wear it, whether or not anything's around. Run it dry
+and it just goes quiet — it doesn't break, it doesn't vanish, it's still on your belt;
+walk back out into the sun and it wakes up again. So you're always managing a budget:
+top up in the meadows, then spend that charge picking your way through the bog. It sits
+in the trinket slot, so it doesn't fight your Cartographer's Kit for space — but you'll
+have to choose between it and the Iron Compass when that lands.
+
+*(Sunstone is its own material with a life beyond this charm — more Swamp crafts will
+use it. For now you can craft it at the Explorer's Bench while we tune where it drops in
+the wild.)*
+
 ### Mountains, Plains, Mistlands, Ashlands — _TBD_
 
 This mod is intended to have content all the way to the endgame. The Explorer role
