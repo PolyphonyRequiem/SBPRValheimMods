@@ -21,6 +21,16 @@ Deep dives into specific patch surfaces, done before committing to an approach:
 - **[`pin-sharing.md`](pin-sharing.md)** — the multiplayer pin-sharing surface
   and how shared map pins can work under server gating.
 
+## Proposed features (designed, not yet locked)
+
+Designs awaiting a Daniel decision before they graduate to a version-scoped
+impl-spec. Each carries its open questions inline.
+
+- **[`travellers-cache.md`](travellers-cache.md)** — a trailside chest with a
+  shared public shelf plus a per-player private drawer. Architecture is grounded
+  on the in-tree Surveyor's Table ZDO-blob pattern; five design knobs (tier,
+  placement tool, public/private sizes, destroy-warning) are open for Daniel.
+
 ## Working state
 
 - **[`PARKED-2026-06-03.md`](PARKED-2026-06-03.md)** — resume point from the
