@@ -214,6 +214,47 @@ mesh). All three donors are verified script-free steals (art brief, X-rayed via 
   player vertically) is a flagged in-engine check — fall back to a plain emissive disc if
   it looks wrong horizontal (art brief §"Open / to verify").
 
+### 3.2b Structural collision — walk-up access vs. axe/deconstruct hit target (issue, t_ea0072ba)
+The grafted visuals in §3.2 are **mesh-only** (`GraftMeshFromBlueprint` adds `MeshFilter` +
+`MeshRenderer`, **no `Collider`**). So the *only* structural collider is whatever the piece
+shell + this construction add. The collider has a **conflicting double duty**: it must stay a
+valid **axe / deconstruct (WearNTear) hit target** while NOT walling off the ground-level
+walk-up so the player can stand directly under the overhead ring and jump-activate it (§3.7).
+
+**The bug (initial build):** a single centre `BoxCollider` (`2.0 × 3.5 × 1.0 m`, centred on the
+structure) sized to "cover the visible envelope" became a full-height **wall** — solid, on the
+`Default` layer (which the character controller collides with), occupying the whole central
+column. The player could not approach at ground level or stand under the ring. The visual
+legs/roots were a **red herring** — being collider-free, they never blocked anything.
+
+**The fix (Option 1 — "walk-into root-pillar arch", pairs with the real-art pass):**
+- **Per-leg posts.** Each of the 3 legs (`LegCount`, 120° on a `LegRadius = 1.2 m` ring) gets
+  its own **SOLID (non-trigger)** `BoxCollider` (`LegColliderSize = 0.5 × 3.5 × 0.5 m`) on a
+  child of the **piece root** (NOT the grow-scaled visual root, or its size would lerp). The
+  ~1.6 m gaps between posts let the player walk in and stand under the ring; the posts still
+  block walking *through* a pillar and are easy axe targets.
+- **Root box collapsed to a thin ground pad** (`2.0 × 0.3 × 2.0 m`, centred at `y = 0.15`):
+  keeps a base-mass hit/deconstruct target and a guaranteed fallback collider even if all 3
+  leg grafts degrade, while clearing the central column from ~0.3 m up. (Kept as a pad rather
+  than `DestroyImmediate`'d so the piece is never left with zero structural colliders.)
+- **Why this preserves axe-hit + deconstruct (decomp-grounded, base-game read per ADR-0001):**
+  every hit/removal path resolves the target by walking the parent chain UP from the collider —
+  melee `Projectile.FindHitObject` → `collider.GetComponentInParent<IDestructible>()`
+  (`assembly_valheim:3204`); deconstruct `Player.RemovePiece` →
+  `hitInfo.collider.GetComponentInParent<Piece>()` (`:18051`); and `WearNTear` builds one
+  hittable `HitArea`/support `BoundData` per `GetComponentsInChildren<Collider>(true)`
+  (`:128393`), with NO requirement that a collider sit on the root GO itself. So any solid
+  collider **descending from the piece root** is a valid hit/deconstruct target. Placement /
+  clipping likewise use `GetComponentsInChildren<Collider>` (`:18522`, `:19138`), and
+  `Player.PlacePiece` (`:18175`) instantiates the prefab as-is with **no re-layering**, so the
+  child posts inherit the same `Default` layer (in `m_removeRayMask` `:15896` + WearNTear's
+  `m_rayMask` `:114580` + character collision) as the working box did.
+- **Contained** to `Portals.cs` (`BuildLegs` + the root-box reshape in `RegisterPortalPiece`).
+- 🔴 **DESK-ESTIMATED, flagged AT-WALK-ACCESS:** `LegRadius`, `LegColliderSize`, and the gap
+  width depend on the player capsule; tune on a joined client (alongside AT-GEOMETRY /
+  AT-JUMP-ACTIVATE) and Daniel verifies. If posts feel too dense, drop to 2 legs or shrink the
+  footprint; if the player snags on the base pad, lower it further.
+
 ### 3.3 Fragility (HP = 300 — DECIDED by Daniel, 2026-06-13)
 - Set `m_materialType = WearNTear.MaterialType.Wood` (takes axe/fire damage like the
   organic root structure it is, not the shell's default Stone).
@@ -498,6 +539,14 @@ in the PR handoff; the build PR does NOT self-close these.
   root tendrils + glowing ring).
 - **AT-JUMP-ACTIVATE** (🔴 main risk) — **jumping up** into the ring teleports; **walking
   underneath** does NOT trigger. Tuned trigger box (§3.7), verified on a joined client.
+- **AT-WALK-ACCESS** (issue, t_ea0072ba; §3.2b) — the player can **walk up to and stand
+  directly under** the portal ring at ground level (the centre column is clear), then
+  **jump-activate** from beneath it (pairs with AT-JUMP-ACTIVATE). Walking *into* a leg pillar
+  is still blocked (the 3 solid posts), but the ~1.6 m gaps between posts are passable. The
+  structure remains **axe-hittable and deconstructable** — an axe swing at a leg post or the
+  base lands on the portal's WearNTear, and Hammer-deconstruct removes it (returns the seed,
+  AT-BREAK-TO-SEED). Verify on a joined client (logs-green ≠ playable); leg radius / post
+  footprint are desk-estimated and tunable.
 - **AT-PORTAL-FX-PROXIMITY** (issue 1, §3.5.1) — approaching an active Ancient Portal within
   `m_activationRange` (3 m) shows the same proximity glow/emission behaviour as a vanilla
   wooden portal. Contrast a vanilla `portal_wood` pair side-by-side — the ring emission should

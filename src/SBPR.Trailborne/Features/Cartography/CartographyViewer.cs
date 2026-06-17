@@ -77,6 +77,14 @@ namespace SBPR.Trailborne.Features.Cartography
         // map's name (LocalMap.TryGetName). Empty/null → no title element rendered (an unnamed
         // Table's view, or a pre-1.6 imprinted map). Mode-agnostic: one title code path.
         public string? Title;
+
+        // §4.1 (map-provider-binding-impl-spec): set true when this request drives the
+        // carry-state MINIMAP DISC channel (BindMinimap) rather than the full-screen modal
+        // (Open). The viewer routes a Minimap request to its small, player-centred disc surface
+        // (a scaled instance of the SAME §2H.1 viewer), never the modal. Both channels share
+        // one MapViewRequest shape; this flag is the only discriminator. Default false keeps
+        // every existing full-view caller (Open/Refresh) on the modal surface unchanged.
+        public bool Minimap;
     }
 
     /// <summary>
@@ -95,6 +103,22 @@ namespace SBPR.Trailborne.Features.Cartography
         /// <summary>The mode the viewer is currently showing (meaningful only while open).
         /// Lets a caller avoid clobbering a TableEdit session with a field refresh.</summary>
         MapViewerMode CurrentMode { get; }
+
+        // ── §4.1 minimap-disc channel (map-provider-binding-impl-spec) ───────────────────
+        // A SECOND, concurrent surface independent of the modal Open/Refresh/Close above. The
+        // carry-state disc coexists with the full view (a player can have the disc up AND open
+        // the full view), so it is its own channel, not an overload of Open. The viewer renders
+        // it via a scaled instance of the SAME §2H.1 layer tree — never a parallel renderer.
+
+        /// <summary>Show/refresh the persistent minimap disc for the request (idempotent:
+        /// shows on first call, updates the bound survey/heading thereafter).</summary>
+        void BindMinimap(MapViewRequest request);
+
+        /// <summary>Hide + tear down the minimap disc (deactivate-root idiom, like Close).</summary>
+        void UnbindMinimap();
+
+        /// <summary>True while the minimap disc is live on screen.</summary>
+        bool IsMinimapBound { get; }
     }
 
     /// <summary>
@@ -188,5 +212,39 @@ namespace SBPR.Trailborne.Features.Cartography
             try { _impl.Close(); }
             catch (System.Exception e) { Plugin.Log.LogError($"[Trailborne/Cartography] Viewer.Close threw: {e}"); }
         }
+
+        // ── §4.1 minimap-disc channel (map-provider-binding-impl-spec) ───────────────────
+        // Parallel to Open/Refresh/Close above, for the carry-state disc. Degrades gracefully
+        // when no viewer is registered (silent — unlike Open's player message, a passive
+        // background bind has nothing to announce). The controller (LocalMapController) drives
+        // these from the §3 provider state machine, gated on Game.m_noMap (§5).
+
+        /// <summary>
+        /// Show/refresh the carry-state minimap disc for the request, or no-op if no viewer is
+        /// registered. Idempotent + refresh-capable: the controller calls it every poll while a
+        /// provider is bound (shows on the first call, updates the bound survey + heading after).
+        /// Silent on a missing viewer — a passive disc has nothing to message about. Never throws
+        /// out (logged + swallowed), so a render hiccup can't break the controller's poll.
+        /// </summary>
+        public static void BindMinimap(MapViewRequest request)
+        {
+            if (_impl == null) return; // no viewer yet — silently skip (no data lost; nothing to render)
+            try { _impl.BindMinimap(request); }
+            catch (System.Exception e) { Plugin.Log.LogError($"[Trailborne/Cartography] Viewer.BindMinimap threw: {e}"); }
+        }
+
+        /// <summary>
+        /// Hide + tear down the minimap disc if one is registered. Safe to call unconditionally
+        /// (the controller calls it on every unbind / blank-provider / nomap-off transition).
+        /// </summary>
+        public static void UnbindMinimap()
+        {
+            if (_impl == null) return;
+            try { _impl.UnbindMinimap(); }
+            catch (System.Exception e) { Plugin.Log.LogError($"[Trailborne/Cartography] Viewer.UnbindMinimap threw: {e}"); }
+        }
+
+        /// <summary>True if a viewer is registered AND its minimap disc is currently showing.</summary>
+        public static bool IsMinimapBound => _impl != null && _impl.IsMinimapBound;
     }
 }
