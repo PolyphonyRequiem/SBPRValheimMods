@@ -164,6 +164,16 @@ This is the gnarly one. Spec: distinct namespace from vanilla portals, no-portal
 
 ## 8. Iron Compass (Swamps)
 
+> **→ BUILD SPEC: [`docs/v3/planning/iron-compass-impl-spec.md`](../v3/planning/iron-compass-impl-spec.md)**
+> (card t_d35405e3, architect spec-pass 2026-06-17). The note below is the historical design surface;
+> the impl spec is the buildable HOW. **One correction the impl pass made:** the visibility gate below
+> reads `GetInventory().HaveItem(...)` — a **carry**-gate — but a Trinket grants its effect only when
+> **equipped in the accessory slot**, not merely carried. The spec uses the **equip-gate**
+> (`Inventory.GetEquippedItems()` + Trinket-slot filter + prefab-name match), the in-repo
+> `CartographersKit.IsWearingKit` precedent, not `HaveItem`. (Enum `Trinket = 24` re-verified this pass
+> at decomp line 57652; the `:57627` below is the enum's start line.) Everything else here is confirmed
+> accurate (`Hud.m_rootObject`, `GameCamera.instance.transform.eulerAngles`, no game-state patches).
+
 - **Item:** new ItemDrop `SBPR_IronCompass`, accessory slot (`m_shared.m_itemType = ItemData.ItemType.Trinket`, enum value 24 — confirmed at line 57627).
 - **Render:** a small UGUI Image as child of `Hud.instance.m_rootObject`, positioned bottom-center below the map-icon area.
   - Awake of a new `SBPR_CompassHud : MonoBehaviour` attached via `[HarmonyPatch(typeof(Hud), "Awake")]` postfix — instantiate a `RectTransform` under `Hud.instance.m_rootObject`.

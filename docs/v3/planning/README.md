@@ -19,6 +19,16 @@ Planning + impl specs for the **v3 Swamp tier** of SBPR Trailborne.
   `Assets.GraftTorchFire` eternal-flame pattern. **status: proposed** — 4 open questions
   await Daniel's confirm before build; the Beacon is the named seed for the §v5 lighthouse
   promotion.
+- [`iron-compass-impl-spec.md`](iron-compass-impl-spec.md) — architect+spec for the v3
+  **Iron Compass** (card t_d35405e3): a worn, iron-gated **Trinket** whose **HUD overlay** finally
+  grants the cardinal orientation the no-map pillar deliberately withholds — *without ever touching
+  the local map*. Reformats the deferred design (nomap §8, requirements §566, PARKED §v3) into a
+  buildable spec: the additive ItemDrop, the `Hud.Awake` postfix + `SBPR_CompassHud` overlay, the
+  camera-yaw-driven needle with lag, the pitch→45°-tilt map. **Corrects the design note's `HaveItem`
+  carry-gate to the `GetEquippedItems()` slot equip-gate the Cartographer's Kit proves in-repo**, and
+  flags the card's misread of `requirements.md:696` (custom mesh is **deferred to v0.2+**, not
+  mandated) as an open question. **status: proposed** — 4 open questions await Daniel's confirm before
+  an impl card is cut. The Iron Compass is the **earned payoff of the no-map pillar**.
 
 ## Tier framing
 
@@ -34,3 +44,8 @@ material; corpus `Surtling_core.md`). Because Surtling core is Black-Forest-reac
 Beacon adds an **Iron co-gate** to hold the far landmark to true Swamp tier while the small
 Ember Lamp stays Surtling-core-only (the tier-split lean in `trail-lights-impl-spec.md` §1 Q3,
 pending Daniel's confirm).
+
+The **Iron Compass** is the tier's identity payoff: v1/v2 deliberately ship the map with **no north
+indicator** (`requirements.md:646`; cartography §2H.1 re-lock), and the compass is the **earned,
+separate HUD tool** that finally grants cardinal orientation — gated on Iron, never by putting an
+arrow back on the map. Its whole reason to exist is the orientation the map withholds.
