@@ -2,7 +2,8 @@
 title: SBPR Pieces & Craftables Dataset
 purpose: Canonical specs for every piece, item, and crafting station across SBPR mods
 status: living document — appended per-piece as specs lock
-last_updated: 2026-06-03
+last_updated: 2026-06-17
+last_reviewed: 2026-06-17
 maintained_by: Starbright + Daniel during spec rounds; doc-PR'd on spec finalization
 ---
 
