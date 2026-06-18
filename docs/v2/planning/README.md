@@ -41,6 +41,18 @@ Planning artifacts for the Black Forest tier. Same role as
   nomap-off. Refrains card `t_1d1b505b` (issue 5 "carry disc"). One render question — disc
   **centring** (§7 "player-centered" vs §2H.1 "table-centred") — is left **OPEN for Daniel**.
   SpecCheck delta = **+0** (presentation + provider state on existing prefabs).
+- **`local-map-mkey-open-impl-spec.md`** — the buildable *how* for the **M-key open gesture**
+  (design lock: [`../../design/map-provider-model.md`](../../design/map-provider-model.md) §1,
+  Daniel 2026-06-15: "M is the single map key; SBPR owns it"). Moves the bound-local-map OPEN
+  from **E (Use) → M**, removes the E-to-open path, swaps the equipped HUD prompt token
+  (`$KEY_Use` → `$KEY_Map`), and — the load-bearing piece — makes SBPR **own the M input edge**
+  in `nomap=OFF` so our viewer opens *without* vanilla's full map stacking on top. The mechanism
+  is a non-skip `Minimap.Update` **consume-prefix**: act on the M edge, then
+  `ZInput.ResetButtonStatus("Map")` (vanilla's own input-consume idiom) so vanilla's later read
+  sees nothing. Closes **issue 3 / card `t_f9a04fda`** (the impl had drifted — still on E despite
+  the DECIDED M model). Supersedes the open-input portions of `cartography-impl-spec.md` §2F/§2G
+  and `requirements.md` AT-MAP-EQUIP (§2F's Esc-exit work stands). SpecCheck delta = **+0**
+  (input binding + prompt token on an existing controller).
 
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
