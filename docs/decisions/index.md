@@ -12,6 +12,7 @@ Machine-readable manifest of architecture decision records.
 | 0004-deterministic-publish-then-pr-releases.md | accepted | Deterministic packaging + publish-then-PR release ordering |
 | 0005-spec-kit-adoption-v2.md | accepted | GitHub Spec Kit adoption for v2 (Option C) — vocabulary + templates + constitution; CLI/specs-NNN deferred behind a spike |
 | 0006-additive-prefab-construction.md | accepted | No runtime prefab cloning; build pieces additively (new GameObject + AddComponent), read vanilla only as blueprints |
+| 0007-docs-evolution-strategy.md | proposed | Docs evolution: keep version trees (don't collapse — 17+ source refs), generate `index.md` to kill the manifest-collision footgun, de-enumerate READMEs, one-line folder-placement rule, `last_reviewed:` freshness; stages an archivist as a skill+cron, not a profile |
 
 ## Conventions
 
