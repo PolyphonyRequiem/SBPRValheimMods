@@ -21,8 +21,8 @@ namespace SBPR.Trailborne.Features.Portals
     ///      vanilla <see cref="TeleportWorld"/> + an overhead jump-through trigger + a
     ///      ~15 s grow timer (<see cref="AncientPortalTag"/>).
     ///
-    /// Both built ADDITIVELY (ADR-0006: <see cref="Assets.ConstructItemShell"/> /
-    /// <see cref="Assets.ConstructPieceShell"/> + mesh-reference grafts) — NEVER cloning
+    /// Both built ADDITIVELY (ADR-0006: <see cref="Assets.TryConstructItemShell"/> /
+    /// <see cref="Assets.TryConstructPieceShell"/> + mesh-reference grafts) — NEVER cloning
     /// the ZNetView+EffectArea+GuidePoint-bearing <c>portal_wood</c> (the cairn-soft-lock
     /// bug class). Donors are read as blueprints only (ZNetScene.GetPrefab, no Awake).
     ///
@@ -162,8 +162,7 @@ namespace SBPR.Trailborne.Features.Portals
             // ADR-0006 additive item shell: ZNetView + ZSyncTransform + Rigidbody +
             // item-layer BoxCollider + ItemDrop with a FRESH SharedData and the seeded
             // FallbackIcon. Do NOT clone a vanilla item.
-            var go = Assets.ConstructItemShell(SeedItemName);
-            if (go == null)
+            if (!Assets.TryConstructItemShell(SeedItemName, out var go))
             {
                 Plugin.Log.LogWarning("[Trailborne/Portals] Could not construct Portal Seed item shell; skipping seed.");
                 return;
@@ -213,8 +212,7 @@ namespace SBPR.Trailborne.Features.Portals
             // ADR-0006 additive piece shell: ZNetView + Piece + WearNTear + root BoxCollider,
             // with hit/destroy/place effects reference-copied off the portal_wood blueprint
             // (read via GetPrefab — fires no Awake) so it sounds like a wooden/organic build.
-            var go = Assets.ConstructPieceShell(PortalPieceName, DonorPortal);
-            if (go == null)
+            if (!Assets.TryConstructPieceShell(PortalPieceName, DonorPortal, out var go))
             {
                 Plugin.Log.LogWarning("[Trailborne/Portals] Could not construct Ancient Portal piece shell; skipping portal.");
                 return;
@@ -486,15 +484,14 @@ namespace SBPR.Trailborne.Features.Portals
             // (2) m_target_found — graft portal_wood's "_target_found_red" EffectFade subtree
             // onto the piece root (NOT the grow-scaled visual root, so the effect reads at a
             // FIXED world position like the trigger). Positioned at the ring height.
-            var targetFound = Assets.GraftEffectSubtree(
-                DonorPortal, DonorTargetFoundChild, pieceRoot, "SBPR_PortalTargetFound");
-            if (targetFound != null)
+            if (Assets.TryGraftEffectSubtree(
+                DonorPortal, DonorTargetFoundChild, pieceRoot, "SBPR_PortalTargetFound", out var targetFound))
             {
                 // Anchor at the ring (~3 m up) so the shimmer reads at the overhead ring, where
                 // a connected portal's effect belongs. DESK-ESTIMATED height — shares the
                 // EnvelopeHeight the ring/trigger use; flagged for AT-GEOMETRY tuning alongside them.
                 targetFound.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
-                // Align the effect's plane to the FLAT ring (issue 1 follow-up). GraftEffectSubtree
+                // Align the effect's plane to the FLAT ring (issue 1 follow-up). TryGraftEffectSubtree
                 // copies the donor's local transform faithfully, and portal_wood's "_target_found_red"
                 // child is at IDENTITY local rotation (verified, t_bf2bb402) — so without this it stays
                 // in portal_wood's UPRIGHT plane and reads vertical, not in our flat ring. Donor being
@@ -601,8 +598,7 @@ namespace SBPR.Trailborne.Features.Portals
                     piece.m_resources = new[] { BuildReq(SeedItemName, 1) };
                     piece.m_craftingStation = null;   // re-assert: no bench to place
                 }
-                var hammerTable = Assets.GetHammerPieceTable();
-                if (hammerTable != null) Assets.AddOrReplacePieceByName(portalPrefab, hammerTable);
+                if (Assets.TryGetHammerPieceTable(out var hammerTable)) Assets.AddOrReplacePieceByName(portalPrefab, hammerTable);
             }
 
             Plugin.Log.LogInfo(

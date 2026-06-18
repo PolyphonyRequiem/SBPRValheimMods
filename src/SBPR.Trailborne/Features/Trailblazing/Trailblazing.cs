@@ -226,8 +226,7 @@ namespace SBPR.Trailborne.Features.Trailblazing
         private static void RegisterSpadeItemPrefab(ZNetScene zns)
         {
             if (zns.GetPrefab(SpadeName) != null) return;
-            var clone = Assets.ClonePrefab(SourceHoe, SpadeName);
-            if (clone == null) return;
+            if (!Assets.TryClonePrefab(SourceHoe, SpadeName, out var clone)) return;
 
             var drop = clone.GetComponent<ItemDrop>();
             if (drop != null)

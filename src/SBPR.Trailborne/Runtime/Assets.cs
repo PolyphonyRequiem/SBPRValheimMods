@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using HarmonyLib;
@@ -47,7 +48,7 @@ namespace SBPR.Trailborne.Runtime
         /// identity-checkable by SpecCheck. Lazily created; one shared instance so reference (==)
         /// identity comparison works for the SpecCheck icon-load assertion (C1).
         ///
-        /// Why this exists: <see cref="ConstructItemShell"/> news a fresh SharedData whose
+        /// Why this exists: <see cref="TryConstructItemShell"/> news a fresh SharedData whose
         /// <c>m_icons</c> defaults to the vanilla empty array. Vanilla
         /// <c>ItemDrop.ItemData.GetIcon()</c> indexes <c>m_icons[m_variant]</c> with no bounds
         /// guard, so an additively-constructed item with an empty <c>m_icons</c> throws
@@ -85,10 +86,10 @@ namespace SBPR.Trailborne.Runtime
         /// <summary>
         /// Create a fresh empty GameObject parented under the inactive prefab holder, so
         /// no <c>Awake</c> fires while a feature module assembles its components on it
-        /// (the same discipline <see cref="ClonePrefab"/> + <see cref="ConstructPieceShell"/>
+        /// (the same discipline <see cref="TryClonePrefab"/> + <see cref="TryConstructPieceShell"/>
         /// use). Returns null only if the holder can't be created (never, in practice).
         /// ADR-0006: the additive entry point for a feature that wants full control over
-        /// which components it adds, rather than the fixed skeleton ConstructPieceShell bakes.
+        /// which components it adds, rather than the fixed skeleton TryConstructPieceShell bakes.
         /// </summary>
         public static GameObject NewHolderObject(string name)
         {
@@ -165,30 +166,41 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
-        /// Clone a registered prefab from ZNetScene under a new name.
-        /// Caller is responsible for adding the clone back into ZNetScene + ObjectDB.
+        /// Try to clone a registered prefab from ZNetScene under a new name. Returns
+        /// <see langword="true"/> with <paramref name="clone"/> set on success;
+        /// <see langword="false"/> (and <paramref name="clone"/> null) if there is no
+        /// ZNetScene or the source prefab isn't registered — both logged. Caller is
+        /// responsible for adding the clone back into ZNetScene + ObjectDB.
+        ///
+        /// The not-found case is an explicit <c>Try</c> rather than a null sentinel
+        /// (CLEANUP 3/3 null-as-value pass, t_0234cc42): every caller immediately
+        /// branches on "did we get one?", so a <c>bool</c> + <c>out</c> states that
+        /// contract at the type level instead of a <c>GameObject?</c> the caller must
+        /// remember to null-check.
         /// </summary>
-        public static GameObject? ClonePrefab(string sourceName, string newName)
+        public static bool TryClonePrefab(
+            string sourceName, string newName, [NotNullWhen(true)] out GameObject? clone)
         {
+            clone = null;
             var zns = ZNetScene.instance;
             if (zns == null)
             {
-                Plugin.Log.LogError("[Trailborne] ClonePrefab called with no ZNetScene.");
-                return null;
+                Plugin.Log.LogError("[Trailborne] TryClonePrefab called with no ZNetScene.");
+                return false;
             }
             var src = zns.GetPrefab(sourceName);
             if (src == null)
             {
                 Plugin.Log.LogError($"[Trailborne] Source prefab '{sourceName}' not in ZNetScene.");
-                return null;
+                return false;
             }
             // Parent under inactive holder so Awake() does NOT fire on the clone
             // (otherwise ZNetView Awake registers an invalid ZDO and ZNetScene
             // spams NullReferenceException on every Update).
             var holder = GetHolder();
-            var clone = UnityEngine.Object.Instantiate(src, holder.transform);
+            clone = UnityEngine.Object.Instantiate(src, holder.transform);
             clone.name = newName;
-            return clone;
+            return true;
         }
 
         /// <summary>
@@ -410,14 +422,29 @@ namespace SBPR.Trailborne.Runtime
                 odb.m_recipes.Add(recipe);
         }
 
-        public static PieceTable? GetHammerPieceTable()
+        /// <summary>
+        /// Try to resolve the vanilla Hammer's build <see cref="PieceTable"/> (the table
+        /// SBPR pieces are added to so they appear in the Hammer build menu). Returns
+        /// <see langword="true"/> with <paramref name="table"/> set when ObjectDB has the
+        /// Hammer and its <c>ItemDrop.m_itemData.m_shared.m_buildPieces</c> resolves;
+        /// <see langword="false"/> (and <paramref name="table"/> null) otherwise — no
+        /// ObjectDB, no Hammer, or a Hammer with no build table.
+        ///
+        /// The not-found case is an explicit <c>Try</c> rather than a null sentinel
+        /// (CLEANUP 3/3 null-as-value pass, t_0234cc42): both callers gate on
+        /// "got a table?" before adding their piece, so the <c>bool</c> + <c>out</c>
+        /// makes that the contract.
+        /// </summary>
+        public static bool TryGetHammerPieceTable([NotNullWhen(true)] out PieceTable? table)
         {
+            table = null;
             var odb = ObjectDB.instance;
-            if (odb == null) return null;
+            if (odb == null) return false;
             var hammer = odb.GetItemPrefab("Hammer");
-            if (hammer == null) return null;
+            if (hammer == null) return false;
             var drop = hammer.GetComponent<ItemDrop>();
-            return drop?.m_itemData?.m_shared?.m_buildPieces;
+            table = drop?.m_itemData?.m_shared?.m_buildPieces;
+            return table != null;
         }
 
         public static void AddPieceToTable(GameObject piecePrefab, PieceTable table)
@@ -916,35 +943,45 @@ namespace SBPR.Trailborne.Runtime
         /// game's own asset to build our piece's look; reading an asset is reference, not
         /// cloning — never the subtractive Instantiate-the-whole-networked-prefab anti-pattern.
         ///
-        /// Returns the grafted visual GameObject (parented at the local position/rotation/
-        /// scale the donor child had), or null if the donor or the named child is missing
-        /// (caller decides how loud to be; the piece still works, just without that visual).
+        /// Try to graft the named visual GameObject (parented at the local position/rotation/
+        /// scale the donor child had). Returns <see langword="true"/> with
+        /// <paramref name="visual"/> set on success; <see langword="false"/> (and
+        /// <paramref name="visual"/> null) if the destination, the donor prefab, or the named
+        /// child is missing — the caller decides how loud to be; the piece still works, just
+        /// without that visual.
+        ///
+        /// The not-found case is an explicit <c>Try</c> rather than a null sentinel
+        /// (CLEANUP 3/3 null-as-value pass, t_0234cc42): callers branch on
+        /// "did the graft land?" only to log a degraded-cosmetics warning, so the
+        /// <c>bool</c> + <c>out</c> names that contract.
         /// </summary>
-        public static GameObject? GraftVisualSubtree(string donorPrefabName, string visualChildName,
-                                                     GameObject dst, string graftName)
+        public static bool TryGraftVisualSubtree(string donorPrefabName, string visualChildName,
+                                                 GameObject dst, string graftName,
+                                                 [NotNullWhen(true)] out GameObject? visual)
         {
-            if (dst == null) return null;
+            visual = null;
+            if (dst == null) return false;
             var zns = ZNetScene.instance;
             if (zns == null)
             {
-                Plugin.Log.LogWarning($"[Trailborne] GraftVisualSubtree('{donorPrefabName}'): no ZNetScene.");
-                return null;
+                Plugin.Log.LogWarning($"[Trailborne] TryGraftVisualSubtree('{donorPrefabName}'): no ZNetScene.");
+                return false;
             }
             var donor = zns.GetPrefab(donorPrefabName);
             if (donor == null)
             {
                 Plugin.Log.LogWarning(
-                    $"[Trailborne] GraftVisualSubtree: donor prefab '{donorPrefabName}' not found; " +
+                    $"[Trailborne] TryGraftVisualSubtree: donor prefab '{donorPrefabName}' not found; " +
                     $"'{dst.name}' will have no grafted visual.");
-                return null;
+                return false;
             }
             var src = donor.transform.Find(visualChildName);
             if (src == null)
             {
                 Plugin.Log.LogWarning(
-                    $"[Trailborne] GraftVisualSubtree: donor '{donorPrefabName}' has no '{visualChildName}' child " +
+                    $"[Trailborne] TryGraftVisualSubtree: donor '{donorPrefabName}' has no '{visualChildName}' child " +
                     $"(vanilla structure changed?); '{dst.name}' will have no grafted visual.");
-                return null;
+                return false;
             }
 
             var copy = UnityEngine.Object.Instantiate(src.gameObject, dst.transform);
@@ -957,14 +994,15 @@ namespace SBPR.Trailborne.Runtime
             // the cosmetic copy interactive / networked / separately destructible.
             StripToDecorative(copy);
             copy.SetActive(true);
-            return copy;
+            visual = copy;
+            return true;
         }
 
         /// <summary>
         /// ADDITIVELY graft a vanilla prefab's EFFECT subtree — particle systems + light +
         /// audio + the <see cref="EffectFade"/> that fades them in/out — onto
         /// <paramref name="dst"/>, PRESERVING the effect components. This is the VFX sibling
-        /// of <see cref="GraftVisualSubtree"/> (which is for static meshes): here we keep the
+        /// of <see cref="TryGraftVisualSubtree"/> (which is for static meshes): here we keep the
         /// Light / AudioSource / ParticleSystem (and their LightLod / flicker / vortex helper
         /// scripts) because they ARE the effect. Used to lift <c>portal_wood</c>'s
         /// <c>_target_found_red</c> subtree onto the additive Ancient Portal so its
@@ -976,44 +1014,53 @@ namespace SBPR.Trailborne.Runtime
         /// AudioSource/ParticleSystem/EffectFade untouched — it only removes WearNTear/Piece/
         /// Collider/ZNetView). The donor effect subtree carries no ZNetView, so instantiating
         /// it wakes no ZDO — nothing to orphan; the same ADR-0006-safe graft pattern
-        /// <see cref="GraftVisualSubtree"/> / <see cref="GraftTorchFire"/> use. We read the
+        /// <see cref="TryGraftVisualSubtree"/> / <see cref="GraftTorchFire"/> use. We read the
         /// base game's own VFX asset to drive our piece's effect; reading an asset is
         /// reference, not cloning — never the subtractive whole-networked-prefab Instantiate.
         ///
-        /// 🔴 GUARANTEES a non-null <see cref="EffectFade"/> on the returned subtree. Vanilla
+        /// 🔴 GUARANTEES a non-null <see cref="EffectFade"/> on the grafted subtree. Vanilla
         /// <c>_target_found_red</c> ships one; if a future game patch ever drops it we
         /// AddComponent a bare one (EffectFade.Awake tolerates an empty particle/light/audio
         /// set — it's a safe no-op), so a caller that assigns the result to
-        /// <c>m_target_found</c> can rely on it being non-null and never NRE. Returns the
-        /// grafted GameObject, or null if the donor / named child is missing — in which case
-        /// a <c>TeleportWorld</c> caller MUST leave <c>m_proximityRoot</c> null to keep
-        /// <c>UpdatePortal</c> a safe no-op (the null-graft degradation).
+        /// <c>m_target_found</c> can rely on it being non-null and never NRE. Returns
+        /// <see langword="true"/> with <paramref name="effect"/> set on success;
+        /// <see langword="false"/> (and <paramref name="effect"/> null) if the donor / named
+        /// child is missing — in which case a <c>TeleportWorld</c> caller MUST leave
+        /// <c>m_proximityRoot</c> null to keep <c>UpdatePortal</c> a safe no-op (the
+        /// null-graft degradation).
+        ///
+        /// The not-found case is an explicit <c>Try</c> rather than a null sentinel
+        /// (CLEANUP 3/3 null-as-value pass, t_0234cc42): the caller already forks
+        /// "grafted → wire the proximity effect / not → stay a guarded no-op" on the
+        /// result, so the <c>bool</c> + <c>out</c> states that fork at the type level.
         /// </summary>
-        public static GameObject? GraftEffectSubtree(string donorPrefabName, string effectChildName,
-                                                     GameObject dst, string graftName)
+        public static bool TryGraftEffectSubtree(string donorPrefabName, string effectChildName,
+                                                 GameObject dst, string graftName,
+                                                 [NotNullWhen(true)] out GameObject? effect)
         {
-            if (dst == null) return null;
+            effect = null;
+            if (dst == null) return false;
             var zns = ZNetScene.instance;
             if (zns == null)
             {
-                Plugin.Log.LogWarning($"[Trailborne] GraftEffectSubtree('{donorPrefabName}'): no ZNetScene.");
-                return null;
+                Plugin.Log.LogWarning($"[Trailborne] TryGraftEffectSubtree('{donorPrefabName}'): no ZNetScene.");
+                return false;
             }
             var donor = zns.GetPrefab(donorPrefabName);
             if (donor == null)
             {
                 Plugin.Log.LogWarning(
-                    $"[Trailborne] GraftEffectSubtree: donor prefab '{donorPrefabName}' not found; " +
+                    $"[Trailborne] TryGraftEffectSubtree: donor prefab '{donorPrefabName}' not found; " +
                     $"'{dst.name}' will have no grafted effect.");
-                return null;
+                return false;
             }
             var src = donor.transform.Find(effectChildName);
             if (src == null)
             {
                 Plugin.Log.LogWarning(
-                    $"[Trailborne] GraftEffectSubtree: donor '{donorPrefabName}' has no '{effectChildName}' child " +
+                    $"[Trailborne] TryGraftEffectSubtree: donor '{donorPrefabName}' has no '{effectChildName}' child " +
                     $"(vanilla structure changed?); '{dst.name}' will have no grafted effect.");
-                return null;
+                return false;
             }
 
             var copy = UnityEngine.Object.Instantiate(src.gameObject, dst.transform);
@@ -1028,17 +1075,25 @@ namespace SBPR.Trailborne.Runtime
             // Guarantee it so the caller can assign without a null-deref risk.
             if (copy.GetComponent<EffectFade>() == null) copy.AddComponent<EffectFade>();
             copy.SetActive(true);
-            return copy;
+            effect = copy;
+            return true;
         }
 
         /// <summary>
-        /// Construct a networked build-piece SHELL from scratch — ADR-0006 additive
-        /// construction, the replacement for clone-then-strip. Returns a fresh
-        /// GameObject parented under the inactive holder (so its Awake has NOT fired),
-        /// carrying ONLY the skeleton every placeable/damageable/persistent SBPR piece
-        /// needs: <see cref="ZNetView"/> + <see cref="Piece"/> + <see cref="WearNTear"/>
+        /// Try to construct a networked build-piece SHELL from scratch — ADR-0006 additive
+        /// construction, the replacement for clone-then-strip. On success returns
+        /// <see langword="true"/> with <paramref name="shell"/> set to a fresh GameObject
+        /// parented under the inactive holder (so its Awake has NOT fired), carrying ONLY the
+        /// skeleton every placeable/damageable/persistent SBPR piece needs:
+        /// <see cref="ZNetView"/> + <see cref="Piece"/> + <see cref="WearNTear"/>
         /// + a root <see cref="BoxCollider"/>. The caller adds visuals + feature
-        /// components, sets piece/wear fields, and registers it in ZNetScene.
+        /// components, sets piece/wear fields, and registers it in ZNetScene. Returns
+        /// <see langword="false"/> (and <paramref name="shell"/> null) only if ZNetScene
+        /// isn't up (logged) — the caller skips registration.
+        ///
+        /// The no-ZNetScene case is an explicit <c>Try</c> rather than a null sentinel
+        /// (CLEANUP 3/3 null-as-value pass, t_0234cc42): every caller immediately bails
+        /// when the shell can't be built, so the <c>bool</c> + <c>out</c> names that.
         ///
         /// 🔴 Why this exists (ADR-0006): we no longer Instantiate a vanilla prefab and
         /// strip it. A ZNetView needs only (a) ZDOMan up and (b) a registered prefab
@@ -1058,17 +1113,19 @@ namespace SBPR.Trailborne.Runtime
         /// material, supports-bearing, non-burnable. m_health is left at the WearNTear
         /// default here; the caller overrides per-tier.
         /// </summary>
-        public static GameObject? ConstructPieceShell(string name, string referenceDonorName)
+        public static bool TryConstructPieceShell(
+            string name, string referenceDonorName, [NotNullWhen(true)] out GameObject? shell)
         {
+            shell = null;
             var zns = ZNetScene.instance;
             if (zns == null)
             {
-                Plugin.Log.LogError("[Trailborne] ConstructPieceShell called with no ZNetScene.");
-                return null;
+                Plugin.Log.LogError("[Trailborne] TryConstructPieceShell called with no ZNetScene.");
+                return false;
             }
 
             // Parent under the inactive holder BEFORE adding components, so no Awake
-            // fires during construction (same discipline as ClonePrefab). The ZNetView
+            // fires during construction (same discipline as TryClonePrefab). The ZNetView
             // we add will wake — correctly, down the CreateNewZDO path — only once this
             // shell is instantiated into the world by the placement system.
             var holder = GetHolder();
@@ -1137,16 +1194,17 @@ namespace SBPR.Trailborne.Runtime
             else
             {
                 Plugin.Log.LogWarning(
-                    $"[Trailborne] ConstructPieceShell: reference donor '{referenceDonorName}' not found; " +
+                    $"[Trailborne] TryConstructPieceShell: reference donor '{referenceDonorName}' not found; " +
                     "piece will have no hit/destroy/place effects (still functional, just silent).");
             }
 
-            return go;
+            shell = go;
+            return true;
         }
 
         /// <summary>
         /// Construct a networked ITEM-DROP SHELL from scratch — ADR-0006 additive
-        /// construction, the item analogue of <see cref="ConstructPieceShell"/>. Returns a
+        /// construction, the item analogue of <see cref="TryConstructPieceShell"/>. Returns a
         /// fresh GameObject parented under the inactive holder (so its Awake has NOT fired),
         /// carrying ONLY the skeleton a dropped/equippable vanilla item needs:
         /// <see cref="ZNetView"/> + <see cref="ZSyncTransform"/> + <see cref="Rigidbody"/> +
@@ -1176,15 +1234,22 @@ namespace SBPR.Trailborne.Runtime
         /// dropped item — vanilla items ARE persistent so a dropped Kit survives relog; we set
         /// persistent + Default type + syncs).
         ///
-        /// Returns null only if ZNetScene isn't up (logged) — the caller skips registration.
+        /// On success returns <see langword="true"/> with <paramref name="shell"/> set;
+        /// returns <see langword="false"/> (and <paramref name="shell"/> null) only if
+        /// ZNetScene isn't up (logged) — the caller skips registration.
+        ///
+        /// The no-ZNetScene case is an explicit <c>Try</c> rather than a null sentinel
+        /// (CLEANUP 3/3 null-as-value pass, t_0234cc42): every caller immediately bails
+        /// when the shell can't be built, so the <c>bool</c> + <c>out</c> names that.
         /// </summary>
-        public static GameObject? ConstructItemShell(string name)
+        public static bool TryConstructItemShell(string name, [NotNullWhen(true)] out GameObject? shell)
         {
+            shell = null;
             var zns = ZNetScene.instance;
             if (zns == null)
             {
-                Plugin.Log.LogError("[Trailborne] ConstructItemShell called with no ZNetScene.");
-                return null;
+                Plugin.Log.LogError("[Trailborne] TryConstructItemShell called with no ZNetScene.");
+                return false;
             }
 
             // Parent under the inactive holder BEFORE adding components so no Awake fires
@@ -1255,7 +1320,7 @@ namespace SBPR.Trailborne.Runtime
             // GetTooltip is driven per-frame by InventoryGui.UpdateRecipe, so a constructed item with
             // a null m_attack throws a per-frame NRE the instant its recipe is selected at the bench
             // (the "wall of red"). A CLONED item never hits this because Instantiate deep-copies the
-            // donor's non-null m_attack; only ConstructItemShell items are exposed.
+            // donor's non-null m_attack; only TryConstructItemShell items are exposed.
             //
             // A default `new Attack()` is INERT: m_spawnOnHitChance defaults to 0f so the :58551
             // guard short-circuits false (returns ""), and m_attackAnimation is empty so
@@ -1266,7 +1331,8 @@ namespace SBPR.Trailborne.Runtime
             drop.m_itemData.m_shared.m_attack          = new Attack();
             drop.m_itemData.m_shared.m_secondaryAttack = new Attack();
 
-            return go;
+            shell = go;
+            return true;
         }
     }
 }

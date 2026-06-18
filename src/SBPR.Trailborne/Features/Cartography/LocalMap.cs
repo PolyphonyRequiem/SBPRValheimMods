@@ -91,8 +91,7 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (zns.GetPrefab(LocalMapName) != null) return;
 
-            var clone = Assets.ClonePrefab(SourceHeldTool, LocalMapName);
-            if (clone == null)
+            if (!Assets.TryClonePrefab(SourceHeldTool, LocalMapName, out var clone))
             {
                 Plugin.Log.LogWarning($"[Trailborne/Cartography] Could not clone '{SourceHeldTool}' for {LocalMapName}; skipping.");
                 return;
