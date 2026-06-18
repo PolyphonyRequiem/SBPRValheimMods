@@ -157,19 +157,12 @@ namespace SBPR.Trailborne.Runtime
                 Piece = Portals.PortalPieceName, Station = null,
                 Resources = new[] { R(Portals.SeedItemName, 1) }
             },
-            // ── v3 Swamp: Sunstone material + Sunstone Lens (card t_2fd7bc7f) ──
-            // Sunstone — standalone Material resource. PROVISIONAL craft recipe (placeholder so it
-            // is obtainable today; intended source is loot — swamp surface chests + rare Draugr
-            // Elite drop, with a Daniel-reserved rarity knob — split to a follow-up card). The
-            // craft is Iron ×1 + Crystal ×2 at the Explorer's Bench. If this recipe changes (or is
-            // removed when the loot economy lands), this row + docs/v3 spec §6 move together.
-            new RecipeSpec {
-                Item = SunstoneLens.SunstoneName, Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] {
-                    R("Iron", SunstoneLens.SunstoneIronCost),
-                    R("Crystal", SunstoneLens.SunstoneCrystalCost),
-                }
-            },
+            // ── v3 Swamp: Sunstone Lens (card t_2fd7bc7f) ──
+            // NOTE: the Sunstone MATERIAL has NO recipe row — it is loot-sourced only (swamp
+            // surface chests + rare Draugr Elite, SunstoneLoot.cs / PR #183). DropTables and
+            // CharacterDrops are not modelled by SpecCheck, so the material contributes 0 manifest
+            // rows. The earlier provisional Iron×1+Crystal×2 craft was a bridge until the drops
+            // shipped; Daniel locked REMOVE once they did (card t_8f39b5fc → t_c27f985e, impl spec §6).
             // Sunstone Lens — additive Trinket accessory, crafted at the Explorer's Bench from
             // Sunstone ×2 + Iron ×1 + Guck ×3, amount 1. Sunstone referenced via the const so a
             // rename can't drift the recipe; it registers into ODB earlier in the same wiring pass.

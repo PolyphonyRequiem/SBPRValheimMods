@@ -160,9 +160,11 @@ namespace SBPR.Trailborne.Runtime
                 // the portal's one-seed build cost is rebuilt.
                 Portals.DoObjectDBWiring(ZNetScene.instance);
 
-                // v3 Swamp — Sunstone material + Lens recipes (card t_2fd7bc7f). The Lens recipe
-                // consumes Sunstone; both are registered inside this one call, Sunstone first, so
-                // BuildReq resolves the Sunstone ingredient. After Trailhead (the bench station).
+                // v3 Swamp — Sunstone material + Lens (card t_2fd7bc7f). The Sunstone MATERIAL
+                // is registered (into ZNetScene + ODB) but has NO recipe — it is loot-sourced
+                // (SunstoneLoot, below). Only the LENS has a recipe, and it consumes Sunstone, so
+                // Sunstone must be in ODB first for the Lens BuildReq to resolve — both happen in
+                // this one call, Sunstone first. After Trailhead (the bench station).
                 SunstoneLens.DoObjectDBWiring(ZNetScene.instance);
 
                 // v3 Swamp — Iron Compass recipe (card t_ee61472f). Consumes Red Pigment

@@ -31,13 +31,12 @@ observable acceptance criteria, the `Features/` placement, and the SpecCheck man
 
 ## 0. SpecCheck manifest impact (read first — it moves with the code)
 
-`Runtime/SpecCheck.cs` holds the recipe drift manifest. This feature adds **+2 entries**
-(both new item recipes):
+`Runtime/SpecCheck.cs` holds the recipe drift manifest. This feature adds **+1 entry**
+(the Lens item recipe only — the Sunstone material is loot-sourced, not crafted, §6):
 
 | # | Manifest entry | Kind | Resources | Station |
 |---|---|---|---|---|
-| 1 | `SBPR_Sunstone` | item recipe (amount 1) | **see §6 — provisional craft recipe** | `piece_sbpr_explorers_bench` |
-| 2 | `SBPR_SunstoneLens` | item recipe (amount 1) | `SBPR_Sunstone` ×2, Iron ×1, Guck ×3 | `piece_sbpr_explorers_bench` |
+| 1 | `SBPR_SunstoneLens` | item recipe (amount 1) | `SBPR_Sunstone` ×2, Iron ×1, Guck ×3 | `piece_sbpr_explorers_bench` |
 
 **Resource prefab-name caveats (must match vanilla internal IDs / SBPR consts, or
 SpecCheck flags a NULL `m_resItem`) — verified this pass against the wiki corpus
@@ -57,13 +56,13 @@ real (non-fallback) `m_icons[0]` (C1) and non-null `m_attack`/`m_secondaryAttack
 GetChainTooltip NRE guard). `ConstructItemShell` pre-seeds both, so the Lens is crash-safe
 by construction; the icon assertion is what then SCREAMS at boot if the real PNG didn't ship.
 
-> **§6 provisional-recipe caveat:** the Sunstone *craft* recipe is a **placeholder so the
-> material is obtainable today** (AC#1). Sunstone's intended economy is **loot-sourced**
-> (swamp surface chests + rare Draugr Elite drop, `swamp-detection-item.md` §Sourcing), and
-> its **drop rarity is an OPEN knob reserved for Daniel**. The loot-table economy is a
-> separate follow-up card (see §9). When that lands, the provisional craft recipe is either
-> removed or kept as an alt-path — Daniel's call. Both the manifest row and this doc move
-> together when it changes (the spec-and-code-together rule).
+> **§6 sourcing note:** the Sunstone material has **no craft recipe** — its sole
+> acquisition path is the **loot economy** (swamp surface chests ~15% + rare Draugr Elite
+> ~5%, `swamp-detection-item.md` §Sourcing; shipped as `SunstoneLoot.cs` / PR #183, card
+> t_0445f590). An earlier **provisional** Iron×1 + Crystal×2 craft existed as a bridge so the
+> material was obtainable before the drops landed; **Daniel locked REMOVE** once the loot
+> economy shipped (card t_8f39b5fc → this card t_c27f985e). The manifest row, this doc §6,
+> and the code moved together when it was removed (the spec-and-code-together rule).
 
 ## 1. Theme (resolves the design note's open-question #1 render sub-knob)
 
@@ -91,8 +90,8 @@ Features/Sunstone/
 ```
 
 - **`SBPR_Sunstone`** — `ItemType.Material`, stack 20, the standalone resource. Clones
-  `Coins` (Pigments pattern). Obtainable via the provisional craft recipe (§6) today; loot
-  economy is the follow-up card.
+  `Coins` (Pigments pattern). **Loot-sourced only** (no craft recipe) — swamp surface chests
+  + rare Draugr Elite drop (§6, `SunstoneLoot.cs`).
 - **`SBPR_SunstoneLens`** — `ItemType.Trinket` (enum 24), the worn accessory. Built
   additively via `ConstructItemShell` (Cartographer's Kit pattern). `m_useDurability = true`
   so the energy bar renders and reads as durability; **we own the drain + recharge** (§3, §4).
@@ -251,13 +250,14 @@ a sentence: Sunstone = the solar core; Iron = the Swamp-tier frame (and the tier
 needs Sunken-Crypt scrap to smelt); Guck = the Swamp-surface adhesive/housing. `m_maxQuality = 1`
 (no upgrade tiers in v0.x).
 
-**Sunstone (provisional craft recipe, PLACEHOLDER so it is obtainable today):** at the
-Explorer's Bench — `Iron ×1 + Crystal ×2` → `SBPR_Sunstone ×1`, output 1. This exists ONLY so
-AC#1 ("obtainable") holds before the loot economy is built. It is explicitly a stopgap:
-Sunstone's intended source is loot (swamp surface chests + rare Draugr Elite), with a
-Daniel-reserved rarity knob. **Flagged for Daniel:** keep this craft as an alt-path, or remove
-it when the drop economy lands? Tracked on the follow-up card (§9). The recipe and this note
-move together if it changes.
+**Sunstone (the material): NO craft recipe — loot-sourced only.** Sunstone is acquired
+exclusively through the loot economy: swamp **surface** chests (primary, ~15% per chest) and
+a rare **Draugr Elite** combat drop (secondary, ~5% flat), shipped as `SunstoneLoot.cs`
+(card t_0445f590 / PR #183, spec `sunstone-loot-economy-impl-spec.md`). An earlier
+**provisional** Explorer's-Bench craft (`Iron ×1 + Crystal ×2 → SBPR_Sunstone ×1`) existed as
+a stopgap so the material was obtainable before the drops landed; **Daniel locked REMOVE**
+once the loot economy shipped (card t_8f39b5fc → this card t_c27f985e). The recipe and this
+note moved together when it was removed.
 
 ## 7. Server-gating & client/server split (doctrine)
 
@@ -275,9 +275,10 @@ move together if it changes.
 
 ## 8. Observable acceptance tests (named, in-game — logs-green ≠ playable)
 
-- **AT-LENS-OBTAIN:** Sunstone is craftable at the Explorer's Bench (provisional recipe); the
+- **AT-LENS-OBTAIN:** Sunstone is obtained from the loot economy (swamp surface chests +
+  Draugr Elite drop — `SunstoneLoot.cs`), NOT craftable at any station; the
   Lens is craftable from Sunstone+Iron+Guck. The Iron Compass and all other tier items are
-  unchanged (AC#1). SpecCheck green for both new rows.
+  unchanged (AC#1). SpecCheck green for the Lens recipe row (the material has no recipe row).
 - **AT-LENS-CHARGE:** stand in the open in clear daylight, dry, outside the Swamp → the Lens'
   durability bar climbs. Step under a roof, or wait for rain/night, or enter the Swamp → it
   stops climbing (AC#2).
@@ -296,11 +297,11 @@ move together if it changes.
 
 ## 9. Follow-up (NOT in this card's scope)
 
-- **Sunstone loot economy** — wire Sunstone into swamp **surface** chest DropTables
-  (`Container.m_defaultItems`, `:101726`) + a rare Draugr Elite `CharacterDrop` (`:11321`),
-  per `swamp-detection-item.md` §Sourcing, **once Daniel sets the drop-rarity knob** (looser
-  ~5–8% vs tighter ~2–3%). Spawned as child card **t_1fcbb780** (triage → a specifier gets
-  Daniel's rarity lean, then an implementer builds the drop-table surface; no repo precedent
-  yet). The provisional Sunstone craft recipe (§6) is the bridge until then.
+- **Sunstone loot economy — SHIPPED** (card t_0445f590 / PR #183,
+  `sunstone-loot-economy-impl-spec.md`). Sunstone is wired into the swamp **surface** chest
+  DropTable (`Container.m_defaultItems`, `:101726`, primary ~15% per chest) + a rare Draugr
+  Elite `CharacterDrop` (`:11321`, secondary ~5% flat), per `swamp-detection-item.md`
+  §Sourcing. Daniel locked the rarity knob at 15% / 5% (card t_8f39b5fc). This is now the
+  **sole** Sunstone source — the provisional craft (§6) was removed (this card t_c27f985e).
 - **Lens HUD art** — v0.1 ships a placeholder indicator; a polished threat-overlay (and a real
   Sunstone/Lens icon PNG) is a v0.x art follow-up per the icon doctrine.
