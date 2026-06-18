@@ -2085,6 +2085,14 @@ working, discoverable OPEN action — not to restore clicks.
 
 #### 2G.1 LOCKED open input — the Use key (E) while equipped
 
+> **⚠️ OPEN INPUT SUPERSEDED (2026-06-17, issue 3 → `local-map-mkey-open-impl-spec.md`, card
+> t_f9a04fda).** The "Use key (E)" lock below is HISTORY. The open gesture moved to **M** — SBPR
+> now owns the M (Map) input edge via a consume-prefix on `Minimap.Update` (no double-stack in
+> nomap=OFF), the E-to-open path was removed, and the equipped prompt reads "[M] …". Route (b)
+> ("gate vanilla's M") — rejected here — was in fact the realized design, done cleanly via the
+> consume-prefix idiom rather than a `SetMapMode` skip. The §2F menu-suppression / Esc-close work
+> below STANDS. Read this section as the rationale that was superseded, not current behavior.
+
 **Route (a) from the card is locked. Routes (b) "gate vanilla's M" and (c) "a new bind" are
 rejected** (rationale below).
 

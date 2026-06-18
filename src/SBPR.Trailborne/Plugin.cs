@@ -475,6 +475,16 @@ namespace SBPR.Trailborne
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapEquipPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.LocalMapBootstrapPatch));
 
+            // v2 Local Map open-on-M (issue 3, §M-key spec — card t_f9a04fda). SBPR owns the
+            // M (Map) input edge: a consume-PREFIX on Minimap.Update routes the M press into
+            // LocalMapController.HandleMapKeyPressed() then ResetButtonStatus("Map"/"JoyMap") so
+            // vanilla's own Update body (same frame) reads a cleared edge and never toggles its
+            // Large map — no double-stack in nomap=OFF. Non-skip (void prefix): vanilla's Update
+            // still runs for pins/explore/fade. Composes with the WorldPinReconcilePatches
+            // Minimap.Update POSTFIX (different patch type + timing). Client+gfx only by
+            // construction (early-out on a null graphics device → inert on the dedicated server).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Cartography.MinimapMKeyOwnerPatch));
+
             // v2 Local Map item-name display (issue 10, §2A.6b — card t_41482aa3). Two scoped
             // postfixes substitute an imprinted map's per-instance Table name (sbpr_map_name
             // m_customData key) for the item's displayed title, so several bound maps are
