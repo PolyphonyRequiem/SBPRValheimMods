@@ -387,6 +387,22 @@ scale-lerp (which scales only `SBPR_AncientPortalVisual`, §3.6) doesn't distort
 effect only reads "active" once the portal is connected to a same-tag twin, which can't happen
 before it's grown + placed, so there's no half-grown shimmer to suppress.
 
+**Orientation (issue 1 follow-up, 2026-06-17):** the grafted `_target_found_red` subtree's
+`localRotation` is explicitly set to the ring's flat-lay rotation (the shared `RingFlatRotation`
+= `Quaternion.Euler(90, 0, 0)`), immediately after its `localPosition`. `GraftEffectSubtree`
+faithfully copies the donor's local transform (`Assets.cs`), and `portal_wood`'s `_target_found_red`
+child is at **identity** local rotation relative to its portal root (X-rayed on the real prefab,
+t_bf2bb402) — so without this, the effect inherits identity and renders in `portal_wood`'s native
+**UPRIGHT** plane, reading vertical instead of sitting in our **FLAT** ring (Daniel playtest
+v0.2.26-dev: *"the ancient portal effects are vertical, and not aligned with the wooden portal
+ring."*). Because the donor is identity, this is a bare **overwrite** with the ring's rotation —
+not a compose. The ring rotation (§3.5 ring graft, was an inline `Euler(90,0,0)`) and this effect
+rotation are now the **same `RingFlatRotation` constant** so the two can never drift (mirroring the
+legs/colliders "SHARED so the two never drift" pattern). It is **NOT** re-parented under the ring:
+the ring lives under the grow-scaled `SBPR_AncientPortalVisual`, and re-parenting would drag the
+effect into that subtree and reintroduce grow-scale distortion — so it stays under the piece root,
+just rotated.
+
 > - `m_enabled`/activation: the grow timer (§3.6) gates teleport by toggling the
 >   `TeleportWorld` component enabled-state (or the trigger collider) — see §3.6.
 
@@ -595,11 +611,21 @@ in the PR handoff; the build PR does NOT self-close these.
   the "target found" effect/shimmer (the `_target_found_red` particle/light burst) that vanilla
   shows on a connected portal; an UNCONNECTED one does not (ring stays dark — `m_colorUnconnected`
   is black).
+- **AT-PORTAL-FX-ALIGN** (issue 1 follow-up, §3.5.1) — the proximity / "target found" effect
+  renders in the **SAME plane as the Ancient Portal ring** (FLAT, faces up), reading as part of
+  the ring the way vanilla `portal_wood`'s effect sits in its UPRIGHT ring — NOT vertical/edge-on.
+  Set by the shared `RingFlatRotation` overwrite on the graft's `localRotation` (donor verified
+  identity, so a bare overwrite — not a compose). Regression of Daniel's v0.2.26-dev playtest
+  (*"the ancient portal effects are vertical, and not aligned with the wooden portal ring."*).
+  **Logs-green ≠ playable**: the rotation is the grounded structural fix; final accept is Daniel's
+  in-game eyeball on a joined client.
 - **AT-PORTAL-FX-NONRE** (issue 1, §3.5.1; regression guard on the §3.5 `m_model`-null NRE) —
   `TeleportWorld.Update` / `UpdatePortal` run with **zero NREs** now that `m_proximityRoot`,
   `m_target_found`, and `m_connected` are all non-null. Verify especially the **first pairing**
   (the connect-edge `m_connected.Create()`), the path that would have NRE'd if only
-  `m_proximityRoot` were wired.
+  `m_proximityRoot` were wired. **The issue-1-follow-up rotation change touches only the graft's
+  `localRotation` — `m_proximityRoot`/`m_target_found`/`m_connected` wiring and `EnvelopeHeight`
+  (`localPosition`) are untouched, so this guard must still hold.**
 - **AT-PORTAL-FX-ADDITIVE** (issue 1, §3.5.1) — the effect is built additively (no `portal_wood`
   clone-and-strip): the `_target_found_red` subtree is grafted via `Assets.GraftEffectSubtree`
   (Instantiate of a ZNetView-free child), ADR-0006 held, no ZNetView/ZDO orphan introduced.
