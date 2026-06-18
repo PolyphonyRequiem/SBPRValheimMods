@@ -1368,6 +1368,14 @@ predicates, so from `Menu`'s view nothing is open → `flag` stays true → Esca
 > camera-look freeze, or cursor release — those work. **The single real gap is that none of those
 > three seams touch the Escape→`Menu.Show` path.** That gate is what leaks.
 >
+> **⚠️ 2026-06-17 correction (see §2L, card t_f7a6db7a): the "cursor release — those work" clause
+> above is FALSE on the shipped v0.2.26-dev build.** The wiring is real (the patch is registered and
+> keyed on the viewer), but the seam it postfixes — `GameCamera.UpdateMouseCapture` — was emptied by
+> vanilla in a Unity-Input-System update (IL-confirmed: `IL_0000: ret`), so the cursor release is a
+> no-op against the live lock owner. Character-input blocking and camera-look freeze DO still work
+> (they ride the live `Player.TakeInput` / `PlayerController.TakeInput` seams). Only the cursor half
+> is dead. §2L re-seats it on a live seam.
+>
 > **Second correction: `MarkerSignPanel`/`SignPaintPanel` are NOT a working reference to copy —
 > they have the *identical* leak.** Both also raw-poll `Input.GetKeyDown(KeyCode.Escape)` in their
 > own `Update` (`MarkerSignPanel.cs:96`, `SignPaintPanel.cs:144`) and both route through the same
@@ -1487,6 +1495,301 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
   recommendation:** land §2E (render) first or assign **both to the same `engineer-ui` worker** so
   the exit-prompt label and the material-reuse render land without a merge conflict on the same
   file. Note the dependency on the implementation card.
+### 2L — Cursor stays locked at the Surveyor's Table map: the cursor-release seam was emptied by vanilla (issue 7, 2026-06-17, card t_f7a6db7a)
+
+> **Build seen:** v0.2.26-dev (Daniel, 2026-06-17 in-game playtest). Daniel: *"issue 7, at the
+> map table, my mouse is not free to move and click on pins to remove."*
+>
+> **Grounding for this whole section** was done against the LIVE managed assembly Daniel runs
+> (`assembly_valheim.dll` / `assembly_utils.dll`, m_playerVersion 43, decompiled with ilspycmd) and
+> the in-repo source at `origin/main`. Every vanilla claim below cites IL or decompiled source, not
+> memory. Where this section disagrees with the card body or with §2F.1, this section is the
+> corrected, verified account.
+
+#### 2L.1 The card's premise is wrong in BOTH directions — what is actually true
+
+The card states the bug is *"a MISSING mechanism — NOTHING frees the cursor or blocks gameplay
+input… ZERO hits in Cartography."* That is the result of grepping **only** `Features/Cartography/`.
+The cursor-free + input-block mechanism is **not** in that folder — it lives cross-feature in
+`Features/Signs/SignPanelInputBlock.cs`, and it **already names the viewer**:
+
+```csharp
+// SignPanelInputBlock.cs:55-58  (committed 4aa0ef1, in v0.2.25-playtest — verified ancestor)
+internal static bool AnyOpen =>
+       SignPaintPanel.IsOpen
+    || MarkerSignPanel.IsOpen
+    || SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen;   // ← viewer already wired
+```
+
+All four `SignPanelInputBlock` patch containers are registered in `Plugin.Awake()`
+(`Plugin.cs:298-307`). So the mechanism exists, is wired to the TableEdit viewer, and ships.
+**But §2F.1's counter-claim is ALSO wrong:** it asserts *"the viewer is NOT missing… cursor
+release — those work."* They do **not** work, for the reason §2F never checked. The truth is a
+third thing neither the card nor §2F states:
+
+> **🔴 ROOT CAUSE: the cursor-release patch targets a vanilla method that is now EMPTY. Vanilla
+> moved cursor management out of `GameCamera.UpdateMouseCapture` in a Unity-Input-System update.
+> Our postfix still runs every frame, but the method it postfixes no longer touches the cursor, so
+> setting `Cursor.lockState = None` there is a no-op against the live lock owner.**
+
+This is a **stale-seam regression in the BASE GAME**, not a missing SBPR mechanism. The SBPR code
+is the same code that worked on an older Valheim; the seam rotted under it.
+
+#### 2L.2 The regression, proven by old-vs-new assembly diff (the load-bearing evidence)
+
+**Our patch (`SignPanelInputBlock.cs:85-95`)** postfixes `GameCamera.UpdateMouseCapture`:
+
+```csharp
+[HarmonyPatch(typeof(GameCamera), "UpdateMouseCapture")]
+public static class MouseCapturePatch {
+    [HarmonyPostfix] private static void Postfix() {
+        if (!AnyOpen) return;
+        Cursor.lockState = CursorLockMode.None;   // free the cursor each frame while a modal is open
+        Cursor.visible = true;
+    }
+}
+```
+
+**OLD Valheim** (RandyKnapp reference assembly, in `sbpr-corpus`): `UpdateMouseCapture` WAS the
+per-frame cursor manager — it actively locked the cursor during gameplay:
+
+```csharp
+// OLD GameCamera.UpdateMouseCapture (decompiled):
+private void UpdateMouseCapture() {
+    if (Input.GetKey(LeftAlt) && Input.GetKeyDown(...)) m_mouseCapture = !m_mouseCapture;
+    if (m_mouseCapture && !InventoryGui.IsVisible() && !TextInput.IsVisible() && !Menu.IsVisible()
+        && !Minimap.IsOpen() && !StoreGui.IsVisible() && !Hud.IsPieceSelectionVisible() && ...) {
+        Cursor.lockState = CursorLockMode.Locked;   // ← the gameplay lock used to live HERE
+        Cursor.visible = false;
+    } else {
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = ZInput.IsMouseActive();
+    }
+}
+```
+
+In that era a postfix forcing `None`/`visible=true` after this body was the **correct and
+sufficient** seam: the only writer ran, then we overrode it. That is the world `MouseCapturePatch`
+was authored for.
+
+**CURRENT Valheim** (Daniel's build, IL-verified): the same method is **empty**:
+
+```
+// ilspycmd --ilcode -t GameCamera assembly_valheim.dll
+.method public hidebysig instance void UpdateMouseCapture () cil managed {
+    // Code size: 1 (0x1)
+    IL_0000: ret            // ← empty body. Still CALLED every LateUpdate (GameCamera.LateUpdate:161),
+}                           //   so our postfix still fires — but it overrides NOTHING.
+```
+
+A whole-assembly scan for the runtime cursor writers (`set_lockState` across
+`assembly_valheim.dll` + `assembly_utils.dll` + `assembly_guiutils.dll`) finds the gameplay lock is
+**no longer in any managed method**:
+
+| `Cursor.lockState =` write site | Class | Runs during gameplay? |
+|---|---|---|
+| `Menu.UpdateCursor` | `Menu` (pause menu) | No — only while the pause menu is up |
+| `FejdStartup.UpdateCursor` | `FejdStartup` (start screen) | No — main-menu only |
+| `TestSceneCharacter` Mouse1 toggle | test scene | No — not shipped gameplay |
+
+The build also now ships `Unity.InputSystem.dll` + `Unity.InputSystem.ForUI.dll`. The cursor
+capture/lock during play migrated into the new Input System plumbing (below the managed-Valheim
+layer we patch), and `GameCamera.m_mouseCapture` is now a vestigial field (set true in `Awake`,
+never read for locking). **Net effect:** our postfix sets `lockState=None` on a dead method; the
+Input-System layer re-asserts the lock the same frame → the cursor never actually frees. Exactly
+Daniel's report.
+
+**Why the "[Left-click] Remove pin" prompt is visible but unusable (the apparent paradox,
+resolved).** The prompt renders only when `_req.Mode == TableEdit` and the modal is active
+(`MapSurface.cs:747`). Daniel sees it → the viewer **is** open → `IsViewerOpen`/`AnyOpen` **are**
+true → the `TakeInput` gates **are** firing. So the camera-freeze half works; it's specifically the
+cursor unlock that's dead. The click handler (`MapSurface.cs:777`) is reachable in principle, but
+with the cursor still center-locked there is no free pointer to aim it.
+
+#### 2L.3 What ALREADY works (do not "fix" these — verified live)
+
+Two of the three things the card lumps together as missing are present and correct in the current
+assembly. Touching them would be churn:
+
+- **AT-TABLE-NO-LOOK (camera doesn't turn) — WORKS.** `PlayerController.LateUpdate:235` still gates
+  mouse-look: `if (!TakeInput(look:true) || InInventoryEtc()) { m_character.SetMouseLook(Vector2.zero); return; }`.
+  Our `PlayerControllerTakeInputPatch` forces `TakeInput→false` while `AnyOpen`, so the camera is
+  already frozen at the table. (`PlayerController.TakeInput(bool)` exists at decomp line 198 — the
+  seam is live, not stale.)
+- **Character-input block (no weapon swing / build / move) — WORKS.** `Player.TakeInput()` (the
+  parameterless override, decomp line 2469) is forced false by our `TakeInputPatch` while
+  `AnyOpen`. Left-click can't swing a weapon because character input is gated. (The card's
+  AT-TABLE-NO-LOOK "left-click does not swing a weapon" clause is therefore already satisfied —
+  it's the *aiming* that's broken, via the cursor, not the swing-suppression.)
+
+The ONLY broken seam is the cursor unlock. This narrows the fix dramatically versus the card's
+"build the whole mechanism" framing.
+
+#### 2L.4 🔒 LOCKED ROUTE — re-seat cursor release on a LIVE seam, set imperatively, with a restore
+
+The fix is to stop depending on a vanilla method that no longer manages the cursor, and instead own
+the cursor state ourselves across the modal session. Two coupled changes:
+
+**(a) Drive the cursor IMPERATIVELY on the open/close edges, not by postfixing a (dead) per-frame
+vanilla method.** When any SBPR modal opens, set `Cursor.lockState = None; Cursor.visible = true`.
+When the last one closes, restore the cursor to gameplay (`Cursor.lockState = Locked;
+Cursor.visible = false`). Because the new Input System re-asserts the lock, a one-shot set on the
+open edge is not enough on its own — so **also keep a per-frame re-assert while `AnyOpen`**, but
+hang it off a seam that is *guaranteed to run* and is NOT the emptied `UpdateMouseCapture`. The
+robust anchor is a tiny driver the mod already controls:
+
+- **Anchor = a per-frame tick the mod owns** (the `MapViewer` MonoBehaviour already has an
+  `Update()` at `MapViewer.cs:104`; the sign panels each have their own `Update`). Add a single
+  shared call — `ModalUiSession.PumpCursor()` — that, while `AnyOpen`, re-asserts
+  `lockState=None`/`visible=true` every frame in **LateUpdate ordering after** the Input System has
+  run. A dedicated `MonoBehaviour` with a `LateUpdate` (one global instance, created in
+  `Plugin.Awake` alongside the viewer host) is the cleanest guaranteed anchor and removes the
+  dependency on any specific vanilla method body. **Engineer chooses** between (i) a dedicated
+  `LateUpdate` pump and (ii) re-pointing the existing Harmony postfix at a vanilla method that is
+  *non-empty and runs every frame in LateUpdate* (e.g. postfix `GameCamera.LateUpdate` itself,
+  which is live — see §2L.6 seam options). The acceptance is behavioral (AT-TABLE-CURSOR-FREE), not
+  which anchor.
+
+**(b) RESTORE on close (the missing half — even the old code half-relied on vanilla to re-lock).**
+Today nothing restores `lockState=Locked` when the modal closes; the old design got away with it
+because vanilla's `UpdateMouseCapture` re-locked the next frame. Now that vanilla's gameplay
+re-lock is in the Input System and our pump stops the moment `AnyOpen` goes false, the cursor would
+be left in whatever state the Input System chooses — observably fine in most cases, but **the spec
+requires an explicit restore** so AT-TABLE-RESTORE is deterministic and not luck. On the
+`AnyOpen: true→false` edge, set `Cursor.lockState = Locked; Cursor.visible = false` once.
+
+**Do NOT** try to make the cursor free by reporting through `Minimap.IsOpen()` or any vanilla
+predicate — same wide-blast-radius reason §2F.2 rejected it for the menu gate (≈10 vanilla gates
+read `Minimap.IsOpen`). Own the cursor directly.
+
+#### 2L.5 Extraction shape — `ModalUiSession` (the card's "shared modal uGUI guard," done right)
+
+The card asks for extraction, not copy-paste, so the cursor-free + input-block stop drifting per
+surface. Correct — and the current `SignPanelInputBlock` is *already* the de-facto shared guard
+(its `AnyOpen` covers all three SBPR modals). The extraction is therefore **a focused promotion,
+not a rewrite**:
+
+- **Rename the concept to its real scope.** `SignPanelInputBlock` is misnamed now that it gates the
+  map viewer too. Promote it (or wrap it) as **`Features/Common/ModalUiSession`** — a single static
+  guard exposing:
+  - `static bool AnyOpen` — the existing OR of the three live `IsOpen` probes (keep the
+    un-latchable `_root.activeSelf`/`IsViewerOpen` discipline from `SignPanelInputBlock.cs:42-58`;
+    **the disc must NOT contribute** — it stays `IsMinimapBound`, a passive HUD element that must
+    not free the cursor).
+  - the existing `Player.TakeInput` + `PlayerController.TakeInput` postfixes (UNCHANGED — they
+    work),
+  - the `Menu.Show` suppress prefix (UNCHANGED — §2F),
+  - **replacing** the dead `MouseCapturePatch` with the live cursor pump + open/close restore from
+    §2L.4.
+  - One edge-detector (`_wasOpen`) so the restore fires exactly once on close.
+- **Keep it one file, one `AnyOpen`, one registration block.** Adding a fourth contributor later
+  still just ORs another `IsOpen`. This is the "modal uGUI session guard: open → free cursor + block
+  input; close → restore" the card describes, realized by editing the file that already is that
+  guard rather than spawning a parallel helper the viewer would have to also call.
+- **Naming/relocation is the engineer's call** — renaming `SignPanelInputBlock` touches
+  `Plugin.cs` registration lines and is pure churn risk; an acceptable lighter option is to **leave
+  the type name** and only (i) swap the cursor patch for the live pump+restore and (ii) add a
+  class-doc note that it is the shared modal guard, not sign-specific. The behavioral ATs don't care
+  about the name. **Lock: one shared guard, cursor seam re-seated on a live anchor, explicit restore
+  on close. Name/location at engineer discretion.**
+
+#### 2L.6 Seam options for the live cursor pump (engineer picks one; all verified live)
+
+The implementer must NOT re-use `GameCamera.UpdateMouseCapture` (empty, IL-confirmed). Verified-live
+alternatives, in preference order:
+
+1. **Dedicated `LateUpdate` pump (recommended).** A one-instance `MonoBehaviour` created in
+   `Plugin.Awake`. Its `LateUpdate` runs after `PlayerController.LateUpdate`/`GameCamera.LateUpdate`
+   in the same frame; while `AnyOpen` it sets `lockState=None`/`visible=true`. Zero Harmony, no
+   dependency on any vanilla method body — immune to the next time vanilla reshuffles input code.
+2. **Postfix `GameCamera.LateUpdate`** (non-empty, runs every frame, calls the empty
+   `UpdateMouseCapture` itself at `:161`). Re-point the existing patch up one level. Lower-risk than
+   option 1 in terms of lifecycle (no new GameObject) but couples us to `GameCamera.LateUpdate`
+   staying the camera's per-frame entry.
+3. **Postfix `PlayerController.LateUpdate`** — also live every frame. Equivalent to (2); pick
+   whichever the engineer finds least surprising.
+
+All three are vanilla base-game seams (ADR-0001 clean-side: reading/patching base game is fair
+game; verified against `assembly_valheim.dll` metadata — no third-party mod code). The choice is an
+implementation detail; **AT-TABLE-CURSOR-FREE + AT-TABLE-RESTORE are the contract.**
+
+#### 2L.7 Scope — TableEdit vs FieldReadOnly (resolves the card's open question)
+
+The card asks whether the FieldReadOnly (carry/equipped) full view also needs the cursor free.
+**Answer: it falls out for free and should NOT be specially gated.** `AnyOpen` keys on
+`IsViewerOpen` = the modal being active, regardless of mode — so the same cursor pump frees the
+cursor for BOTH the TableEdit modal and the FieldReadOnly modal. That is correct and desirable:
+even the read-only field map is a full-screen modal you Escape out of, and a free cursor there is
+consistent (and harmless — there are no clickable pins to remove, so a free cursor simply does
+nothing extra). The passive **minimap disc** is the one surface that must stay cursor-locked — and
+it already is, because it contributes via `IsMinimapBound`, not `IsViewerOpen`/`AnyOpen`. No
+mode-specific cursor branching is needed; **one pump, gated on `AnyOpen`, covers it.**
+
+#### 2L.8 The sibling sign panels have the IDENTICAL dead seam (fix once, fix all three)
+
+Because the cursor release is the SHARED `MouseCapturePatch` keyed on the shared `AnyOpen`, the
+sign panels (`SignPaintPanel`, `MarkerSignPanel`) have the **same** broken cursor-free on this
+build — their cursor-free playtest box was never confirmed (`docs/v0.1.0/v0.1.0-PLAYTEST.md:49` is
+still unchecked). Re-seating the cursor seam in the shared guard fixes the cursor for all three SBPR
+modals in one stroke — exactly the AT-VIEWEXIT-5 pattern §2F used for the Escape leak. This is a
+**fix-all-three**, not a make-the-viewer-match-the-panels (the panels are not a working reference
+here — they share the regression).
+
+#### 2L.9 Files touched + clean/dirty
+
+- **Clean-side → `engineer-ui`** (owns `SignPanelInputBlock`/the shared modal guard + the sign
+  panels + `MapViewer`). All seams are base-game (`GameCamera`/`PlayerController` LateUpdate,
+  `Cursor`) — ADR-0001 fair game, verified against `assembly_valheim.dll` metadata. No third-party
+  mod code, no `SurveyData`/wire change, no recipe/SpecCheck/manifest impact.
+- **Lands in:** `Features/Signs/SignPanelInputBlock.cs` (replace `MouseCapturePatch` with the live
+  cursor pump + open/close restore; keep `AnyOpen`, the two `TakeInput` patches, and the
+  `Menu.Show` prefix unchanged), `Plugin.cs` (registration delta only if the pump is a new
+  MonoBehaviour/patch container — register it exactly as the existing four containers are, or
+  PatchCheck will ERROR at boot per the t_564f695a unregistered-patch lesson), and optionally a new
+  `Features/Common/ModalUiSession.cs` if the engineer promotes the type.
+- **Shares `SignPanelInputBlock.cs` with §2F** (the `Menu.Show` exit-leak fix). If both land
+  concurrently they edit the same file — **same-worker or sequence** them (assign both to
+  `engineer-ui`), same discipline §2F.5 notes for `MapViewer.cs`.
+- **Build:** `dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release` → 0 errors,
+  **0 warnings** (`<TreatWarningsAsErrors>` is on).
+
+#### 2L.10 Acceptance tests (named, observable — close only on Daniel's in-game check)
+
+- **AT-TABLE-CURSOR-FREE** — Opening the Surveyor's Table map (TableEdit) shows a free, visible
+  cursor that moves independently of the camera. (The fix: cursor pump on a LIVE seam, not the empty
+  `UpdateMouseCapture`.)
+- **AT-TABLE-NO-LOOK** — While the table map is open, moving the mouse does NOT turn the camera and
+  left-click does NOT swing/use a weapon. *(Already passing on the current build via the live
+  `TakeInput` gates — this AT is a regression guard, confirming the cursor fix didn't disturb the
+  working camera/character block.)*
+- **AT-TABLE-PIN-REMOVE** — With the cursor now free, hovering a pin and left-clicking removes it
+  (the existing `TryRemovePinAtCursor` path at `MapSurface.cs:777` is finally reachable with a
+  real pointer).
+- **AT-TABLE-RESTORE** — Closing the map (Esc) restores normal cursor lock + camera look + player
+  input, with **no** stuck cursor and no stuck input-block. (The explicit `AnyOpen:true→false`
+  restore, §2L.4b — deterministic, not relying on vanilla to re-lock.)
+- **AT-TABLE-FIELD-CURSOR** — The FieldReadOnly (equipped Local Map) full view ALSO shows a free
+  cursor while open and restores on close (same `AnyOpen` pump; §2L.7). The passive minimap **disc**
+  does NOT free the cursor (it never trips `AnyOpen`).
+- **AT-SIGN-CURSOR-REGRESSION** — Re-verify the Painted Sign + Marker Sign panels: cursor is free
+  while open and restored on close (they share the re-seated seam; this finally confirms
+  `v0.1.0-PLAYTEST.md:49`, which the dead seam left unverified).
+- **AT-CURSOR-PATCHCHECK** (registration) — `Runtime/PatchCheck.cs` reports no UNREGISTERED PATCH
+  CLASS at boot; if the pump is a new patch/Mono container it is actually woven in `Plugin.Awake`.
+- **logs-green ≠ playable** — Daniel's joined-client check is the real accept: at a real Table, the
+  mouse moves freely, hovers a pin, left-clicks, the pin is removed, Esc closes cleanly and
+  mouse-look returns.
+
+#### 2L.11 Spec hygiene — corrects §2F.1's cursor claim
+
+§2F.1 (2026-06-11) asserts the viewer "is NOT missing… cursor release — those work." That was
+correct *reasoning* about the wiring (the patch IS registered and IS keyed on the viewer) but an
+**unverified claim about the vanilla seam**, which had already been emptied by the time Daniel
+tested. This section supersedes that clause: the wiring is present, but the cursor seam is dead on
+the shipped build. The camera-freeze and character-input halves of §2F.1's claim stand (verified
+live in §2L.3); only the cursor-release half is corrected. No other part of §2F (the Escape→menu
+suppression, the exit prompt) is affected — those target different, live seams.
+
 ### 2G — Local Map open input (issue 7 design correction, 2026-06-11)
 
 > **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
