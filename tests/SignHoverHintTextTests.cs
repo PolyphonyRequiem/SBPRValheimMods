@@ -1,92 +1,108 @@
-// Headless self-test for the Marker Sign hover-hint decision logic.
-// Card t_7816c0b0 / impl-spec §4A. Asserts AT-MARKER-HINT-1/2/3/5/6 + -WARD against
-// the SHIPPED pure function SignHoverHintText.ComputeHintSuffix (linked, not copied).
+// ============================================================================
+//  Marker Sign hover-hint decision logic — xUnit structural tests
+//  (CLEANUP 3/3, card t_4364809c; originally card t_7816c0b0 / impl-spec §4A).
+// ----------------------------------------------------------------------------
+//  Tests the SHIPPED pure function SignHoverHintText.ComputeHintSuffix (link-
+//  compiled from ../src, not copied — see the .csproj). This is a STABLE
+//  CONTRACT: a locked decision table whose wording is pinned by impl-spec §4A.4.
+//  It is the right kind of thing to test (low-volatility behaviour, not volatile
+//  UI internals) — the hover PATCH that calls it is the volatile adapter and is
+//  deliberately NOT tested here.
 //
-// Idiom matches the repo's existing CI self-check (.github/workflows/ci.yml's inline
-// `dotnet run`): print PASS/FAIL per assertion, exit non-zero on any failure.
-//
-// Run:  dotnet run -c Release --project tests/SBPR.Trailborne.Tests.csproj
+//  Migrated verbatim in intent from the prior `dotnet run` console self-test
+//  (AT-MARKER-HINT-1/2/3/4/5/6 + -WARD) into xUnit facts/theories so the suite
+//  gates CI via `dotnet test`.
+// ============================================================================
 
-using System;
 using SBPR.Trailborne.Features.Signs;
+using Xunit;
 
 namespace SBPR.Trailborne.Tests
 {
-    internal static class Program
+    public sealed class SignHoverHintTextTests
     {
-        private static int _fails;
+        // Convenience: the three gate booleans are (isMarker, hasWardAccess, pinned).
+        private static string Suffix(bool isMarker, bool ward, bool pinned)
+            => SignHoverHintText.ComputeHintSuffix(isMarker, ward, pinned);
 
-        private static void Check(string label, bool ok)
+        // ── AT-MARKER-HINT-1: un-pinned marker (ward OK) → "Pin to map" ──────────
+        [Fact]
+        public void Unpinned_marker_says_Pin_to_map()
         {
-            Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {label}");
-            if (!ok) _fails++;
+            string s = Suffix(isMarker: true, ward: true, pinned: false);
+            Assert.Contains("Pin to map", s);
+            Assert.DoesNotContain("Unpin", s);
         }
 
-        private static int Main()
+        // ── AT-MARKER-HINT-2: pinned marker (ward OK) → "Unpin from map" ─────────
+        [Fact]
+        public void Pinned_marker_says_Unpin_from_map()
         {
-            Console.WriteLine("== Marker Sign hover-hint decision self-test (§4A) ==");
+            string s = Suffix(isMarker: true, ward: true, pinned: true);
+            Assert.Contains("Unpin from map", s);
+        }
 
-            // Convenience: the three gate booleans are (isMarker, hasWardAccess, pinned).
-            string Suffix(bool isMarker, bool ward, bool pinned)
-                => SignHoverHintText.ComputeHintSuffix(isMarker, ward, pinned);
-
-            // ── AT-MARKER-HINT-1: un-pinned marker (ward OK) → "Pin to map" ──
+        // ── AT-MARKER-HINT-3: the verb FLIPS with the pinned bool (state-aware) ──
+        [Fact]
+        public void Verb_flips_with_pin_state()
+        {
             string unpinned = Suffix(true, true, false);
-            Check("AT-MARKER-HINT-1: un-pinned marker says 'Pin to map'",
-                unpinned.Contains("Pin to map"));
-            Check("AT-MARKER-HINT-1: un-pinned marker does NOT say 'Unpin'",
-                !unpinned.Contains("Unpin"));
-
-            // ── AT-MARKER-HINT-2: pinned marker (ward OK) → "Unpin from map" ──
             string pinned = Suffix(true, true, true);
-            Check("AT-MARKER-HINT-2: pinned marker says 'Unpin from map'",
-                pinned.Contains("Unpin from map"));
+            Assert.NotEqual(unpinned, pinned);
+            Assert.Contains("Pin to map", unpinned);
+            Assert.Contains("Unpin from map", pinned);
+        }
 
-            // ── AT-MARKER-HINT-3: the verb FLIPS with the pinned bool (state-aware) ──
-            Check("AT-MARKER-HINT-3: verb flips with pin state",
-                unpinned != pinned
-                && unpinned.Contains("Pin to map")
-                && pinned.Contains("Unpin from map"));
+        // ── AT-MARKER-HINT-5 (markers-only): a non-marker (plain Painted Sign) gets
+        //    NO hint — no "Pin"/"Unpin" substring, regardless of the other gates. ──
+        [Theory]
+        [InlineData(false)] // not pinned
+        [InlineData(true)]  // pinned
+        public void Non_marker_gets_empty_suffix(bool pinned)
+        {
+            string s = Suffix(isMarker: false, ward: true, pinned: pinned);
+            Assert.Equal(0, s.Length);
+            Assert.DoesNotContain("Pin", s); // also covers "Unpin"
+        }
 
-            // ── AT-MARKER-HINT-5 (markers-only): a non-marker (plain Painted Sign) gets
-            //    NO hint — no "Pin"/"Unpin" substring, regardless of the other gates. ──
-            Check("AT-MARKER-HINT-5: non-marker, not pinned → empty suffix",
-                Suffix(false, true, false).Length == 0);
-            Check("AT-MARKER-HINT-5: non-marker, pinned → empty suffix",
-                Suffix(false, true, true).Length == 0);
-            Check("AT-MARKER-HINT-5: non-marker suffix contains no 'Pin'/'Unpin'",
-                !Suffix(false, true, false).Contains("Pin")
-                && !Suffix(false, true, true).Contains("Pin"));
+        // ── AT-MARKER-HINT-WARD: marker WITHOUT ward access → empty suffix
+        //    (no pin affordance on a sign the player can't toggle), both states. ──
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Ward_denied_marker_gets_empty_suffix(bool pinned)
+        {
+            string s = Suffix(isMarker: true, ward: false, pinned: pinned);
+            Assert.Equal(0, s.Length);
+        }
 
-            // ── AT-MARKER-HINT-WARD: marker WITHOUT ward access → empty suffix
-            //    (no pin affordance on a sign the player can't toggle), both states. ──
-            Check("AT-MARKER-HINT-WARD: ward-denied marker (un-pinned) → empty suffix",
-                Suffix(true, false, false).Length == 0);
-            Check("AT-MARKER-HINT-WARD: ward-denied marker (pinned) → empty suffix",
-                Suffix(true, false, true).Length == 0);
+        // ── AT-MARKER-HINT-6 (key tokens): the use key is the raw $KEY_Use token
+        //    (localized downstream), behind a literal "Shift" modifier; NEVER a
+        //    hardcoded "E", never a custom $piece_* token. ──
+        [Fact]
+        public void Emits_KEY_Use_token_behind_Shift_modifier_never_hardcoded_key()
+        {
+            string unpinned = Suffix(true, true, false);
+            string pinned = Suffix(true, true, true);
 
-            // ── AT-MARKER-HINT-6 (key tokens): the use key is the raw $KEY_Use token
-            //    (localized downstream), behind a literal "Shift" modifier; NEVER a
-            //    hardcoded "E", never a custom $piece_* token. ──
-            Check("AT-MARKER-HINT-6: emits the $KEY_Use token (not a hardcoded key)",
-                unpinned.Contains("$KEY_Use") && pinned.Contains("$KEY_Use"));
-            Check("AT-MARKER-HINT-6: carries the literal 'Shift' modifier",
-                unpinned.Contains("Shift+$KEY_Use"));
-            Check("AT-MARKER-HINT-6: does NOT hardcode the literal key '+E]'",
-                !unpinned.Contains("+E]") && !pinned.Contains("+E]"));
-            Check("AT-MARKER-HINT-6: does NOT leak a custom $piece_* token",
-                !unpinned.Contains("$piece_") && !pinned.Contains("$piece_"));
+            Assert.Contains("$KEY_Use", unpinned);
+            Assert.Contains("$KEY_Use", pinned);
+            Assert.Contains("Shift+$KEY_Use", unpinned);
 
-            // ── AT-MARKER-HINT-4 (append shape): the suffix is a NEW line (leading '\n'),
-            //    so the postfix's `__result += suffix` never collides with the vanilla
-            //    typed-text / [Use] line above it. ──
-            Check("AT-MARKER-HINT-4: hint suffix starts on its own line",
-                unpinned.StartsWith("\n") && pinned.StartsWith("\n"));
+            Assert.DoesNotContain("+E]", unpinned);
+            Assert.DoesNotContain("+E]", pinned);
+            Assert.DoesNotContain("$piece_", unpinned);
+            Assert.DoesNotContain("$piece_", pinned);
+        }
 
-            Console.WriteLine(_fails == 0
-                ? "RESULT: ALL HOVER-HINT ASSERTIONS PASS"
-                : $"RESULT: {_fails} ASSERTION(S) FAILED");
-            return _fails == 0 ? 0 : 1;
+        // ── AT-MARKER-HINT-4 (append shape): the suffix is a NEW line (leading '\n'),
+        //    so the postfix's `__result += suffix` never collides with the vanilla
+        //    typed-text / [Use] line above it. ──
+        [Fact]
+        public void Hint_suffix_starts_on_its_own_line()
+        {
+            Assert.StartsWith("\n", Suffix(true, true, false));
+            Assert.StartsWith("\n", Suffix(true, true, true));
         }
     }
 }

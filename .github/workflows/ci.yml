@@ -12,12 +12,14 @@ on:
     branches: [main, v1]
     paths:
       - 'src/**'
+      - 'tests/**'
       - 'scripts/**'
       - 'Directory.Build.props'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - 'src/**'
+      - 'tests/**'
       - 'scripts/**'
       - 'Directory.Build.props'
       - '.github/workflows/ci.yml'
@@ -119,6 +121,18 @@ jobs:
             -warnaserror:CS0246,CS0103,CS1061 \
             | tee build.log
           test -f src/SBPR.Trailborne/bin/Release/SBPR.Trailborne.dll
+
+      # ── Structural test suite (CLEANUP 3/3, card t_4364809c) ────────────────
+      # xUnit over the SHIPPED engine-free contracts (link-compiled: the hover-hint
+      # decision table + BoundedMapMath windowed-fog geometry). Needs NO Valheim SDK
+      # — it references no game/BepInEx assemblies — so it gates independently of the
+      # server-asset fetch above. This is the test execution CI did not run before:
+      # the old job only asserted the DLL built. tests/Directory.Build.props shields
+      # this subtree from the repo-root SDK-path validation.
+      - name: Test (Release)
+        run: |
+          dotnet test tests/SBPR.Trailborne.Tests.csproj -c Release \
+            --logger "console;verbosity=normal"
 
       # ── Drift guard: the reflection targets the client-refresh layer depends
       # on are PRIVATE/named vanilla members. If a Valheim update renames one,
