@@ -1193,6 +1193,15 @@ avoid.
    choice: overlay a mask `RawImage` (simplest, fully decoupled) **or** build a window
    texture and bind it as `_FogTex` on the copy (reuses vanilla's fog-edge fade) — visual
    polish, Daniel verifies.
+
+   > **🔴 SUPERSEDED for the UNEXPLORED appearance (2026-06-17 → §2E.5, cards t_a39d3e5f +
+   > t_39324b99).** The "opaque shroud overlay" half of this implementer's-choice was BUILT (the
+   > `_shroudImage` flat `CShroudA` fill in the shared `MapSurface`) and Daniel REJECTED its look on
+   > first playtest: *"I want the unexplored area to look like it normally does in valheim."* The
+   > "build a window texture and bind it as `_FogTex`" option (called "visual polish" here) is now
+   > the **required** route — the unexplored area must render as vanilla's real `_FogTex` cloud, NOT
+   > a flat opaque fill. The disc+radius CUTOFF geometry of this step still stands; only the
+   > unexplored *appearance* is re-locked. See **§2E.5.1 point 1**.
 4. **Fixed zoom:** one authored window; no scroll/zoom input (keep `LayoutMapRect`'s
    no-scroll discipline). Disc span = 2000 m ≈ `2000/(m_textureSize*m_pixelSize)` =
    `2000/16384 ≈ 0.122` normalized (`uvRect.width`, × aspect). The matching `_zoom`/
@@ -1301,6 +1310,198 @@ recipe row). Spec + code move together in that PR.
 > **AT index:** AT-PRUNE-1…4 (this cut) replace the CPU-composite render ATs. The parchment look is now
 > proven **in-game** (logs-green was never the bar; Daniel's eyes on his GPU client are), so the
 > CPU-PNG evidence leg (AT-RENDER-PREVIEW / AT-PARCHMENT-PREVIEW) is retired. See §2D.
+
+### 2E.5 — MapSurface render-correctness re-lock: real `_FogTex` cloud + circular UV clip (first-playtest of the disc, 2026-06-17, cards t_a39d3e5f + t_39324b99)
+
+> **Status: BUG/DESIGN — render-correctness re-lock for the shared `MapSurface`.** First Daniel
+> playtest (v0.2.26-dev) of the carry minimap DISC (shipped t_7dd54899, §4.1/§4.2 of
+> `map-provider-binding-impl-spec.md`) and the held MODAL viewer surfaced **three render defects**
+> that are NOT new design — they are the shipped `MapSurface` drifting from the §2E.3 locked route
+> ("vanilla's native `_FogTex` haze stays live inside the disc") into the §2E.4-step-3 "opaque
+> shroud overlay" branch. Daniel sharpened the long-standing "wrong visuals" requirement to its
+> exact vanilla mechanism, so this section **re-locks** the render and **supersedes §2E.4 step 3's
+> implementer's-choice** (opaque-shroud-vs-windowed-`_FogTex`) in favour of the real fog cloud.
+> Two cards, ONE fix: the disc (`TargetPx=200`, `t_a39d3e5f`) and the modal (`TargetPx=900`,
+> `t_39324b99`) share `MapSurface` by design (`MapSurface.cs:16-18`); this section fixes both,
+> parameterized by scale — **do not author a divergent second fix.** Clean-side (ADR-0001): reads
+> and adapts vanilla `Minimap` material + `m_fogTexture` + decomp; no third-party mod code.
+> **SpecCheck impact: none** (render behaviour, no recipe row). Spec + code move together in the
+> implementation PR.
+
+**What Daniel reported (verbatim, 2026-06-17, WITH screenshot
+`~/.hermes/kanban/attachments/minimap-multilevel-2026-06-17.webp`):**
+- Disc (t_a39d3e5f): *"minimap doesn't work on multiple levels: here's an image 😛"*
+- Modal (t_39324b99): *"there are still major rendering issues with the map itself including that it
+  has the wrong visuals and it also has gaps around the edges where the square doesn't fit the
+  circle, same sort of issue as the minimap."*
+- Sharpened "wrong visuals" (both cards): *"I want the unexplored area to look like it normally does
+  in valheim on the regular map :("* — the unexplored region must render with vanilla's **fog-of-war
+  cloud**, NOT a flat dark fill.
+
+> **⚠️ "doesn't work on multiple levels" — scope note for Daniel at review.** The architect reads
+> "multiple levels" as **the several distinct defects below** (the screenshot supports this:
+> black-square backing + mostly-black interior + diamond geometry are three separate render faults
+> in one image). It is NOT read as elevation/altitude/floors (the bounded survey is a flat 2-D
+> top-down window; there is no vertical-level concept in the cartography). **Confirm at review** if
+> "levels" meant something about height; if so this section's scope expands.
+
+#### 2E.5.0 — The three defects, decomp-grounded
+
+The shipped steady-state render is `MapSurface.TryRenderVanillaShader` (`MapSurface.cs:188-245`) —
+NOT `PaintFog` (the 2-colour fallback at `:444-475`, taken only when the vanilla styled material is
+unavailable). The screenshot **proves the shader path is live**: it shows real biome content (forest
+green, ocean blue, a tan path), which the flat `PaintFog` palette (`CParchment`/`CShroud`) cannot
+produce. So all three defects live in the shader path + its overlays, not the fallback.
+
+| # | Defect (observed) | Root cause (grounded) |
+|---|---|---|
+| 1 | **Opaque black SQUARE backing** — the disc sits on a solid black panel filling its bounding box; only the bezel ring should show, outside the circle transparent. | `EnsureBezelTexture` (`MapSurface.cs:831-873`) fills every texel beyond `ringOuterR` with `coverage=1` (opaque) tinted `cornerShroud=(0.04,0.035,0.03)` ≈ black (`:855,:865-868`). On the **modal** (`ShowBackdrop=true`, `:901-910`) that opaque square reads as the intended dim backdrop. On the **HUD disc** (`ShowBackdrop=false`) there is no backdrop, so the bezel's own opaque corner-fill **is** the black square Daniel sees. The bezel was authored as "ring + shroud one contiguous opaque cover" (a modal assumption); the disc needs the area **outside the ring to be transparent**, not opaque. |
+| 2 | **Mostly-black interior** — only a thin strip of terrain is lit; the rest inside the circle is opaque black, not vanilla fog. | The shroud overlay `_shroudImage` (`PaintShroudMask*`, `:302-368`) paints every unexplored/out-of-disc texel `CShroudA=(10,9,8,255)` — a **flat near-opaque RGBA fill laid ON TOP of the cartography**, occluding it. This is the §2E.4-step-3 "opaque shroud" branch. It is exactly the flat fill Daniel rejected: it hides BOTH unexplored terrain AND vanilla's real `_FogTex` cloud. The disc also resamples this mask at `DiscShroudTexN=128` (`:293`) against the table-anchored survey — correct as *geometry*, wrong as *appearance* (opaque, not cloud). |
+| 3 | **Diamond / 45°-rotated geometry** — the lit content forms a rotated square inscribed in the circle; black at the four diagonal corners; ocean wedges bleed along the diamond edges. | The §2H.1 **geometric guarantee** (`:1802-1807`: "the visible disc is the square's inscribed circle, invariant under rotation; no empty corners ever appear") holds ONLY if the cartography square is uniformly valid to its inscribed circle. It is not: `TryRenderVanillaShader` frames `_MainTex` with a `uvRect` window (`:232-236`) **and** drives `_zoom`/`_pixelSize`/`_mapCenter` shader uniforms (`:239-241`) — **two transforms that must agree** (vanilla drives them in lockstep in `CenterMap`, decomp `Minimap.cs:1004-1034`). When they disagree at disc scale (or the window over-/under-shoots), the genuinely-sampled region is a smaller square than the rect; the rotating interior then shows that inner square as a **diamond**, with the rect's true corners (and the gap between the inner square and the inscribed circle) showing unexplored ocean / black. The diamond is the **falsification of the §2H.1 corner guarantee** — empty corners DID appear. |
+
+> **The unifying root cause.** Defects 2 and 3 are the same mistake from two angles: the surface is
+> **not reusing vanilla's real cartography compositing** — it samples `_MainTex` through a
+> hand-driven window and then **overrides the reveal** with its own opaque flat shroud instead of
+> letting vanilla's `_FogTex` shader render the cloud. Defect 1 is the bezel built for the modal's
+> opaque-backdrop world bleeding onto the no-backdrop disc. All three are "we approximated the map
+> instead of reusing it" — the issue-#10 scope-erosion arc, now at disc scale.
+
+#### 2E.5.1 — The re-lock (what the render MUST do)
+
+**1. Reuse vanilla's real `_FogTex` as the unexplored cloud — DELETE the opaque flat shroud overlay
+(defect 2; supersedes §2E.4 step 3).** The fog-of-war cloud Daniel wants is a **GPU-shader product**
+of vanilla's map material, not a colour we paint. Decomp (`Minimap.cs`, clean-side):
+
+| Shader slot | Field | Format | Content |
+|---|---|---|---|
+| `_MainTex` | `m_mapTexture` | RGB24 | full-world biome base colour (`:435`) |
+| `_MaskTex` | `m_forestMaskTexture` | RGBA | forest stipple + water gradient (`:436`) |
+| `_HeightTex`| `m_heightTexture` | RHalf | height → hillshade relief (`:437`) |
+| `_FogTex` | `m_fogTexture` | R8G8 | **reveal mask**: `R=0` explored / `R=255` fogged (`:438`; `Reset` fills 255 `:495-498`; `Explore` sets `pixel.r=0` `:1561-1563`) |
+
+The cloned material (`_shaderMat`, `MapSurface.cs:202`) already inherits all four bindings by
+reference, so vanilla's live `_FogTex` cloud is **already available** — the surface just **throws it
+away** by laying its own opaque `_shroudImage` on top. The fix:
+   - **Bind a windowed reveal as `_FogTex` on the clone**, derived from `SurveyData.Fog` in vanilla's
+     R8G8 convention (lit → `R=0`, unexplored/out-of-disc → `R=255`), at the SAME UV window as
+     `_MainTex` so reveal and biome align. This lets vanilla's shader composite the **real cloud**
+     for the unexplored area (AT-FOG-VANILLA) while the bounded survey still controls *what is
+     revealed* (the 1000 m disc). The bounded-survey window is the *reveal authority*; vanilla's
+     shader is the *look authority*.
+   - **Retire the opaque `_shroudImage` RGBA fill** as the appearance layer. Its geometry job
+     (table-anchored vs player-centred reveal, §4.2/R1) moves into **building the windowed
+     `_FogTex`** instead of an opaque overlay. The hard 1000 m radius cutoff (beyond the bound =
+     full shroud) is expressed as `R=255` in that windowed fog, which vanilla then renders as solid
+     cloud — matching the regular map's unexplored look by construction.
+   - **`CShroud`/`CShroudA` flat colours are no longer the unexplored appearance.** They remain only
+     inside `PaintFog` (the GPU-less never-blank fallback, unchanged).
+
+> **Decomp caveat the implementer MUST spike (the one unverifiable piece — the GPU shader).** Whether
+> the cloned material samples `_FogTex` in **full-texture UV space** (so a windowed reveal must be
+> written into a 256²-aligned sub-rect) vs the **`uvRect`-windowed space** (so a small Size²/N²
+> reveal aligns 1:1 with the framed `_MainTex`) cannot be confirmed from C# decomp alone — it is
+> shader-internal. The §2E.4 pre-build micro-spike discipline applies: on a GPU client, drive a
+> throwaway RawImage with the cloned material, write a known windowed `_FogTex`, and confirm the
+> cloud lands where expected before integrating. **If the windowed `_FogTex` cannot be made to
+> register with `_MainTex`, fall back to feeding vanilla's live full-world `_FogTex` directly and
+> doing the hard 1000 m cutoff as a separate circular alpha clip (§2E.5.1 point 3) — but do NOT
+> revert to the opaque flat shroud.** (This is the same headless-can't-judge-the-shader limit that
+> made §2E ship blind; Daniel's GPU client is the verification leg — §2E.5.3.)
+
+**2. Make the `uvRect` window and the shader uniforms agree so the cartography fills its rect
+(defect 3).** The diamond is a framing-transform disagreement. Vanilla frames the large map by
+driving `uvRect.center=(mx,my)`, `uvRect.width/height=zoom`, AND `_zoom`/`_pixelSize=200/zoom`/
+`_mapCenter` **together** from one `CenterMap` call (decomp `Minimap.cs:1004-1034`). The surface must
+do the same so the genuinely-sampled biome region **fills the whole square rect** (out to its
+corners), making the §2H.1 inscribed-circle guarantee true again:
+   - Re-derive `uvCx/uvCy/zoom` (`MapSurface.cs:221-236`) and the `_zoom`/`_pixelSize`/`_mapCenter`
+     uniforms (`:239-241`) from a **single** framing computation, not two independently-derived
+     paths, so they cannot drift. The window must cover the **full square rect to its corners**
+     (radius = half-edge·√2 of valid content), so that after the circular clip (point 3) the
+     inscribed circle is uniformly valid — no diamond, no corner gaps.
+   - This is `TargetPx`-agnostic: the disc (200) and modal (900) use the same framing math at their
+     scale. The modal's "square doesn't fit the circle" edge gaps (t_39324b99 defect 2) and the
+     disc's diamond are the **same** framing/clip fault at two scales.
+
+**3. Circular clip that is TRANSPARENT outside the disc — split the bezel's ring from its backing
+(defect 1 + the modal corner gaps).** The visible disc must be a clean circle on a **transparent**
+field (game world shows through outside it), with the bezel ring drawn ON the circle's edge — NOT an
+opaque square panel. The #159 hard alpha-clip must clip the cartography to the circle *without*
+painting the outside opaque:
+   - **Decouple "ring appearance" from "corner coverage."** `EnsureBezelTexture` currently makes the
+     ring + everything-beyond ONE contiguous **opaque** cover (`:854-868`, `cornerShroud` α=1
+     everywhere past `ringOuterR`). For the disc that opaque beyond-ring region is the black square.
+     Re-lock: **inside `holeR` transparent (cartography shows); a bronze ring band `holeR→ringOuterR`;
+     beyond `ringOuterR` α=0 (TRANSPARENT)** — the world shows through outside the disc. The
+     cartography itself must be clipped to the circle so it does not draw in the corners (either a
+     circular alpha mask on the map RawImage, or the bezel's opaque ring + an inner circular clip on
+     the interior — implementer picks; the constraint is *clipped AND outside-transparent*).
+   - **Modal vs disc differ ONLY by the backdrop, which already exists** (`ShowBackdrop`,
+     `MapSurface.cs:48-49,:901-910`). The modal keeps its dim full-screen backdrop (drawn as a
+     *separate* layer, `:903-906`) so the modal still reads as "the whole view." The disc keeps
+     `ShowBackdrop=false` and now correctly shows transparent corners. **The bezel itself must be
+     transparent-outside on BOTH** — the modal's "outside the disc is dark" comes from its backdrop
+     layer, not from an opaque bezel. This removes the disc's black square AND closes the modal's
+     corner gaps in one change (AT-DISC-CLIP = AT-MODAL-CLIP).
+   - Preserve the #159 fix: the transparent disc stays inset `BezelInsetFrac` inside the inscribed
+     circle (`:85`) and the AA stays analytic-to-screen-px (`:864-866`) so no parchment slivers past
+     the straight tangents (issue-6 regression guard).
+
+#### 2E.5.2 — What does NOT change (scope fence)
+- **Reveal geometry / R1 disc centring** (player-centred camera + table-anchored shroud, §4.2/R1)
+  is unchanged as *geometry* — it moves from "build an opaque mask" to "build the windowed
+  `_FogTex` reveal," same world→texel mapping (`SampleLitAt`, `MapSurface.cs:271-288`;
+  `PaintShroudMaskPlayerCentred`, `:333-368`).
+- **§2H.1 orientation** (fixed bezel, interior-only rotation, no-North, rotate-to-heading) is
+  unchanged. This section corrects the §2H.1 corner *guarantee*'s **precondition** (the cartography
+  must actually fill the square), not the rotation model.
+- **The player marker art** (the magnifier-style quad) is a **separate card** — `t_e880a36d`
+  (disc player-marker → vanilla arrow or hide). It rides `_overlayLayer` ABOVE the cartography/
+  shroud (`MapSurface.cs:949-955`); do NOT fold it into the render fix (different layer, different
+  card) — but the SAME engineer should hold both so the overlay and render changes don't clobber.
+- **`SurveyData` wire format** unchanged (cartography sampled live; reveal derived from the existing
+  bool fog window). No ZDO contract change.
+- **nomap intact:** never mutate vanilla's live material/roots/`m_fogTexture`; only read them and
+  drive OUR clone. `Game.m_noMap` gate on the disc bind (§4.2/§5) is untouched.
+
+#### 2E.5.3 — Acceptance tests (named, observable — eyeball-judged on Daniel's GPU client)
+- **AT-DISC-CLIP** — outside the disc circle is **TRANSPARENT** (the game world shows through); there
+  is **no opaque black square** backing. Only the bezel ring + the circular cartography render.
+- **AT-MODAL-CLIP** — the modal map's square corners are fully covered: no gaps where the square
+  pokes past the circle; the modal reads as a clean disc on its dim backdrop. (Same code path as
+  AT-DISC-CLIP at `TargetPx=900`.)
+- **AT-FOG-VANILLA** — the **unexplored** area (inside the disc, not yet surveyed) renders with
+  **vanilla's fog-of-war cloud** (the real `_FogTex` composited by the real map shader), visually
+  matching the regular Valheim map's unexplored look — **NOT** a flat dark `CShroud`/`CShroudA` fill.
+  Daniel's eye on a GPU client is the judge. This supersedes the generic "parchment look" wording and
+  §2E.4 step 3's opaque-shroud option.
+- **AT-DISC-FILL** — the in-circle area is a **continuous disc** of bounded cartography (biome/water/
+  relief from the real shader, clipped to the 1000 m survey), **NOT a rotated-square/diamond** sample
+  and **no ocean bleeding in at the corners**. The §2H.1 inscribed-circle guarantee holds: rotating
+  the interior never uncovers a corner.
+- **AT-DISC-SHROUD** — explored area renders lit; only genuinely-unexplored / beyond-1000 m area is
+  clouded. The lit region matches what was actually surveyed (not a thin diamond sliver). If a
+  starting survey is genuinely sparse, sparse-but-correct is acceptable — the test is that the
+  geometry is a disc with a real reveal, not that a fixed fraction is lit.
+- **AT-DISC-SHARED** — ONE code path in `MapSurface` produces both the corrected disc (`TargetPx=200`)
+  and the corrected modal (`TargetPx=900`); no divergent second renderer (`MapSurface.cs:16-18`).
+- **Regression AT-DISC-BEZEL-159** — the #159 hard circular bezel clip still holds: no parchment
+  bleed past the disc edge / straight-tangent slivers; the inset + analytic-AA edge are preserved.
+- **Regression AT-DISC-NOMAP / §2H.1** — nomap stays enforced (no vanilla material/root mutation);
+  rotate-to-heading + interior-only rotation + no-North are unchanged.
+- **Logs-green ≠ playable** — the GPU shader cannot be judged on the headless build box. Daniel's
+  joined-client eyeball is the real accept (AT-FOG-VANILLA / AT-DISC-FILL / AT-DISC-CLIP especially).
+  Separate "can't VERIFY headlessly" (get Daniel's client in the loop) from "can't BUILD it" (it is
+  buildable — reuse of an existing material + texture + a windowed reveal); do NOT let the CI box's
+  blindness erode AT-FOG-VANILLA back to a flat fill.
+
+#### 2E.5.4 — Routing
+ONE `engineer-ui` worker, ONE worktree off `v1`, holding the whole `MapSurface` render-correctness
+change (disc t_a39d3e5f + modal t_39324b99) **plus** the disc player-marker card `t_e880a36d`
+(separate layer, same file — co-located to avoid collisions). Render-correctness first (it is the
+foundation); the marker art rides on top. Do NOT parallel-dispatch on `MapSurface.cs` (the v0.2.20
+collision lesson). Open a PR; Daniel gates; the merge bar is Daniel's in-game GPU eyeball on
+AT-FOG-VANILLA / AT-DISC-FILL / AT-DISC-CLIP, not a green build.
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
@@ -1805,6 +2006,15 @@ rotate-to-heading minimap.** Point by point:
      square never uncovers the disc (the four corner triangles outside the disc are shroud-opaque
      anyway and are clipped away by the circular mask). No empty corners ever appear. Clip radius =
      disc radius in pixels = half the square's pixel side.
+
+   > **⚠️ PRECONDITION (added 2026-06-17 → §2E.5, card t_a39d3e5f).** This guarantee holds ONLY if the
+   > cartography square is **uniformly valid to its inscribed circle** — i.e. the render actually
+   > fills the square with bounded cartography. The first disc playtest FALSIFIED it: the
+   > shader-sampled content filled a SMALLER square than the rect (a `uvRect`-vs-shader-uniform
+   > framing disagreement), so the rotating interior showed that inner square as a **diamond** with
+   > black/ocean corners — "empty corners" did appear. The fix (the framing must fill the rect to its
+   > corners) is **§2E.5.1 point 2**; the guarantee's *geometry* is correct, its *precondition* was
+   > unmet.
 
    > **✅ IMPL UPDATE — issue 6 edge-bleed fix (2026-06-15, t_d44572f2, engineer-ui).** The
    > circular clip is realized by the **fixed bezel's opaque alpha cover**, not a uGUI `Mask`: the
