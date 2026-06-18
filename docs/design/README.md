@@ -12,6 +12,20 @@ now, this is where the reasoning lives.
 2. **[`design-pillars.md`](design-pillars.md)** — the load-bearing constraints
    that every feature must respect. Non-negotiable.
 
+## Architecture
+
+How the codebase is shaped — the structural intent behind the slices and the
+shared core.
+
+- **[`architecture-review.md`](architecture-review.md)** — PROPOSED (2026-06-17).
+  The full architectural review: the four domain models the mod needs (the `*Tag`
+  ZDO-component family, the recipe single-source-of-truth that retires the
+  Registrar↔SpecCheck drift, the cartography provider/surface, the charged-accessory
+  trinket), the engine-free domain-core seam that makes them testable, and a
+  reversible phased refactor (P0–P6) each building 0/0 under a Daniel gate. Shared
+  input for the CLEANUP batch. (The vertical-slice `Features/` structure it builds on
+  lives in [`../v1/architecture/feature-slice-plan.md`](../v1/architecture/feature-slice-plan.md).)
+
 ## Investigations
 
 Deep dives into specific patch surfaces, done before committing to an approach:

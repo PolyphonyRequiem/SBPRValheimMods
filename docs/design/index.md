@@ -4,6 +4,7 @@
 |------|---------|
 | README.md | Human orientation for the design folder |
 | index.md | This manifest |
+| architecture-review.md | PROPOSED (architect, card t_792c699b, 2026-06-17): full architecture review of SBPR.Trailborne. Names the 4 domain models the mod needs (A: ZDO-backed component / the *Tag family; B: recipe-definition single-source that retires the Registrar↔SpecCheck drift; C: cartography provider/surface; D: trinket/charged-accessory) + the engine-free domain-core SEAM that makes them testable (mirrors the substrate + the in-repo BoundedMapMath/SignHoverHintText proof). Maps each model to the churn it stabilizes; checks fit vs planned v3/v4/v5 + Eye-of-Odin. Phased reversible refactor P0–P6, each 0/0 + Daniel-gated; P0–P2 executed under the card. Shared input for the CLEANUP batch (cards 1/3, 3/3) |
 | trailborne-vision.md | North star: the Explorer role and what success feels like |
 | design-pillars.md | The load-bearing design constraints, non-negotiable |
 | nomap.md | Investigation: how Valheim tracks the map + no-map patch-surface cross-reference |
