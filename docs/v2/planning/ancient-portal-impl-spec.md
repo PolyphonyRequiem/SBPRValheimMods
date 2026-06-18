@@ -442,6 +442,39 @@ horizontally, overhead**:
 - Gate by grow: keep the trigger collider (or `TeleportWorld.enabled`) OFF until grow
   completes (§3.6) so you can't teleport through a half-grown portal.
 
+#### 3.7.1 Trigger-height tune — "raise it a wee bit" (issue 8 Part A, Daniel 2026-06-17)
+Daniel, v0.2.26-dev joined-client playtest: *"the portal trigger for the ancient portal should go
+up a wee bit."* The overhead trigger currently sits centered ON the ring at `EnvelopeHeight` (3 m):
+the box spans **y ∈ [2.55, 3.45]** (`localPosition.y = 3`, `box.center = 0`, `box.size.y = 0.9`).
+Activation reads a touch low — raise the activation volume slightly so jumping *into* the ring is
+what fires it.
+
+**Mechanism (engineer picks one, named-constant either way — DRY, mirrors `EnvelopeHeight`):**
+introduce a tunable offset and lift the volume — EITHER translate the trigger object
+(`localPosition.y = EnvelopeHeight + TriggerRise`) OR raise `box.center.y` by the same amount; they
+are mechanically identical. Prefer a named `const float TriggerRise` near the geometry consts so the
+value is tuned in one place and self-documents "the trigger sits `TriggerRise` above the ring."
+
+> 🔴 **The catch the desk must flag (do NOT just translate the box up rigidly):** the box's LOWER
+> edge is the activation floor — a jump apex MUST still reach it or activation *fails*. The spec's
+> own estimate (§3.7 above) is a ~1.8 m player jumps to ~2.8–3 m head height. The current lower edge
+> is **2.55 m** (apex clears it). If you raise the whole 0.9 m box by e.g. +0.4 m, the lower edge
+> climbs to **2.95 m** — at/above the jump apex, so a normal jump may NO LONGER register. So
+> "raise a wee bit" almost certainly means **raise the trigger's *center/top* while keeping the lower
+> edge within jump-apex reach (~2.6–2.8 m)** — i.e. raise `box.center.y` a little AND grow `box.size.y`
+> so the volume extends UPWARD without lifting its floor out of reach. A safe starting shape to tune
+> from: `box.center.y ≈ +0.25`, `box.size.y ≈ 1.2` → volume **[~2.65, ~3.85]** (floor still catches
+> the apex; the catch reads higher, toward/above the ring). These numbers are **DESK-ESTIMATED,
+> FLAGGED RED for AT-JUMP-ACTIVATE** — the engineer tunes them live on a joined client and Daniel
+> verifies the feel. Do not lock a number from the desk.
+
+**Decoupled from Part B (the parked 2-pillar/energy idea — `ancient-portal-placeholder-art.md`):**
+this tune is **art-independent** and ships standalone NOW. The player jumps into an overhead
+activation volume at ~`EnvelopeHeight` whether the portal is framed by the wooden ring or by
+manifested energy between pillars; the trigger keys off the activation-plane height, which both art
+directions share. A future ring→pillars pivot does NOT invalidate this tune unless Daniel *also*
+moves the activation height as part of that redesign.
+
 ---
 
 ## 4. Registration + wiring order (Registrar, PatchCheck)
@@ -539,6 +572,13 @@ in the PR handoff; the build PR does NOT self-close these.
   root tendrils + glowing ring).
 - **AT-JUMP-ACTIVATE** (🔴 main risk) — **jumping up** into the ring teleports; **walking
   underneath** does NOT trigger. Tuned trigger box (§3.7), verified on a joined client.
+- **AT-PORTAL-TRIG-HEIGHT** (issue 8 Part A, §3.7.1; Daniel 2026-06-17) — with the trigger raised
+  "a wee bit" (the §3.7.1 tune), jumping into the portal **still activates reliably** at the raised
+  height, and standing under / walking through the gap still does NOT mis-trigger. The lower edge of
+  the trigger volume stays within jump-apex reach (regression on AT-JUMP-ACTIVATE — raising the box
+  must NOT lift its floor out of reach). Daniel's joined-client feel is the judge; numbers are
+  desk-estimated and tuned live. Regression: the §3.6 grow gate still holds (trigger starts DISABLED
+  until full grow).
 - **AT-WALK-ACCESS** (issue, t_ea0072ba; §3.2b) — the player can **walk up to and stand
   directly under** the portal ring at ground level (the centre column is clear), then
   **jump-activate** from beneath it (pairs with AT-JUMP-ACTIVATE). Walking *into* a leg pillar
