@@ -116,12 +116,28 @@ diff_ref: {args.ref}
 
 ## 1. Install on your client (one-time per build)
 
-1. BepInExPack_Valheim installed (r2modman or manual).
-2. Install the SBPR Trailborne build for this playtest (one-line installer per
-   `valheim-playtest-distribution`, or copy the build zip into
-   `BepInEx/plugins/SBPR.Trailborne/`).
-3. Launch Valheim; confirm the BepInEx console logs `Loading [SBPR Trailborne {ver}]`
-   and `Harmony patches applied.`
+**Easiest — the one-line installer** (copies Valheim to a separate modded folder;
+your vanilla install is never touched; bundles BepInEx + Trailborne +
+ServerDevcommands and prints the live join code):
+
+- **Windows (PowerShell):**
+  ```powershell
+  iwr https://raw.githubusercontent.com/PolyphonyRequiem/SBPRValheimMods/main/installer.ps1 -UseBasicParsing | iex
+  ```
+- **Linux / macOS (bash):**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/SBPRValheimMods/main/installer.sh | bash
+  ```
+
+Both verify the modpack SHA256 before installing and write a launcher
+(`Play Trailborne` shortcut / `run-trailborne.sh`). Pass `--no-console` (bash) /
+`-NoConsole` (PS1) to omit the F5 dev console.
+
+**Manual alternative:** install BepInExPack_Valheim (r2modman or manual), then copy
+this build's `BepInEx/plugins/SBPR.Trailborne/` from the release zip into your install.
+
+Either way, launch Valheim and confirm the BepInEx console logs
+`Loading [SBPR Trailborne {ver}]` and `Harmony patches applied.`
 
 ## 2. Acceptance checklist
 
