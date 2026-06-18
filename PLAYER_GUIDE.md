@@ -236,6 +236,25 @@ have to choose between it and the Iron Compass when that lands.
 use it. For now you can craft it at the Explorer's Bench while we tune where it drops in
 the wild.)*
 
+**The Iron Compass** is the Swamp's other build — and it's the payoff for a choice this
+mod made way back at the start. Trailborne ships the map with **no north indicator**, on
+purpose: you read the land, not an arrow. The Iron Compass is the tool you *earn* your way
+to that finally hands you the cardinal directions back — and it does it on its own little
+HUD dial, **never** by sticking a north arrow on your map. The map stays as
+disorienting as ever; the compass is a separate instrument you wear.
+
+Forge it at the Explorer's Bench from **4 iron, 2 ooze, and 1 red pigment** — iron is the
+Swamp's metal, so the compass is gated behind getting your first iron out of the crypts.
+Wear it in your trinket slot and a small compass dial settles at the top of your screen:
+a red-tipped needle that holds true north as you turn, with a deliberate touch of lag so
+it swings like a real floating needle rather than snapping. Look up or down and the dial
+face tilts a little, like you're tipping a real instrument in your hand. Take it off and
+the needle's gone — the bearing is yours to remember again.
+
+It shares the trinket slot with the Sunstone Lens, so the Swamp makes you pick: **wear
+orientation, or wear threat-sense, but not both at once.** (The dial's exact feel — how
+much lag, where it sits on the screen — is tunable while we settle it in playtests.)
+
 ### Mountains, Plains, Mistlands, Ashlands — _TBD_
 
 This mod is intended to have content all the way to the endgame. The Explorer role

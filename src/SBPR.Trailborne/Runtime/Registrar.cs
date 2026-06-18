@@ -9,6 +9,7 @@ using SBPR.Trailborne.Features.Cartography;
 using SBPR.Trailborne.Features.MarkerSigns;
 using SBPR.Trailborne.Features.Portals;
 using SBPR.Trailborne.Features.Sunstone;
+using SBPR.Trailborne.Features.Exploration;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -77,6 +78,12 @@ namespace SBPR.Trailborne.Runtime
                 // v3 Swamp — Sunstone material + Sunstone Lens trinket (card t_2fd7bc7f).
                 // After Trailhead so the Explorer's Bench exists for the recipe station.
                 SunstoneLens.RegisterPrefabs(__instance);
+
+                // v3 Swamp — Iron Compass trinket (card t_ee61472f). After Trailhead so the
+                // Explorer's Bench exists for the recipe station; grouped after the other
+                // exploration trinket (the Sunstone Lens). The compass depends on no other
+                // SBPR prefab — placement here just keeps the exploration tools together.
+                IronCompass.RegisterPrefabs(__instance);
 
                 znetSceneDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
@@ -149,6 +156,12 @@ namespace SBPR.Trailborne.Runtime
                 // consumes Sunstone; both are registered inside this one call, Sunstone first, so
                 // BuildReq resolves the Sunstone ingredient. After Trailhead (the bench station).
                 SunstoneLens.DoObjectDBWiring(ZNetScene.instance);
+
+                // v3 Swamp — Iron Compass recipe (card t_ee61472f). Consumes Red Pigment
+                // (SBPR_InkRed), so MUST stay AFTER Pigments.DoObjectDBWiring (above) — the
+                // pigment item is in ODB by now, so BuildReq resolves it. Also after Trailhead
+                // (the Explorer's Bench station must exist for FindStation).
+                IronCompass.DoObjectDBWiring(ZNetScene.instance);
 
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 

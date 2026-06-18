@@ -6,6 +6,7 @@ using SBPR.Trailborne.Features.MarkerSigns;
 using SBPR.Trailborne.Features.Cartography;
 using SBPR.Trailborne.Features.Portals;
 using SBPR.Trailborne.Features.Sunstone;
+using SBPR.Trailborne.Features.Exploration;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -179,6 +180,22 @@ namespace SBPR.Trailborne.Runtime
                     R(SunstoneLens.SunstoneName, SunstoneLens.LensSunstoneCost),
                     R("Iron", SunstoneLens.LensIronCost),
                     R("Guck", SunstoneLens.LensGuckCost),
+                }
+            },
+            // ── v3 Swamp: Iron Compass (card t_ee61472f) ──
+            // Iron Compass — additive Trinket accessory, crafted at the Explorer's Bench from
+            // Iron ×4 + Ooze ×2 + Red Pigment ×1, amount 1. Daniel's Q1 LOCK (2026-06-17). Iron
+            // is the Swamp tier gate; Ooze is the Swamp Blob/Oozer drop; Red Pigment is the
+            // SBPR_InkRed pigment item, referenced via Pigments.PigmentRedName so a rename can't
+            // drift the recipe (it registers into ODB earlier in the same wiring pass, before
+            // IronCompass.DoObjectDBWiring). Item-only shape (Station + Amount set; Piece null).
+            // LOCKED per docs/v3/planning/iron-compass-impl-spec.md §0/§3.2.
+            new RecipeSpec {
+                Item = IronCompass.CompassName, Station = "piece_sbpr_explorers_bench", Amount = 1,
+                Resources = new[] {
+                    R("Iron", IronCompass.IronCost),
+                    R("Ooze", IronCompass.OozeCost),
+                    R(Pigments.PigmentRedName, IronCompass.RedPigmentCost),
                 }
             },
         };
