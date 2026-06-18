@@ -1,38 +1,64 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- ════════════════════════════════════════════════════════════════════════
-       Headless self-test for the Marker Sign hover-hint decision logic
-       (card t_7816c0b0, impl-spec §4A; AT-MARKER-HINT-1/2/3/5/6 + -WARD).
+       SBPR.Trailborne structural test suite (CLEANUP 3/3, card t_4364809c).
 
-       The repo has no xUnit/NUnit harness; its verification idiom is build-0/0 +
-       runtime boot self-tests (PatchCheck/SpecCheck) + an inline `dotnet run`
-       reflection self-check in CI (.github/workflows/ci.yml) + Daniel's in-game
-       ATs. This project follows that same idiom: a tiny `dotnet run` console
-       assertion that exits non-zero on any failure.
+       WHAT THIS IS
+       A real xUnit suite that GATES CI (`dotnet test`), replacing the prior
+       single-file `dotnet run` console self-test. It tests STABLE, ENGINE-FREE
+       CONTRACTS — pure decision/geometry logic that ships in the mod — NOT
+       volatile UI/Harmony-patch internals. Low-volatility by construction: the
+       things under test are math + a locked decision table, the parts of the
+       codebase that DON'T churn (see the architecture review's churn data).
 
-       It compiles ONLY the pure, Unity-free decision function
-       SignHoverHintText.cs (linked from the mod source via <Compile Include/>),
-       so the SHIPPED source is what gets asserted — no copy, no drift — and it
-       needs no Valheim/BepInEx assemblies, so it runs on any box / in CI with no
-       SDK fetched. tests/Directory.Build.props shields this subtree from the
-       repo-root SDK-path validation. ════════════════════════════════════════ -->
+       HOW IT STAYS DRIFT-FREE (no copy, no fork)
+       It link-compiles the SHIPPED source files directly (<Compile Include> from
+       ../src), exactly as the original hover-hint self-test did. The asserted
+       behaviour therefore IS the shipped behaviour — there is no second copy to
+       drift. Both these files are deliberately free of UnityEngine / HarmonyLib /
+       Valheim references, so they compile clean under net8.0 here AND under net48
+       in the mod project. It references NO game/BepInEx assemblies, so it runs
+       headless in CI with no Valheim SDK fetched.
+
+       FORWARD PATH (when the Daniel-gated engine-free Core lands — arch review
+       P0/§9): swap each <Compile Include="../src/.../X.cs" /> below for a single
+       <ProjectReference Include="../src/SBPR.Trailborne.Core/..." />. The test
+       LOGIC does not change — only where the source-under-test is sourced from.
+       Until that packaging decision is ratified, link-compile is the
+       non-pre-emptive mechanism (it adds tests without forcing the Core's shape).
+
+       tests/Directory.Build.props shields this subtree from the repo-root
+       SbprValidateSdkPaths target (which hard-errors without the Valheim SDK).
+       ════════════════════════════════════════════════════════════════════════ -->
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AssemblyName>SBPR.Trailborne.Tests</AssemblyName>
     <RootNamespace>SBPR.Trailborne.Tests</RootNamespace>
-    <!-- This is a dev-only test harness; it is never packed into the modpack. -->
     <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- The shipped mod enforces 0-warnings; keep the test suite to the same bar. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Test the SHIPPED source directly. SignHoverHintText.cs is deliberately
-         free of UnityEngine/HarmonyLib/Valheim references so it compiles clean
-         under net8.0 here AND under net48 in the mod project. -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ── Source under test: SHIPPED, engine-free files (link-compiled, not copied) ──
+         Every file here MUST be free of UnityEngine / HarmonyLib / Valheim refs so it
+         compiles under net8.0. This list is the de-facto manifest of the mod's pure
+         logic; as the gated Core extraction lands, entries migrate to a ProjectReference. -->
     <Compile Include="../src/SBPR.Trailborne/Features/Signs/SignHoverHintText.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Cartography/BoundedMapMath.cs" />
   </ItemGroup>
 
 </Project>

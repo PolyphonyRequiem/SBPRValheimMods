@@ -4,10 +4,12 @@
        this file shields everything under tests/ from the root's SbprValidateSdkPaths
        target, which hard-errors unless the Valheim managed-assembly path is set.
 
-       The hover-hint self-test compiles ONLY the pure (Unity-free) helper
-       SignHoverHintText.cs and references no game/BepInEx assemblies, so it must not
-       inherit that requirement — it has to run headless in CI and on any dev box
-       without the Valheim SDK fetched. The shipping mod project at
-       src/SBPR.Trailborne/ lives in a sibling subtree and still finds the root props
-       unchanged, so this override does not affect the mod build. -->
+       The structural test suite (SBPR.Trailborne.Tests, xUnit — CLEANUP 3/3) link-
+       compiles ONLY the SHIPPED engine-free source files (SignHoverHintText.cs,
+       BoundedMapMath.cs — both deliberately free of UnityEngine/HarmonyLib/Valheim
+       refs) and references no game/BepInEx assemblies, so it must not inherit that
+       requirement — it has to run headless in CI and on any dev box without the
+       Valheim SDK fetched. The shipping mod project at src/SBPR.Trailborne/ lives in
+       a sibling subtree and still finds the root props unchanged, so this override
+       does not affect the mod build. -->
 </Project>
