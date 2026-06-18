@@ -98,37 +98,22 @@ namespace SBPR.Trailborne.Features.Cartography
             bool tableViewOwnsViewer = CartographyViewer.IsViewerOpen
                                        && CartographyViewer.CurrentMode == MapViewerMode.TableEdit;
 
-            // ── EVERY-FRAME: the open/dismiss edge (a one-frame GetButtonDown would be missed
-            //    by the throttled poll). Equipping BINDS the map; it does NOT auto-pop the
-            //    overlay — the player ACTIVATES the full view with the USE key (E) while
-            //    equipped (§2G, issue-7 correction).
+            // ── OPEN/CLOSE on the M (Map) key — SBPR owns the M edge (design §1, 🟢 DECIDED
+            //    2026-06-15; spec local-map-mkey-open-impl-spec.md, card t_f9a04fda).
             //
-            //    🔴 §2G LOCKED OPEN INPUT — the Use key, NOT the "Map" button. The old design
-            //    repurposed vanilla's "Map" button assuming it was dead under nomap; that
-            //    premise was INVERTED (decomp: the "Map" button is dead only when Game.m_noMap
-            //    is true, and in that world there's no minimap either — but Daniel's playtest
-            //    runs nomap=OFF, where M opens vanilla's full map, so binding our viewer to
-            //    "Map" stacked both surfaces). The Use key never drives vanilla's Minimap
-            //    toggle, so our open is collision-free by construction (AT-LMAP-OPEN-2/3).
+            //    The M press is NOT polled here: a Harmony PREFIX on Minimap.Update
+            //    (MinimapMKeyOwnerPatch) catches the Map/JoyMap edge BEFORE vanilla's own
+            //    body reads it, routes it into HandleMapKeyPressed() below, then CONSUMES the
+            //    edge (ZInput.ResetButtonStatus) so vanilla never toggles its Large map on the
+            //    same press (no double-stack in nomap=OFF). The prefix wins the ordering race
+            //    deterministically — a MonoBehaviour.Update poll here could run after vanilla's
+            //    read and lose. So the open/close gesture lives in HandleMapKeyPressed(), called
+            //    by the prefix; this Update() no longer polls an open key.
             //
-            //    Use-key discipline (§2G): only open on an OTHERWISE-IDLE Use press —
-            //      • GetHoverObject() == null  → standing at a door/chest/Table, Use interacts
-            //        with THAT (the Table's survey+imprint wins — AT-LMAP-TABLE-COEXIST), not
-            //        the map.
-            //      • !AnyModalOpen             → a text field / inventory / a sign panel
-            //        swallow the press instead of tripping a map-open.
-            //    The CLOSE (toggle-shut) path is NOT gated by those — our own open viewer
-            //    must always be dismissible with Use even though it satisfies the modal check.
-            if (_mapEquipped && _equippedMap != null && !tableViewOwnsViewer
-                && (ZInput.GetButtonDown("Use") || ZInput.GetButtonDown("JoyUse")))
-            {
-                bool ourFieldViewOpen = CartographyViewer.IsViewerOpen
-                                        && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly;
-                if (ourFieldViewOpen)
-                    CloseFullView("use key toggle");          // always allow close
-                else if (CanOpenOnUse(player))                // open only on an idle press
-                    OpenFullView(_equippedMap);
-            }
+            //    Why M, not the Use key (E): the old §2G model opened on E to dodge vanilla's
+            //    "Map" button. The design SUPERSEDED that — M is the single map key and SBPR
+            //    owns it in every state. The E-to-open path is removed entirely; E is once again
+            //    purely vanilla's interact key (door/chest/Table), with no map coupling.
 
             // ── THROTTLED: provider state machine (§3) + disc bind/unbind drive (§4.4, §5) ──
             float now = Time.realtimeSinceStartup;
@@ -239,23 +224,57 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// §2G use-key discipline: only open the map on an OTHERWISE-IDLE Use press.
-        /// Returns false (suppress the open) when the player is hovering an interactable
-        /// (Use should interact with THAT — door/chest/Table — AT-LMAP-TABLE-COEXIST) or when
-        /// any modal UI / text input is up (a sign panel, the inventory, a text field, or our
-        /// own viewer/panels swallow the press). Mirrors vanilla's own Use gating
-        /// (Player.Update → Interact(m_hovering) at decomp :16116).
+        /// SBPR owns the M edge (design §1). Called by MinimapMKeyOwnerPatch.Prefix when M is
+        /// pressed in a map-toggle-allowed context (spec §4.2). Decides what M does from
+        /// provider + viewer state:
+        ///   • the Table owns the viewer (TableEdit) → M doesn't fight it.
+        ///   • our field viewer already open → close it (toggle-shut, AT-MKEY-CLOSE).
+        ///   • a local map is BOUND (provider != null, still carried, even if UNEQUIPPED) → open it.
+        ///   • otherwise (no bound map) → nothing (design §1 row 1; the prefix still consumes M).
         /// </summary>
-        private static bool CanOpenOnUse(Player player)
+        public void HandleMapKeyPressed()
         {
-            // Hovering a world object → that interaction wins (the Table's survey+imprint, a
-            // door, a chest). GetHoverObject() is the public accessor (decomp Player :14699).
-            if (player.GetHoverObject() != null) return false;
+            bool tableOwns = CartographyViewer.IsViewerOpen
+                             && CartographyViewer.CurrentMode == MapViewerMode.TableEdit;
+            if (tableOwns) return;   // the Table owns the viewer; M doesn't fight it
 
-            // Modal suppression: vanilla text input / inventory, plus our own SBPR modal UIs
-            // (sign panels + the map viewer) via the shared SignPanelInputBlock.AnyOpen.
-            if (TextInput.IsVisible() || InventoryGui.IsVisible()) return false;
-            if (SBPR.Trailborne.Features.Signs.SignPanelInputBlock.AnyOpen) return false;
+            bool ourFieldViewOpen = CartographyViewer.IsViewerOpen
+                                    && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly;
+            if (ourFieldViewOpen) { CloseFullView("M key toggle"); return; }
+
+            // OPEN: design §1 row 2 — opens the BOUND map, which survives unequip while still
+            // carried. Prefer the live equipped instance; fall back to the provider (the
+            // most-recently-equipped, still-carried instance the §3 state machine tracks).
+            // This is the one behavioral widening vs the old E-gesture (which only fired while
+            // equipped) and it is required by the design (AT-MKEY-OPEN tests both cases).
+            var toOpen = _equippedMap ?? _provider;
+            if (toOpen != null) OpenFullView(toOpen);
+            // else: no bound map → M does nothing (row 1). Prefix already consumed the edge.
+        }
+
+        /// <summary>
+        /// True when M should be claimed by SBPR this frame (spec §4.3). Mirrors vanilla's own
+        /// Minimap.Update suppression gate (decomp :47074) PLUS SBPR modal state, so we don't
+        /// steal M while typing or in a menu. NOTE: unlike the old Use-key discipline there is
+        /// NO GetHoverObject() guard — M is not an interaction key, so hovering a door/chest/
+        /// Table does NOT suppress M (that was the whole point of moving off Use:
+        /// AT-MKEY-TABLE-COEXIST — E still surveys/imprints at a Table, M there opens the map,
+        /// no shared key, no tension).
+        /// </summary>
+        public bool MKeyContextAllowsMapToggle()
+        {
+            // Vanilla's :47074 typing/menu guards — don't claim M while a text field, console,
+            // inventory or pause menu is up (so a typed "m" still reaches them).
+            if (Chat.instance != null && Chat.instance.HasFocus()) return false;
+            if (Console.IsVisible() || TextInput.IsVisible() || InventoryGui.IsVisible()) return false;
+            if (Menu.IsActive()) return false;
+
+            // SBPR modal suppression — but NOT our own field viewer (M must be able to CLOSE it,
+            // §4.2). A sign / paint panel up → M is text/other, don't claim it.
+            if (SBPR.Trailborne.Features.Signs.SignPanelInputBlock.AnyOpen
+                && !(CartographyViewer.IsViewerOpen
+                     && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly))
+                return false;
 
             return true;
         }
@@ -310,8 +329,12 @@ namespace SBPR.Trailborne.Features.Cartography
             _promptText.horizontalOverflow = HorizontalWrapMode.Overflow;
             _promptText.verticalOverflow = VerticalWrapMode.Overflow;
             _promptText.raycastTarget = false;
-            // Vanilla $KEY_Use → the player's bound Use key; $piece_readmap → "Read map".
-            string raw = "[<color=yellow><b>$KEY_Use</b></color>] $piece_readmap";
+            // Vanilla $KEY_Map → the player's bound Map key (e.g. "M", rebind-correct);
+            // $piece_readmap → "Read map". M replaces the old $KEY_Use per design §1 (the open
+            // gesture moved off E; spec §5). $KEY_Map is a vanilla registered-button key token
+            // (same family as $KEY_Use/$KEY_Block/$KEY_Jump), NOT a custom $piece_* literal — so
+            // it resolves through ZInput.GetBoundKeyString and stays correct across rebinds.
+            string raw = "[<color=yellow><b>$KEY_Map</b></color>] $piece_readmap";
             _promptText.text = Localization.instance != null ? Localization.instance.Localize(raw) : raw;
 
             var rt = _promptText.rectTransform;
