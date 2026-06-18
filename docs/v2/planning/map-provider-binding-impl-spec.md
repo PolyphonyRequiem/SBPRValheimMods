@@ -267,6 +267,20 @@ static bool IsMinimapBound { get; }
   the same standalone-overlay guarantee the full view already relies on. **Do NOT re-enable
   vanilla's roots** (that would fight `nomap` and is explicitly out of scope, design §6/out-of-scope).
 
+> **🔴 RENDER-CORRECTNESS RE-LOCK (2026-06-17, first disc playtest — card t_a39d3e5f).** The disc
+> shipped (t_7dd54899) and Daniel's first v0.2.26-dev playtest surfaced **three render defects**:
+> (1) an opaque black SQUARE backing (the bezel's beyond-ring opaque `cornerShroud` fill, which the
+> modal hides under its backdrop but the no-backdrop disc shows bare); (2) a mostly-black interior
+> (the `_shroudImage` flat opaque fill occluding both cartography and vanilla's real fog cloud);
+> (3) diamond/45°-rotated geometry with ocean corners (a `uvRect`-vs-shader-uniform framing
+> disagreement so the cartography doesn't fill its square, falsifying the §2H.1 inscribed-circle
+> guarantee). The **same** defects (1) + visuals appear on the MODAL (card t_39324b99) — they share
+> `MapSurface`. The full diagnosis + buildable re-lock + named ATs (AT-DISC-CLIP / AT-FOG-VANILLA /
+> AT-DISC-FILL / AT-DISC-SHROUD / AT-MODAL-CLIP / AT-DISC-SHARED) live in
+> **`cartography-impl-spec.md` §2E.5** (one fix for both surfaces, scale-parameterized). The headline:
+> the unexplored area must render as vanilla's real `_FogTex` cloud (Daniel: *"look like it normally
+> does in valheim"*), NOT the flat `CShroud` fill — superseding §2E.4 step 3's opaque-shroud option.
+
 ### 4.3 Teardown — disc off on unbind
 
 When the provider clears (§3.4) or goes blank (§3.5), call `UnbindMinimap()` → the viewer
