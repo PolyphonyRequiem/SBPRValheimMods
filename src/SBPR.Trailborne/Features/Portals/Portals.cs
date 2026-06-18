@@ -105,6 +105,15 @@ namespace SBPR.Trailborne.Features.Portals
         private const float EnvelopeHeight = 3f;
         private const string IconFile = "portal_seed_v0.1.png";
 
+        // ── Ring orientation (SHARED by the visual ring AND the grafted proximity/"target-
+        //    found" effect so the two never drift — the effect must sit IN the ring's plane). ──
+        //    The Ancient Portal ring lies FLAT (faces up) where the player jumps in, unlike
+        //    portal_wood's UPRIGHT ring. The grafted donor "_target_found_red" subtree is at
+        //    IDENTITY local rotation relative to its portal root (verified on the real prefab,
+        //    t_bf2bb402), so a BARE OVERWRITE with this rotation — not a compose — drops the
+        //    effect into the flat ring's plane (issue 1 follow-up).
+        private static readonly Quaternion RingFlatRotation = Quaternion.Euler(90f, 0f, 0f); // lie flat (face up)
+
         // ── Leg geometry (SHARED by the visual legs AND their structural colliders so the
         //    two never drift — an axe swing must land where the leg is SEEN). 3 posts on a
         //    1.2 m-radius ring, 120° apart. DESK-ESTIMATED, flagged AT-GEOMETRY. ──────────
@@ -227,7 +236,7 @@ namespace SBPR.Trailborne.Features.Portals
             if (ring != null)
             {
                 ring.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
-                ring.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);   // lie flat (face up)
+                ring.transform.localRotation = RingFlatRotation;                 // lie flat (face up)
                 ring.transform.localScale    = new Vector3(0.71f, 0.71f, 0.71f); // ~3 m wide
             }
 
@@ -485,6 +494,12 @@ namespace SBPR.Trailborne.Features.Portals
                 // a connected portal's effect belongs. DESK-ESTIMATED height — shares the
                 // EnvelopeHeight the ring/trigger use; flagged for AT-GEOMETRY tuning alongside them.
                 targetFound.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
+                // Align the effect's plane to the FLAT ring (issue 1 follow-up). GraftEffectSubtree
+                // copies the donor's local transform faithfully, and portal_wood's "_target_found_red"
+                // child is at IDENTITY local rotation (verified, t_bf2bb402) — so without this it stays
+                // in portal_wood's UPRIGHT plane and reads vertical, not in our flat ring. Donor being
+                // identity means this is a bare OVERWRITE (same rotation the ring gets), not a compose.
+                targetFound.transform.localRotation = RingFlatRotation;
                 var fade = targetFound.GetComponent<EffectFade>();
                 teleport.m_target_found = fade;
 
