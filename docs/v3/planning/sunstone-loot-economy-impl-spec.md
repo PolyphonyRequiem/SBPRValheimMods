@@ -32,11 +32,11 @@ deliberately **NOT** behind the Sunken Crypts. The kanban card **t_0445f590** is
 
 `Runtime/SpecCheck.cs` validates **recipes and build pieces** (item → resource tuple →
 station). It does **not** model DropTables or CharacterDrops, so this feature adds **0**
-manifest rows and changes no existing row. The provisional Sunstone *craft* recipe's
-disposition (Daniel locked **REMOVE**, card t_8f39b5fc) is a **separate** card — the
-architect's **t_c27f985e** — which owns the SpecCheck row removal + the `sunstone-lens-impl-spec.md`
-§6 / dataset edits. This card is the loot **code** only; the two land as separate PRs by
-design (the decomposition split them).
+manifest rows and changes no existing row. The provisional Sunstone *craft* recipe (Daniel
+locked **REMOVE**, card t_8f39b5fc) was removed by the architect's card **t_c27f985e** —
+which owns the SpecCheck row removal + the `sunstone-lens-impl-spec.md` §6 / dataset edits.
+That card and this one landed as separate PRs by design (the decomposition split them); with
+both merged, this loot economy is Sunstone's **sole** acquisition path.
 
 ## 1. Locked targets (verified vs the real client asset)
 

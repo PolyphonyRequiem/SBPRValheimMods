@@ -233,8 +233,9 @@ in the trinket slot, so it doesn't fight your Cartographer's Kit for space — b
 have to choose between it and the Iron Compass when that lands.
 
 *(Sunstone is its own material with a life beyond this charm — more Swamp crafts will
-use it. For now you can craft it at the Explorer's Bench while we tune where it drops in
-the wild.)*
+use it. You don't craft Sunstone: you **find** it. It turns up in swamp chests (roughly
+one in seven) and, more rarely, on the corpses of Draugr Elites — so the Swamp itself is
+where you stock up.)*
 
 **The Iron Compass** is the Swamp's other build — and it's the payoff for a choice this
 mod made way back at the start. Trailborne ships the map with **no north indicator**, on

@@ -376,12 +376,12 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 | Type | `ItemDrop`, `ItemType.Material`, stack 20, weight 0.3 |
 | Mod | Trailborne (v3) |
 | Biome tier | Swamp |
-| Craft station | Explorer's Bench (`piece_sbpr_explorers_bench`) |
-| Recipe (craft) | **PROVISIONAL placeholder** — Iron ×1 + Crystal ×2 → 1. Exists so the material is obtainable today (AC#1); Sunstone's **intended source is loot** (swamp surface chests + rare Draugr Elite drop, with a Daniel-reserved rarity knob — see `swamp-detection-item.md` §Sourcing). The loot economy is a **follow-up card** (t_1fcbb780); this craft is the bridge until then (keep as alt-path or remove on loot-economy landing — Daniel's call). |
+| Craft station | **None — not crafted** (loot-sourced; see Source row below) |
+| Source (loot — **NO craft recipe**) | **Loot-sourced only** — swamp **surface** chests (primary, ~15% per chest) + rare **Draugr Elite** drop (secondary, ~5% flat), shipped as `SunstoneLoot.cs` (card t_0445f590 / PR #183; spec `sunstone-loot-economy-impl-spec.md`). Daniel locked the rarity at 15% / 5% (card t_8f39b5fc). An earlier **provisional** Iron ×1 + Crystal ×2 Explorer's-Bench craft was a bridge until the drops shipped; **Daniel locked REMOVE** once they did (card t_c27f985e). EXCLUDES Sunken-Crypt chests. |
 | Function | A **standalone resource** (Daniel's 2026-06-13 amendment) modelled after Iceland-spar / the Viking *sólarsteinn*. The Sunstone Lens is its **first consumer**, not its only use — future v3 crafts can draw on the same resource. 🔴 **NO Sunstone in vanilla** (0 wiki hits) — authored fiction, not a reskin. |
-| Visual notes | Clones `Coins` (the established tiny-Material pattern, same as Pigments; ADR-0006 carves out tiny Material items the same way). Inventory icon `sunstone_v0.1.png` (v0.1 placeholder; falls back to the Coins donor icon if the PNG is missing — SpecCheck C1 screams at boot if so). |
-| Patch surface | Registration via `SunstoneLens.RegisterPrefabs` / `DoObjectDBWiring` (Registrar fan-out). No Harmony. |
-| Status | IMPLEMENTED (code + spec + SpecCheck item row, card t_2fd7bc7f). Build 0/0. **logs-green ≠ playable.** |
+| Visual notes | Clones `Coins` (the established tiny-Material pattern, same as Pigments; ADR-0006 carves out tiny Material items the same way). Inventory icon `sunstone_v0.1.png` (v0.1 placeholder; falls back to the Coins donor icon if the PNG is missing). Note: the material has **no recipe manifest row**, so SpecCheck's C1 icon check does not cover it (C1 only runs on manifested item recipes — the Lens row covers the Lens). |
+| Patch surface | Registration via `SunstoneLens.RegisterPrefabs` / `DoObjectDBWiring` (Registrar fan-out). No Harmony. Loot wiring via `SunstoneLoot.RegisterPrefabs` (DropTable + CharacterDrop append; PR #183). |
+| Status | IMPLEMENTED (code + spec, card t_2fd7bc7f; loot economy card t_0445f590 / PR #183; provisional craft REMOVED card t_c27f985e). **No SpecCheck recipe row** (loot-sourced, not crafted). Build 0/0. **logs-green ≠ playable.** |
 | Source spec | `docs/design/swamp-detection-item.md` + `docs/v3/planning/sunstone-lens-impl-spec.md` §6 |
 
 #### Sunstone Lens (the detector)

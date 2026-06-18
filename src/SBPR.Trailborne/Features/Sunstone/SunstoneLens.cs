@@ -72,10 +72,10 @@ namespace SBPR.Trailborne.Features.Sunstone
         public const int LensSunstoneCost = 2;   // Sunstone ×2 (the solar core)
         public const int LensIronCost     = 1;   // Iron ×1 (Swamp-tier frame + tier gate)
         public const int LensGuckCost     = 3;   // Guck ×3 (Swamp-surface housing/adhesive)
-        // Provisional Sunstone CRAFT recipe (placeholder so the material is obtainable today;
-        // intended source is loot — see impl spec §6 + the follow-up card).
-        public const int SunstoneIronCost    = 1;   // Iron ×1
-        public const int SunstoneCrystalCost = 2;   // Crystal ×2 (a clear birefringent stand-in)
+        // NOTE: Sunstone has NO craft recipe. Its sole acquisition path is the loot economy
+        // (swamp surface chests ~15% + rare Draugr Elite ~5%, SunstoneLoot.cs, PR #183). The
+        // earlier provisional Iron×1+Crystal×2 craft was a bridge until the drops shipped;
+        // Daniel locked REMOVE once they did (card t_8f39b5fc → t_c27f985e, impl spec §6).
 
         // ── Energy / battery tuning (durability units; m_maxDurability is the capacity).
         //    Conservative v0.1 defaults; exposed as config in Plugin so Daniel can tune
@@ -234,37 +234,9 @@ namespace SBPR.Trailborne.Features.Sunstone
                 if (p != null) Assets.RegisterItemInObjectDB(p);
             }
 
-            AddSunstoneRecipe();   // provisional craft (placeholder; loot economy = follow-up card)
-            AddLensRecipe();
+            AddLensRecipe();   // Sunstone itself has no recipe — loot-sourced only (SunstoneLoot.cs)
 
-            Plugin.Log.LogInfo("[Trailborne/Sunstone] Sunstone ObjectDB wiring complete (Sunstone material + Lens trinket + 2 recipes).");
-        }
-
-        private static void AddSunstoneRecipe()
-        {
-            var odb = ObjectDB.instance;
-            if (odb == null) return;
-            if (RecipeHelpers.HasRecipe(SunstoneName)) return;
-
-            var prefab = odb.GetItemPrefab(SunstoneName);
-            if (prefab == null)
-            {
-                Plugin.Log.LogWarning($"[Trailborne/Sunstone] {SunstoneName} not in ODB at recipe time; skipping recipe.");
-                return;
-            }
-
-            var recipe = ScriptableObject.CreateInstance<Recipe>();
-            recipe.name              = "Recipe_" + SunstoneName;
-            recipe.m_item            = prefab.GetComponent<ItemDrop>();
-            recipe.m_amount          = 1;
-            recipe.m_minStationLevel = 1;
-            recipe.m_craftingStation = RecipeHelpers.FindStation(Trailhead.ExplorersBenchName);
-            recipe.m_resources = new[]
-            {
-                Assets.BuildReq("Iron",    SunstoneIronCost,    "Sunstone"),
-                Assets.BuildReq("Crystal", SunstoneCrystalCost, "Sunstone"),
-            };
-            odb.m_recipes.Add(recipe);
+            Plugin.Log.LogInfo("[Trailborne/Sunstone] Sunstone ObjectDB wiring complete (Sunstone material + Lens trinket + 1 recipe).");
         }
 
         private static void AddLensRecipe()
