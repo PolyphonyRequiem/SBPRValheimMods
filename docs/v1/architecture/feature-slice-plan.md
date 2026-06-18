@@ -1,12 +1,15 @@
 ---
 title: "PR C — Vertical-Slice `Features/` Structure Plan (Stage-1 Architecture)"
-status: current
-purpose: Vertical-slice Features/ architecture plan.
+status: historical
+last_reviewed: 2026-06-17
+purpose: Vertical-slice Features/ architecture plan. DELIVERED — the Features/ + Runtime/ structure specified here is shipped in src/SBPR.Trailborne/ (and has grown beyond the original 5 features). Kept as the rationale record for the vertical-slice decision.
 ---
 
 # PR C — Vertical-Slice `Features/` Structure Plan (Stage-1 Architecture)
 
-> **Status:** Design artifact. Stage 1 of PR C. The engineer executes this in Stage 2.
+> **Status:** Historical — DELIVERED. This plan's `Features/` + `Runtime/`
+> structure is shipped in `src/SBPR.Trailborne/`. Kept as the *why* behind the
+> vertical-slice decision, not as pending work. The engineer executed Stage 2.
 > **Branch:** `pr-c-architecture` → `v1`. **Card:** `t_ddf77c44`.
 > **Locked decision (do not re-litigate):** group by *feature* (vertical slice), not by *milestone* (M1/M2/M3).
 > **Clean-room:** designed from our own MIT source only. No decompiled IronGate source consulted.

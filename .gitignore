@@ -59,3 +59,7 @@ src/**/obj/
 .pr-c-handoff/
 /dist/
 /.ci/
+
+# Python bytecode cache
+__pycache__/
+*.pyc

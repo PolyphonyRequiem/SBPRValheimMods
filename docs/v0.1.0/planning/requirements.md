@@ -3,7 +3,8 @@ spec_name: trailborne-v1
 shaped_at: 2026-06-03
 shaper: spec-shaper (Starbright, in-session with Daniel)
 status: current
-progress: IN PROGRESS — Round 3 closed, Round 4 (decomp/wiki scan) next
+progress: SHIPPED — v0.1.0 milestones M0–M4 all delivered (see ../MILESTONES.md); this is the LOCKED spec anchor (referenced by AGENTS.md, CONTRIBUTING.md, SpecCheck.cs). M5–M7 are v0.2.0+ scope.
+last_reviewed: 2026-06-17
 correction_notes: |
   - Initial Round 2 questions posed mechanics as undefined; they weren't.
     design/PARKED-2026-06-03.md locked most v1 design on 2026-06-02.
@@ -21,9 +22,12 @@ correction_notes: |
 
 # Requirements: SBPR Trailborne v1
 
-> **Working document.** Each shaper round is appended here as it happens.
-> When shaper completes, this file is promoted to "final" state and handed
-> to spec-writer. Until then, the latest round may be partial.
+> **LOCKED SPEC (shipped).** This is the authoritative v0.1.0 requirements anchor
+> — referenced by exact path in `AGENTS.md`, `CONTRIBUTING.md`, and `SpecCheck.cs`.
+> Milestones M0–M4 are delivered (see [`../MILESTONES.md`](../MILESTONES.md)).
+> The shaper rounds below are preserved as the record of how the spec was reached;
+> the spec itself is locked. Changes to a locked recipe/piece move spec + code +
+> SpecCheck together (ADR-0002).
 
 ## Source idea
 
