@@ -7,10 +7,10 @@
 //  vanilla MapTable on public APIs. The Cartographer's Kit (t_c871efec) and the
 //  Local Map viewer (t_7b616020) build ON this.
 //
-//  Construction is ADDITIVE (ADR-0006): Assets.ConstructPieceShell builds the
+//  Construction is ADDITIVE (ADR-0006): Assets.TryConstructPieceShell builds the
 //  networked skeleton (ZNetView + Piece + WearNTear + collider) from scratch, then
 //  we graft the vanilla cartographytable's VISUAL mesh as a ZNetView-free cosmetic
-//  child (Assets.GraftVisualSubtree) and attach our SurveyorTableTag. We NEVER
+//  child (Assets.TryGraftVisualSubtree) and attach our SurveyorTableTag. We NEVER
 //  Instantiate piece_cartographytable (it carries a ZNetView + the vanilla MapTable
 //  MonoBehaviour — cloning it is the ADR-0006 anti-pattern). We read it only as a
 //  blueprint (vprefab inspect piece_cartographytable: visual under child "new",
@@ -42,7 +42,7 @@ namespace SBPR.Trailborne.Features.Cartography
         private const string BlueprintTable = "piece_cartographytable";
         private const string BlueprintVisualChild = "new";
 
-        // Clean stone donor for ConstructPieceShell's effect-table reference-copy (the same
+        // Clean stone donor for TryConstructPieceShell's effect-table reference-copy (the same
         // donor the cairns use). Wood-material would be thematically closer, but the shell
         // helper sets WearNTear.MaterialType.Stone; the Table is a sturdy field station and
         // the effect set is hit/destroy/place SFX only. (Visual polish: revisit material in
@@ -71,8 +71,7 @@ namespace SBPR.Trailborne.Features.Cartography
             // ADDITIVE: build the networked skeleton from scratch (no clone of the
             // ZNetView-bearing cartographytable). Reference-copies hit/destroy/place
             // effects off a clean stone donor.
-            var go = Assets.ConstructPieceShell(TableName, ShellEffectDonor);
-            if (go == null)
+            if (!Assets.TryConstructPieceShell(TableName, ShellEffectDonor, out var go))
             {
                 Plugin.Log.LogWarning($"[Trailborne/Cartography] Could not construct piece shell for {TableName}; skipping.");
                 return;
@@ -113,8 +112,7 @@ namespace SBPR.Trailborne.Features.Cartography
 
             // Graft the vanilla cartographytable's VISUAL mesh as a ZNetView-free cosmetic
             // child (additive; reads the donor, never instantiates its networked root).
-            var visual = Assets.GraftVisualSubtree(BlueprintTable, BlueprintVisualChild, go, "SBPR_SurveyorTableVisual");
-            if (visual == null)
+            if (!Assets.TryGraftVisualSubtree(BlueprintTable, BlueprintVisualChild, go, "SBPR_SurveyorTableVisual", out _))
                 Plugin.Log.LogWarning(
                     $"[Trailborne/Cartography] {TableName}: visual graft from '{BlueprintTable}/{BlueprintVisualChild}' " +
                     "failed; the Table will register and function but show no mesh this build (logs-green≠playable — " +

@@ -125,7 +125,7 @@ namespace SBPR.Trailborne.Features.Cairns
         ///
         /// Order matters and is deliberate:
         ///   1. There is NO donor fire to deal with — the cairn piece is built additively
-        ///      from scratch (Assets.ConstructPieceShell), never cloned from bonfire, so
+        ///      from scratch (Assets.TryConstructPieceShell), never cloned from bonfire, so
         ///      no Fireplace/Aoe/CinderSpawner ever existed on it (ADR-0006).
         ///   2. Build the haphazard, squashed, ZDO-seeded rock pile (count = the
         ///      stone ladder for this tier). BuildPile returns the pile-top Y.
@@ -143,7 +143,7 @@ namespace SBPR.Trailborne.Features.Cairns
 
             // 🔴 v0.2.8 — there is NO donor fire on this piece, ever. The cairn is built
             // additively from scratch (Cairns.RegisterCairnPiecePrefab →
-            // Assets.ConstructPieceShell), not cloned from bonfire — so there is no
+            // Assets.TryConstructPieceShell), not cloned from bonfire — so there is no
             // Fireplace to muzzle, no Aoe burn, no CinderSpawner, no donor flame. We just
             // build our stone pile and graft a SMALL torch-tier flame on top — see
             // BuildCosmeticFire. (ADR-0006 additive construction; this whole class of

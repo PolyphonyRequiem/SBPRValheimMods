@@ -13,11 +13,11 @@
 //  (IsKnownMaterial); crafting it the first time gates the whole cartography loop.
 //
 //  ── Construction is ADDITIVE (ADR-0006) ──────────────────────────────────────
-//  Assets.ConstructItemShell builds the networked item skeleton (ZNetView +
+//  Assets.TryConstructItemShell builds the networked item skeleton (ZNetView +
 //  ZSyncTransform + Rigidbody + collider + ItemDrop with a FRESH SharedData) from
 //  scratch. We do NOT clone a vanilla item (the pre-ADR Pigments/cairn-marker
 //  pattern). The world-drop visual is grafted as a ZNetView-free cosmetic child
-//  off a vanilla blueprint (Assets.GraftVisualSubtree) — reading a mesh is
+//  off a vanilla blueprint (Assets.TryGraftVisualSubtree) — reading a mesh is
 //  reference, not cloning. We never Instantiate a ZNetView-bearing prefab.
 //
 //  ── The gate (the whole point) ───────────────────────────────────────────────
@@ -66,7 +66,7 @@ namespace SBPR.Trailborne.Features.Cartography
         // stand-in (a leather kit/satchel reads as a cartographer's kit). Chosen as the
         // CLEANEST single-mesh/single-material item donor (vprefab: one mesh under the
         // "attach" child, no ping-trail particles or stray Light like Wishbone carries).
-        // Read ONLY as a blueprint (GraftVisualSubtree → ZNetView-free cosmetic child);
+        // Read ONLY as a blueprint (TryGraftVisualSubtree → ZNetView-free cosmetic child);
         // never instantiated. If the child doesn't resolve, the item still works with no
         // world mesh (logs-green≠playable — Daniel verifies the look). Visual polish flagged.
         private const string BlueprintItem = "LeatherScraps";
@@ -81,7 +81,7 @@ namespace SBPR.Trailborne.Features.Cartography
 
         // Icon shipped in the modpack plugin folder (assets/icons/items/*.png copied by
         // scripts/pack-modpack.sh). The real icon is a HARD requirement, not cosmetic — but it
-        // is no longer a crash risk: ConstructItemShell pre-seeds a shared magenta fallback into
+        // is no longer a crash risk: TryConstructItemShell pre-seeds a shared magenta fallback into
         // m_icons so a missing PNG degrades to a visible placeholder, never an IndexOutOfRange in
         // the crafting UI (vanilla GetIcon indexes m_icons[0] with no bounds guard). If this PNG
         // fails to load, the ERROR below + SpecCheck's C1 boot check are the loud signals that the
@@ -97,10 +97,9 @@ namespace SBPR.Trailborne.Features.Cartography
             if (zns.GetPrefab(KitName) != null) return;
 
             // ADDITIVE (ADR-0006): build the item skeleton from scratch (no clone of a
-            // vanilla item). ConstructItemShell news the SharedData so the equip/tooltip
+            // vanilla item). TryConstructItemShell news the SharedData so the equip/tooltip
             // path is NRE-safe.
-            var go = Assets.ConstructItemShell(KitName);
-            if (go == null)
+            if (!Assets.TryConstructItemShell(KitName, out var go))
             {
                 Plugin.Log.LogWarning($"[Trailborne/Cartography] Could not construct item shell for {KitName}; skipping.");
                 return;
@@ -134,7 +133,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 }
                 else
                 {
-                    // ConstructItemShell already pre-seeded a magenta fallback into m_icons, so a
+                    // TryConstructItemShell already pre-seeded a magenta fallback into m_icons, so a
                     // missing icon degrades to a visible placeholder and the crafting UI does NOT
                     // crash (it no longer leaves m_icons empty). Keep this ERROR as the loud human
                     // signal that the real PNG didn't ship; SpecCheck's C1 boot check is the
@@ -150,8 +149,7 @@ namespace SBPR.Trailborne.Features.Cartography
             // World-drop visual: graft the blueprint item's mesh subtree as a ZNetView-free
             // cosmetic child (additive; reads the donor, never instantiates its networked
             // root). Cosmetic-only — the item is fully functional without it.
-            var visual = Assets.GraftVisualSubtree(BlueprintItem, BlueprintVisualChild, go, "SBPR_CartographersKitVisual");
-            if (visual == null)
+            if (!Assets.TryGraftVisualSubtree(BlueprintItem, BlueprintVisualChild, go, "SBPR_CartographersKitVisual", out _))
                 Plugin.Log.LogWarning(
                     $"[Trailborne/Cartography] {KitName}: world-drop visual graft from '{BlueprintItem}/{BlueprintVisualChild}' " +
                     "failed; the dropped item will have no mesh this build (logs-green≠playable — Daniel " +

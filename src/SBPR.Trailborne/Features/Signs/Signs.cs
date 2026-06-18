@@ -213,8 +213,7 @@ namespace SBPR.Trailborne.Features.Signs
         {
             // ONE sign piece — clone vanilla wood sign, no tint (placed unpainted).
             if (zns.GetPrefab(SignName) != null) return;
-            var clone = Assets.ClonePrefab(SourceSign, SignName);
-            if (clone == null)
+            if (!Assets.TryClonePrefab(SourceSign, SignName, out var clone))
             {
                 Plugin.Log.LogWarning($"[Trailborne/M1] Source sign prefab missing, skipping {SignName}");
                 return;
@@ -326,12 +325,11 @@ namespace SBPR.Trailborne.Features.Signs
             float boardTopY  = Assets.MeasureLocalTopY(signRoot);
 
             // Clone + strip the pole FIRST so we can measure its real crown and anchor
-            // the board to the TOP of the post (not a magic height). ClonePrefab parents
+            // the board to the TOP of the post (not a magic height). TryClonePrefab parents
             // the clone under the inactive holder, so it does NOT pollute the board
             // measurement above and is NOT yet a child of signRoot (the board-lift loop
             // below must touch board children only).
-            var pole = Assets.ClonePrefab(SourcePole, PostChildName);
-            if (pole == null)
+            if (!Assets.TryClonePrefab(SourcePole, PostChildName, out var pole))
             {
                 // Error path: no post to anchor to. Fall back to the fixed readable
                 // height so the board is still legible (sign placed without a post).

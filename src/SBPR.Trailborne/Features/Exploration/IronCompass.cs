@@ -35,7 +35,7 @@
 //     future Eye-of-Odin global minimap (see SBPR_CompassHud.CompassAnchor).
 //
 //  ── Construction is ADDITIVE (ADR-0006) ──────────────────────────────────────
-//  Built via Assets.ConstructItemShell (fresh ZNetView + ItemDrop + SharedData),
+//  Built via Assets.TryConstructItemShell (fresh ZNetView + ItemDrop + SharedData),
 //  exactly like the Cartographer's Kit and the Sunstone Lens — NEVER by cloning a
 //  vanilla item prefab and stripping it.
 //
@@ -86,7 +86,7 @@ namespace SBPR.Trailborne.Features.Exploration
 
         // Icon shipped in the modpack plugin folder (assets/icons/items/*.png copied by
         // scripts/pack-modpack.sh). A real icon is a HARD requirement (the crafting UI
-        // indexes m_icons[0]); ConstructItemShell pre-seeds a magenta fallback so a missing
+        // indexes m_icons[0]); TryConstructItemShell pre-seeds a magenta fallback so a missing
         // PNG degrades to "ugly, never crash", and SpecCheck's C1 boot check screams if the
         // real PNG didn't ship. v0.1 placeholder per the icon-asset doctrine.
         private const string IconFile = "iron_compass_v0.1.png";
@@ -100,10 +100,9 @@ namespace SBPR.Trailborne.Features.Exploration
             if (zns.GetPrefab(CompassName) != null) return;
 
             // ADDITIVE (ADR-0006): build the item skeleton from scratch (no clone of a vanilla
-            // item). ConstructItemShell news the SharedData (+ seeds m_icons[0]=FallbackIcon and
+            // item). TryConstructItemShell news the SharedData (+ seeds m_icons[0]=FallbackIcon and
             // an inert m_attack/m_secondaryAttack) so the equip/tooltip path is NRE-safe.
-            var go = Assets.ConstructItemShell(CompassName);
-            if (go == null)
+            if (!Assets.TryConstructItemShell(CompassName, out var go))
             {
                 Plugin.Log.LogWarning($"[Trailborne/Exploration] Could not construct item shell for {CompassName}; skipping.");
                 return;
@@ -139,7 +138,7 @@ namespace SBPR.Trailborne.Features.Exploration
                 }
                 else
                 {
-                    // ConstructItemShell already pre-seeded a magenta fallback into m_icons, so a
+                    // TryConstructItemShell already pre-seeded a magenta fallback into m_icons, so a
                     // missing icon degrades to a visible placeholder and the crafting UI does NOT
                     // crash. Keep this ERROR as the loud human signal (paired with SpecCheck's C1).
                     Plugin.Log.LogError(

@@ -43,8 +43,7 @@ namespace SBPR.Trailborne.Features.Trailhead
         private static void RegisterExplorersBenchPrefab(ZNetScene zns)
         {
             if (zns.GetPrefab(ExplorersBenchName) != null) return;
-            var clone = Assets.ClonePrefab(SourceWorkbench, ExplorersBenchName);
-            if (clone == null) return;
+            if (!Assets.TryClonePrefab(SourceWorkbench, ExplorersBenchName, out var clone)) return;
 
             // The vanilla Workbench prefab carries a GuidePoint component — the
             // proximity hook that makes Hugin/the raven pop the "you built a
@@ -101,8 +100,7 @@ namespace SBPR.Trailborne.Features.Trailhead
         private static void RegisterPathLampPrefab(ZNetScene zns)
         {
             if (zns.GetPrefab(PathLampName) != null) return;
-            var clone = Assets.ClonePrefab(SourceGroundTorch, PathLampName);
-            if (clone == null) return;
+            if (!Assets.TryClonePrefab(SourceGroundTorch, PathLampName, out var clone)) return;
 
             var piece = clone.GetComponent<Piece>();
             if (piece != null)
@@ -150,7 +148,7 @@ namespace SBPR.Trailborne.Features.Trailhead
             // Hammer (a settler's-tool action, NOT an Explorer-placed trail piece), so
             // it stays on the Hammer table. The Path Lamp is an Explorer-placed trail
             // piece and moves to the Spade menu per the design pillar.
-            var hammerTable = Assets.GetHammerPieceTable();
+            Assets.TryGetHammerPieceTable(out var hammerTable);
             if (zns == null) return;
 
             var table = zns.GetPrefab(ExplorersBenchName);

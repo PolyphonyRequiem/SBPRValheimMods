@@ -39,7 +39,7 @@
 //  other item (and every other player) passes straight through to vanilla.
 //
 //  ── Construction is ADDITIVE (ADR-0006) ──────────────────────────────────────
-//  The Lens is built via Assets.ConstructItemShell (fresh ZNetView + ItemDrop +
+//  The Lens is built via Assets.TryConstructItemShell (fresh ZNetView + ItemDrop +
 //  SharedData), exactly like the Cartographer's Kit. The Sunstone material item
 //  clones Coins (the established tiny-Material pattern, same as Pigments).
 //
@@ -92,7 +92,7 @@ namespace SBPR.Trailborne.Features.Sunstone
         public const float DefaultDetectInterval = 0.5f; // seconds between detection sweeps (HUD-driven)
 
         // Icon shipped in the modpack plugin folder (assets/icons/items/*.png). A real icon
-        // is a HARD requirement (the crafting UI indexes m_icons[0]); ConstructItemShell
+        // is a HARD requirement (the crafting UI indexes m_icons[0]); TryConstructItemShell
         // pre-seeds a magenta fallback so a missing PNG degrades to "ugly, never crash", and
         // SpecCheck's C1 boot check screams if the real PNG didn't ship. v0.1 placeholders.
         private const string SunstoneIcon = "sunstone_v0.1.png";
@@ -117,8 +117,7 @@ namespace SBPR.Trailborne.Features.Sunstone
         {
             if (zns.GetPrefab(SunstoneName) != null) return;
 
-            var clone = Assets.ClonePrefab("Coins", SunstoneName);
-            if (clone == null)
+            if (!Assets.TryClonePrefab("Coins", SunstoneName, out var clone))
             {
                 Plugin.Log.LogWarning($"[Trailborne/Sunstone] Could not clone Coins for {SunstoneName}; skipping.");
                 return;
@@ -148,14 +147,13 @@ namespace SBPR.Trailborne.Features.Sunstone
             Plugin.Log.LogInfo($"[Trailborne/Sunstone] Registered Sunstone material item: {SunstoneName}");
         }
 
-        // The Sunstone Lens — additive Trinket (ConstructItemShell), the Cartographer's Kit
+        // The Sunstone Lens — additive Trinket (TryConstructItemShell), the Cartographer's Kit
         // pattern. m_useDurability=true so the energy bar renders; WE own the drain/recharge.
         private static void RegisterLensTrinket(ZNetScene zns)
         {
             if (zns.GetPrefab(LensName) != null) return;
 
-            var go = Assets.ConstructItemShell(LensName);
-            if (go == null)
+            if (!Assets.TryConstructItemShell(LensName, out var go))
             {
                 Plugin.Log.LogWarning($"[Trailborne/Sunstone] Could not construct item shell for {LensName}; skipping.");
                 return;
@@ -208,8 +206,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             // World-drop visual: graft a small clear-crystal-ish blueprint mesh as a ZNetView-free
             // cosmetic child. Crystal is the cleanest clear-stone donor. Cosmetic-only — the item
             // is fully functional without it (logs-green≠playable — Daniel verifies the look).
-            var visual = Assets.GraftVisualSubtree("Crystal", "attach", go, "SBPR_SunstoneLensVisual");
-            if (visual == null)
+            if (!Assets.TryGraftVisualSubtree("Crystal", "attach", go, "SBPR_SunstoneLensVisual", out _))
                 Plugin.Log.LogWarning(
                     $"[Trailborne/Sunstone] {LensName}: world-drop visual graft from 'Crystal/attach' failed; "
                     + "dropped item will have no mesh this build. Functionally unaffected.");

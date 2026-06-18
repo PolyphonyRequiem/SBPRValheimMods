@@ -72,8 +72,7 @@ namespace SBPR.Trailborne.Features.Pigments
         private static void RegisterPigmentPrefab(ZNetScene zns, string name, string displayName, string desc)
         {
             if (zns.GetPrefab(name) != null) return;
-            var clone = Assets.ClonePrefab(SourceCoinItem, name);
-            if (clone == null) return;
+            if (!Assets.TryClonePrefab(SourceCoinItem, name, out var clone)) return;
             var drop = clone.GetComponent<ItemDrop>();
             if (drop != null)
             {

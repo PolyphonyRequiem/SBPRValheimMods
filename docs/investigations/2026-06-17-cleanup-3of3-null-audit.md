@@ -98,6 +98,34 @@ find-replace count:
    independent of the Core. This is a real, mergeable null-reduction PR — but it touches
    the 22-change top-churn file, so it wants its own focused review (a separate card,
    assignee `engineer-systems`), not a smuggle-in here.
+
+   > **✅ EXECUTED (card t_0234cc42).** Done as its own focused PR. Of the 26 `return null`
+   > sites in `Assets.cs`, **six methods were converted to the `bool TryX(out …)` contract**
+   > because every caller immediately branches on the result (the "`if (x == null) return;`
+   > is a `Try` in disguise" case):
+   > `ClonePrefab → TryClonePrefab`, `ConstructPieceShell → TryConstructPieceShell`,
+   > `ConstructItemShell → TryConstructItemShell`, `GetHammerPieceTable → TryGetHammerPieceTable`,
+   > `GraftVisualSubtree → TryGraftVisualSubtree`, `GraftEffectSubtree → TryGraftEffectSubtree`.
+   > The `out` parameters carry `[NotNullWhen(true)]` (via a one-file net48 polyfill,
+   > `Runtime/NullableAttributes.cs` — the attribute isn't in net48's BCL) so the compiler
+   > flow-narrows the handle to non-null on the `true` branch under
+   > `<Nullable>enable</Nullable>` + `<TreatWarningsAsErrors>`.
+   >
+   > **Four methods were deliberately KEPT as `T?` optional-returns**, because their callers
+   > *compose* the value rather than branch-and-bail — converting would just relocate the
+   > sentinel one frame up:
+   > `LoadPngAsSprite` (a missing icon is a legitimate absence; every caller falls back to a
+   > donor icon / `FallbackIcon` and proceeds), `GraftMeshFromBlueprint` (two callers `return`
+   > it up the stack; the optional is the genuine contract), `FindOpInToolPieceTable` (the
+   > blueprint is optional end-to-end — `ConstructTerrainOpPiece` takes a `GameObject?` and
+   > degrades cosmetics), and `GraftTorchFire` (stored as a nullable `fireRoot` field that is
+   > null-guarded at every use; null = "no flame this build" on a headless server). These match
+   > §2B / §3's "real absence state, correctly modeled as `T?`" — not null-as-value smells.
+   >
+   > Pure refactor, no behavior change (the not-found code paths are byte-for-byte the same
+   > logging + early-out); build 0 warnings / 0 errors, `dotnet test` 27/27 green. The
+   > `TryX` naming also seeds the reviewable convention §5 calls for, ahead of the
+   > ZdoComponent/TryGet seam.
 3. **Keep + document the unavoidable set.** This audit *is* that documentation. The
    `null!` lifecycle fields and the vanilla-boundary guards are inventoried in §2B as
    intentional. No code change.

@@ -161,8 +161,7 @@ namespace SBPR.Trailborne.Features.Cairns
         {
             var name = MarkerName(color);
             if (zns.GetPrefab(name) != null) return;
-            var clone = Assets.ClonePrefab(SourceConsumable, name);
-            if (clone == null) return;
+            if (!Assets.TryClonePrefab(SourceConsumable, name, out var clone)) return;
             var drop = clone.GetComponent<ItemDrop>();
             if (drop != null)
             {
@@ -193,8 +192,7 @@ namespace SBPR.Trailborne.Features.Cairns
             // v0.2.7 crash), and no donor fire to leak (the bonfire-cairn mess) — there
             // simply is no donor on the object. The stone pile + small torch-tier flame
             // are constructed at runtime in CairnTag.BuildKitbashArt.
-            var clone = Assets.ConstructPieceShell(name, "stone_floor");
-            if (clone == null)
+            if (!Assets.TryConstructPieceShell(name, "stone_floor", out var clone))
             {
                 Plugin.Log.LogWarning($"[Trailborne/M2] Could not construct cairn piece shell, skipping cairn ({color}).");
                 return;

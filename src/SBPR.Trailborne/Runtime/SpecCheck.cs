@@ -27,7 +27,7 @@ namespace SBPR.Trailborne.Runtime
     /// watchdog now also asserts that every SBPR item recipe's resolved
     /// <c>ItemDrop</c> has a real, loaded <c>m_icons[0]</c> — specifically that it
     /// is NOT the shared <c>Assets.FallbackIcon</c> placeholder. Additively-built
-    /// items (<c>Assets.ConstructItemShell</c>) pre-seed that magenta fallback so a
+    /// items (<c>Assets.TryConstructItemShell</c>) pre-seed that magenta fallback so a
     /// missing icon PNG degrades to "ugly, never crash" instead of throwing in the
     /// crafting panel; this check is what then SCREAMS at server boot that the real
     /// PNG didn't ship — closing the "server-green recipes, client-side icon crash"
@@ -417,7 +417,7 @@ namespace SBPR.Trailborne.Runtime
                 Plugin.Log.LogError(
                     $"[Trailborne/SpecCheck] ICON MISSING (structural): {itemName} has an empty or null " +
                     "m_icons — the crafting UI would throw on selection. An additive item must seed " +
-                    "Assets.FallbackIcon in ConstructItemShell; a clone must inherit a donor icon.");
+                    "Assets.FallbackIcon in TryConstructItemShell; a clone must inherit a donor icon.");
                 errors++;
                 return;
             }
@@ -437,12 +437,12 @@ namespace SBPR.Trailborne.Runtime
         /// <summary>
         /// Sibling of <see cref="CheckIcon"/> — the fail-loud boot guard for the OTHER fresh-SharedData
         /// null landmine vanilla derefs without a guard: <c>m_attack</c> / <c>m_secondaryAttack</c>.
-        /// A fresh <c>SharedData</c> (what <c>Assets.ConstructItemShell</c> news) leaves both NULL
+        /// A fresh <c>SharedData</c> (what <c>Assets.TryConstructItemShell</c> news) leaves both NULL
         /// (vanilla has no field initializer); vanilla <c>ItemData.GetChainTooltip</c> reads
         /// <c>m_attack.m_spawnOnHitChance</c> with no null check, and the static <c>GetTooltip</c>
         /// calls it UNCONDITIONALLY every frame from <c>InventoryGui.UpdateRecipe</c> — so a
         /// constructed item with a null <c>m_attack</c> throws a per-frame NRE the instant its recipe
-        /// is selected (the "wall of red"). <c>ConstructItemShell</c> now seeds an inert
+        /// is selected (the "wall of red"). <c>TryConstructItemShell</c> now seeds an inert
         /// <c>new Attack()</c> for both; this assertion SCREAMS at boot if a future additive path ever
         /// forgets, exactly as the C1 icon assertion does. CLONE items deep-copy a non-null donor
         /// <c>m_attack</c> and so pass — correct and intended; there is deliberately no per-item map,
@@ -462,7 +462,7 @@ namespace SBPR.Trailborne.Runtime
                     $"[Trailborne/SpecCheck] ATTACK NULL (structural): {itemName} has a null m_attack " +
                     "or m_secondaryAttack — vanilla GetChainTooltip derefs it every frame the recipe is " +
                     "selected, throwing a per-frame NRE in the craft panel. An additive item must seed " +
-                    "`new Attack()` for both in ConstructItemShell (beside the m_icons pre-seed); a clone " +
+                    "`new Attack()` for both in TryConstructItemShell (beside the m_icons pre-seed); a clone " +
                     "inherits the donor's non-null attack.");
                 errors++;
             }
