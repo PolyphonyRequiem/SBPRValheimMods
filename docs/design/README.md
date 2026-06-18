@@ -45,6 +45,15 @@ impl-spec. Each carries its open questions inline.
   on the in-tree Surveyor's Table ZDO-blob pattern; five design knobs (tier,
   placement tool, public/private sizes, destroy-warning) are open for Daniel.
 
+- **[`forge-masters-trinket.md`](forge-masters-trinket.md)** — a **standalone-mod**
+  Trinket whose power, fired when the vanilla adrenaline bar caps (~80), repairs
+  **+5 durability on equipped gear** instead of a combat burst. Decomp-grounded:
+  adrenaline is a LIVE vanilla trinket mechanic (`m_fullAdrenalineSE` cap-fire hook),
+  NOT a custom meter — the build is ~95% vanilla (one StatusEffect + one item).
+  Carries a repo/project structure proposal (separate repo vs in-monorepo standalone
+  DLL — recommends the latter) and AT-FORGE-* tests, for Daniel to ratify before
+  scaffold+impl.
+
 ## Working state
 
 - **[`PARKED-2026-06-03.md`](PARKED-2026-06-03.md)** — resume point from the
