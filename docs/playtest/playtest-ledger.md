@@ -43,7 +43,7 @@ markers; the **Playtest #N** counter here is the *human-facing* testing series.
 
 | # | Feature | Card | PR | What to verify in-game |
 |---|---------|------|-----|------------------------|
-| 1 | **Sunstone dual-source loot** | t_0445f590 | #183 | Sunstone drops from swamp **surface** chests (~15%) and **Draugr Elite** (~5%). Loot a spread of swamp chests + kill Draugr Elites; confirm it actually appears at roughly those rates and is pickable. |
+| 1 | **Sunstone dual-source loot** | t_0445f590 | #183 | Sunstone drops from swamp **surface** chests (~15%) and **Draugr Elite** (~5%). Loot a spread of **freshly-discovered** swamp chests (already-populated chests keep old contents — vanilla populate-once behavior) + kill Draugr Elites; confirm it appears at roughly those rates and is **pickable** (lands in inventory with its icon). **QA data-layer PASS** (t_0aef1243, `docs/v3/research/QA-sunstone-loot-economy.md`): swamp table carries Sunstone w=0.584 → empirically 15.01%/chest over 200k draws of the vanilla sampler; crypt table clean; elite drop 5% flat. Daniel's run closes the observed last mile (logs-green ≠ playable). |
 | 2 | **Local Map opens on M, not E** | t_f9a04fda | #181 | Press **M** with the Surveyor's Table map equipped/in-range → local map opens. Pressing **E** (Use) does NOT open it. SBPR owns the M edge. |
 | 3 | **Ancient Portal proximity FX aligned** | t_06b7b13c | #180 | Approach an Ancient Portal → the proximity/target-found effect renders **flat, aligned to the ring** (not vertical/offset). |
 | 4 | **Iron Compass v3 — Trinket + HUD needle** | t_ee61472f | #171 | Equip Iron Compass in the Trinket slot → a HUD compass needle overlay appears and tracks heading (the no-map orientation payoff). |
@@ -58,6 +58,12 @@ markers; the **Playtest #N** counter here is the *human-facing* testing series.
 | 13 | **Item tooltip NRE fix** | t_2dd7c705 | #154 | Hover SBPR items with custom attacks → no per-frame tooltip NullReferenceException in the log. |
 
 ### 🎯 Specific verifies called out by Daniel
+- [ ] **Sunstone Lens detection actually shows something** — card **t_b8a19487** (REDESIGN in flight).
+      Current shipped impl is a placeholder text HUD (easy to miss / possibly not wiring up). The
+      REAL design: a trophy ring around the player — each hostile's trophy billboarded at its bearing,
+      size ∝ closeness, ★/★★ pips for star levels. Until the redesign lands, verify whether the
+      *current* lens shows ANYTHING when worn+charged near a hostile (helps confirm the wiring bug).
+
 
 - [ ] **Disc player-marker chevron (A′)** — card **t_efe8b32b** (impl, engineer-ui; not yet merged).
       When it lands: open the local-map **disc**; the player marker is the **vanilla default-map chevron**
