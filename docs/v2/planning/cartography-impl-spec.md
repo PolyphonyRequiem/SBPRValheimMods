@@ -1304,6 +1304,15 @@ recipe row). Spec + code move together in that PR.
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
+> **🔴 OPEN-INPUT NOTE SUPERSEDED (2026-06-17, issue 3, card t_f9a04fda).** Where §2F refers to
+> the viewer *opening* on the **Use key (E)** (the "open-input path" wording), that is REPLACED
+> by the M-key model — open is now **M** (see §2G banner +
+> [`local-map-mkey-open-impl-spec.md`](local-map-mkey-open-impl-spec.md)). **§2F's actual subject
+> — the Escape→menu-leak suppression (`Menu.Show` prefix) and the bottom-centre exit prompt —
+> STANDS unchanged:** Esc still closes our viewer cleanly with no pause-menu pop, and `[Esc]`
+> stays a hardcoded literal (Escape is not a rebindable ZInput button). Only the *open* trigger
+> moved E→M; the *exit* UX is untouched.
+
 > **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
 > The §2F LOCKED route is BUILT. Defect 1 (Escape opens the pause menu too): a new
 > `SignPanelInputBlock.MenuOpenSuppressPatch` — a `[HarmonyPatch(typeof(Menu), "Show", new Type[0])]`
@@ -1488,6 +1497,16 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
   the exit-prompt label and the material-reuse render land without a merge conflict on the same
   file. Note the dependency on the implementation card.
 ### 2G — Local Map open input (issue 7 design correction, 2026-06-11)
+
+> **🔴 SUPERSEDED (2026-06-17, issue 3, card t_f9a04fda) — the open input is now M, not E.**
+> The entire §2G Use-key (E) open model below is REPLACED by the 🟢 DECIDED M-key model
+> (`map-provider-model.md` §1, Daniel 2026-06-15): **M opens the bound local map; the E-to-open
+> path is removed entirely; the prompt reads "[M] …".** The buildable HOW — including how SBPR
+> owns the M edge in nomap-OFF without stacking vanilla's map (a `Minimap.Update` consume-prefix)
+> — is **[`local-map-mkey-open-impl-spec.md`](local-map-mkey-open-impl-spec.md)**. §2G is kept
+> below as history (the reasoning for why the gesture was *temporarily* on E); do not build from
+> it. Daniel's v0.2.26-dev playtest found the impl still on E — that's the drift this supersede
+> closes.
 
 > **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
 > The §2G LOCKED open input is BUILT in `LocalMapController.cs`: the `GetButtonDown("Map")` open

@@ -272,10 +272,12 @@ item/gating cards layer on top.
 
 ## 6. Acceptance tests
 
-- **AT-MAP-EQUIP** — equip the Local Map, then press **Use (E)** → it opens the bounded
-  full view showing ONLY its 1000 m disc. (Issue-7 correction: the open input is the Use
-  key, NOT the "Map" button — binding to "Map" double-stacked vanilla's map under
-  `nomap=OFF`. See `cartography-impl-spec.md` §2F / AT-LMAP-OPEN-*.)
+- **AT-MAP-EQUIP** — with a bound Local Map (equipped OR most-recently-equipped-still-carried),
+  press **M** → it opens the bounded full view showing ONLY its 1000 m disc. (Issue-3 correction,
+  2026-06-17: the open input is **M**, NOT E/Use and NOT the old "Map"-button-stacks-vanilla
+  path. SBPR owns the M edge — see `local-map-mkey-open-impl-spec.md` / AT-MKEY-*. This
+  supersedes the issue-7 E-correction, which was an interim step before the M-key model was
+  DECIDED.)
 - **AT-MAP-DURABLE** — binding persists while the item sits in inventory; reverts to
   no-map the instant it leaves inventory.
 - **AT-MAP-BOUND** — nothing beyond 1000 m of the bound Table ever reveals; pins beyond
