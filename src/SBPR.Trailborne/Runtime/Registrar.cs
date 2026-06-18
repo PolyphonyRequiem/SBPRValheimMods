@@ -79,6 +79,14 @@ namespace SBPR.Trailborne.Runtime
                 // After Trailhead so the Explorer's Bench exists for the recipe station.
                 SunstoneLens.RegisterPrefabs(__instance);
 
+                // v3 Swamp — Sunstone loot economy (card t_0445f590): inject Sunstone into the
+                // vanilla swamp-surface chest DropTable + the Draugr Elite CharacterDrop. MUST
+                // run AFTER SunstoneLens.RegisterPrefabs — it references the SBPR_Sunstone
+                // ZNetScene prefab that call registers. Loot wiring is a ZNetScene-phase prefab
+                // edit (the DropData/Drop reference the Sunstone GameObject), so it needs no
+                // ObjectDB-phase pass. Idempotent across postfix re-fires.
+                SunstoneLoot.RegisterPrefabs(__instance);
+
                 // v3 Swamp — Iron Compass trinket (card t_ee61472f). After Trailhead so the
                 // Explorer's Bench exists for the recipe station; grouped after the other
                 // exploration trinket (the Sunstone Lens). The compass depends on no other
