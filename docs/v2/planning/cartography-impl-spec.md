@@ -1382,13 +1382,14 @@ of vanilla's map material, not a colour we paint. Decomp (`Minimap.cs`, clean-si
 | `_MainTex` | `m_mapTexture` | RGB24 | full-world biome base colour (`:435`) |
 | `_MaskTex` | `m_forestMaskTexture` | RGBA | forest stipple + water gradient (`:436`) |
 | `_HeightTex`| `m_heightTexture` | RHalf | height → hillshade relief (`:437`) |
-| `_FogTex` | `m_fogTexture` | R8G8 | **reveal mask**: `R=0` explored / `R=255` fogged (`:438`; `Reset` fills 255 `:495-498`; `Explore` sets `pixel.r=0` `:1561-1563`) |
+| `_FogTex` | `m_fogTexture` | R8G8 | **reveal mask**, TWO channels: `R`=`m_explored` (self) — `Explore` sets `pixel.r=0` (`:1562`), `R=255`=not-self-explored; `G`=`m_exploredOthers` (shared/others) — `ExploreOthers` sets `pixel.g=0` (`:1610`), `G=255`=not-others-explored. `Reset` fills `Color32(255,255,255,255)` = R=255 **AND** G=255 = **nobody-explored → full shroud** (`:490-498`). Encodings: `R=0`→revealed; `R=255,G=0`→shared-by-others (faded table look); `R=255,G=255`→full shroud. |
 
 The cloned material (`_shaderMat`, `MapSurface.cs:202`) already inherits all four bindings by
 reference, so vanilla's live `_FogTex` cloud is **already available** — the surface just **throws it
 away** by laying its own opaque `_shroudImage` on top. The fix:
    - **Bind a windowed reveal as `_FogTex` on the clone**, derived from `SurveyData.Fog` in vanilla's
-     R8G8 convention (lit → `R=0`, unexplored/out-of-disc → `R=255`), at the SAME UV window as
+     R8G8 convention (lit → `R=0`; unexplored/out-of-disc → `R=255` **AND** `G=255`, the nobody-explored
+     full-shroud code — NOT `G=0`, which is vanilla's shared-by-others faded look), at the SAME UV window as
      `_MainTex` so reveal and biome align. This lets vanilla's shader composite the **real cloud**
      for the unexplored area (AT-FOG-VANILLA) while the bounded survey still controls *what is
      revealed* (the 1000 m disc). The bounded-survey window is the *reveal authority*; vanilla's
@@ -1396,8 +1397,8 @@ away** by laying its own opaque `_shroudImage` on top. The fix:
    - **Retire the opaque `_shroudImage` RGBA fill** as the appearance layer. Its geometry job
      (table-anchored vs player-centred reveal, §4.2/R1) moves into **building the windowed
      `_FogTex`** instead of an opaque overlay. The hard 1000 m radius cutoff (beyond the bound =
-     full shroud) is expressed as `R=255` in that windowed fog, which vanilla then renders as solid
-     cloud — matching the regular map's unexplored look by construction.
+     full shroud) is expressed as `R=255` **AND** `G=255` in that windowed fog, which vanilla then renders as
+     solid cloud — matching the regular map's unexplored look by construction.
    - **`CShroud`/`CShroudA` flat colours are no longer the unexplored appearance.** They remain only
      inside `PaintFog` (the GPU-less never-blank fallback, unchanged).
 
@@ -1477,7 +1478,9 @@ painting the outside opaque:
   AT-DISC-CLIP at `TargetPx=900`.)
 - **AT-FOG-VANILLA** — the **unexplored** area (inside the disc, not yet surveyed) renders with
   **vanilla's fog-of-war cloud** (the real `_FogTex` composited by the real map shader), visually
-  matching the regular Valheim map's unexplored look — **NOT** a flat dark `CShroud`/`CShroudA` fill.
+  matching the regular Valheim map's unexplored look — **NOT** a flat dark `CShroud`/`CShroudA` fill,
+  and **NOT** the faded "someone shared this map with you" cartography-table look (the `G=0`
+  shared-by-others encoding — see the §2E.5.5 point-1 G-channel correction, card t_48c23824).
   Daniel's eye on a GPU client is the judge. This supersedes the generic "parchment look" wording and
   §2E.4 step 3's opaque-shroud option.
 - **AT-DISC-FILL** — the in-circle area is a **continuous disc** of bounded cartography (biome/water/
@@ -1516,8 +1519,10 @@ line is `main`). Three implementation decisions resolved the spec's implementer'
 
 1. **Defect 2 reveal — FULL-WORLD `_FogTex`, not a windowed sub-rect (§2E.5.1's documented fallback,
    chosen deliberately).** `MapSurface.BindBoundedReveal(survey, textureSize)` allocates a
-   `textureSize²` (256²) R8G8-convention reveal, fills it fully fogged (`R=255`, vanilla `Reset`
-   convention), then clears `R=0` on exactly the lit cells of the table-anchored survey window, mapped
+   `textureSize²` (256²) R8G8-convention reveal, fills it fully fogged on **both** channels
+   (`Color32(255,255,255,255)` = R=255 AND G=255, vanilla `Reset` convention `:490-498` — the
+   **nobody-explored** state that renders as the solid fog-of-war shroud), then clears `R=0` on exactly
+   the lit cells of the table-anchored survey window, mapped
    back to their absolute source-cell position (the inverse of `SurveyData.CaptureWindow`). It binds via
    `_shaderMat.SetTexture("_FogTex", _revealTex)`. Because vanilla's cloned material samples `_FogTex` in
    FULL-texture UV space paired with the full-world `_MainTex`, a 256² reveal registers 1:1 with the
@@ -1526,6 +1531,20 @@ line is `main`). Three implementation decisions resolved the spec's implementer'
    `SampleLitAt` are **deleted**; the unexplored area is now vanilla's real shader-composited cloud.
    The reveal is absolute-world-space, so table-centred and player-centred surfaces share it with no
    resample (R1 falls out for free; the old `DiscShroudTexN=128` disc resample is gone).
+
+   > **🔴 G-CHANNEL CORRECTION (card t_48c23824, 2026-06-19 — first GPU playtest of this build).** PR #192
+   > as merged set `fogged = Color32(255, 0, 0, 255)` — R=255 but **G=0**. In vanilla's two-channel
+   > convention G=0 is the *explored-by-others / shared-with-you* code (`ExploreOthers` sets `pixel.g=0`,
+   > `:1610`), so the shader composited the **faded cartography-table-shared look** over genuinely-unexplored
+   > terrain — Daniel saw the shared-map appearance, not the full shroud (AT-FOG-VANILLA still red). The
+   > earlier "fully fogged (R=255)" prose was **half-applied**: vanilla `Reset` fills R=255 AND **G=255**
+   > (`:495`), and only that joint state is nobody-explored → full shroud. Corrected to
+   > `fogged = Color32(255, 255, 255, 255)`. `cleared = (0,0,0,255)` is unchanged — R=0 (self-explored) wins
+   > regardless of G, so revealed terrain is untouched. Also pinned `_shaderMat.SetFloat("_SharedFade", 0f)`
+   > at material-clone time (defensive: the bounded view has no genuine shared-data path, and the clone
+   > otherwise freezes/ inherits vanilla's live `_SharedFade` which the player can toggle via
+   > `m_showSharedMapData`, `:625-639`). This corrects ONLY the unexplored encoding; defects 1 & 3 below are
+   > unchanged.
 
 2. **Defect 3 clip — GEOMETRY fan, not a uGUI stencil/mask.** New `CircularRawImage : RawImage`
    (`Features/Cartography/CircularRawImage.cs`) overrides `OnPopulateMesh` to tessellate the rect into a

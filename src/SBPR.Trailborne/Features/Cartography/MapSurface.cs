@@ -218,6 +218,15 @@ namespace SBPR.Trailborne.Features.Cartography
                 {
                     _shaderMat = UnityEngine.Object.Instantiate(liveMat);
                     _shaderMat.name = "SBPR_BoundedMapMaterial(Clone)";
+                    // Belt-and-suspenders for AT-FOG-VANILLA: the clone freezes whatever vanilla's live
+                    // _SharedFade was at clone time, and the player can toggle m_showSharedMapData in-game
+                    // (decomp Minimap.cs Update :625-639 drives _SharedFade from m_sharedMapDataFade).
+                    // A bounded survey view has no genuine shared-data path — every texel is either
+                    // self-revealed (R=0) or full shroud (R=255,G=255) — so pin _SharedFade=0 once here to
+                    // make the disc independent of vanilla's live shared-data state. With the G=255 fog
+                    // encoding this is purely defensive (no texel is in the "shared" bucket), but it removes
+                    // the dependency entirely. Pinned at clone time (not per-render): the clone is reused.
+                    _shaderMat.SetFloat("_SharedFade", 0f);
                 }
                 catch (Exception e)
                 {
@@ -325,14 +334,20 @@ namespace SBPR.Trailborne.Features.Cartography
         /// Why full-world (textureSize²) and not a small windowed reveal: vanilla's cloned material samples
         /// <c>_FogTex</c> in FULL-texture UV space (the shader pairs it with <c>_MainTex</c>, also full-world),
         /// so a 256² reveal aligns 1:1 with the framed biome by construction — no windowed-registration spike
-        /// needed (§2E.5.1's fallback, chosen deliberately as the low-risk route). We start fully fogged
-        /// (R=255, vanilla's Reset convention, decomp Minimap.cs:494-498) and clear R=0 ONLY on cells that are
-        /// lit in the table-anchored survey window (explored AND inside the 1000 m disc). The reveal is in
-        /// ABSOLUTE world-cell space, so the disc and modal agree and the player-centred disc needs no
-        /// resample — the survey shows at its true world position (R1 table-anchored shroud falls out for free).
+        /// needed (§2E.5.1's fallback, chosen deliberately as the low-risk route). We start fully fogged on
+        /// BOTH channels (R=255 AND G=255 — vanilla's Reset fills Color32(255,255,255,255), decomp
+        /// Minimap.cs:495; that joint state = "nobody explored" = the solid shroud cloud) and clear R=0 ONLY
+        /// on cells that are lit in the table-anchored survey window (explored AND inside the 1000 m disc).
+        /// The reveal is in ABSOLUTE world-cell space, so the disc and modal agree and the player-centred disc
+        /// needs no resample — the survey shows at its true world position (R1 table-anchored shroud falls out
+        /// for free).
         ///
-        /// Clean-side (ADR-0001): R8G8 reveal format + the R=0 lit / R=255 fogged convention are read from the
-        /// base-game decomp (m_fogTexture, :426-428; Explore sets pixel.r=0, :1561-1563), adapted onto our clone.
+        /// Clean-side (ADR-0001): R8G8 reveal format + the two-channel fog convention are read from the
+        /// base-game decomp and adapted onto our clone. R = m_explored (self): Explore sets pixel.r=0
+        /// (:1562); R=255 = not-self-explored. G = m_exploredOthers (shared/others): ExploreOthers sets
+        /// pixel.g=0 (:1610); G=255 = not-others-explored. Reset fills R=255 AND G=255 (:490-498) =
+        /// nobody-explored = full shroud. So R=0 → revealed; R=255,G=0 → shared-by-others (faded); and
+        /// R=255,G=255 → full shroud — which is the unexplored look this surface must show.
         /// </summary>
         private void BindBoundedReveal(SurveyData survey, int textureSize)
         {
@@ -356,8 +371,14 @@ namespace SBPR.Trailborne.Features.Cartography
                 _revealScratch = new Color32[count];
             var px = _revealScratch;
 
-            // Vanilla Reset fills the fog mask fully fogged (R=255). We mirror that, then un-fog the disc.
-            var fogged  = new Color32(255, 0, 0, 255);
+            // Vanilla Reset fills the fog mask fully fogged on BOTH channels — Color32(255,255,255,255)
+            // (decomp Minimap.cs:495). R=255 = not-self-explored; G=255 = not-others-explored. That joint
+            // R=255,G=255 state is "nobody has explored" and is what vanilla's shader renders as the SOLID
+            // fog-of-war shroud cloud (AT-FOG-VANILLA). Mirror it EXACTLY. The earlier (255,0,0) left G=0,
+            // which is vanilla's "explored by OTHERS / shared-with-you" code (ExploreOthers sets pixel.g=0f,
+            // :1610) — the shader then composited the faded cartography-table-shared look over unexplored
+            // terrain. cleared=(0,0,0) un-fogs: R=0 (self-explored) wins regardless of G.
+            var fogged  = new Color32(255, 255, 255, 255);
             var cleared = new Color32(0, 0, 0, 255);
             for (int i = 0; i < count; i++) px[i] = fogged;
 
