@@ -640,15 +640,29 @@ namespace SBPR.Trailborne.Features.Cartography
                 rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
 
                 // §2H.1 A′ (card t_efe8b32b): the marker is the vanilla "you are here" glyph, not a bare
-                // blue quad. Read vanilla's own player-marker art (blueprint read, ADR-0006-clean — no
-                // clone) and reuse its texture; fall back to a procedurally-drawn chevron so the marker is
-                // never invisible if the vanilla graphic can't be resolved. On the player-centred disc the
-                // glyph counter-rotates to stay screen-up = "you, forward = up" (ApplyFieldOrientation),
-                // NOT a north indicator — the disc rotates to heading, so up is always facing (AT-LMAP-TC-5).
-                var tex = ResolvePlayerMarkerTexture();
-                if (tex != null)
+                // blue quad. Prefer vanilla's own player-marker art (blueprint read, ADR-0001/0006-clean —
+                // no clone); if it can't be resolved, fall back to a procedurally-drawn chevron so the
+                // marker is never invisible. ResolvePlayerMarkerArt logs which path won (so a GPU client's
+                // log reveals whether vanilla art actually loaded — the fallback is not silent). On the
+                // player-centred disc the glyph counter-rotates to stay screen-up = "you, forward = up"
+                // (ApplyFieldOrientation), NOT a north indicator — the disc rotates to heading (AT-LMAP-TC-5).
+                ResolvePlayerMarkerArt();
+                if (_playerMarkerTexCache != null)
                 {
-                    _playerMarker.texture = tex;
+                    // Tag the GO so the fallback-vs-vanilla state is inspectable in a UI dump.
+                    go.name = _playerMarkerUsedFallback ? "playerMarker(chevronFallback)" : "playerMarker(vanilla)";
+                    _playerMarker.texture = _playerMarkerTexCache;
+                    // Honour the vanilla sprite's atlas sub-rect so we blit the arrow, not the whole UI atlas.
+                    if (_playerMarkerSprite != null)
+                    {
+                        var t = _playerMarkerSprite.texture;
+                        var r = _playerMarkerSprite.textureRect;
+                        _playerMarker.uvRect = new Rect(r.x / t.width, r.y / t.height, r.width / t.width, r.height / t.height);
+                    }
+                    else
+                    {
+                        _playerMarker.uvRect = new Rect(0f, 0f, 1f, 1f);
+                    }
                     _playerMarker.color = Color.white;
                 }
                 else
@@ -658,21 +672,29 @@ namespace SBPR.Trailborne.Features.Cartography
             }
         }
 
-        // §2H.1 A′: cache vanilla's player-marker texture (read once). Static so both surfaces share it.
+        // §2H.1 A′: cache vanilla's player-marker art (read once). Static so both surfaces share it.
+        // We capture the SPRITE (not just the texture) so the marker honours the arrow's atlas sub-rect
+        // instead of blitting the whole UI atlas. _playerMarkerSprite==null AND _playerMarkerTexCache
+        // being the chevron means the vanilla read fell through (logged loudly so Prime's log shows it).
+        private static Sprite? _playerMarkerSprite;
         private static Texture? _playerMarkerTexCache;
         private static bool _playerMarkerTexResolved;
+        private static bool _playerMarkerUsedFallback;
 
         /// <summary>
-        /// Resolve the vanilla "you are here" player-marker art as a Texture for our RawImage marker.
-        /// Vanilla's marker is <c>Minimap.instance.m_smallMarker</c> — a RectTransform whose child Graphic
-        /// (an Image/RawImage) carries the arrow sprite (decomp Minimap.cs:156, rotated by heading :1416).
-        /// We READ that graphic's texture (blueprint read — ADR-0006/ADR-0001 clean: reading a vanilla
-        /// asset is not cloning) and cache it. If it can't be resolved (null graphic/sprite, or the marker
-        /// tree is nomap-disabled), we synthesize an upward chevron so the marker is never blank.
+        /// Resolve the vanilla "you are here" player-marker art for our marker. Vanilla's marker is
+        /// <c>Minimap.instance.m_smallMarker</c> / <c>m_largeMarker</c> — a RectTransform that carries (or
+        /// whose child carries) a uGUI <c>Graphic</c> with the arrow sprite (decomp Minimap.cs:156/158,
+        /// rotated by heading :1416). We READ that graphic's sprite/texture (blueprint read — ADR-0001/0006
+        /// clean: reading a vanilla asset is not cloning). Checks BOTH the marker's own graphic and its
+        /// children, and prefers a Sprite so the atlas sub-rect is honoured. If nothing resolves (null
+        /// graphic, nomap-disabled tree, headless), we synthesize an upward chevron so the marker is never
+        /// blank — and **log loudly** which path was taken, so "did vanilla art actually load?" is
+        /// answerable from the BepInEx log on a real client (not silently masked by the fallback).
         /// </summary>
-        private static Texture? ResolvePlayerMarkerTexture()
+        private static void ResolvePlayerMarkerArt()
         {
-            if (_playerMarkerTexResolved) return _playerMarkerTexCache;
+            if (_playerMarkerTexResolved) return;
             _playerMarkerTexResolved = true;
 
             try
@@ -680,27 +702,42 @@ namespace SBPR.Trailborne.Features.Cartography
                 var mm = Minimap.instance;
                 if (mm != null)
                 {
-                    var src = mm.m_smallMarker != null ? mm.m_smallMarker : mm.m_largeMarker;
-                    if (src != null)
+                    // Try small marker, then large; for each, the transform's own graphic then children.
+                    foreach (var src in new[] { mm.m_smallMarker, mm.m_largeMarker })
                     {
-                        // includeInactive: the marker tree is SetActive(false) under nomap, but the art is intact.
-                        var g = src.GetComponentInChildren<Graphic>(includeInactive: true);
-                        if (g is Image img && img.sprite != null && img.sprite.texture != null)
-                            _playerMarkerTexCache = img.sprite.texture;
-                        else if (g is RawImage raw && raw.texture != null)
-                            _playerMarkerTexCache = raw.texture;
+                        if (src == null) continue;
+                        var graphics = src.GetComponentsInChildren<Graphic>(includeInactive: true);
+                        foreach (var g in graphics)
+                        {
+                            if (g is Image img && img.sprite != null && img.sprite.texture != null)
+                            {
+                                _playerMarkerSprite = img.sprite;
+                                _playerMarkerTexCache = img.sprite.texture;
+                                Plugin.Log.LogInfo($"[Trailborne/Cartography] A′ player-marker: using VANILLA art " +
+                                                   $"(sprite '{img.sprite.name}' on '{g.gameObject.name}').");
+                                return;
+                            }
+                            if (g is RawImage raw && raw.texture != null)
+                            {
+                                _playerMarkerTexCache = raw.texture;
+                                Plugin.Log.LogInfo($"[Trailborne/Cartography] A′ player-marker: using VANILLA art " +
+                                                   $"(RawImage texture on '{g.gameObject.name}').");
+                                return;
+                            }
+                        }
                     }
                 }
             }
             catch (Exception e)
             {
-                Plugin.Log.LogWarning($"[Trailborne/Cartography] player-marker art read failed ({e.Message}); using chevron fallback.");
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] A′ player-marker: vanilla art read threw ({e.Message}); using chevron fallback.");
             }
 
-            if (_playerMarkerTexCache == null)
-                _playerMarkerTexCache = BuildChevronTexture();
-
-            return _playerMarkerTexCache;
+            _playerMarkerTexCache = BuildChevronTexture();
+            _playerMarkerUsedFallback = true;
+            Plugin.Log.LogWarning("[Trailborne/Cartography] A′ player-marker: vanilla art did NOT resolve " +
+                                  "(null marker/graphic or headless) — using the SBPR chevron fallback. " +
+                                  "If you see this on a GPU client, the vanilla-marker read needs revisiting.");
         }
 
         /// <summary>
