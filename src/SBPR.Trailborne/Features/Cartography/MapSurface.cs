@@ -532,7 +532,9 @@ namespace SBPR.Trailborne.Features.Cartography
             {
                 rt.anchoredPosition = Vector2.zero;
                 rt.localRotation = Quaternion.identity;
-                _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f);
+                // A′: keep the chevron texture's own colours (white tint). Counter-rotation to screen-up
+                // is applied in ApplyFieldOrientation so "up = your facing".
+                _playerMarker.color = _playerMarker.texture != null ? Color.white : new Color(0.4f, 0.7f, 1f, 1f);
                 return;
             }
 
@@ -554,7 +556,9 @@ namespace SBPR.Trailborne.Features.Cartography
             {
                 rt.anchoredPosition = WorldToSurfacePx(ppos, survey);
                 rt.localRotation = Quaternion.identity;
-                _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f);
+                // A′: in-disc marker keeps the chevron texture (white tint); the off-disc branch above
+                // keeps its orange edge-arrow recolour as a distinct "you're off the map" indicator.
+                _playerMarker.color = _playerMarker.texture != null ? Color.white : new Color(0.4f, 0.7f, 1f, 1f);
             }
         }
 
@@ -630,12 +634,117 @@ namespace SBPR.Trailborne.Features.Cartography
                 go.transform.SetParent(parent, false);
                 _playerMarker = go.AddComponent<RawImage>();
                 _playerMarker.raycastTarget = false;
-                _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f);
                 var rt = _playerMarker.rectTransform;
                 rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
                 rt.pivot = new Vector2(0.5f, 0.5f);
                 rt.sizeDelta = new Vector2(PlayerMarkerPx, PlayerMarkerPx);
+
+                // §2H.1 A′ (card t_efe8b32b): the marker is the vanilla "you are here" glyph, not a bare
+                // blue quad. Read vanilla's own player-marker art (blueprint read, ADR-0006-clean — no
+                // clone) and reuse its texture; fall back to a procedurally-drawn chevron so the marker is
+                // never invisible if the vanilla graphic can't be resolved. On the player-centred disc the
+                // glyph counter-rotates to stay screen-up = "you, forward = up" (ApplyFieldOrientation),
+                // NOT a north indicator — the disc rotates to heading, so up is always facing (AT-LMAP-TC-5).
+                var tex = ResolvePlayerMarkerTexture();
+                if (tex != null)
+                {
+                    _playerMarker.texture = tex;
+                    _playerMarker.color = Color.white;
+                }
+                else
+                {
+                    _playerMarker.color = new Color(0.4f, 0.7f, 1f, 1f); // last-ditch (should never hit)
+                }
             }
+        }
+
+        // §2H.1 A′: cache vanilla's player-marker texture (read once). Static so both surfaces share it.
+        private static Texture? _playerMarkerTexCache;
+        private static bool _playerMarkerTexResolved;
+
+        /// <summary>
+        /// Resolve the vanilla "you are here" player-marker art as a Texture for our RawImage marker.
+        /// Vanilla's marker is <c>Minimap.instance.m_smallMarker</c> — a RectTransform whose child Graphic
+        /// (an Image/RawImage) carries the arrow sprite (decomp Minimap.cs:156, rotated by heading :1416).
+        /// We READ that graphic's texture (blueprint read — ADR-0006/ADR-0001 clean: reading a vanilla
+        /// asset is not cloning) and cache it. If it can't be resolved (null graphic/sprite, or the marker
+        /// tree is nomap-disabled), we synthesize an upward chevron so the marker is never blank.
+        /// </summary>
+        private static Texture? ResolvePlayerMarkerTexture()
+        {
+            if (_playerMarkerTexResolved) return _playerMarkerTexCache;
+            _playerMarkerTexResolved = true;
+
+            try
+            {
+                var mm = Minimap.instance;
+                if (mm != null)
+                {
+                    var src = mm.m_smallMarker != null ? mm.m_smallMarker : mm.m_largeMarker;
+                    if (src != null)
+                    {
+                        // includeInactive: the marker tree is SetActive(false) under nomap, but the art is intact.
+                        var g = src.GetComponentInChildren<Graphic>(includeInactive: true);
+                        if (g is Image img && img.sprite != null && img.sprite.texture != null)
+                            _playerMarkerTexCache = img.sprite.texture;
+                        else if (g is RawImage raw && raw.texture != null)
+                            _playerMarkerTexCache = raw.texture;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] player-marker art read failed ({e.Message}); using chevron fallback.");
+            }
+
+            if (_playerMarkerTexCache == null)
+                _playerMarkerTexCache = BuildChevronTexture();
+
+            return _playerMarkerTexCache;
+        }
+
+        /// <summary>
+        /// Procedural fallback marker: a filled upward chevron (▲-ish "you" glyph) on transparent. Drawn
+        /// once. Up = +Y so that, screen-stable on the disc, it reads as "forward". Pure SBPR art (no
+        /// vanilla dependency) — the never-blank guarantee for the A′ marker.
+        /// </summary>
+        private static Texture2D BuildChevronTexture()
+        {
+            const int N = 64;
+            var t = new Texture2D(N, N, TextureFormat.RGBA32, mipChain: false)
+            {
+                name = "SBPR_PlayerChevron",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            var px = new Color32[N * N];
+            var clear = new Color32(0, 0, 0, 0);
+            var fill  = new Color32(235, 240, 255, 255);
+            var edge  = new Color32(20, 30, 50, 255);
+            for (int i = 0; i < px.Length; i++) px[i] = clear;
+
+            // Up-arrowhead with a V-notch at the bottom (a "you are here, facing up" chevron). Geometry:
+            //   • OUTER triangle: apex at top-centre (0.5,1), flaring to the bottom corners → point is UP.
+            //   • INNER notch: a smaller up-pointing triangle carved out of the BOTTOM half, splitting the
+            //     base into two wings/legs. solid = inside outer AND NOT inside the bottom notch.
+            // row 0 = bottom (Unity texture convention), so fy increases upward and the apex sits at fy≈1.
+            for (int y = 0; y < N; y++)
+            {
+                float fy = (float)y / (N - 1);                 // 0 bottom → 1 top
+                float outerHalf = 0.42f * (1f - fy);           // 0 at the top apex → 0.42 at the base
+                float notchHalf = fy < 0.5f ? 0.22f * (1f - 2f * fy) : 0f; // bottom V-notch (0 at mid → 0.22 at base)
+                for (int x = 0; x < N; x++)
+                {
+                    float dx = Mathf.Abs((float)x / (N - 1) - 0.5f); // 0 centre → 0.5 edge
+                    bool solid = dx <= outerHalf && dx >= notchHalf;
+                    if (!solid) continue;
+                    bool isEdge = dx > outerHalf - 0.045f || (notchHalf > 0f && dx < notchHalf + 0.045f) || fy > 0.95f;
+                    px[y * N + x] = isEdge ? edge : fill;
+                }
+            }
+            t.SetPixels32(px);
+            t.Apply(updateMipmaps: false);
+            return t;
         }
 
         private void ClearPinObjects()

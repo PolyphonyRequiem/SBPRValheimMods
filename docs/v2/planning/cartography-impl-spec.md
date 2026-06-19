@@ -2488,6 +2488,16 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
 - **AT-TABLEVIEW-ROT-1 (issue #1)** — opening the Surveyor's Table view and turning the player
   rotates the table map to heading (it is **no longer north-locked**); there is **no** North
   indicator/compass rose on the table view; left-click pin removal still works while rotated.
+- **AT-DISC-MARKER-1 (A′ player-marker art, card t_efe8b32b, 2026-06-19)** — the carry-disc player
+  marker is a **chevron "you are here" glyph**, NOT a bare flat blue quad: it reads as a player
+  arrowhead dead-centre on the disc. The glyph is **screen-stable pointing up = the player's facing**
+  (the disc rotates to heading, so "up" is always *forward*, never a fixed-North arrow — this does NOT
+  violate AT-LMAP-TC-5: it is a player-orientation glyph, not an orienting compass aid). Art source is
+  vanilla's own player-marker texture (`Minimap.m_smallMarker`'s child graphic, blueprint-read,
+  ADR-0006-clean); if that can't be resolved the marker falls back to a procedurally-drawn upward
+  chevron so it is **never blank** (the headless-verified fallback — apex up, V-notch base, dark
+  outline on transparent). On the table-centred modal the in-disc marker uses the same glyph; the
+  off-disc edge-arrow keeps its distinct orange directional recolour.
 - logs-green ≠ playable — Daniel confirms in-game.
 
 **Supersession map (old §2H ATs → this section).** AT-LMAP-ROT-1 (free-rotate) → restated in
