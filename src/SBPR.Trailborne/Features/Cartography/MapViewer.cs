@@ -36,6 +36,14 @@ namespace SBPR.Trailborne.Features.Cartography
         private const int DiscTargetPx = 200;
         private const int DiscSortOrder = 3000;
         private const float DiscCornerMarginPx = 24f;
+        // §2H.1 fixed-zoom: the corner minimap disc locks a FIXED tight span (Daniel: the minimap shows
+        // a small portion; to see the whole local map, open the full map). This is NOT interactive zoom —
+        // it's a different FIXED scale from the full M-view (which shows the entire ~2000 m survey). 125 m
+        // edge-to-edge is a tight nav window — a hair tighter than vanilla's small-minimap default
+        // (m_smallZoom=0.01 → ~164 m) — so you read immediate surroundings, not the whole survey. The
+        // 1000 m survey CAPTURE is unchanged — this only frames a tighter window of it. One number to
+        // tune (Daniel: "use 125 m by default, we can adjust from there").
+        private const float DiscViewSpanMeters = 125f;
 
         private MapSurface? _modal;   // the full-screen table-centred view (Open/Refresh/Close)
         private MapSurface? _disc;    // the player-centred carry minimap (BindMinimap/UnbindMinimap)
@@ -72,6 +80,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 PlayerCentred = true,                       // R1: player-centred camera
                 ScreenAnchor = new Vector2(1f, 1f),          // top-right (vanilla minimap's home)
                 CornerMarginPx = DiscCornerMarginPx,
+                ViewSpanMeters = DiscViewSpanMeters,         // §2H.1 fixed tight zoom (vs the modal's full-survey view)
             });
         }
 

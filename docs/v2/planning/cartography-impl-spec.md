@@ -1207,6 +1207,11 @@ avoid.
    `2000/16384 ≈ 0.122` normalized (`uvRect.width`, × aspect). The matching `_zoom`/
    `_pixelSize` uniform values are **build-calibrated** against the live render (see spike).
    Preserves AT-MAP-FIXEDZOOM.
+   > **🔴 SUPERSEDED for the DISC (2026-06-19 → §2E.5.5 point 4).** This single "Disc span =
+   > 2000 m" predated the two-scales split. The **modal** still frames the full ~2000 m survey;
+   > the **disc** now locks a separate tighter fixed span (`DiscViewSpanMeters = 125 m`) via the
+   > `ViewSpanMeters` knob. Both remain fixed-zoom (AT-MAP-FIXEDZOOM holds) — there are simply two
+   > authored scales now, not one. See **§2E.5.5 point 4** for the as-built.
 
 **NO SurveyData wire-format change** (answers card open-Q2). The biome/height/forest textures
 are **global and deterministic from the world seed** — vanilla regenerates them at `Start`
@@ -1502,6 +1507,76 @@ change (disc t_a39d3e5f + modal t_39324b99) **plus** the disc player-marker card
 foundation); the marker art rides on top. Do NOT parallel-dispatch on `MapSurface.cs` (the v0.2.20
 collision lesson). Open a PR; Daniel gates; the merge bar is Daniel's in-game GPU eyeball on
 AT-FOG-VANILLA / AT-DISC-FILL / AT-DISC-CLIP, not a green build.
+
+#### 2E.5.5 — AS-BUILT (impl card t_ba31ad30, 2026-06-19)
+
+The render-correctness fix landed on branch `fix/mapsurface-render-correctness-t_ba31ad30` (off
+`main` — `v1` was promoted into `main` via PR #163, so the §2E.5.4 "off v1" routing is stale; build
+line is `main`). Three implementation decisions resolved the spec's implementer's-choice points:
+
+1. **Defect 2 reveal — FULL-WORLD `_FogTex`, not a windowed sub-rect (§2E.5.1's documented fallback,
+   chosen deliberately).** `MapSurface.BindBoundedReveal(survey, textureSize)` allocates a
+   `textureSize²` (256²) R8G8-convention reveal, fills it fully fogged (`R=255`, vanilla `Reset`
+   convention), then clears `R=0` on exactly the lit cells of the table-anchored survey window, mapped
+   back to their absolute source-cell position (the inverse of `SurveyData.CaptureWindow`). It binds via
+   `_shaderMat.SetTexture("_FogTex", _revealTex)`. Because vanilla's cloned material samples `_FogTex` in
+   FULL-texture UV space paired with the full-world `_MainTex`, a 256² reveal registers 1:1 with the
+   biome **by construction** — sidestepping the windowed-registration spike the spec flagged as the one
+   unverifiable-headless risk. The opaque `_shroudImage` RGBA overlay + `PaintShroudMask*` +
+   `SampleLitAt` are **deleted**; the unexplored area is now vanilla's real shader-composited cloud.
+   The reveal is absolute-world-space, so table-centred and player-centred surfaces share it with no
+   resample (R1 falls out for free; the old `DiscShroudTexN=128` disc resample is gone).
+
+2. **Defect 3 clip — GEOMETRY fan, not a uGUI stencil/mask.** New `CircularRawImage : RawImage`
+   (`Features/Cartography/CircularRawImage.cs`) overrides `OnPopulateMesh` to tessellate the rect into a
+   128-segment inscribed-disc triangle fan that honours `uvRect` per-vertex. The four corners carry no
+   geometry → emit no fragments → are transparent regardless of the bound material. This is the
+   material-agnostic choice the spec left open ("circular alpha mask OR bezel ring + inner clip —
+   implementer picks"): the cloned vanilla map shader does **not** honour a uGUI `RectMask2D`/stencil, so
+   a mask-based clip would be silently ignored at disc scale; the fan makes the §2H.1 inscribed-circle
+   guarantee true **by construction** (a disc silhouette is rotation-invariant). The `cartography`
+   GameObject now `AddComponent<CircularRawImage>()` instead of `RawImage`. Defect-3 framing root cause
+   was concrete: the shipped `_mapCenter` was `(x, z, 0, 0)` — Z shoved into the Y slot and world-Z
+   **zeroed** — while vanilla `CenterMap` passes raw world `(x, y, z)` (decomp `:1027`); now fixed to
+   `(frameCenter.x, frameCenter.y, frameCenter.z, 0)`, re-agreeing the uvRect and uniform framings.
+
+3. **Defect 1 bezel — alpha BAND + a minimum-absolute ring floor (regression caught headless).**
+   `EnsureBezelTexture` alpha is now `clamp01(inner − outer)`: `α=0` inside `holeR`, opaque bronze
+   `holeR→ringOuterR`, `α=0` beyond (no `cornerShroud` opaque fill). A headless geometry harness
+   (radial-alpha sweep + fan corner-coverage + reveal centroid mapping, all PASS) surfaced that the
+   pure `10/900` ring fraction gives the 200 px disc only a ~2.2 px thread — which, now that outside is
+   correctly transparent, was the *only* disc edge and read as weak. Added `BezelRingMinPx = 4.5f`
+   (`ringPx = Max(TargetPx·BezelRingFrac, BezelRingMinPx)`); the 900 px modal's 10 px ring exceeds the
+   floor so its playtested look is byte-preserved. Final ring **weight** is Daniel's GPU-eyeball call
+   (one-line bump).
+
+4. **Two fixed zoom SCALES — the disc and the modal are decoupled (Daniel 2026-06-19).** AT-MAP-FIXEDZOOM
+   ("neither minimap nor full view zooms; one authored scale each") is now realised as two *different*
+   fixed scales sharing one render path, per Daniel's lock: *"the minimap should NOT support zoom… full
+   local map locks zoom at 'show full local map' scale. Minimap shows a small portion; if you want to see
+   the whole thing, use the whole map."* Implemented with a single `MapSurface.ViewSpanMeters` knob:
+   `0` = "frame the whole survey" (the modal's behaviour — `DisplayedSpanMeters` returns `survey.Size *
+   pixelSize ≈ 2112 m`, byte-identical to the prior single-scale build); `>0` = a fixed metre span (the
+   disc). `MapViewer` sets the disc's `DiscViewSpanMeters = 125 m` (Daniel: *"use 125 m by default, we can
+   adjust from there"* — a hair tighter than vanilla's small-minimap `m_smallZoom=0.01 ≈ 164 m`). **One
+   source of truth prevents pin drift:** `DisplayedSpanMeters(survey)` feeds BOTH the shader framing
+   (`zoom = span / (textureSize·pixelSize)`, replacing the old `size/textureSize` that pinned the disc to
+   the 1000 m survey window) AND `WorldToSurfacePx` (the continuous pin/marker projection) AND the
+   `TryRemovePinAtCursor` inverse — so terrain, pins, and the player marker frame at the exact same scale
+   and cannot desync when the disc tightens. `WorldToSurfacePxSnapped` (modal table-cell pins) stays on
+   `survey.Size` since the modal's span IS the survey. The 1000 m survey CAPTURE (§4.1 grid-anchored
+   exploration invariant) is **untouched** — `ViewSpanMeters` only changes how far out the disc camera
+   frames the already-captured data; clamped so it can never frame more than was surveyed. Headless math
+   harness confirms: modal 2112 m / disc 125 m, all three projections share the span, modal byte-identical.
+   The *feel* of 125 m is Daniel's GPU-eyeball tune (one-line constant). This supersedes §2E.5.1 point 4 /
+   §2E.4 step 4's single "Disc span = 2000 m" wording, which predated the two-scales split.
+
+**Headless boundary (unchanged from §2E.5.3):** the harness verifies the GEOMETRY (alpha band, fan
+silhouette, reveal world-mapping) on the CI/iGPU box; the GPU SHADER APPEARANCE — that vanilla's fog
+cloud actually composites through the overridden `_FogTex` — is still Daniel's RTX/Prime accept on
+AT-FOG-VANILLA / AT-DISC-FILL / AT-DISC-CLIP. Build is clean (0/0); the 27-test `BoundedMapMath` suite
+still passes (the reveal reuses its windowing math).
+
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
@@ -2439,6 +2514,16 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
 - **AT-TABLEVIEW-ROT-1 (issue #1)** — opening the Surveyor's Table view and turning the player
   rotates the table map to heading (it is **no longer north-locked**); there is **no** North
   indicator/compass rose on the table view; left-click pin removal still works while rotated.
+- **AT-DISC-MARKER-1 (A′ player-marker art, card t_efe8b32b, 2026-06-19)** — the carry-disc player
+  marker is a **chevron "you are here" glyph**, NOT a bare flat blue quad: it reads as a player
+  arrowhead dead-centre on the disc. The glyph is **screen-stable pointing up = the player's facing**
+  (the disc rotates to heading, so "up" is always *forward*, never a fixed-North arrow — this does NOT
+  violate AT-LMAP-TC-5: it is a player-orientation glyph, not an orienting compass aid). Art source is
+  vanilla's own player-marker texture (`Minimap.m_smallMarker`'s child graphic, blueprint-read,
+  ADR-0006-clean); if that can't be resolved the marker falls back to a procedurally-drawn upward
+  chevron so it is **never blank** (the headless-verified fallback — apex up, V-notch base, dark
+  outline on transparent). On the table-centred modal the in-disc marker uses the same glyph; the
+  off-disc edge-arrow keeps its distinct orange directional recolour.
 - logs-green ≠ playable — Daniel confirms in-game.
 
 **Supersession map (old §2H ATs → this section).** AT-LMAP-ROT-1 (free-rotate) → restated in
