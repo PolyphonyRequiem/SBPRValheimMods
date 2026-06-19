@@ -1207,6 +1207,11 @@ avoid.
    `2000/16384 ≈ 0.122` normalized (`uvRect.width`, × aspect). The matching `_zoom`/
    `_pixelSize` uniform values are **build-calibrated** against the live render (see spike).
    Preserves AT-MAP-FIXEDZOOM.
+   > **🔴 SUPERSEDED for the DISC (2026-06-19 → §2E.5.5 point 4).** This single "Disc span =
+   > 2000 m" predated the two-scales split. The **modal** still frames the full ~2000 m survey;
+   > the **disc** now locks a separate tighter fixed span (`DiscViewSpanMeters = 125 m`) via the
+   > `ViewSpanMeters` knob. Both remain fixed-zoom (AT-MAP-FIXEDZOOM holds) — there are simply two
+   > authored scales now, not one. See **§2E.5.5 point 4** for the as-built.
 
 **NO SurveyData wire-format change** (answers card open-Q2). The biome/height/forest textures
 are **global and deterministic from the world seed** — vanilla regenerates them at `Start`
@@ -1544,6 +1549,27 @@ line is `main`). Three implementation decisions resolved the spec's implementer'
    (`ringPx = Max(TargetPx·BezelRingFrac, BezelRingMinPx)`); the 900 px modal's 10 px ring exceeds the
    floor so its playtested look is byte-preserved. Final ring **weight** is Daniel's GPU-eyeball call
    (one-line bump).
+
+4. **Two fixed zoom SCALES — the disc and the modal are decoupled (Daniel 2026-06-19).** AT-MAP-FIXEDZOOM
+   ("neither minimap nor full view zooms; one authored scale each") is now realised as two *different*
+   fixed scales sharing one render path, per Daniel's lock: *"the minimap should NOT support zoom… full
+   local map locks zoom at 'show full local map' scale. Minimap shows a small portion; if you want to see
+   the whole thing, use the whole map."* Implemented with a single `MapSurface.ViewSpanMeters` knob:
+   `0` = "frame the whole survey" (the modal's behaviour — `DisplayedSpanMeters` returns `survey.Size *
+   pixelSize ≈ 2112 m`, byte-identical to the prior single-scale build); `>0` = a fixed metre span (the
+   disc). `MapViewer` sets the disc's `DiscViewSpanMeters = 125 m` (Daniel: *"use 125 m by default, we can
+   adjust from there"* — a hair tighter than vanilla's small-minimap `m_smallZoom=0.01 ≈ 164 m`). **One
+   source of truth prevents pin drift:** `DisplayedSpanMeters(survey)` feeds BOTH the shader framing
+   (`zoom = span / (textureSize·pixelSize)`, replacing the old `size/textureSize` that pinned the disc to
+   the 1000 m survey window) AND `WorldToSurfacePx` (the continuous pin/marker projection) AND the
+   `TryRemovePinAtCursor` inverse — so terrain, pins, and the player marker frame at the exact same scale
+   and cannot desync when the disc tightens. `WorldToSurfacePxSnapped` (modal table-cell pins) stays on
+   `survey.Size` since the modal's span IS the survey. The 1000 m survey CAPTURE (§4.1 grid-anchored
+   exploration invariant) is **untouched** — `ViewSpanMeters` only changes how far out the disc camera
+   frames the already-captured data; clamped so it can never frame more than was surveyed. Headless math
+   harness confirms: modal 2112 m / disc 125 m, all three projections share the span, modal byte-identical.
+   The *feel* of 125 m is Daniel's GPU-eyeball tune (one-line constant). This supersedes §2E.5.1 point 4 /
+   §2E.4 step 4's single "Disc span = 2000 m" wording, which predated the two-scales split.
 
 **Headless boundary (unchanged from §2E.5.3):** the harness verifies the GEOMETRY (alpha band, fan
 silhouette, reveal world-mapping) on the CI/iGPU box; the GPU SHADER APPEARANCE — that vanilla's fog

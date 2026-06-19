@@ -62,6 +62,19 @@ namespace SBPR.Trailborne.Features.Cartography
         public Vector2 ScreenAnchor = new Vector2(0.5f, 0.5f);
         /// <summary>Margin (px) from the anchored screen edge to the disc centre (disc only).</summary>
         public float CornerMarginPx = 16f;
+        /// <summary>
+        /// FIXED display span in metres — how much world the surface shows edge-to-edge. This is the
+        /// single source of truth for both the shader framing (zoom) AND the pin/marker projection, so
+        /// they cannot drift. NEITHER surface supports interactive zoom (Daniel: fixed-zoom by design);
+        /// the two surfaces simply lock DIFFERENT fixed spans:
+        ///   • 0  → "show the full local map" — derive the span from the survey window
+        ///          (Size × pixelSize ≈ 2000 m for the 1000 m radius). The full M-view modal uses this.
+        ///   • &gt;0 → a fixed tight span in metres — the corner minimap disc shows a small portion of the
+        ///          surveyed area around the player; to see the whole local map you open the full map.
+        /// The survey CAPTURE (1000 m, grid-anchored, §4.1 1:1) is unchanged either way — this knob only
+        /// controls how far out the camera frames it, never what is surveyed.
+        /// </summary>
+        public float ViewSpanMeters = 0f;
     }
 
     /// <summary>
@@ -226,7 +239,13 @@ namespace SBPR.Trailborne.Features.Cartography
             float my = frameCenter.z / pixelSize + textureSize / 2f;
             float uvCx = mx / textureSize;
             float uvCy = my / textureSize;
-            float zoom = Mathf.Clamp((float)size / textureSize, 0.0001f, 1f);
+            // §2H.1 fixed-zoom: the displayed span is the SINGLE source of truth for framing. zoom is the
+            // fraction of the full world texture the surface shows = displayedSpan / (textureSize*pixelSize).
+            // For the modal (ViewSpanMeters=0) this reduces to size/textureSize (the full-survey view,
+            // byte-unchanged). For the disc (ViewSpanMeters>0) it locks a tighter fixed span. NEITHER reads
+            // an interactive zoom — both are fixed by design, just at different fixed spans.
+            float displayedSpan = DisplayedSpanMeters(survey, pixelSize);
+            float zoom = Mathf.Clamp(displayedSpan / (textureSize * pixelSize), 0.0001f, 1f);
 
             if (_mapImage != null)
             {
@@ -279,6 +298,20 @@ namespace SBPR.Trailborne.Features.Cartography
                 if (p != null) return p.transform.position;
             }
             return _req.BoundOrigin;
+        }
+
+        /// <summary>
+        /// The world-space span (metres, edge-to-edge) the surface displays — the SINGLE source of truth
+        /// for both the shader zoom and the pin/marker projection (so they can never drift). When
+        /// <c>ViewSpanMeters</c> &gt; 0 the surface locks that fixed span (the corner disc's tight nav
+        /// window); when 0 it shows the full survey window (<c>Size × pixelSize</c> — the full M-view). The
+        /// fixed disc span is clamped to the survey extent so it can never frame more than was surveyed.
+        /// </summary>
+        private float DisplayedSpanMeters(SurveyData survey, float pixelSize)
+        {
+            float fullSurveySpan = survey.Size * pixelSize;
+            if (_cfg.ViewSpanMeters <= 0f) return fullSurveySpan;
+            return Mathf.Min(_cfg.ViewSpanMeters, fullSurveySpan);
         }
 
         // §§SURFACE_RENDER§§
@@ -376,7 +409,10 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (_mapRect == null) return Vector2.zero;
             float pixelSize = survey.PixelSize > 0f ? survey.PixelSize : 64f;
-            float span = survey.Size * pixelSize;
+            // Same displayed span the shader frames at (DisplayedSpanMeters) — so a pin/marker lands on the
+            // exact terrain cell it annotates at the disc's tight zoom, not the full-survey span. If these
+            // two ever diverged, pins would drift off their terrain as the zoom tightened.
+            float span = DisplayedSpanMeters(survey, pixelSize);
             float edge = _mapRect.sizeDelta.x;
             Vector3 c = FrameCenter();
             float ax = (world.x - c.x) / span * edge;
@@ -931,7 +967,7 @@ namespace SBPR.Trailborne.Features.Cartography
 
             // Inverse of WorldToSurfacePx about the frame centre: px → world offset → world point.
             float pixelSize = survey.PixelSize > 0f ? survey.PixelSize : 64f;
-            float span = survey.Size * pixelSize;
+            float span = DisplayedSpanMeters(survey, pixelSize); // MUST match the forward projection's span
             Vector3 c = FrameCenter();
             float worldX = c.x + (local.x / edge) * span;
             float worldZ = c.z + (local.y / edge) * span;
