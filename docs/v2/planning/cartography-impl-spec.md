@@ -1503,6 +1503,55 @@ foundation); the marker art rides on top. Do NOT parallel-dispatch on `MapSurfac
 collision lesson). Open a PR; Daniel gates; the merge bar is Daniel's in-game GPU eyeball on
 AT-FOG-VANILLA / AT-DISC-FILL / AT-DISC-CLIP, not a green build.
 
+#### 2E.5.5 — AS-BUILT (impl card t_ba31ad30, 2026-06-19)
+
+The render-correctness fix landed on branch `fix/mapsurface-render-correctness-t_ba31ad30` (off
+`main` — `v1` was promoted into `main` via PR #163, so the §2E.5.4 "off v1" routing is stale; build
+line is `main`). Three implementation decisions resolved the spec's implementer's-choice points:
+
+1. **Defect 2 reveal — FULL-WORLD `_FogTex`, not a windowed sub-rect (§2E.5.1's documented fallback,
+   chosen deliberately).** `MapSurface.BindBoundedReveal(survey, textureSize)` allocates a
+   `textureSize²` (256²) R8G8-convention reveal, fills it fully fogged (`R=255`, vanilla `Reset`
+   convention), then clears `R=0` on exactly the lit cells of the table-anchored survey window, mapped
+   back to their absolute source-cell position (the inverse of `SurveyData.CaptureWindow`). It binds via
+   `_shaderMat.SetTexture("_FogTex", _revealTex)`. Because vanilla's cloned material samples `_FogTex` in
+   FULL-texture UV space paired with the full-world `_MainTex`, a 256² reveal registers 1:1 with the
+   biome **by construction** — sidestepping the windowed-registration spike the spec flagged as the one
+   unverifiable-headless risk. The opaque `_shroudImage` RGBA overlay + `PaintShroudMask*` +
+   `SampleLitAt` are **deleted**; the unexplored area is now vanilla's real shader-composited cloud.
+   The reveal is absolute-world-space, so table-centred and player-centred surfaces share it with no
+   resample (R1 falls out for free; the old `DiscShroudTexN=128` disc resample is gone).
+
+2. **Defect 3 clip — GEOMETRY fan, not a uGUI stencil/mask.** New `CircularRawImage : RawImage`
+   (`Features/Cartography/CircularRawImage.cs`) overrides `OnPopulateMesh` to tessellate the rect into a
+   128-segment inscribed-disc triangle fan that honours `uvRect` per-vertex. The four corners carry no
+   geometry → emit no fragments → are transparent regardless of the bound material. This is the
+   material-agnostic choice the spec left open ("circular alpha mask OR bezel ring + inner clip —
+   implementer picks"): the cloned vanilla map shader does **not** honour a uGUI `RectMask2D`/stencil, so
+   a mask-based clip would be silently ignored at disc scale; the fan makes the §2H.1 inscribed-circle
+   guarantee true **by construction** (a disc silhouette is rotation-invariant). The `cartography`
+   GameObject now `AddComponent<CircularRawImage>()` instead of `RawImage`. Defect-3 framing root cause
+   was concrete: the shipped `_mapCenter` was `(x, z, 0, 0)` — Z shoved into the Y slot and world-Z
+   **zeroed** — while vanilla `CenterMap` passes raw world `(x, y, z)` (decomp `:1027`); now fixed to
+   `(frameCenter.x, frameCenter.y, frameCenter.z, 0)`, re-agreeing the uvRect and uniform framings.
+
+3. **Defect 1 bezel — alpha BAND + a minimum-absolute ring floor (regression caught headless).**
+   `EnsureBezelTexture` alpha is now `clamp01(inner − outer)`: `α=0` inside `holeR`, opaque bronze
+   `holeR→ringOuterR`, `α=0` beyond (no `cornerShroud` opaque fill). A headless geometry harness
+   (radial-alpha sweep + fan corner-coverage + reveal centroid mapping, all PASS) surfaced that the
+   pure `10/900` ring fraction gives the 200 px disc only a ~2.2 px thread — which, now that outside is
+   correctly transparent, was the *only* disc edge and read as weak. Added `BezelRingMinPx = 4.5f`
+   (`ringPx = Max(TargetPx·BezelRingFrac, BezelRingMinPx)`); the 900 px modal's 10 px ring exceeds the
+   floor so its playtested look is byte-preserved. Final ring **weight** is Daniel's GPU-eyeball call
+   (one-line bump).
+
+**Headless boundary (unchanged from §2E.5.3):** the harness verifies the GEOMETRY (alpha band, fan
+silhouette, reveal world-mapping) on the CI/iGPU box; the GPU SHADER APPEARANCE — that vanilla's fog
+cloud actually composites through the overridden `_FogTex` — is still Daniel's RTX/Prime accept on
+AT-FOG-VANILLA / AT-DISC-FILL / AT-DISC-CLIP. Build is clean (0/0); the 27-test `BoundedMapMath` suite
+still passes (the reveal reuses its windowing math).
+
+
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
 
 > **🔴 OPEN-INPUT NOTE SUPERSEDED (2026-06-17, issue 3, card t_f9a04fda).** Where §2F refers to

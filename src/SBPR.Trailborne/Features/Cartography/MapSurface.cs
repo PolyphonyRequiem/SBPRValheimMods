@@ -84,11 +84,15 @@ namespace SBPR.Trailborne.Features.Cartography
         // inset/ring scale with it (6/900 and 10/900 reproduce the modal's playtested look exactly).
         private const float BezelInsetFrac = 6f / 900f;
         private const float BezelRingFrac  = 10f / 900f;
+        // §2E.5: with the bezel now TRANSPARENT outside the ring (defect 1), the ring is the ONLY disc
+        // edge — the old opaque black backing used to imply it. The pure 10/900 fraction gives the 200 px
+        // disc a ~2.2 px thread that reads as weak/absent (headless-verified). Floor the ring at a minimum
+        // absolute width so the small disc keeps a legible bronze edge; the 900 px modal is unaffected
+        // (its 10 px ring already exceeds the floor, so its playtested look is byte-preserved).
+        private const float BezelRingMinPx = 4.5f;
 
         private static readonly Color32 CParchment = new Color32(214, 198, 162, 255);
         private static readonly Color32 CShroud    = new Color32(14, 13, 11, 255);
-        private static readonly Color32 CShroudA   = new Color32(10, 9, 8, 255);
-        private static readonly Color32 CClear     = new Color32(0, 0, 0, 0);
         private static readonly Color   CBackdrop  = new Color(0f, 0f, 0f, 0.92f);
 
         // ── Per-surface UI refs ──
@@ -100,12 +104,12 @@ namespace SBPR.Trailborne.Features.Cartography
         private RectTransform? _frame;
         private RectTransform? _mapContainer;
         private RawImage? _mapImage;
-        private RawImage? _shroudImage;
         private RectTransform? _mapRect;
         private GameObject? _overlayLayer;
         private RawImage? _bezel;
         private Texture2D? _tex;
-        private Texture2D? _shroudTex;
+        private Texture2D? _revealTex;
+        private Color32[]? _revealScratch;
         private Material?  _shaderMat;
         private Texture2D? _bezelTex;
         private RawImage? _playerMarker;
@@ -150,7 +154,7 @@ namespace SBPR.Trailborne.Features.Cartography
         public void Destroy()
         {
             if (_tex != null) UnityEngine.Object.Destroy(_tex);
-            if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
+            if (_revealTex != null) UnityEngine.Object.Destroy(_revealTex);
             if (_shaderMat != null) UnityEngine.Object.Destroy(_shaderMat);
             if (_bezelTex != null) UnityEngine.Object.Destroy(_bezelTex);
         }
@@ -236,11 +240,28 @@ namespace SBPR.Trailborne.Features.Cartography
                 _mapImage.uvRect = uv;
             }
 
+            // §2E.5 defect 3: the uvRect window and the shader uniforms must be ONE framing, driven
+            // in lockstep exactly as vanilla CenterMap does (decomp Minimap.cs:1014-1027). uvRect
+            // (above) and these uniforms both derive from the SAME zoom + frameCenter — they cannot
+            // drift. The fix vs the shipped bug: _mapCenter is the RAW WORLD vector (x, y, z) like
+            // vanilla's SetVector("_mapCenter", centerPoint) (:1027). The shipped code passed
+            // (x, z, 0, 0) — shoving Z into the Y slot and ZEROING the world-Z centre — so the shader
+            // reconstructed every fragment's world position around z=0 while _MainTex framed correctly.
+            // That single-axis disagreement is the "diamond / mostly-black strip": only the band where
+            // the survey straddled z=0 lined up. Passing the real world centre re-agrees the two
+            // transforms, so the genuinely-sampled biome/relief fills the whole square (out to its
+            // corners), making the §2H.1 inscribed-circle guarantee true once the disc clip applies.
             _shaderMat.SetFloat("_zoom", zoom);
             _shaderMat.SetFloat("_pixelSize", 200f / Mathf.Max(zoom, 1e-4f));
-            _shaderMat.SetVector("_mapCenter", new Vector4(frameCenter.x, frameCenter.z, 0f, 0f));
+            _shaderMat.SetVector("_mapCenter", new Vector4(frameCenter.x, frameCenter.y, frameCenter.z, 0f));
 
-            PaintShroudMask(survey);
+            // §2E.5 defect 2: reveal the bounded survey through vanilla's OWN _FogTex cloud instead of
+            // laying an opaque flat shroud over the cartography. We override _FogTex on the clone with a
+            // full-world reveal that un-fogs ONLY the surveyed disc — vanilla's map shader then composites
+            // the real fog-of-war cloud everywhere else (AT-FOG-VANILLA), table-anchored for BOTH surfaces
+            // (the reveal is in absolute world-texel space, so the player-centred disc shows the survey at
+            // its true world position with no resample — R1 falls out for free).
+            BindBoundedReveal(survey, textureSize);
             return true;
         }
 
@@ -263,118 +284,78 @@ namespace SBPR.Trailborne.Features.Cartography
         // §§SURFACE_RENDER§§
 
         /// <summary>
-        /// True if the world point (wx,wz) is LIT in the table-anchored survey — i.e. explored AND
-        /// inside the imprinted 1000 m bound. Maps world → survey source cell → survey window cell →
-        /// fog index. Outside the surveyed window → not lit (shroud). This is the table-anchored test
-        /// the player-centred disc samples per screen texel (R1: the shroud never follows the player).
+        /// §2E.5 defect 2 — build (or refresh) a FULL-WORLD reveal mask and bind it as <c>_FogTex</c> on
+        /// the cloned map material, so vanilla's own map shader renders the unexplored area as the real
+        /// fog-of-war cloud (AT-FOG-VANILLA) and the surveyed disc as un-fogged cartography. This REPLACES
+        /// the old opaque <c>_shroudImage</c> RGBA overlay that hid both the terrain and vanilla's cloud.
+        ///
+        /// Why full-world (textureSize²) and not a small windowed reveal: vanilla's cloned material samples
+        /// <c>_FogTex</c> in FULL-texture UV space (the shader pairs it with <c>_MainTex</c>, also full-world),
+        /// so a 256² reveal aligns 1:1 with the framed biome by construction — no windowed-registration spike
+        /// needed (§2E.5.1's fallback, chosen deliberately as the low-risk route). We start fully fogged
+        /// (R=255, vanilla's Reset convention, decomp Minimap.cs:494-498) and clear R=0 ONLY on cells that are
+        /// lit in the table-anchored survey window (explored AND inside the 1000 m disc). The reveal is in
+        /// ABSOLUTE world-cell space, so the disc and modal agree and the player-centred disc needs no
+        /// resample — the survey shows at its true world position (R1 table-anchored shroud falls out for free).
+        ///
+        /// Clean-side (ADR-0001): R8G8 reveal format + the R=0 lit / R=255 fogged convention are read from the
+        /// base-game decomp (m_fogTexture, :426-428; Explore sets pixel.r=0, :1561-1563), adapted onto our clone.
         /// </summary>
-        private static bool SampleLitAt(SurveyData survey, float wx, float wz)
+        private void BindBoundedReveal(SurveyData survey, int textureSize)
         {
-            float pixelSize  = survey.PixelSize > 0f ? survey.PixelSize : 64f;
-            int textureSize  = survey.TextureSize > 0 ? survey.TextureSize : 256;
-            int size         = survey.Size;
-            if (survey.Fog == null || size <= 0) return false;
+            if (_shaderMat == null || survey.Fog == null || survey.Size <= 0) return;
 
-            int srcX = BoundedMapMath.WorldToCellX(wx, pixelSize, textureSize);
-            int srcY = BoundedMapMath.WorldToCellY(wz, pixelSize, textureSize);
-            int cx   = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, textureSize);
-            int cy   = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, textureSize);
-            int half = (size - 1) / 2;
-            int swx = (srcX - cx) + half;
-            int swy = (srcY - cy) + half;
-            if (swx < 0 || swy < 0 || swx >= size || swy >= size) return false;
-            int idx = swy * size + swx;
-            return idx >= 0 && idx < survey.Fog.Length && survey.Fog[idx];
-        }
-
-        // §4.2/R1: the player-centred disc resamples its shroud mask at this fixed resolution so the
-        // shroud-creep edge stays smooth (sub-cell) as the player walks. The table-centred modal uses
-        // the survey's own Size×Size window (a direct 1:1 copy — its playtested path, unchanged).
-        private const int DiscShroudTexN = 128;
-
-        /// <summary>
-        /// Build the shroud-mask texture (lit → transparent so cartography shows through; else → opaque
-        /// shroud). TABLE-centred surfaces copy the survey fog 1:1 (the §2E playtested path). PLAYER-
-        /// centred surfaces RESAMPLE: each texel maps to a world point offset from the player, tested
-        /// against the table-anchored survey (SampleLitAt) — so as the player walks toward the survey
-        /// edge the shroud creeps in from that side, and past the 1000 m bound it goes all shroud (R1).
-        /// </summary>
-        private void PaintShroudMask(SurveyData survey)
-        {
-            if (_cfg.PlayerCentred) PaintShroudMaskPlayerCentred(survey);
-            else                    PaintShroudMaskTableCentred(survey);
-        }
-
-        private void PaintShroudMaskTableCentred(SurveyData survey)
-        {
-            int size = survey.Size;
-            if (_shroudTex == null || _shroudTex.width != size)
+            int tex = textureSize > 0 ? textureSize : 256;
+            if (_revealTex == null || _revealTex.width != tex)
             {
-                if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
-                _shroudTex = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false)
+                if (_revealTex != null) UnityEngine.Object.Destroy(_revealTex);
+                _revealTex = new Texture2D(tex, tex, TextureFormat.RGBA32, mipChain: false)
                 {
-                    name = "SBPR_ShroudMask",
+                    name = "SBPR_BoundedReveal",
                     wrapMode = TextureWrapMode.Clamp,
                     filterMode = FilterMode.Bilinear,
                 };
+                _revealScratch = null; // force re-alloc at the new size
             }
 
-            var px = new Color32[size * size];
-            var fog = survey.Fog;
-            int n = Mathf.Min(px.Length, fog.Length);
-            for (int i = 0; i < n; i++) px[i] = fog[i] ? CClear : CShroudA;
-            for (int i = n; i < px.Length; i++) px[i] = CShroudA;
+            int count = tex * tex;
+            if (_revealScratch == null || _revealScratch.Length != count)
+                _revealScratch = new Color32[count];
+            var px = _revealScratch;
 
-            _shroudTex.SetPixels32(px);
-            _shroudTex.Apply(updateMipmaps: false);
-            ApplyShroudTex();
-        }
+            // Vanilla Reset fills the fog mask fully fogged (R=255). We mirror that, then un-fog the disc.
+            var fogged  = new Color32(255, 0, 0, 255);
+            var cleared = new Color32(0, 0, 0, 255);
+            for (int i = 0; i < count; i++) px[i] = fogged;
 
-        private void PaintShroudMaskPlayerCentred(SurveyData survey)
-        {
-            int N = DiscShroudTexN;
-            if (_shroudTex == null || _shroudTex.width != N)
-            {
-                if (_shroudTex != null) UnityEngine.Object.Destroy(_shroudTex);
-                _shroudTex = new Texture2D(N, N, TextureFormat.RGBA32, mipChain: false)
-                {
-                    name = "SBPR_ShroudMaskDisc",
-                    wrapMode = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Bilinear,
-                };
-            }
-
+            // Un-fog exactly the lit cells of the table-anchored survey window, mapped back to their
+            // absolute source-cell position in the full 256² grid (the inverse of CaptureWindow).
             float pixelSize = survey.PixelSize > 0f ? survey.PixelSize : 64f;
-            int   size      = survey.Size;
-            float spanMeters = size * pixelSize;       // world width the cartography rect covers
-            Vector3 center  = FrameCenter();           // the player (R1)
+            int size = survey.Size;
+            int cx = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, tex);
+            int cy = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, tex);
+            int half = (size - 1) / 2;
+            var fog = survey.Fog;
 
-            var px = new Color32[N * N];
-            for (int my = 0; my < N; my++)
+            for (int wy = 0; wy < size; wy++)
             {
-                // texel-centre v in [0,1] → world Z offset from the player (north = +Z = up, bottom-up rows)
-                float v = (my + 0.5f) / N;
-                float wz = center.z + (v - 0.5f) * spanMeters;
-                for (int mx = 0; mx < N; mx++)
+                int srcY = (wy - half) + cy;
+                if (srcY < 0 || srcY >= tex) continue;
+                int rowBase = srcY * tex;
+                int fogRow = wy * size;
+                for (int wx = 0; wx < size; wx++)
                 {
-                    float u = (mx + 0.5f) / N;
-                    float wx = center.x + (u - 0.5f) * spanMeters;
-                    px[my * N + mx] = SampleLitAt(survey, wx, wz) ? CClear : CShroudA;
+                    int fi = fogRow + wx;
+                    if (fi >= fog.Length || !fog[fi]) continue;
+                    int srcX = (wx - half) + cx;
+                    if (srcX < 0 || srcX >= tex) continue;
+                    px[rowBase + srcX] = cleared;
                 }
             }
-            _shroudTex.SetPixels32(px);
-            _shroudTex.Apply(updateMipmaps: false);
-            ApplyShroudTex();
-        }
 
-        private void ApplyShroudTex()
-        {
-            if (_shroudImage != null)
-            {
-                _shroudImage.texture = _shroudTex;
-                _shroudImage.color = Color.white;
-                _shroudImage.gameObject.SetActive(true);
-            }
+            _revealTex.SetPixels32(px);
+            _revealTex.Apply(updateMipmaps: false);
+            _shaderMat.SetTexture("_FogTex", _revealTex);
         }
 
         /// <summary>Size the on-screen map square at a FIXED scale (no scroll-zoom).</summary>
@@ -443,8 +424,9 @@ namespace SBPR.Trailborne.Features.Cartography
         /// </summary>
         private void PaintFog(SurveyData survey)
         {
-            if (_shroudImage != null) _shroudImage.gameObject.SetActive(false);
-
+            // §2E.5: the GPU-less fallback no longer has an opaque shroud overlay to disable (the reveal
+            // is bound on the shader path only). Clear any stale _FogTex override so a later successful
+            // shader render rebinds cleanly; the 2-colour fill below carries its own shroud colour.
             int size = survey.Size;
             if (_tex == null || _tex.width != size)
             {
@@ -824,9 +806,18 @@ namespace SBPR.Trailborne.Features.Cartography
         /// <summary>
         /// Build (once) the hard circular alpha-clip bezel for THIS surface. The #159 inset + ring band
         /// are expressed as FRACTIONS of the target edge (§4.2), so the disc scales them down with it
-        /// instead of a 900-px-tuned absolute inset swallowing a 200-px disc. Transparent inside the
-        /// visible disc (cartography shows through), a bronze ring at the edge, opaque shroud beyond —
-        /// ring + shroud one contiguous opaque cover that clips everything past the radius.
+        /// instead of a 900-px-tuned absolute inset swallowing a 200-px disc.
+        ///
+        /// §2E.5 defect 1 (transparent-outside): the alpha is now a BAND, not a contiguous opaque cover.
+        ///   • inside holeR        → α=0 (transparent: the circular cartography shows through)
+        ///   • holeR → ringOuterR  → opaque BRONZE ring (the disc edge)
+        ///   • beyond ringOuterR    → α=0 (TRANSPARENT: the game world shows through outside the disc)
+        /// The shipped bug lerped everything past holeR toward an opaque near-black `cornerShroud` (α=1),
+        /// which on the no-backdrop HUD disc WAS the black square Daniel saw. The modal's "outside is dim"
+        /// now comes solely from its separate ShowBackdrop layer, not from an opaque bezel — so the SAME
+        /// transparent-outside bezel serves both surfaces (AT-DISC-CLIP == AT-MODAL-CLIP). The cartography
+        /// itself is clipped to the circle by CircularRawImage (geometry fan), so corners emit no pixels
+        /// regardless of the map shader; this bezel only draws the ring + guarantees outside-transparent.
         /// </summary>
         private Texture2D EnsureBezelTexture(float bezelEdgeScreenPx)
         {
@@ -846,13 +837,12 @@ namespace SBPR.Trailborne.Features.Cartography
             // §4.2: thresholds scale with the target edge (fraction-of-radius), not absolute px.
             float discEdge   = _cfg.TargetPx * 0.5f;
             float insetPx    = _cfg.TargetPx * BezelInsetFrac;
-            float ringPx     = _cfg.TargetPx * BezelRingFrac;
+            float ringPx     = Mathf.Max(_cfg.TargetPx * BezelRingFrac, BezelRingMinPx);
             float holeR      = discEdge - insetPx;
             float ringOuterR = holeR + ringPx;
             const float aa   = 0.9f;
 
-            var ringColor    = new Color(0.62f, 0.55f, 0.42f, 1f);
-            var cornerShroud = new Color(0.04f, 0.035f, 0.03f, 1f);
+            var ringColor = new Color(0.62f, 0.55f, 0.42f, 1f);
 
             var px = new Color32[N * N];
             for (int y = 0; y < N; y++)
@@ -862,10 +852,13 @@ namespace SBPR.Trailborne.Features.Cartography
                     float dx = x + 0.5f - half;
                     float dy = y + 0.5f - half;
                     float dScreen = Mathf.Sqrt(dx * dx + dy * dy) * screenPerTex;
-                    float coverage = Mathf.SmoothStep(0f, 1f, (dScreen - (holeR - aa)) / (2f * aa));
-                    float ringMix = Mathf.SmoothStep(0f, 1f, (dScreen - (ringOuterR - aa)) / (2f * aa));
-                    Color rgb = Color.Lerp(ringColor, cornerShroud, ringMix);
-                    px[y * N + x] = (Color32)new Color(rgb.r, rgb.g, rgb.b, coverage);
+
+                    // Ring alpha = band: rises from 0→1 across the inner edge (holeR), falls 1→0 across
+                    // the outer edge (ringOuterR). Inside the hole AND beyond the ring are both α=0.
+                    float inner = Mathf.SmoothStep(0f, 1f, (dScreen - (holeR - aa)) / (2f * aa));
+                    float outer = Mathf.SmoothStep(0f, 1f, (dScreen - (ringOuterR - aa)) / (2f * aa));
+                    float ringAlpha = Mathf.Clamp01(inner - outer);
+                    px[y * N + x] = (Color32)new Color(ringColor.r, ringColor.g, ringColor.b, ringAlpha);
                 }
             }
             _bezelTex.SetPixels32(px);
@@ -929,22 +922,21 @@ namespace SBPR.Trailborne.Features.Cartography
             _mapContainer.sizeDelta = Vector2.zero;
 
             // Cartography layer (parchment shader / 2-colour fallback), parented to the rotating container.
+            // §2E.5 defect 3: CircularRawImage tessellates the rect into an inscribed DISC (triangle fan)
+            // honouring uvRect — the four corners carry no geometry, so they emit no fragments and the
+            // disc silhouette is rotation-invariant (the §2H.1 inscribed-circle guarantee holds BY
+            // CONSTRUCTION). This is material-agnostic: the cloned vanilla map shader does not support a
+            // uGUI stencil/RectMask2D, so a mask-based clip would be silently ignored at disc scale.
             var mapGo = new GameObject("cartography");
             mapGo.transform.SetParent(_mapContainer.transform, false);
-            _mapImage = mapGo.AddComponent<RawImage>();
+            _mapImage = mapGo.AddComponent<CircularRawImage>();
             _mapRect = _mapImage.rectTransform;
             _mapRect.anchorMin = _mapRect.anchorMax = new Vector2(0.5f, 0.5f);
             _mapRect.pivot = new Vector2(0.5f, 0.5f);
             _mapRect.sizeDelta = new Vector2(_cfg.TargetPx, _cfg.TargetPx);
 
-            // Shroud mask (our fog as an alpha mask) stretched over the cartography.
-            var shroudGo = new GameObject("shroudMask");
-            shroudGo.transform.SetParent(mapGo.transform, false);
-            _shroudImage = shroudGo.AddComponent<RawImage>();
-            _shroudImage.raycastTarget = false;
-            var shRt = _shroudImage.rectTransform;
-            shRt.anchorMin = Vector2.zero; shRt.anchorMax = Vector2.one;
-            shRt.offsetMin = Vector2.zero; shRt.offsetMax = Vector2.zero;
+            // §2E.5 defect 2: the opaque shroud-mask layer is GONE. Unexplored area is now vanilla's real
+            // _FogTex cloud composited by the map shader (BindBoundedReveal), not an RGBA overlay.
 
             // Overlay layer (pins + player marker) — added last → highest child.
             _overlayLayer = new GameObject("overlay");
