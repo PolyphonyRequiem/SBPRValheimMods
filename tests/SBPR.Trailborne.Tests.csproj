@@ -59,6 +59,7 @@
          logic; as the gated Core extraction lands, entries migrate to a ProjectReference. -->
     <Compile Include="../src/SBPR.Trailborne/Features/Signs/SignHoverHintText.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/BoundedMapMath.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Cartography/MapCaptionText.cs" />
   </ItemGroup>
 
 </Project>
