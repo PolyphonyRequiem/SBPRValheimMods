@@ -131,10 +131,15 @@ def frame(img):
 
 
 def make_compass():
-    img = warm_backdrop(SIZE)
-    img = Image.alpha_composite(img, radial_glow(SIZE, (120, 110, 90), 0.44, 2.4))
-    img = draw_compass(img)
-    return frame(img)
+    # Transparent canvas (NOT an opaque warm vignette): the inventory slot draws the
+    # blue "equipped" highlight BEHIND the icon, so an opaque background hides it for
+    # every equipable (bug t_b9a111ca, Daniel playtest 2026-06-19). The compass case
+    # ring is the icon's own visible border. Matches the transparent house style of
+    # gen_marker_icons_v01.py. (warm_backdrop/radial_glow/frame retained above for
+    # reference but no longer composited — frame()'s .convert("RGB") was the flatten
+    # that destroyed alpha.)
+    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    return draw_compass(img)
 
 
 def main():
