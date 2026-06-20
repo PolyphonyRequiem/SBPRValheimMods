@@ -78,6 +78,15 @@ namespace SBPR.Trailborne.Features.Cartography
         // Table's view, or a pre-1.6 imprinted map). Mode-agnostic: one title code path.
         public string? Title;
 
+        // §3.6 (local-map-disc-name-hint-impl-spec): the formatted map NAME shown UNDER the
+        // minimap disc as a caption ("Local map for <Table>", FormatDisplayName) co-located with
+        // the [<$KEY_Map>] open-hint. DISC-ONLY — the modal ignores it (it has its own top-centre
+        // Title cartouche, which stays BARE). Deliberately a SEPARATE field from Title: BindMinimap
+        // force-clears Title for the disc (§2.2) but must pass Caption through untouched. null when
+        // the provider has no imprinted name → the disc renders the hint line only (no empty name
+        // line). Default null keeps every modal Open/Refresh caller unchanged.
+        public string? Caption;
+
         // §4.1 (map-provider-binding-impl-spec): set true when this request drives the
         // carry-state MINIMAP DISC channel (BindMinimap) rather than the full-screen modal
         // (Open). The viewer routes a Minimap request to its small, player-centred disc surface

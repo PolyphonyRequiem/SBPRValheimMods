@@ -76,6 +76,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 SortingOrder = DiscSortOrder,
                 ShowBackdrop = false,
                 ShowPrompts = false,
+                ShowCaption = true,                          // §3.1: name + [M] open-hint UNDER the disc
                 HandleInput = false,
                 PlayerCentred = true,                       // R1: player-centred camera
                 ScreenAnchor = new Vector2(1f, 1f),          // top-right (vanilla minimap's home)
@@ -102,6 +103,9 @@ namespace SBPR.Trailborne.Features.Cartography
             request.Mode = MapViewerMode.FieldReadOnly;
             request.PinEditor = null;
             request.Title = string.Empty; // a minimap shows no cartouche
+            // NOTE (§4.4 disc-name-hint-impl-spec): do NOT clear request.Caption — the disc's
+            // under-bezel name line rides Caption (a SEPARATE field from the cleared Title). The
+            // caller (DriveMinimapDisc) sets it to the FormatDisplayName, or null when unnamed.
             _disc?.Show(request);
         }
 

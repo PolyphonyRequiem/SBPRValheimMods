@@ -63,6 +63,7 @@ These were in #2's PENDING but did **not** ship a code change in `v0.2.29-playte
 | # | Feature | Card | Status | What to verify in-game |
 |---|---------|------|--------|------------------------|
 | 2 | **Portal Seed crafting cost** | t_a6831e8e | `blocked` — verify local solo (NRE root-crash #154 shipped in #1) | At the Explorer's Bench, Portal Seed shows cost **AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2**, and crafting **consumes** exactly that. Verify **local solo on current `main`** (the per-frame tooltip NRE that masked this, t_2dd7c705/#154, shipped in #1). If correct → close t_a6831e8e; if wrong → spawn a fix card from the observed failure mode (A no cost / B wrong cost / C not craftable / D shown-but-not-consumed). |
+| 3 | **[M] open-hint + map NAME UNDER the minimap disc** | t_26bba85b | review-required (PR open; code built 0/0) — **verify after merge** | nomap-ON, carry a named, imprinted Local Map. Verify: **(a) AT-MAPNAME-UNDER-DISC** — the map's name ("Local map for <Table>") renders **directly under the minimap disc** (top-right), legible at the ~200 px disc, **NOT** a floating bottom-centre element; **(b) AT-MKEY-HINT-COLOCATED** — the `[M]` open-hint sits **with the name** as one unit, rebind-correct (rebind Map → key updates; no hardcoded "M"); **(c) AT-HINT-VISIBILITY** — the caption is visible **whenever the disc is** (provider bound + nomap-ON), **including bound-but-unequipped** (the old bottom hint only showed while equipped — this widening is the recommended Q2 model; tell Daniel if he'd rather it be equipped-only, a one-line flip); **(d) AT-HINT-NO-BOTTOM** — there is **no** `[M] Read map` element at screen bottom-centre anymore; **(e) AT-CAPTION-NO-ROTATE** — the caption is **screen-stable**, it does NOT spin when the disc rotates to heading; **(f) AT-MAPNAME-BLANK** — a pre-naming map shows the hint line **only**, never "Local map for " with an empty tail; **(g)** disc render + on-face chevron + the modal's BARE title cartouche are **unchanged**. **Build-calibration knobs** (`CaptionNameFontPx 18` / `CaptionHintFontPx 16` / `CaptionGapPx 10` in `MapSurface.cs`) — tell Daniel if the placement/legibility under the disc feels off. logs-green ≠ playable — Daniel's GPU eyeball on the top-right placement closes t_26bba85b. |
 
 ### 🧭 Ground-truth cross-check at roll time (git)
 
@@ -79,8 +80,9 @@ These were in #2's PENDING but did **not** ship a code change in `v0.2.29-playte
 - **t_89d30da3** — modal map content-to-ring margin (reframe modal to surveyed-disc
   diameter, §2E.5.6, AT-RING-1..4) is `running`; will accrue here when it merges.
 - Design/blocked cards not yet built (no test item until they ship): biome indicators
-  on the disc/modal (t_caf0f1cf), [M] name-hint under the disc (t_338f723b / t_26bba85b),
-  equipable-icon transparent-bg (t_b9a111ca, PR #201 open).
+  on the disc/modal (t_caf0f1cf), equipable-icon transparent-bg (t_b9a111ca, PR #201 open).
+  ([M] name-hint under the disc, t_26bba85b, now ships its code in this PR → moved to
+  PENDING item 3 above; verify after merge.)
 
 ---
 

@@ -2646,13 +2646,16 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
   the disc, card t_338f723b, 2026-06-19)** — the bound local map's NAME ("Local map for <Table>")
   + the rebind-correct `[<$KEY_Map>]` open-hint render as a **caption directly UNDER the minimap
   disc** (one visual unit), screen-stable (below the rotating interior, on the non-rotating
-  `_root`), visible whenever the disc is (provider bound + nomap-ON) — NOT a floating
-  bottom-centre element and NOT gated equipped-only. This **relocates** the old bottom-centre
-  `SBPR_LocalMapPrompt` (deleted, not duplicated). nomap-OFF has no SBPR disc → no caption. A
-  bound-but-unnamed map shows the hint line only. The modal cartouche still shows the BARE name
-  (the formatted-under-disc / bare-in-modal split is intentional). Full spec + the rest of the
-  named ATs: **`local-map-disc-name-hint-impl-spec.md`**. (Caption sits below the bezel — does
-  NOT collide with AT-DISC-MARKER-1's on-face chevron.)
+  disc `_frame` — the same host the fixed bezel rides; the spec said `_root`, but only
+  `_mapContainer` actually rotates, so `_frame` is equally screen-stable and keeps the caption's
+  position derived from the disc's own layout), visible whenever the disc is (provider bound +
+  nomap-ON) — NOT a floating bottom-centre element and NOT gated equipped-only. This
+  **relocates** the old bottom-centre `SBPR_LocalMapPrompt` (deleted, not duplicated). nomap-OFF
+  has no SBPR disc → no caption. A bound-but-unnamed map shows the hint line only. The modal
+  cartouche still shows the BARE name (the formatted-under-disc / bare-in-modal split is
+  intentional). Full spec + the rest of the named ATs:
+  **`local-map-disc-name-hint-impl-spec.md`**. (Caption sits below the bezel — does NOT collide
+  with AT-DISC-MARKER-1's on-face chevron.)
 - logs-green ≠ playable — Daniel confirms in-game.
 
 **Supersession map (old §2H ATs → this section).** AT-LMAP-ROT-1 (free-rotate) → restated in
