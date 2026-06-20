@@ -2642,6 +2642,17 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
   chevron so it is **never blank** (the headless-verified fallback — apex up, V-notch base, dark
   outline on transparent). On the table-centred modal the in-disc marker uses the same glyph; the
   off-disc edge-arrow keeps its distinct orange directional recolour.
+- **AT-MAPNAME-UNDER-DISC / AT-MKEY-HINT-COLOCATED / AT-HINT-VISIBILITY (name+hint caption under
+  the disc, card t_338f723b, 2026-06-19)** — the bound local map's NAME ("Local map for <Table>")
+  + the rebind-correct `[<$KEY_Map>]` open-hint render as a **caption directly UNDER the minimap
+  disc** (one visual unit), screen-stable (below the rotating interior, on the non-rotating
+  `_root`), visible whenever the disc is (provider bound + nomap-ON) — NOT a floating
+  bottom-centre element and NOT gated equipped-only. This **relocates** the old bottom-centre
+  `SBPR_LocalMapPrompt` (deleted, not duplicated). nomap-OFF has no SBPR disc → no caption. A
+  bound-but-unnamed map shows the hint line only. The modal cartouche still shows the BARE name
+  (the formatted-under-disc / bare-in-modal split is intentional). Full spec + the rest of the
+  named ATs: **`local-map-disc-name-hint-impl-spec.md`**. (Caption sits below the bezel — does
+  NOT collide with AT-DISC-MARKER-1's on-face chevron.)
 - logs-green ≠ playable — Daniel confirms in-game.
 
 **Supersession map (old §2H ATs → this section).** AT-LMAP-ROT-1 (free-rotate) → restated in

@@ -53,6 +53,19 @@ Planning artifacts for the Black Forest tier. Same role as
   the DECIDED M model). Supersedes the open-input portions of `cartography-impl-spec.md` §2F/§2G
   and `requirements.md` AT-MAP-EQUIP (§2F's Esc-exit work stands). SpecCheck delta = **+0**
   (input binding + prompt token on an existing controller).
+- **`local-map-disc-name-hint-impl-spec.md`** — the buildable *how* for the **name + `[M]`
+  open-hint UNDER the minimap disc** (design lock:
+  [`../../design/map-provider-model.md`](../../design/map-provider-model.md) §2.1, Daniel
+  2026-06-19 v0.2.27 playtest: *"the bottom hint doesn't really work for me… put the name of the
+  map under the minimap and the M key hint there"*). **Relocates** the open-hint from the
+  floating bottom-centre `SBPR_LocalMapPrompt` canvas (deleted) to a two-line caption **under
+  the carry disc** — the bound map's NAME ("Local map for <Table>") above the rebind-correct
+  `[<$KEY_Map>]` hint — so it reads as one unit: "[M] opens THIS named local map." **Widens**
+  visibility from equipped-only to **disc-visibility** (provider bound + nomap-ON), fixing the
+  asymmetry where M opens a carried-but-unequipped map yet the old hint hid. Net-new addendum to
+  the locked §2 minimap model; supersedes `local-map-mkey-open-impl-spec.md` §5's prompt
+  PLACEMENT (the `$KEY_Map` token + rebind-correctness stand). Closes card **t_338f723b**.
+  SpecCheck delta = **+0** (HUD presentation; the name is already stored).
 
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
