@@ -177,6 +177,16 @@ namespace SBPR.Trailborne.Features.Cartography
         private const string CaptionHintRaw = "[<color=yellow><b>$KEY_Map</b></color>] $piece_readmap";
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
 
+        // §threat-layer (card t_54c989d3): a SEPARATE transient threat overlay parallel to the survey-pin
+        // overlay, fed by the Sunstone ThreatMarkerRegistry each rebuild. NOT SurveyPin (SurveyData can't
+        // carry tint/trophy/pips). Rebuilt + cleared each RebuildOverlay; counter-rotated in
+        // ApplyFieldOrientation so the dot/trophy stays screen-upright while the disc rotates camera-
+        // relative (AT-LENS-DISC-CAMREL). Only the player-centred disc hosts it (the modal is the focused
+        // full survey view, not a glanceable threat radar — keeps the threat handoff on the carry disc).
+        private readonly List<GameObject> _threatObjects = new List<GameObject>();
+        private readonly List<Cartography.ThreatBlip> _threatBlips = new List<Cartography.ThreatBlip>();
+        private static Sprite? _threatDotSprite;
+
         private MapViewRequest _req;
 
         public MapSurface(Transform host, MapSurfaceConfig cfg)
@@ -664,6 +674,94 @@ namespace SBPR.Trailborne.Features.Cartography
             }
 
             UpdatePlayerMarker(survey, origin, radius);
+            RebuildThreatLayer(survey);
+        }
+
+        /// <summary>
+        /// §threat-layer (card t_54c989d3, AT-LENS-DISC-HANDOFF): rebuild the transient Sunstone threat
+        /// overlay on the player-centred disc. Pulls live blips from the Cartography ThreatMarkerRegistry
+        /// (Sunstone registered the provider; the arrow stays Sunstone → Cartography), projects each via
+        /// the SAME <see cref="WorldToSurfacePx"/> the pins/marker use (so a blip lands on the exact terrain
+        /// cell), clips to the visible disc, and draws a tinted dot (default) or the trophy sprite + pips
+        /// (BlipStyle.TrophyArt). Camera-relative by construction — the layer rides <see cref="_mapContainer"/>'s
+        /// camera-yaw rotation (AT-LENS-DISC-CAMREL); the dot/trophy is counter-rotated in
+        /// <see cref="ApplyFieldOrientation"/> so it stays screen-upright. Disc-only (the modal is the focused
+        /// full survey; a glanceable threat radar belongs on the carry disc). No-op when no provider is
+        /// registered or the registry returns nothing (lens off / handoff routed to the ring).
+        /// </summary>
+        private void RebuildThreatLayer(SurveyData survey)
+        {
+            ClearThreatObjects();
+            if (!_cfg.PlayerCentred) return;                 // disc only
+            if (_overlayLayer == null || _mapRect == null) return;
+            if (!Cartography.ThreatMarkerRegistry.HasProvider) return;
+
+            Vector3 origin = _req.BoundOrigin;
+            float radius = _req.RadiusMeters > 0f ? _req.RadiusMeters : survey.RadiusMeters;
+
+            _threatBlips.Clear();
+            Cartography.ThreatMarkerRegistry.Collect(origin, radius, _threatBlips);
+            if (_threatBlips.Count == 0) return;
+
+            float edge = _mapRect.sizeDelta.x;
+            float discR = edge * 0.5f; // visible disc radius (inscribed circle of the square rect)
+            bool preferTrophy = Cartography.ThreatMarkerRegistry.PreferTrophyArt;
+
+            foreach (var blip in _threatBlips)
+            {
+                // Same continuous player-relative projection the disc's pins + marker use, so the blip
+                // lands on the exact terrain cell at the disc's tight zoom (one source of truth — they
+                // cannot drift). Clip to the visible circle so a far blip doesn't draw over the bezel.
+                Vector2 anchored = WorldToSurfacePx(blip.WorldPos, survey);
+                if (anchored.sqrMagnitude > discR * discR) continue;
+                SpawnThreatMarker(blip, anchored, preferTrophy);
+            }
+        }
+
+        private void SpawnThreatMarker(Cartography.ThreatBlip blip, Vector2 anchored, bool preferTrophy)
+        {
+            if (_overlayLayer == null) return;
+            var go = new GameObject("threat");
+            go.transform.SetParent(_overlayLayer.transform, false);
+            var img = go.AddComponent<RawImage>();
+
+            // DotsAndTint (default): a tinted dot from the SHARED ThreatBlipArt (the vanilla overlay draws
+            // the same one). TrophyArt: the trophy sprite (or the shared glyph for trophy-less hostiles).
+            if (preferTrophy && blip.Trophy != null)
+                img.texture = blip.Trophy.texture;
+            else if (preferTrophy)
+            {
+                var glyph = Sunstone.SunstoneProjection.ThreatGlyph();
+                img.texture = glyph != null ? glyph.texture : ThreatDot().texture;
+            }
+            else
+                img.texture = ThreatDot().texture;
+            img.color = blip.Tint;       // OUR layer owns the colour — the aggro tint survives (§3.7)
+            img.raycastTarget = false;
+
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(PinIconPx * 0.8f, PinIconPx * 0.8f); // a hair smaller than survey pins
+            rt.anchoredPosition = anchored;
+            _threatObjects.Add(go);
+        }
+
+        // The shared threat-dot sprite (same art the vanilla-minimap overlay uses), built once.
+        private static Sprite ThreatDot()
+        {
+            if (_threatDotSprite != null) return _threatDotSprite;
+            var tex = Cartography.ThreatBlipArt.DotTexture();
+            _threatDotSprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+            _threatDotSprite.name = "SBPR_DiscThreatDot";
+            return _threatDotSprite;
+        }
+
+        private void ClearThreatObjects()
+        {
+            foreach (var go in _threatObjects)
+                if (go != null) UnityEngine.Object.Destroy(go);
+            _threatObjects.Clear();
         }
 
         private void UpdatePlayerMarker(SurveyData survey, Vector3 origin, float radius)
@@ -976,6 +1074,20 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
+        /// §threat-layer (card t_54c989d3): keep the threat dot/trophy SCREEN-UPRIGHT while the disc
+        /// interior rotates camera-relative. Each threat rides <see cref="_mapContainer"/>'s +rotZ for
+        /// POSITION (so it stays glued to its terrain cell as the world spins — AT-LENS-DISC-CAMREL);
+        /// setting its own localRotation to -containerZ cancels the spin so a dot stays round and a
+        /// trophy never goes upside-down. Same idiom as <see cref="CounterRotatePins"/>.
+        /// </summary>
+        private void CounterRotateThreats(float containerZ)
+        {
+            var counter = Quaternion.Euler(0f, 0f, -containerZ);
+            foreach (var go in _threatObjects)
+                if (go != null) go.transform.localRotation = counter;
+        }
+
+        /// <summary>
         /// Drive the rotating INTERIOR to heading. The rect itself stays centred (the player-centring
         /// for the disc is done in the SHADER reframe + shroud resample + pin projection, NOT by
         /// shifting this rect — so the small bezel always clips a centred disc cleanly). Both surfaces
@@ -994,6 +1106,7 @@ namespace SBPR.Trailborne.Features.Cartography
             float rotZ = MapRotationSign * camYaw;
             _mapContainer.localRotation = Quaternion.Euler(0f, 0f, rotZ);
             CounterRotatePins(rotZ);
+            CounterRotateThreats(rotZ);
 
             // The player marker rides the rotating overlay too. Counter-rotate it so its icon stays
             // screen-stable on EVERY rotating surface (§2H.2): the player-centred disc keeps "you"

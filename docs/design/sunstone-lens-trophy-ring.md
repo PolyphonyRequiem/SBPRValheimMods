@@ -384,6 +384,14 @@ Replaces the placeholder `AT-LENS-DETECT` render half; the detection-mechanic AT
   Standing still and rotating the camera sweeps every trophy around the ring; the ring grants
   **no cardinal orientation** (that stays the Iron Compass's exclusive payoff). No north arrow,
   no N/E/S/W letters.
+  > 🟢 **RE-SCOPED to NoMap-worlds-only (card t_54c989d3, design
+  > [`sunstone-lens-minimap-handoff.md`](sunstone-lens-minimap-handoff.md) §6).** When ANY minimap is
+  > present the detection HANDS OFF onto it (the ring is the no-minimap fallback). The camera-relative
+  > thesis still guards the NoMap surfaces — the ring AND the SBPR carry-disc (both forward-up,
+  > AT-LENS-DISC-CAMREL). The nomap-OFF **vanilla** minimap is deliberately north-up and **EXEMPT**:
+  > in nomap-OFF the player already has a north-up vanilla minimap and full cardinal orientation
+  > independent of the Sunstone, so detection there leaks no Iron-Compass payoff (decomp-verified —
+  > vanilla `WorldToMapPoint` has zero rotation; only the player chevron spins).
 - **AT-LENS-RING-PERF** — a Swamp horde (10+ hostiles) does not tank framerate: icons are pooled
   and capped at `RingMaxIcons`; the trophy-sprite + star-pip caches resolve each species/sprite once.
 

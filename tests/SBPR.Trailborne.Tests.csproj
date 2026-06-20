@@ -61,6 +61,7 @@
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/BoundedMapMath.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/MapCaptionText.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/DiscRingGeometry.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneHandoffPolicy.cs" />
   </ItemGroup>
 
 </Project>

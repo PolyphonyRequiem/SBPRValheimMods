@@ -1,11 +1,11 @@
 ---
-title: "Sunstone Lens → minimap disc — the detection-overlay handoff (design decision, awaiting Daniel's gate)"
-status: proposed
-purpose: "Architect design decision for Daniel's 2026-06-20 idea: when a local-map minimap disc is available, move the Sunstone Lens' hostile detection onto the disc instead of the camera-relative trophy-ring HUD. Grounds the trigger (CartographyViewer.IsMinimapBound = nomap-ON + local map bound), the integration seam (a new Cartography transient-threat-marker provider mirroring WorldPins.CollectInDiscPins), the shared (Character → pos/tint/trophy/pips) projection both renderers consume, and the load-bearing invariants that must survive the move (AT-LENS-RING-CAMREL camera-relative thesis; the #209 dead-Update-pump pitfall). The replace-vs-supplement knob is converted from a build-blocking fork into a live-tunable Config enum (the banner-windsock pattern). Every code line cited against `main` @ 5037af6. Card t_3129842a. Daniel gates the decision AND the merge."
+title: "Sunstone Lens → minimap disc — the detection-overlay handoff (ACCEPTED — Daniel gated all 3 knobs 2026-06-20)"
+status: accepted
+purpose: "Architect design decision for Daniel's 2026-06-20 idea: when ANY minimap is available, move the Sunstone Lens' hostile detection onto it instead of the camera-relative trophy-ring HUD. Daniel gated all 3 knobs 2026-06-20: MinimapHandoffMode=DiscWhenBound (ring=fallback-only when NO minimap present), blips=dots+aggro-tint, and the UNIVERSAL rule — any minimap present (SBPR carry-disc nomap-ON OR vanilla minimap nomap-OFF) gets the handoff. Grounds the trigger (CartographyViewer.IsMinimapBound = nomap-ON + local map bound; vanilla small minimap shown = nomap-OFF), the integration seam (a new Cartography transient-threat-marker provider mirroring WorldPins.CollectInDiscPins; a parallel custom overlay on the vanilla Minimap for nomap-OFF), the shared (Character → pos/tint/trophy/pips) projection all renderers consume, and the load-bearing invariants that must survive the move (AT-LENS-RING-CAMREL camera-relative thesis, re-scoped to NoMap-worlds-only — the nomap-OFF vanilla minimap is north-up + EXEMPT; the #209 dead-Update-pump pitfall). The replace-vs-supplement knob is a live-tunable Config enum (the banner-windsock pattern). Every code line cited against `main`. Card t_3129842a (design) → impl card t_54c989d3. Daniel gated the decision AND the merge."
 owner: Daniel (design authority); Starbright (architect — capture + grounding)
 supersedes_partial:
-  - "docs/design/sunstone-lens-trophy-ring.md §0 NoMap⇒HUD rationale — becomes CONDITIONAL (the ring is the surface only when no disc is bound)"
-  - "docs/v3/planning/sunstone-lens-impl-spec.md §5 (Render surface under NoMap) — gains a 'when a disc is bound' carve-out"
+  - "docs/design/sunstone-lens-trophy-ring.md §0 NoMap⇒HUD rationale — becomes CONDITIONAL (the ring is the surface only when NO minimap is present at all). AT-LENS-RING-CAMREL re-scoped to NoMap-worlds-only."
+  - "docs/v3/planning/sunstone-lens-impl-spec.md §5 (Render surface under NoMap) — gains a 'when a minimap is present' carve-out pointing at the universal handoff rule."
 ---
 
 # Sunstone Lens → minimap disc — the detection-overlay handoff

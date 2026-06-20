@@ -317,6 +317,18 @@ reasons."*
   does NOT take over the minimap in nomap-off. (In nomap-ON, by contrast, the minimap binds to the
   local map per §2, because there's no global minimap available there.)
 
+> 🟢 **First non-cartography consumer of the disc (card t_54c989d3, design
+> [`sunstone-lens-minimap-handoff.md`](sunstone-lens-minimap-handoff.md) ACCEPTED).** The carry-disc
+> gains its FIRST consumer outside the cartography family: the Sunstone Lens hands its hostile
+> detection onto the disc when one is bound. Coupling stays one-directional — Cartography exposes a
+> transient-threat-marker provider seam (`IThreatMarkerProvider` + `ThreatMarkerRegistry`) and
+> `MapSurface.RebuildOverlay` PULLS from a registered provider each rebuild (mirroring its existing
+> `WorldPins.CollectInDiscPins` pull); Sunstone registers INTO it and never touches `MapSurface`
+> internals. The disc draws a NEW transient threat layer parallel to the survey-pin overlay (NOT
+> `SurveyPin` — it can't carry tint/trophy/pips). The nomap-OFF split above also gains a Sunstone
+> consumer: a CUSTOM overlay on the vanilla small minimap (NOT vanilla pins), since vanilla pins
+> can't carry the aggro tint.
+
 ---
 
 ## 7. 🟢 DECIDED (Daniel 2026-06-15) — the custom §2H.1 circular viewer STAYS

@@ -119,6 +119,15 @@ namespace SBPR.Trailborne
         // diagnostic cut; bake to false once Daniel confirms the ring renders in-game.
         internal static ConfigEntry<bool>?  LensRingDebugMount     = null;
 
+        // ── v3 Swamp: Sunstone Lens → minimap HANDOFF (card t_54c989d3, design sunstone-lens-minimap-
+        //    handoff.md §4/§5). Daniel-gated 2026-06-20: when ANY minimap is present (SBPR carry-disc OR
+        //    vanilla small minimap) the ring hands its threats onto it. Both knobs are LIVE Config enums
+        //    so Daniel flips the mode / blip style on a joined client without a rebuild (banner-windsock
+        //    pattern). Nullable + ?.Value-accessed; the no-Plugin fallback is the SunstoneLensHudOverlay
+        //    Default* const (single source of truth). Bound in Awake.
+        internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.MinimapHandoffMode>? LensMinimapHandoffMode = null;
+        internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.BlipStyle>?           LensBlipStyle          = null;
+
         // ── v3 Swamp: Iron Compass (camera-yaw HUD compass overlay, card t_ee61472f) ──
         // The needle-lag feel + the overlay anchor/size/position are LIVE config so Daniel can
         // converge "a little lag is good" and place the dial on a joined client without a rebuild
@@ -387,6 +396,30 @@ namespace SBPR.Trailborne
                 + "VISIBLE/hidden transitions, and the resolved placement on first show — so a fresh client LogOutput.log can tell a "
                 + "mount/pump failure apart from an on-screen-but-empty ring. Leave ON while diagnosing; set false once the ring is "
                 + "confirmed visible in-game.");
+
+            // v3 Swamp — Sunstone Lens → minimap HANDOFF (card t_54c989d3). When ANY minimap is present
+            // (SBPR carry-disc nomap-ON OR vanilla small minimap nomap-OFF), the camera-relative ring
+            // hands its threat detection onto the minimap surface. Daniel gated both knobs 2026-06-20:
+            // DiscWhenBound (ring = no-minimap fallback) + DotsAndTint (minimap blip style). Live enums so
+            // Daniel flips them in a joined session; defaults mirror the SunstoneLensHudOverlay.Default*
+            // consts (single source of truth).
+            LensMinimapHandoffMode = Config.Bind(
+                "SunstoneLens", "MinimapHandoffMode",
+                SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultMinimapHandoffMode,
+                "WHERE the Sunstone Lens renders hostile detection when a minimap is present. "
+                + "RingOnly = ignore the minimap, the camera-relative ring always shows threats (the escape hatch). "
+                + "DiscWhenBound (DEFAULT) = when ANY minimap is present (the SBPR carry-disc in nomap-ON OR the vanilla "
+                + "small minimap in nomap-OFF), the ring hides its threats and the minimap surface shows them; with no "
+                + "minimap at all the ring is the fallback. Both = ring AND minimap both show threats whenever a minimap "
+                + "is present. (The value name 'DiscWhenBound' predates the universal 'any minimap' rule but is kept "
+                + "stable so a bound Config key doesn't churn.)");
+            LensBlipStyle = Config.Bind(
+                "SunstoneLens", "BlipStyle",
+                SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultBlipStyle,
+                "How threats DRAW on the minimap surfaces (the disc + the vanilla-minimap overlay; the camera-relative "
+                + "ring always uses full-size trophy art regardless). DotsAndTint (DEFAULT) = a small dot tinted by the "
+                + "aggro colour (yellow/orange/red) — reads cleanly at minimap scale, where trophy art is too small. "
+                + "TrophyArt = the creature's trophy sprite + star pips, tinted by aggro. A/B them in-game.");
 
             // v3 Swamp — Iron Compass HUD overlay (card t_ee61472f). Needle-lag feel (Q3) +
             // anchor/size/position (Q4) are LIVE config: a camera-driven HUD widget can't be

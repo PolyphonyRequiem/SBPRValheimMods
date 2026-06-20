@@ -247,6 +247,17 @@ the HUD overlay's "is the Lens worn?" visibility gate.
 > [`docs/design/sunstone-lens-trophy-ring.md`](../../design/sunstone-lens-trophy-ring.md) for
 > *what the overlay draws*.
 
+> 🟢 **CARVE-OUT (card t_54c989d3 — when a minimap IS present, hand off to it).** The "render via a
+> HUD overlay, not minimap pins" rule below was written for the worlds where there is **no map
+> surface to pin to**. Daniel's 2026-06-20 gate added the universal rule: when ANY minimap **is**
+> present — the SBPR carry-disc (nomap-ON) OR the vanilla small minimap (nomap-OFF) — the detection
+> **hands off onto that minimap** and the ring becomes the no-minimap fallback. The handoff still
+> does NOT use vanilla pins (vanilla `UpdatePins` clobbers pin colour to white every refresh, so a
+> pin can't carry the aggro tint); it draws a CUSTOM overlay on the minimap surface. See
+> [`docs/design/sunstone-lens-minimap-handoff.md`](../../design/sunstone-lens-minimap-handoff.md)
+> (ACCEPTED) and [`sunstone-minimap-handoff-impl-spec.md`](sunstone-minimap-handoff-impl-spec.md)
+> (the buildable spec). The doctrine below remains exactly right for the **no-minimap fallback**.
+
 The design note flagged: *"if the minimap is off by default, a minimap-based reveal won't have
 a surface — design the reveal independently of the minimap."* This is real on the SB server:
 `NoMapEnforcer` sets `GlobalKeys.NoMap` **server-side by default** (`Cartography/NoMapEnforcer.cs`),
