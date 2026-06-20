@@ -126,6 +126,10 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float>? CompassSize      = null;  // dial footprint, px square
         internal static ConfigEntry<float>? CompassOffsetX   = null;  // nudge from the anchor, px (+right)
         internal static ConfigEntry<float>? CompassOffsetY   = null;  // nudge from the anchor, px
+        // Diagnostic-logging gate (t_61aff612 HUD-render bug): emit mount/wearing/anchor LogInfo so a
+        // client LogOutput.log splits "mount/pump fail" from "off-screen." Default ON for the diagnostic
+        // cut; bake to false once Daniel confirms the dial renders in-game.
+        internal static ConfigEntry<bool>?  CompassDebugMount = null;
 
         private void Awake()
         {
@@ -418,6 +422,13 @@ namespace SBPR.Trailborne
                     "Vertical nudge from the anchor in pixels. Under TopCenter the anchor pivot is the screen's top edge, "
                     + "so a NEGATIVE value drops the dial down into view (default ≈ -94).",
                     new AcceptableValueRange<float>(-1080f, 1080f)));
+            CompassDebugMount = Config.Bind(
+                "IronCompass", "DebugMount",
+                SBPR.Trailborne.Features.Exploration.SBPR_CompassHud.DefaultDebugMount,
+                "Diagnostic logging for the HUD overlay (t_61aff612 render bug). When ON, the mod logs the overlay "
+                + "MOUNT (under Hud.m_rootObject), the WEARING true/false transitions, and the resolved anchor/size on "
+                + "first show — so a fresh client LogOutput.log can tell a mount/pump failure apart from an off-screen "
+                + "placement. Leave ON while diagnosing; set false once the dial is confirmed visible in-game.");
 
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
