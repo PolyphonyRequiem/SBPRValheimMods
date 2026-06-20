@@ -1871,6 +1871,18 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
   file. Note the dependency on the implementation card.
 ### 2L — Cursor stays locked at the Surveyor's Table map: the cursor-release seam was emptied by vanilla (issue 7, 2026-06-17, card t_f7a6db7a)
 
+> **✅ IMPLEMENTED 2026-06-19 (card t_1f82da71, the impl child of t_f7a6db7a).** The §2L.4 fix shipped:
+> `SignPanelInputBlock.MouseCapturePatch` (dead postfix on the emptied `GameCamera.UpdateMouseCapture`)
+> was replaced by `SignPanelInputBlock.CursorPumpPatch`, a postfix on the LIVE `GameCamera.LateUpdate`
+> seam (§2L.6 **option 2**) that, while `AnyOpen`, re-asserts `Cursor.lockState=None`/`visible=true`
+> every frame and, on the `AnyOpen` true→false edge (one `_wasOpen` edge-detector), restores
+> `Locked`/`visible=false` exactly once (§2L.4b). `Plugin.cs` registration re-pointed at
+> `CursorPumpPatch`; `AnyOpen`, both `TakeInput` postfixes, and the `Menu.Show` prefix are UNCHANGED.
+> Type kept named `SignPanelInputBlock` (rename to `ModalUiSession` declined as pure churn — §2L.5
+> permits this; a class-doc note records that it is the shared modal guard). Build: 0 errors, 0
+> warnings. Closes on Daniel's in-game check of AT-TABLE-FIELD-CURSOR / AT-TABLE-CURSOR-FREE /
+> AT-TABLE-PIN-REMOVE / AT-TABLE-RESTORE / AT-SIGN-CURSOR-REGRESSION (logs-green ≠ playable).
+
 > **Build seen:** v0.2.26-dev (Daniel, 2026-06-17 in-game playtest). Daniel: *"issue 7, at the
 > map table, my mouse is not free to move and click on pins to remove."*
 >

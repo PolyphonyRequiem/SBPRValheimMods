@@ -5,15 +5,19 @@ using UnityEngine;
 namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
-    /// While the Painted Sign panel is open, make it behave like every vanilla
-    /// full-screen GUI:
+    /// The shared modal-UI session guard for every SBPR full-screen uGUI surface — both sign
+    /// panels (Painted Sign, Marker Sign) AND the bounded map viewer (TableEdit + FieldReadOnly).
+    /// (Type kept named <c>SignPanelInputBlock</c> to avoid churn; it has been the de-facto shared
+    /// guard since the viewer was OR'd into <see cref="AnyOpen"/> — §2L.5.) While any of them is
+    /// open, make the game behave like every vanilla full-screen GUI:
     ///   • block player CHARACTER input so movement / attack / build don't leak through
-    ///     the panel (postfix on <c>Player.TakeInput</c> → force false),
+    ///     (postfix on <c>Player.TakeInput</c> → force false),
     ///   • freeze CAMERA mouse-look so the world doesn't spin while the player drags
-    ///     across the panel (postfix on <c>PlayerController.TakeInput(bool)</c> → force
-    ///     false while the panel is open), and
-    ///   • release the mouse cursor so the player can click swatches/buttons (postfix on
-    ///     <c>GameCamera.UpdateMouseCapture</c> → unlock + show the cursor each frame).
+    ///     across the surface (postfix on <c>PlayerController.TakeInput(bool)</c> → force
+    ///     false while a modal is open), and
+    ///   • free + show the mouse cursor so the player can click swatches / buttons / pins, and
+    ///     restore the gameplay lock on close (per-frame pump on the LIVE
+    ///     <c>GameCamera.LateUpdate</c> seam + one-shot restore — <see cref="CursorPumpPatch"/>, §2L).
     ///
     /// Why <c>PlayerController.TakeInput</c> is the right camera seam (Issue 6 fix):
     /// vanilla's <c>PlayerController.LateUpdate</c> zeroes mouse-look with
@@ -27,10 +31,10 @@ namespace SBPR.Trailborne.Features.Signs
     /// approach, which also targeted the wrong method: <c>UpdateCamera</c> only gates
     /// camera ZOOM, not look — and was never even registered).
     ///
-    /// All three seams are vanilla methods (verified against assembly_valheim.dll
-    /// metadata — clean-room, no decompiled source). Inert on the dedicated server: the
-    /// panel never opens there (no local Player), so <c>SignPaintPanel.IsOpen</c> stays
-    /// false and every patch is pass-through.
+    /// All seams are vanilla methods (verified against assembly_valheim.dll
+    /// metadata — clean-room, no decompiled source; ADR-0001 base-game is fair game). Inert on
+    /// the dedicated server: no surface ever opens there (no local Player), so <c>AnyOpen</c>
+    /// stays false and every patch is pass-through.
     /// </summary>
     public static class SignPanelInputBlock
     {
@@ -82,15 +86,63 @@ namespace SBPR.Trailborne.Features.Signs
             }
         }
 
-        [HarmonyPatch(typeof(GameCamera), "UpdateMouseCapture")]
-        public static class MouseCapturePatch
+        // §2L (issue 7, card t_1f82da71 / parent t_f7a6db7a): free the cursor while ANY SBPR modal
+        // UI is open, re-seated onto a LIVE every-frame seam, with a deterministic restore on close.
+        //
+        // WHY THE OLD SEAM IS DEAD. The previous MouseCapturePatch postfixed
+        // GameCamera.UpdateMouseCapture. On Daniel's build that method is an EMPTY 1-byte `ret`
+        // (assembly_valheim decomp :85469-85471 — `public void UpdateMouseCapture() { }`); vanilla
+        // moved gameplay cursor management into the new Unity Input System and left this body empty.
+        // A 1-byte method is a JIT inlining candidate, and a Harmony postfix on an inlined target
+        // never fires at the call site — so the cursor-free half was a silent no-op while the
+        // mouselook-freeze half (the live Player/PlayerController.TakeInput postfixes) kept working.
+        // That is exactly Daniel's report: "stops mouselook = correct, cursor not free."
+        //
+        // THE LIVE SEAM. GameCamera.LateUpdate (decomp :85452) is a Unity lifecycle MESSAGE — never
+        // inlined, called every frame by the engine, and is itself the live caller of the empty
+        // UpdateMouseCapture (:85464). Postfixing it guarantees our write runs every frame. A
+        // whole-assembly scan finds the only surviving managed `Cursor.lockState` writers are
+        // Menu.UpdateCursor + FejdStartup.UpdateCursor (pause menu / start screen — neither runs
+        // during gameplay), so once we set lockState=None nothing managed re-locks it mid-play and
+        // the cursor stays free. (§2L.6 option 2; all seams base-game, ADR-0001 clean-side, verified
+        // against assembly_valheim.dll metadata.) Kept as a [HarmonyPatch] rather than a standalone
+        // MonoBehaviour pump specifically so Runtime/PatchCheck guarantees at boot that the cursor
+        // seam is actually woven — a MonoBehaviour pump is invisible to that watchdog and a future
+        // refactor forgetting to instantiate it would silently re-break the cursor (the t_564f695a
+        // "ships dead" failure class).
+        //
+        // RESTORE ON CLOSE (§2L.4b). The old design relied on vanilla's UpdateMouseCapture to
+        // re-lock the next frame; that re-lock is gone from managed code. So we own the close edge:
+        // a single `_wasOpen` edge-detector restores lockState=Locked/visible=false exactly once on
+        // the AnyOpen true→false transition, making AT-TABLE-RESTORE deterministic rather than luck.
+        // The next frame vanilla/Input-System resumes ownership for normal play.
+        //
+        // Server-safe: GameCamera does not exist on the dedicated server, so LateUpdate never fires
+        // there; AnyOpen is also always false (no local Player). Pure pass-through either way.
+        private static bool _wasOpen;
+
+        [HarmonyPatch(typeof(GameCamera), "LateUpdate")]
+        public static class CursorPumpPatch
         {
             [HarmonyPostfix]
             private static void Postfix()
             {
-                if (!AnyOpen) return;
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
+                bool open = AnyOpen;
+
+                if (open)
+                {
+                    // Per-frame pump: re-assert a free, visible cursor every frame the modal is up.
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                    _wasOpen = true;
+                }
+                else if (_wasOpen)
+                {
+                    // Close edge (true→false): hand the cursor back to gameplay exactly once.
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                    _wasOpen = false;
+                }
             }
         }
 
