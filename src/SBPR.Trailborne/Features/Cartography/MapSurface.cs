@@ -118,16 +118,12 @@ namespace SBPR.Trailborne.Features.Cartography
         // is the intended design — Daniel).
         private const float MapRotationSign = 1f;
 
-        // §4.2: the #159 clip geometry as FRACTIONS of the target edge, NOT absolute px, so the disc
-        // inset/ring scale with it (6/900 and 10/900 reproduce the modal's playtested look exactly).
-        private const float BezelInsetFrac = 6f / 900f;
-        private const float BezelRingFrac  = 10f / 900f;
-        // §2E.5: with the bezel now TRANSPARENT outside the ring (defect 1), the ring is the ONLY disc
-        // edge — the old opaque black backing used to imply it. The pure 10/900 fraction gives the 200 px
-        // disc a ~2.2 px thread that reads as weak/absent (headless-verified). Floor the ring at a minimum
-        // absolute width so the small disc keeps a legible bronze edge; the 900 px modal is unaffected
-        // (its 10 px ring already exceeds the floor, so its playtested look is byte-preserved).
-        private const float BezelRingMinPx = 4.5f;
+        // §4.2 / §2E.5.7: the #159 clip geometry (BezelInsetFrac, BezelRingFrac, BezelRingMinPx) and
+        // the rect/mesh + ring radius arithmetic now live in the engine-free DiscRingGeometry helper —
+        // the SINGLE source of truth consumed by LayoutMapRect (rect/mesh), EnsureBezelTexture (ring),
+        // and the under-disc caption offset. Sharing one formula set is what guarantees the cartography
+        // mesh silhouette and the bronze ring can never drift apart (the §2E.5.7 content-to-ring gap),
+        // and makes the radius relation CI-gated by tests/DiscRingGeometryTests.cs.
 
         private static readonly Color32 CParchment = new Color32(214, 198, 162, 255);
         private static readonly Color32 CShroud    = new Color32(14, 13, 11, 255);
@@ -464,12 +460,36 @@ namespace SBPR.Trailborne.Features.Cartography
             _shaderMat.SetTexture("_FogTex", _revealTex);
         }
 
-        /// <summary>Size the on-screen map square at a FIXED scale (no scroll-zoom).</summary>
+        /// <summary>
+        /// Size the on-screen map square at a FIXED scale (no scroll-zoom).
+        ///
+        /// §2E.5.7 (card t_642687dd): the rect is sized to the FULL TargetPx square
+        /// (<see cref="DiscRingGeometry.RectEdge"/>), NOT the old integer-floored
+        /// <c>size·floor(TargetPx/size)</c>. That floor dropped the edge below
+        /// TargetPx whenever <c>TargetPx/size</c> wasn't integral, so the mesh
+        /// silhouette (meshR = edge/2) fell INSIDE the ring hole (sized off raw
+        /// TargetPx in <see cref="EnsureBezelTexture"/>) and a transparent annulus
+        /// opened — on the backdrop-less disc that gap showed the live game world.
+        /// Sizing to TargetPx makes meshR = TargetPx/2 ≥ holeR for EVERY survey size
+        /// on BOTH surfaces (and ≤ ringOuterR — no #159 bleed). The fog TEXTURE still
+        /// upscales by the integer factor (a separate Texture2D concern, untouched);
+        /// only the rect SILHOUETTE decouples. CircularRawImage samples uvRect
+        /// per-vertex, so the framed/zoomed cartography is identical regardless of
+        /// rect px — zoom/feel unchanged (AT-DISC-RING-3). <paramref name="size"/> is
+        /// no longer read here; it stays as the documented render-time input.
+        ///
+        /// THE LANDMINE (#204 snapped-pin class): every projection reads
+        /// <c>edge = _mapRect.sizeDelta.x</c> live and pairs it with
+        /// DisplayedSpanMeters — WorldToSurfacePx, the snapped path, the
+        /// <c>discR = edge*0.5</c> pin clip, and the TryRemovePinAtCursor inverse.
+        /// Because they all read the rect, changing ONLY _mapRect.sizeDelta rescales
+        /// the whole set uniformly and pins/marker/cursor stay glued (AT-DISC-RING-4).
+        /// Do NOT introduce a second hard-coded edge literal — this is the one writer.
+        /// </summary>
         private void LayoutMapRect(int size)
         {
             if (_mapRect == null) return;
-            int upscale = Mathf.Max(1, _cfg.TargetPx / Mathf.Max(1, size));
-            float edge = size * upscale;
+            float edge = DiscRingGeometry.RectEdge(_cfg.TargetPx);
             _mapRect.sizeDelta = new Vector2(edge, edge);
         }
 
@@ -1203,12 +1223,13 @@ namespace SBPR.Trailborne.Features.Cartography
             float half = N / 2f;
             float screenPerTex = bezelEdgeScreenPx / N;
 
-            // §4.2: thresholds scale with the target edge (fraction-of-radius), not absolute px.
-            float discEdge   = _cfg.TargetPx * 0.5f;
-            float insetPx    = _cfg.TargetPx * BezelInsetFrac;
-            float ringPx     = Mathf.Max(_cfg.TargetPx * BezelRingFrac, BezelRingMinPx);
-            float holeR      = discEdge - insetPx;
-            float ringOuterR = holeR + ringPx;
+            // §4.2 / §2E.5.7: thresholds scale with the target edge (fraction-of-radius), not absolute
+            // px — and they come from the SHARED DiscRingGeometry helper so the ring hole and the
+            // cartography mesh (LayoutMapRect → RectEdge) are sized from ONE formula set and can never
+            // drift apart (the gap §2E.5.7 closed). holeR sits just INSIDE meshR (= TargetPx/2), so the
+            // ring's inner edge covers the ~insetPx content-under-ring overdraw.
+            float holeR      = DiscRingGeometry.HoleRadius(_cfg.TargetPx);
+            float ringOuterR = DiscRingGeometry.RingOuterRadius(_cfg.TargetPx);
             const float aa   = 0.9f;
 
             var ringColor = new Color(0.62f, 0.55f, 0.42f, 1f);
@@ -1471,7 +1492,7 @@ namespace SBPR.Trailborne.Features.Cartography
             crt.pivot = new Vector2(0.5f, 1f);                       // y = the caption's TOP edge
             // TOP just below the visible disc bottom: radius + ring floor + tunable gap. Derived from
             // the same constants the bezel uses, so it tracks the disc across the modal/disc TargetPx.
-            float capTopY = -(_cfg.TargetPx * 0.5f + BezelRingMinPx + CaptionGapPx);
+            float capTopY = -(_cfg.TargetPx * 0.5f + DiscRingGeometry.BezelRingMinPx + CaptionGapPx);
             crt.anchoredPosition = new Vector2(0f, capTopY);
             crt.sizeDelta = new Vector2(420f, CaptionNameFontPx + CaptionBiomeFontPx + CaptionHintFontPx + 16f);
 
