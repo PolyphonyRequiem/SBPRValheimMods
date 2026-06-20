@@ -1,6 +1,6 @@
 ---
 title: "SBPR Trailborne — Playtest #1 Testers Guide"
-status: current
+status: historical
 purpose: "Playtest #1 — generated from playtest-ledger.md + git ground truth. Do not hand-edit; regenerate."
 generated_from_tag: v0.2.25-playtest
 diff_ref: main

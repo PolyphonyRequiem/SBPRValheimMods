@@ -1,7 +1,7 @@
 ---
 title: index — docs/playtest
 status: living
-last_updated: 2026-06-18
+last_updated: 2026-06-19
 ---
 
 # index — docs/playtest
@@ -12,7 +12,9 @@ Machine-readable manifest of the playtest tracking system.
 |------|--------|---------|
 | README.md | living | What the playtest system is — ledger + numbered testers guides, Playtest #N vs build tags |
 | playtest-ledger.md | living | Living source of truth for what needs in-game testing: PENDING (accrues as work merges) + ARCHIVE (shipped playtests). Carries `playtest_counter` + `last_playtest_tag` in frontmatter. |
-| playtest-1-testers-guide.md | current | Generated Playtest #1 testers guide — install + acceptance checklist for everything merged since v0.2.25-playtest, with git ground-truth cross-check. |
+| playtest-1-testers-guide.md | historical | Generated Playtest #1 testers guide — install + acceptance checklist for everything merged since v0.2.25-playtest, with git ground-truth cross-check. Superseded by #2/#3. |
+| playtest-2-testers-guide.md | historical | Generated Playtest #2 testers guide (cut at the v0.2.28 build) — disc render / fog-shroud / cursor-free cartography work. Its Sunstone item is stale (trophy-ring landed in v0.2.29 #199, ~6 min after this guide was generated); the corrected Sunstone checklist is in #3. |
+| playtest-3-testers-guide.md | current | Generated Playtest #3 testers guide (cut at v0.2.29) — first guide to describe the shipped Sunstone Lens trophy-ring render (#199) + the Portal Seed cost verify carryforward. |
 
 ## Conventions
 
