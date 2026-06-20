@@ -2656,6 +2656,19 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
   intentional). Full spec + the rest of the named ATs:
   **`local-map-disc-name-hint-impl-spec.md`**. (Caption sits below the bezel — does NOT collide
   with AT-DISC-MARKER-1's on-face chevron.)
+- **AT-BIOME-MINIMAP / AT-BIOME-MODAL / AT-BIOME-SHARED / AT-BIOME-CLEAN (current-biome NAME
+  on both surfaces, card t_caf0f1cf, 2026-06-19 — Path A)** — both SBPR cartography surfaces
+  show the player's **current-biome NAME** (vanilla `$biome_*`, locale-correct). The **disc**
+  carries it as a line in the under-disc caption stack (the stack becomes **name / biome /
+  `[M]` hint**), updating on biome change; the **modal** carries a **fixed** current-biome
+  readout under its BARE title cartouche. ONE `MapSurface.CurrentBiomeNameOrNull()` helper
+  (`Player.GetCurrentBiome()` → `$biome_<name>`, with a `Biome.None`/unlocalized guard so no
+  `$biome_*` literal leaks) feeds BOTH surfaces — no divergent second path. Computed live —
+  **no `SurveyData` wire change** (Path A, not Path B colour-fills/legend); no vanilla
+  `m_biomeName*`/`Minimap`/material/root mutation (nomap stays enforced). The biome line is
+  screen-stable on the disc (rides the non-rotating `_frame` caption) and the modal cursor-hover
+  variant is a **deferred** follow-up (passive modal, §3.2.1). Full spec + the rest of the named
+  ATs: **`local-map-biome-indicator-impl-spec.md`**.
 - logs-green ≠ playable — Daniel confirms in-game.
 
 **Supersession map (old §2H ATs → this section).** AT-LMAP-ROT-1 (free-rotate) → restated in

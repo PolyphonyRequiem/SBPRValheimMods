@@ -67,5 +67,21 @@ Planning artifacts for the Black Forest tier. Same role as
   PLACEMENT (the `$KEY_Map` token + rebind-correctness stand). Closes card **t_338f723b**.
   SpecCheck delta = **+0** (HUD presentation; the name is already stored).
 
+- **`local-map-biome-indicator-impl-spec.md`** — the buildable *how* for the **current-biome
+  NAME readout on both cartography surfaces** (design lock:
+  [`../../design/map-provider-model.md`](../../design/map-provider-model.md) §2.2, Daniel
+  2026-06-19 v0.2.27 playtest: *"Minimap and local map need to have support for biome
+  indicators"* → **Path A**, "A and architect"). Adds the player's current-biome name as text:
+  on the **disc**, a line in the under-disc caption stack (**name / biome / `[M]` hint**),
+  updating on biome change; on the **modal**, a **fixed** current-biome readout under the BARE
+  title (cursor-hover is a deferred follow-up — the modal is passive). ONE shared
+  `MapSurface.CurrentBiomeNameOrNull()` feeds both surfaces (`Player.GetCurrentBiome()` →
+  vanilla `$biome_*` token, with a `Biome.None`/unlocalized guard so no `$biome_*` literal
+  leaks — the 2026-06-05 sign-bug lesson). Computed live — **no `SurveyData` wire change**
+  (Path A, not Path B colour/legend), no vanilla `m_biomeName*`/`Minimap`/material/root
+  mutation (nomap enforced). Net-new addendum to the locked §2 minimap model; extends the
+  PR #205 caption infrastructure (**t_26bba85b**). Closes card **t_caf0f1cf**. SpecCheck
+  delta = **+0** (HUD presentation; biome is read live, never stored).
+
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
