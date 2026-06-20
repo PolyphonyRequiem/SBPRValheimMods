@@ -45,6 +45,19 @@ impl-spec. Each carries its open questions inline.
   on the in-tree Surveyor's Table ZDO-blob pattern; five design knobs (tier,
   placement tool, public/private sizes, destroy-warning) are open for Daniel.
 
+- **[`sunstone-lens-minimap-handoff.md`](sunstone-lens-minimap-handoff.md)** —
+  Daniel's 2026-06-20 idea: when a local-map minimap **disc** is available, move
+  the Sunstone Lens' hostile detection onto the disc instead of the
+  camera-relative trophy-ring HUD. The trigger (`IsMinimapBound`) is true exactly
+  in *nomap-ON + a local map bound* — the very config the old "no map surface to
+  pin to" rationale was written for. Grounds the lowest-coupling seam (a
+  Cartography transient-threat-marker provider mirroring `WorldPins`), the shared
+  `Character → blip` projection both surfaces consume, and the two invariants the
+  move must not break (the #209 dead-Update-pump fix; the camera-relative,
+  never-north AT-LENS-RING-CAMREL thesis). Converts the load-bearing
+  replace-vs-supplement question into a live `MinimapHandoffMode` Config enum so
+  Daniel converges it in-game. Three open knobs for his gate.
+
 - **[`forge-masters-trinket.md`](forge-masters-trinket.md)** — a **standalone-mod**
   Trinket whose power, fired when the vanilla adrenaline bar caps (~80), repairs
   **+5 durability on equipped gear** instead of a combat burst. Decomp-grounded:
