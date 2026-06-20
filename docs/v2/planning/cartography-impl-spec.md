@@ -1556,7 +1556,10 @@ line is `main`). Three implementation decisions resolved the spec's implementer'
    local map locks zoom at 'show full local map' scale. Minimap shows a small portion; if you want to see
    the whole thing, use the whole map."* Implemented with a single `MapSurface.ViewSpanMeters` knob:
    `0` = "frame the whole survey" (the modal's behaviour — `DisplayedSpanMeters` returns `survey.Size *
-   pixelSize ≈ 2112 m`, byte-identical to the prior single-scale build); `>0` = a fixed metre span (the
+   pixelSize ≈ 2112 m`, byte-identical to the prior single-scale build; **🔴 RE-LOCKED 2026-06-19 →
+   §2E.5.6:** the modal `0` branch now frames `2 × survey radius ≈ 2000 m`, NOT 2112 m, so the surveyed
+   disc meets the bezel ring — see §2E.5.6 for the content-to-ring fix + the snapped-pin landmine it
+   exposes); `>0` = a fixed metre span (the
    disc). `MapViewer` sets the disc's `DiscViewSpanMeters = 125 m` (Daniel: *"use 125 m by default, we can
    adjust from there"* — a hair tighter than vanilla's small-minimap `m_smallZoom=0.01 ≈ 164 m`). **One
    source of truth prevents pin drift:** `DisplayedSpanMeters(survey)` feeds BOTH the shader framing
@@ -1576,6 +1579,92 @@ silhouette, reveal world-mapping) on the CI/iGPU box; the GPU SHADER APPEARANCE 
 cloud actually composites through the overridden `_FogTex` — is still Daniel's RTX/Prime accept on
 AT-FOG-VANILLA / AT-DISC-FILL / AT-DISC-CLIP. Build is clean (0/0); the 27-test `BoundedMapMath` suite
 still passes (the reveal reuses its windowing math).
+
+
+#### 2E.5.6 — Modal content-to-ring margin: frame the surveyed disc, not the over-provisioned window (Daniel playtest, 2026-06-19, card t_252f808d)
+
+> **🟢 NEW VISUAL CRITERION (Daniel, v0.2.27-playtest #bugs):** *"the margins between the map and
+> the ring are significant, I'd like there to be no margin at all."* §2E.5.5 point 4 pinned the modal
+> displayed-span to the **over-provisioned window** (`Size×pixelSize = 2112 m`), but the survey
+> content is disc-clipped at `RadiusMeters = 1000 m` (a 2000 m surveyed diameter). The 112 m gap
+> between framed-square and surveyed-disc shows on screen as a shroud/fog annulus between the
+> cartography edge and the bronze bezel ring. The spec never pinned a *content-meets-ring* relation,
+> so this is a **missing visual acceptance criterion** added here alongside the fix — not a worker
+> violation of an existing one.
+
+**The geometry (modal, `TargetPx=900`, grounded in the build's `main` == tag `v0.2.27-playtest`
+`4c6b18e`; line refs are that code):**
+
+There are **three** radii on the modal, not two — the triage framing of "two constants" missed the
+mesh disc:
+
+| radius | px | source |
+|---|---|---|
+| surveyed-content edge | **421.9** | `R × edge/displayedSpan = 1000 × 891/2112` |
+| bezel transparent hole `holeR` | **444.0** | `TargetPx·0.5 − TargetPx·BezelInsetFrac` (`MapSurface.cs:1020-1023`) |
+| `CircularRawImage` mesh-disc edge `meshR` | **445.5** | `edge·0.5 = (Size·upscale)·0.5 = 891·0.5` (the fan's inscribed circle) |
+
+The bezel hole (444) and the mesh silhouette (445.5) already coincide (post-#159, by design). The
+**content** is the outlier at 421.9 — a **~22 px shroud annulus** that persists even over a fully
+explored interior, because the survey is clipped at 1000 m while the frame shows 2112 m. (`edge` is
+`Size·upscale = 33·27 = 891` and is **span-independent** — reframing changes the px/metre, not the
+rect size.)
+
+**LOCKED approach — (A) frame the modal to the surveyed-disc diameter.** When `ViewSpanMeters <= 0`
+(the modal branch), `DisplayedSpanMeters` returns `2 × effective survey radius` instead of
+`Size × pixelSize`. Effective radius = `_req.RadiusMeters > 0 ? _req.RadiusMeters : survey.RadiusMeters`
+(the same fallback `RebuildOverlay` already uses, `MapSurface.cs:510`) — **do not hard-code 1000**, read
+the survey's radius so a future radius change can't silently re-open the gap. At 2000 m the surveyed
+disc maps to `1000 × 891/2000 = 445.5 px` ≈ the 444 px hole → **margin ≈ 0** (a ~1.5 px overdraw of
+content under the ring's inner edge, which the ring covers — *not* a bleed past `ringOuterR`). The
+over-provisioned corner cells (beyond the 1000 m disc, always shroud + always bezel-clipped) simply
+stop being framed; nothing of value leaves the view. (A) is the right call; (B) — shrinking `holeR` to
+the content — is rejected: it would pull the ring inward off the canvas edge *and* leave the surveyed
+disc's far cells (which DO render between 422 and 444 px) as a fog crescent *outside* the new ring,
+re-opening the #159 / issue-6 edge-bleed class. (A) grows content to the ring; (B) shrinks the ring
+into the content and strands a crescent. Grow, don't shrink.
+
+> **🔴 LANDMINE — (A) is NOT the "clean single-knob" the triage card claimed; it is a coordinated
+> TWO-knob change.** §2E.5.5 point 4 asserts "one source of truth prevents pin drift," but that holds
+> only for the *continuous* projection (`WorldToSurfacePx`, `:415`) and the cursor inverse
+> (`TryRemovePinAtCursor`, `:970`), which both call `DisplayedSpanMeters`. The **cell-snapped** table-pin
+> projection `WorldToSurfacePxSnapped` (`:430-453`) does **NOT** — it computes `cell = edge / Size`
+> (`:449`), hard-wired to the 2112 m grid, on the explicit assumption (point 4: *"the modal's span IS
+> the survey"*) that reframe **breaks**. Leave it untouched and **table pins drift outward up to
+> ~+23.6 px at the disc edge** (verified: 250 m→+5.9, 500 m→+11.8, 1000 m→+23.6) — pins float off the
+> terrain they annotate. The snapped path MUST be re-derived to project through the *same* displayed
+> span: snap world→cell as today (banker's-rounded `WorldToCellX/Y`, preserving byte-faithful cell
+> annotation), convert the snapped cell back to its world-centre offset, then project that offset
+> through `DisplayedSpanMeters` exactly like `WorldToSurfacePx` — so terrain, snapped pins, continuous
+> pins, the player marker, and the cursor inverse all frame at one span and cannot desync. This is the
+> real "single source of truth" the original note assumed but the snapped path silently escaped.
+
+**Scope fence — DISC is untouched by construction.** The corner minimap disc sets
+`ViewSpanMeters = DiscViewSpanMeters = 125 m > 0` (`MapViewer.cs:46,83`), so it takes the
+`> 0` branch of `DisplayedSpanMeters` (`MapSurface.cs:313-314`) and never reaches the modal's
+`<= 0` reframe. AT-RING-3 holds without a disc-specific guard — but because `MapSurface` is the
+**shared** builder for both surfaces, the change MUST be verified on BOTH (the disc must not be
+collaterally re-zoomed). Single-owner this fix; do not split disc/modal.
+
+**Acceptance tests (named, observable — eyeball-judged on Daniel's GPU client; logs-green ≠ playable):**
+- **AT-RING-1** *(Daniel is the judge)* — with the full modal map open over a **fully-surveyed**
+  area, the surveyed cartography disc's edge **meets the inside of the bronze bezel ring** — no
+  visible shroud/fog band between content and ring.
+- **AT-RING-2** *(regression — #159 hard clip)* — cartography must **not bleed past** the ring /
+  outside the disc when the interior rotates to heading. (A) grows the framed content to the ring
+  edge; it must not overgrow into an out-of-disc crescent (don't re-introduce issue-6 edge-bleed).
+- **AT-RING-3** *(regression — disc unaffected)* — the corner minimap disc (125 m view) keeps its
+  current framing; the change is scoped to the modal (`ViewSpanMeters<=0`) branch only.
+- **AT-RING-4** *(regression — table pins track terrain)* — after the reframe, table-view pins and
+  the in-disc player marker still land on the exact terrain cell they annotate (the
+  `WorldToSurfacePxSnapped` desync is fixed, not shipped). Eyeball: place a pin on a known
+  feature, confirm it stays glued under rotation/zoom-scale.
+
+**Headless boundary:** the per-pixel margin arithmetic above is verifiable on the build box (pure
+geometry, no shader); the *appearance* — that the content now visually kisses the ring with no fog
+band — is Daniel's GPU-client accept on AT-RING-1. The exact target is eyeball-judged: the ~1.5 px
+content-under-ring overdraw and the `BezelInsetFrac` residual are within tuning tolerance, adjustable
+by a one-line constant if Daniel wants the content pulled a hair tighter or looser.
 
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
