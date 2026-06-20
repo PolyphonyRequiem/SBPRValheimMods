@@ -50,11 +50,12 @@ namespace SBPR.Trailborne.Features.Cartography
         /// <summary>Bottom-centre "[Esc] Close map" + top-centre title cartouche (modal only).</summary>
         public bool ShowPrompts = true;
         /// <summary>
-        /// Two-line name+hint caption UNDER the disc (disc only — §3.1 of disc-name-hint-impl-spec).
-        /// Built on the non-rotating <c>_frame</c> below the bezel: the per-provider map NAME line
-        /// (<see cref="MapViewRequest.Caption"/>) above a static localized <c>[&lt;$KEY_Map&gt;]
-        /// $piece_readmap</c> hint line — one visual unit reading "[M] opens THIS named local map."
-        /// Off for the modal (its name lives in the top-centre Title cartouche instead).
+        /// Multi-line caption STACK UNDER the disc (disc only — §3.1 of disc-name-hint-impl-spec +
+        /// biome-indicator-impl-spec §3.1). Built on the non-rotating <c>_frame</c> below the bezel: the
+        /// per-provider map NAME line (<see cref="MapViewRequest.Caption"/>), the current-biome NAME line,
+        /// and a static localized <c>[&lt;$KEY_Map&gt;] $piece_readmap</c> hint line — one visual unit
+        /// reading "this named local map, here, [M] to open." Off for the modal (its name lives in the
+        /// top-centre Title cartouche; its biome in a separate fixed label under the title).
         /// </summary>
         public bool ShowCaption = false;
         /// <summary>Handle Esc-close + TableEdit pin-click in Tick (modal only). The disc is passive.</summary>
@@ -104,6 +105,13 @@ namespace SBPR.Trailborne.Features.Cartography
         private const float CaptionNameFontPx = 18f;
         private const float CaptionHintFontPx = 16f;
         private const float CaptionGapPx      = 10f;
+        // biome-indicator-impl-spec §3.1/§4.1: the disc caption's MIDDLE biome line (name / biome /
+        // hint). Sized to the hint row (16) so the NAME line stays the visual anchor; biome+hint read
+        // as a tight lower pair under the name. Calibration knob — Daniel's eyeball tunes order/size.
+        private const float CaptionBiomeFontPx = 16f;
+        // biome-indicator-impl-spec §3.2/§4.3: the MODAL's fixed current-biome readout, a subtitle
+        // UNDER the title cartouche. ~22 px reads as a subtitle, not a competing headline (title=34).
+        private const float ModalBiomeFontPx = 22f;
 
         // §2H.1 b4 build-calibration knob: rotation sense. If the map turns the wrong way in-game,
         // flip to -1f. Single knob, shared by both surfaces; no north-up alternative (disorientation
@@ -145,12 +153,20 @@ namespace SBPR.Trailborne.Features.Cartography
         private RawImage? _playerMarker;
         private Text? _exitPrompt;
         private Text? _titleLabel;
-        // §3.1 disc-name-hint-impl-spec: the under-disc name+hint caption (disc only, ShowCaption).
-        // _discCaption is a single multi-line Text on the non-rotating _frame: a per-provider NAME
-        // line (base fontSize 18) above a STATIC localized hint line (<size=16> [<$KEY_Map>]
-        // $piece_readmap). The hint is re-localized every Render (like UpdateExitPrompt/UpdateTitle)
-        // so a mid-session Map rebind is reflected live (AT-REBIND-CORRECT). _captionLastText skips
-        // the redundant Text.text set on the unchanged 0.25 s re-binds (a layout-rebuild cost).
+        // biome-indicator-impl-spec §3.2/§4.3: the MODAL's fixed current-biome readout — a Text built
+        // (modal-only, BuildPrompts) on the non-rotating _root, anchored UNDER the title cartouche.
+        // Driven by UpdateBiomeLabel() from CurrentBiomeNameOrNull() (the ONE shared biome path, §3.4);
+        // SetActive(false) when the biome is unresolved (None/unlocalized) so no empty bar / literal
+        // shows. The DISC instance never builds this (ShowPrompts=false) — its biome rides _discCaption.
+        private Text? _biomeLabel;
+        // §3.1 disc-name-hint-impl-spec (+ biome-indicator-impl-spec §3.1): the under-disc caption STACK
+        // (disc only, ShowCaption). _discCaption is a single multi-line Text on the non-rotating _frame,
+        // THREE rows top→bottom: a per-provider NAME line (base fontSize 18) / the CURRENT-biome NAME line
+        // (16, live from CurrentBiomeNameOrNull) / a STATIC localized hint line (<size=16> [<$KEY_Map>]
+        // $piece_readmap). Name and biome are each conditionally omitted when absent; the hint always shows.
+        // The hint is re-localized every Render (like UpdateExitPrompt/UpdateTitle) so a mid-session Map
+        // rebind is reflected live (AT-REBIND-CORRECT); the biome line repaints on biome-border crossing.
+        // _captionLastText skips the redundant Text.text set on the unchanged 0.25 s re-binds (layout cost).
         private Text? _discCaption;
         private string? _captionLastText;
         // Vanilla tokens only: $KEY_Map → the bound Map key (rebind-correct via ZInput), $piece_readmap
@@ -219,6 +235,7 @@ namespace SBPR.Trailborne.Features.Cartography
             RebuildOverlay(survey);
             UpdateExitPrompt();
             UpdateTitle();
+            UpdateBiomeLabel();
             UpdateCaption();
             UpdateFrameForMode();
             ApplyFieldOrientation(survey);
@@ -998,39 +1015,96 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// §3.4/§3.6 disc-name-hint-impl-spec: refresh the under-disc caption — the per-provider map
-        /// NAME line (<c>_req.Caption</c> = FormatDisplayName, set by DriveMinimapDisc) above a STATIC
-        /// localized <c>[&lt;$KEY_Map&gt;] $piece_readmap</c> hint line. Disc-only (no-op when the
-        /// caption wasn't built, i.e. ShowCaption=false). The hint is re-localized every Render (like
-        /// UpdateExitPrompt/UpdateTitle) so a mid-session Map rebind shows the new key live
-        /// (AT-REBIND-CORRECT). Missing name (Caption null/empty, a pre-naming imprint) → render the
-        /// hint line ALONE, never an empty "Local map for " tail (§3.4 AT-MAPNAME-BLANK). The
-        /// _captionLastText guard skips the redundant Text.text write (+ layout rebuild) on unchanged
-        /// 0.25 s re-binds. Two font sizes in one Text via rich-text &lt;size&gt; tags (§4.2: a single
-        /// Text with \n is simplest and keeps the two rows glued).
+        /// biome-indicator-impl-spec §3.4 — the ONE shared biome-name composition (AT-BIOME-SHARED).
+        /// Returns the localized CURRENT-biome name (player position) or <c>null</c> when it can't be
+        /// resolved. BOTH surfaces call this exact static method: the disc caption (<see cref="UpdateCaption"/>,
+        /// §3.1) and the modal label (<see cref="UpdateBiomeLabel"/>, §3.2) — there is no divergent second
+        /// biome path.
+        ///
+        /// Vanilla construction (decomp <c>Minimap.UpdateBiome</c>, base game — fair to read+adapt):
+        /// <c>Localize("$biome_" + biome.ToString().ToLower())</c>. <c>Player.GetCurrentBiome()</c> is the
+        /// proven call already used at <c>SunstoneLens.cs:351</c> — the cached single-biome value, safe to
+        /// <c>.ToString()</c>. <c>static</c> because it reads only global state (<c>Player.m_localPlayer</c>,
+        /// <c>Localization.instance</c>) — no instance fields, so the disc instance and the modal instance
+        /// provably share one path.
+        ///
+        /// Two literal-leak guards (§3.5 — the 2026-06-05 sign-bug class, a <c>$token</c> reaching the player
+        /// as raw text): (1) <c>Biome.None</c> → null (<c>None=0</c> has no <c>$biome_none</c> token); (2)
+        /// unlocalized passthrough → null (<c>Localization.Localize</c> returns the input unchanged when a
+        /// token is unknown, so an unmapped/future biome comes back as the literal <c>"$biome_xxx"</c> —
+        /// <see cref="MapCaptionText.IsUnresolvedBiomeToken"/> catches it). Returns the human-readable name
+        /// ("Meadows", "Black Forest", "Mistlands"), never the token. No <c>Minimap</c> access, no vanilla
+        /// <c>m_biomeName*</c> mutation — we read player state and paint our own <c>Text</c> (nomap enforced).
+        /// </summary>
+        private static string? CurrentBiomeNameOrNull()
+        {
+            var player = Player.m_localPlayer;
+            if (player == null) return null;
+
+            Heightmap.Biome biome = player.GetCurrentBiome();
+            if (biome == Heightmap.Biome.None) return null; // §3.5 — no $biome_none token exists
+
+            var loc = Localization.instance;
+            if (loc == null) return null;
+
+            string text = loc.Localize("$biome_" + biome.ToString().ToLower());
+            // §3.5 — unknown token comes back as the literal "$biome_xxx"; treat as null so it never leaks.
+            return MapCaptionText.IsUnresolvedBiomeToken(text) ? null : text;
+        }
+
+        /// <summary>
+        /// biome-indicator-impl-spec §3.2/§4.3 — the MODAL's fixed current-biome readout under the title.
+        /// Sibling of <see cref="UpdateTitle"/>, called from <see cref="Render"/>. Sets the label text from
+        /// <see cref="CurrentBiomeNameOrNull"/> (the shared §3.4 path) and hides the label when null so a
+        /// pre-spawn / <c>Biome.None</c> frame shows nothing rather than an empty bar or a <c>$biome_*</c>
+        /// literal (AT-BIOME-NONE-OMIT). DISC-safe: <c>_biomeLabel</c> is built only in the modal
+        /// <c>ShowPrompts</c> path, so the null guard makes this a no-op on the disc even though
+        /// <c>Render</c> is shared (the disc's biome rides <c>_discCaption</c> instead).
+        /// </summary>
+        private void UpdateBiomeLabel()
+        {
+            if (_biomeLabel == null) return;
+            string? biome = CurrentBiomeNameOrNull();
+            _biomeLabel.gameObject.SetActive(biome != null);
+            _biomeLabel.text = biome ?? string.Empty;
+        }
+
+        /// <summary>
+        /// §3.4/§3.6 disc-name-hint-impl-spec (+ biome-indicator-impl-spec §3.1/§4.2): refresh the under-disc
+        /// caption — now a THREE-line stack, top→bottom: the per-provider map NAME line (<c>_req.Caption</c> =
+        /// FormatDisplayName, set by DriveMinimapDisc), the CURRENT-biome NAME line (live from
+        /// <see cref="CurrentBiomeNameOrNull"/>), and a STATIC localized <c>[&lt;$KEY_Map&gt;] $piece_readmap</c>
+        /// hint line. Disc-only (no-op when the caption wasn't built, i.e. ShowCaption=false). The hint is
+        /// re-localized every Render (like UpdateExitPrompt/UpdateTitle) so a mid-session Map rebind shows the
+        /// new key live (AT-REBIND-CORRECT). The name and biome lines are each conditionally OMITTED when
+        /// absent (<see cref="MapCaptionText.ComposeDiscCaption"/>) — a missing name never renders an empty
+        /// "Local map for " tail (§3.4 AT-MAPNAME-BLANK); a missing/None biome omits the middle line entirely
+        /// (AT-BIOME-NONE-OMIT), never a <c>$biome_none</c> literal. The _captionLastText guard skips the
+        /// redundant Text.text write (+ layout rebuild) on unchanged 0.25 s re-binds; because the text now
+        /// varies with the player's biome, a biome-border crossing changes <c>text</c> so the guard correctly
+        /// repaints (one Text.text set per crossing — rare, desired). Per-row font sizes via rich-text
+        /// &lt;size&gt; tags (§4.2: a single Text with \n keeps the rows glued).
         /// </summary>
         private void UpdateCaption()
         {
             if (_discCaption == null) return;
             var loc = Localization.instance;
 
-            int nameSz = (int)CaptionNameFontPx;
-            int hintSz = (int)CaptionHintFontPx;
             string hint = loc != null ? loc.Localize(CaptionHintRaw) : CaptionHintRaw;
-            string hintLine = "<size=" + hintSz + ">" + hint + "</size>";
 
             string? rawName = _req.Caption;
-            string text;
-            if (string.IsNullOrEmpty(rawName))
-            {
-                // §3.4 missing-name: hint line only — never the literal "Local map for " with no tail.
-                text = hintLine;
-            }
-            else
-            {
-                string nameLoc = loc != null ? loc.Localize(rawName) : rawName!;
-                text = "<size=" + nameSz + ">" + nameLoc + "</size>\n" + hintLine;
-            }
+            string? nameLoc = string.IsNullOrEmpty(rawName)
+                ? null
+                : (loc != null ? loc.Localize(rawName) : rawName!);
+
+            // The ONE shared biome path (§3.4) — same static helper the modal label uses (AT-BIOME-SHARED).
+            string? biome = CurrentBiomeNameOrNull();
+
+            // Pure assembly + literal-guard live in the engine-free MapCaptionText (link-compiled into the
+            // headless test suite). name / biome / hint, each conditionally included; hint always present.
+            string text = MapCaptionText.ComposeDiscCaption(
+                nameLoc, biome, hint,
+                (int)CaptionNameFontPx, (int)CaptionBiomeFontPx, (int)CaptionHintFontPx);
 
             if (text == _captionLastText) return; // skip redundant set + layout rebuild on unchanged re-binds
             _captionLastText = text;
@@ -1319,12 +1393,42 @@ namespace SBPR.Trailborne.Features.Cartography
             tlRt.anchoredPosition = new Vector2(0f, -40f);
             tlRt.sizeDelta = new Vector2(1200f, 52f);
             _titleLabel.gameObject.SetActive(false);
+
+            // biome-indicator-impl-spec §3.2/§4.3: the fixed current-biome readout, a SUBTITLE directly
+            // under the title cartouche. Same (0.5,1) top-centre anchor/pivot as the title, one title-row
+            // down (anchoredPosition ≈ (0,-84)); smaller than the title (ModalBiomeFontPx 22 vs 34) so it
+            // reads as a subtitle, not a competing headline. Mirrors the disc's name-over-biome order →
+            // one centred identity column on BOTH surfaces (AT-BIOME-SHARED is visual, not just code).
+            // SetActive(false) initially; UpdateBiomeLabel() toggles it from CurrentBiomeNameOrNull().
+            // -40 (title top) - 44 (≈ one title line) ≈ -84; a calibration knob (Daniel's eyeball tunes).
+            var biomeGo = new GameObject("biomeLabel");
+            biomeGo.transform.SetParent(_root.transform, false);
+            _biomeLabel = biomeGo.AddComponent<Text>();
+            _biomeLabel.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            _biomeLabel.fontSize = (int)ModalBiomeFontPx;
+            _biomeLabel.alignment = TextAnchor.UpperCenter;
+            _biomeLabel.color = new Color(1f, 0.95f, 0.8f, 0.95f); // title's warm tint (slightly softer)
+            _biomeLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+            _biomeLabel.verticalOverflow = VerticalWrapMode.Overflow;
+            _biomeLabel.raycastTarget = false;
+            var blRt = _biomeLabel.rectTransform;
+            blRt.anchorMin = new Vector2(0.5f, 1f);
+            blRt.anchorMax = new Vector2(0.5f, 1f);
+            blRt.pivot = new Vector2(0.5f, 1f);
+            blRt.anchoredPosition = new Vector2(0f, -84f);
+            blRt.sizeDelta = new Vector2(1200f, 40f);
+            var biomeOutline = biomeGo.AddComponent<Outline>();
+            biomeOutline.effectColor = new Color(0f, 0f, 0f, 0.85f);
+            biomeOutline.effectDistance = new Vector2(1.5f, -1.5f);
+            _biomeLabel.gameObject.SetActive(false);
         }
 
         /// <summary>
-        /// §3.1/§3.4 disc-name-hint-impl-spec: build the two-line name+hint caption UNDER the disc
-        /// (disc only — gated on <c>ShowCaption</c>). Text content is filled by <see cref="UpdateCaption"/>
-        /// each Render; this just builds the element.
+        /// §3.1/§3.4 disc-name-hint-impl-spec (+ biome-indicator-impl-spec §3.1): build the under-disc
+        /// caption STACK (disc only — gated on <c>ShowCaption</c>). Text content (now up to three lines:
+        /// name / biome / hint) is filled by <see cref="UpdateCaption"/> each Render; this just builds the
+        /// element.
         ///
         /// PARENT = <c>_frame</c> (NOT <c>_mapContainer</c>). The spec §4.2 recommended <c>_root</c>
         /// "(NOT the rotating <c>_frame</c>)", but that premise is incorrect against the actual code:
@@ -1369,7 +1473,7 @@ namespace SBPR.Trailborne.Features.Cartography
             // the same constants the bezel uses, so it tracks the disc across the modal/disc TargetPx.
             float capTopY = -(_cfg.TargetPx * 0.5f + BezelRingMinPx + CaptionGapPx);
             crt.anchoredPosition = new Vector2(0f, capTopY);
-            crt.sizeDelta = new Vector2(420f, CaptionNameFontPx + CaptionHintFontPx + 16f);
+            crt.sizeDelta = new Vector2(420f, CaptionNameFontPx + CaptionBiomeFontPx + CaptionHintFontPx + 16f);
 
             var outline = capGo.AddComponent<Outline>();
             outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
