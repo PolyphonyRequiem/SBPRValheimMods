@@ -66,20 +66,12 @@ namespace SBPR.Trailborne.Features.Cartography
         private void OnDestroy()
         {
             if (Instance == this) Instance = null;
-            if (_promptRoot != null) UnityEngine.Object.Destroy(_promptRoot);
         }
 
         // Cached state from the throttled inventory poll (read every frame for the input
         // edge-check below, refreshed on the poll cadence).
         private ItemDrop.ItemData? _equippedMap;
         private bool _mapEquipped;
-
-        // §2G.2 equipped HUD prompt ("[E] Open map"). A client-only screen-overlay canvas,
-        // built lazily, toggled with the equipped+not-open state. Bottom-centre, consistent
-        // with the viewer's own "[Esc] Close map" exit prompt (§2F).
-        private GameObject? _promptRoot;
-        private Text? _promptText;
-        private bool _promptShown;
 
         private void Update()
         {
@@ -174,12 +166,6 @@ namespace SBPR.Trailborne.Features.Cartography
             if (mapEquipped && CartographyViewer.IsViewerOpen
                 && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly)
                 RefreshOpenView(equippedMap!);
-
-            // §2G.2: the equipped HUD prompt ("[E] Open map"). Shown only while EQUIPPED and the
-            // field viewer is NOT open.
-            bool fieldViewOpen = CartographyViewer.IsViewerOpen
-                                 && CartographyViewer.CurrentMode == MapViewerMode.FieldReadOnly;
-            UpdateEquippedPrompt(mapEquipped && !fieldViewOpen);
         }
 
         // ── §4.4 disc bind/unbind helpers (drive the carry minimap from provider state) ──
@@ -195,6 +181,14 @@ namespace SBPR.Trailborne.Features.Cartography
             if (survey == null) { UnbindMinimapDisc(); return; } // defensive — gate already checked
 
             LocalMap.TryGetBoundOrigin(provider, out var origin);
+            // §3.6 (disc-name-hint-impl-spec): the under-disc caption's NAME line. FORMATTED here
+            // ("Local map for <Table>") — a deliberate split from the modal cartouche, which stays
+            // BARE (§3.4). null when the provider has no imprinted name (pre-naming map) → the disc
+            // caption renders the hint line only, never an empty "Local map for ". Carried via the
+            // dedicated MapViewRequest.Caption (NOT Title — Title is force-cleared for the disc).
+            string? caption = LocalMap.TryGetName(provider, out var capName)
+                ? LocalMap.FormatDisplayName(capName)
+                : null;
             CartographyViewer.BindMinimap(new MapViewRequest
             {
                 Survey       = survey,
@@ -203,6 +197,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 Mode         = MapViewerMode.FieldReadOnly, // read-only; the viewer also forces this
                 PinEditor    = null,
                 Title        = string.Empty,                // a minimap shows no cartouche
+                Caption      = caption,                     // §3.6 — name line UNDER the disc (disc-only)
                 Minimap      = true,
             });
 
@@ -279,71 +274,17 @@ namespace SBPR.Trailborne.Features.Cartography
             return true;
         }
 
-        // ── §2G.2 equipped HUD prompt ("[<$KEY_Use>] $piece_readmap") ───────────────────
-
-        /// <summary>
-        /// Show/hide the equipped-map open prompt. Built lazily on first show. The key token is
-        /// the VANILLA <c>$KEY_Use</c> bound-key token + the vanilla <c>$piece_readmap</c>
-        /// string (decomp MapTable :114046 uses exactly "$KEY_Use $piece_readmap"), localized
-        /// through <c>Localization.instance.Localize</c> so the token resolves to the player's
-        /// real key (e.g. "E") and stays rebind-correct — the proven CairnInteractable /
-        /// SurveyorTableTag idiom. A CUSTOM $piece_* token would leak as a literal (the
-        /// 2026-06-05 sign-bug lesson), so we reuse vanilla tokens only.
-        /// </summary>
-        private void UpdateEquippedPrompt(bool show)
-        {
-            if (show == _promptShown && _promptRoot != null) return;
-            _promptShown = show;
-
-            if (!show)
-            {
-                if (_promptRoot != null) _promptRoot.SetActive(false);
-                return;
-            }
-
-            EnsurePromptCanvas();
-            if (_promptRoot != null) _promptRoot.SetActive(true);
-        }
-
-        private void EnsurePromptCanvas()
-        {
-            if (_promptRoot != null) return;
-
-            _promptRoot = new GameObject("SBPR_LocalMapPrompt");
-            UnityEngine.Object.DontDestroyOnLoad(_promptRoot);
-            var canvas = _promptRoot.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 4000; // above the HUD, below the open viewer (5000)
-            var scaler = _promptRoot.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-
-            var txtGo = new GameObject("promptText");
-            txtGo.transform.SetParent(_promptRoot.transform, false);
-            _promptText = txtGo.AddComponent<Text>();
-            _promptText.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
-                               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
-            _promptText.fontSize = 26;
-            _promptText.alignment = TextAnchor.LowerCenter;
-            _promptText.color = new Color(1f, 0.95f, 0.8f, 0.95f);
-            _promptText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            _promptText.verticalOverflow = VerticalWrapMode.Overflow;
-            _promptText.raycastTarget = false;
-            // Vanilla $KEY_Map → the player's bound Map key (e.g. "M", rebind-correct);
-            // $piece_readmap → "Read map". M replaces the old $KEY_Use per design §1 (the open
-            // gesture moved off E; spec §5). $KEY_Map is a vanilla registered-button key token
-            // (same family as $KEY_Use/$KEY_Block/$KEY_Jump), NOT a custom $piece_* literal — so
-            // it resolves through ZInput.GetBoundKeyString and stays correct across rebinds.
-            string raw = "[<color=yellow><b>$KEY_Map</b></color>] $piece_readmap";
-            _promptText.text = Localization.instance != null ? Localization.instance.Localize(raw) : raw;
-
-            var rt = _promptText.rectTransform;
-            rt.anchorMin = new Vector2(0.5f, 0f);
-            rt.anchorMax = new Vector2(0.5f, 0f);
-            rt.pivot = new Vector2(0.5f, 0f);
-            rt.anchoredPosition = new Vector2(0f, 90f); // bottom-centre, clear of the hotbar
-            rt.sizeDelta = new Vector2(900f, 48f);
-        }
+        // ── §2G.2 open-hint RELOCATED (card t_26bba85b) ────────────────────────────────
+        // The equipped HUD prompt ("[<$KEY_Map>] $piece_readmap") that used to float
+        // bottom-centre here is GONE. Daniel's 2026-06-19 v0.2.27 playtest: the bottom hint
+        // "doesn't really work for me" — it was spatially divorced from the disc it acts on and
+        // only showed while equipped (narrower than when M actually opens the map, §2.4 of
+        // local-map-disc-name-hint-impl-spec.md). The open-hint now lives as a two-line caption
+        // (map NAME + the same rebind-correct [<$KEY_Map>] $piece_readmap hint) UNDER the carry
+        // minimap disc, built on the disc MapSurface (ShowCaption) and driven from the provider
+        // name (DriveMinimapDisc → MapViewRequest.Caption). The token stays vanilla $KEY_Map +
+        // $piece_readmap (the 2026-06-05 sign-bug literal-leak lesson stands). See MapSurface.cs
+        // (_discCaption) and MapViewer.Awake (_disc ShowCaption = true).
 
         // ── Open / close the full-screen bounded viewer on the imprinted snapshot ─────
 

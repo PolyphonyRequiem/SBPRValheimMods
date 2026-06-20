@@ -49,6 +49,14 @@ namespace SBPR.Trailborne.Features.Cartography
         public bool ShowBackdrop = true;
         /// <summary>Bottom-centre "[Esc] Close map" + top-centre title cartouche (modal only).</summary>
         public bool ShowPrompts = true;
+        /// <summary>
+        /// Two-line name+hint caption UNDER the disc (disc only — §3.1 of disc-name-hint-impl-spec).
+        /// Built on the non-rotating <c>_frame</c> below the bezel: the per-provider map NAME line
+        /// (<see cref="MapViewRequest.Caption"/>) above a static localized <c>[&lt;$KEY_Map&gt;]
+        /// $piece_readmap</c> hint line — one visual unit reading "[M] opens THIS named local map."
+        /// Off for the modal (its name lives in the top-centre Title cartouche instead).
+        /// </summary>
+        public bool ShowCaption = false;
         /// <summary>Handle Esc-close + TableEdit pin-click in Tick (modal only). The disc is passive.</summary>
         public bool HandleInput = true;
         /// <summary>
@@ -87,6 +95,15 @@ namespace SBPR.Trailborne.Features.Cartography
         private const float PinIconPx      = 22f;
         private const float PinLabelFontPx = 14f;
         private const float PlayerMarkerPx = 26f;
+
+        // §3.4 disc-name-hint-impl-spec build-calibration knobs (Daniel's eyeball tunes — start here):
+        //   • CaptionNameFontPx / CaptionHintFontPx: the two caption rows (name 18 / hint 16, §3.4).
+        //   • CaptionGapPx: gap below the disc's nominal radius (TargetPx*0.5) to the caption TOP, so
+        //     the caption clears the bezel ring (ringOuterR ≈ TargetPx*0.5 + ~3 px at 200 px) without
+        //     colliding with the on-face chevron (AT-DISC-MARKER-1, which lives ON the disc face).
+        private const float CaptionNameFontPx = 18f;
+        private const float CaptionHintFontPx = 16f;
+        private const float CaptionGapPx      = 10f;
 
         // §2H.1 b4 build-calibration knob: rotation sense. If the map turns the wrong way in-game,
         // flip to -1f. Single knob, shared by both surfaces; no north-up alternative (disorientation
@@ -128,6 +145,17 @@ namespace SBPR.Trailborne.Features.Cartography
         private RawImage? _playerMarker;
         private Text? _exitPrompt;
         private Text? _titleLabel;
+        // §3.1 disc-name-hint-impl-spec: the under-disc name+hint caption (disc only, ShowCaption).
+        // _discCaption is a single multi-line Text on the non-rotating _frame: a per-provider NAME
+        // line (base fontSize 18) above a STATIC localized hint line (<size=16> [<$KEY_Map>]
+        // $piece_readmap). The hint is re-localized every Render (like UpdateExitPrompt/UpdateTitle)
+        // so a mid-session Map rebind is reflected live (AT-REBIND-CORRECT). _captionLastText skips
+        // the redundant Text.text set on the unchanged 0.25 s re-binds (a layout-rebuild cost).
+        private Text? _discCaption;
+        private string? _captionLastText;
+        // Vanilla tokens only: $KEY_Map → the bound Map key (rebind-correct via ZInput), $piece_readmap
+        // → "Read map". NO hardcoded "M", NO custom $piece_* literal (the 2026-06-05 sign-bug lesson).
+        private const string CaptionHintRaw = "[<color=yellow><b>$KEY_Map</b></color>] $piece_readmap";
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
 
         private MapViewRequest _req;
@@ -191,6 +219,7 @@ namespace SBPR.Trailborne.Features.Cartography
             RebuildOverlay(survey);
             UpdateExitPrompt();
             UpdateTitle();
+            UpdateCaption();
             UpdateFrameForMode();
             ApplyFieldOrientation(survey);
         }
@@ -938,6 +967,46 @@ namespace SBPR.Trailborne.Features.Cartography
             _titleLabel.text = Localization.instance != null ? Localization.instance.Localize(title) : title;
         }
 
+        /// <summary>
+        /// §3.4/§3.6 disc-name-hint-impl-spec: refresh the under-disc caption — the per-provider map
+        /// NAME line (<c>_req.Caption</c> = FormatDisplayName, set by DriveMinimapDisc) above a STATIC
+        /// localized <c>[&lt;$KEY_Map&gt;] $piece_readmap</c> hint line. Disc-only (no-op when the
+        /// caption wasn't built, i.e. ShowCaption=false). The hint is re-localized every Render (like
+        /// UpdateExitPrompt/UpdateTitle) so a mid-session Map rebind shows the new key live
+        /// (AT-REBIND-CORRECT). Missing name (Caption null/empty, a pre-naming imprint) → render the
+        /// hint line ALONE, never an empty "Local map for " tail (§3.4 AT-MAPNAME-BLANK). The
+        /// _captionLastText guard skips the redundant Text.text write (+ layout rebuild) on unchanged
+        /// 0.25 s re-binds. Two font sizes in one Text via rich-text &lt;size&gt; tags (§4.2: a single
+        /// Text with \n is simplest and keeps the two rows glued).
+        /// </summary>
+        private void UpdateCaption()
+        {
+            if (_discCaption == null) return;
+            var loc = Localization.instance;
+
+            int nameSz = (int)CaptionNameFontPx;
+            int hintSz = (int)CaptionHintFontPx;
+            string hint = loc != null ? loc.Localize(CaptionHintRaw) : CaptionHintRaw;
+            string hintLine = "<size=" + hintSz + ">" + hint + "</size>";
+
+            string? rawName = _req.Caption;
+            string text;
+            if (string.IsNullOrEmpty(rawName))
+            {
+                // §3.4 missing-name: hint line only — never the literal "Local map for " with no tail.
+                text = hintLine;
+            }
+            else
+            {
+                string nameLoc = loc != null ? loc.Localize(rawName) : rawName!;
+                text = "<size=" + nameSz + ">" + nameLoc + "</size>\n" + hintLine;
+            }
+
+            if (text == _captionLastText) return; // skip redundant set + layout rebuild on unchanged re-binds
+            _captionLastText = text;
+            _discCaption.text = text;
+        }
+
         // ── Input: only the modal (HandleInput) processes Esc-close + TableEdit pin-click ──
 
         /// <summary>Modal input tick (Esc close, TableEdit pin removal). The disc is passive (no input).
@@ -1156,6 +1225,7 @@ namespace SBPR.Trailborne.Features.Cartography
             bzRt.sizeDelta = new Vector2(bezelEdge, bezelEdge);
 
             if (_cfg.ShowPrompts) BuildPrompts();
+            if (_cfg.ShowCaption) BuildCaption();
 
             _root.SetActive(false);
         }
@@ -1219,6 +1289,61 @@ namespace SBPR.Trailborne.Features.Cartography
             tlRt.anchoredPosition = new Vector2(0f, -40f);
             tlRt.sizeDelta = new Vector2(1200f, 52f);
             _titleLabel.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// §3.1/§3.4 disc-name-hint-impl-spec: build the two-line name+hint caption UNDER the disc
+        /// (disc only — gated on <c>ShowCaption</c>). Text content is filled by <see cref="UpdateCaption"/>
+        /// each Render; this just builds the element.
+        ///
+        /// PARENT = <c>_frame</c> (NOT <c>_mapContainer</c>). The spec §4.2 recommended <c>_root</c>
+        /// "(NOT the rotating <c>_frame</c>)", but that premise is incorrect against the actual code:
+        /// only <c>_mapContainer</c> rotates (ApplyFieldOrientation) — <c>_frame</c> is the NON-rotating
+        /// corner-anchored host the fixed bezel itself rides ("child of the NON-rotating frame so it
+        /// never spins", EnsureBuilt). Parenting the caption to <c>_frame</c> therefore (a) is screen-
+        /// stable exactly like the bezel (AT-CAPTION-NO-ROTATE holds — verified non-rotating), and
+        /// (b) derives the caption's position from the disc's OWN layout (frame-centre = disc-centre,
+        /// one source of truth — the §3.1 route-A intent) instead of re-deriving the corner inset on
+        /// <c>_root</c>. Same screen-stability guarantee the spec wanted; cleaner geometry. Flagged in
+        /// the PR so the reviewer sees the deliberate spec-deviation + rationale.
+        ///
+        /// The caption TOP sits just below the visible disc bottom: <c>-(TargetPx*0.5 + BezelRingMinPx
+        /// + CaptionGapPx)</c> — the disc radius plus the bronze ring's floor width plus the tunable
+        /// gap, so it clears the bezel ring and never collides with the on-FACE chevron
+        /// (AT-DISC-MARKER-1). UpperCenter + HorizontalWrapMode.Overflow → a long name extends
+        /// symmetrically rather than clipping (§3.4). raycastTarget=false (passive HUD); an Outline
+        /// keeps it legible over the live game world (the disc has no backdrop), mirroring the pin
+        /// labels' idiom.
+        /// </summary>
+        private void BuildCaption()
+        {
+            if (_frame == null) return;
+
+            var capGo = new GameObject("discCaption");
+            capGo.transform.SetParent(_frame.transform, false);
+            _discCaption = capGo.AddComponent<Text>();
+            _discCaption.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                                ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            _discCaption.supportRichText = true;            // per-row <size> tags (name 18 / hint 16)
+            _discCaption.fontSize = (int)CaptionNameFontPx; // base; <size> tags override per span
+            _discCaption.alignment = TextAnchor.UpperCenter;
+            _discCaption.color = new Color(1f, 0.95f, 0.8f, 0.97f);
+            _discCaption.horizontalOverflow = HorizontalWrapMode.Overflow; // long names extend, don't clip (§3.4)
+            _discCaption.verticalOverflow = VerticalWrapMode.Overflow;
+            _discCaption.raycastTarget = false;
+
+            var crt = _discCaption.rectTransform;
+            crt.anchorMin = crt.anchorMax = new Vector2(0.5f, 0.5f); // disc centre (frame-local)
+            crt.pivot = new Vector2(0.5f, 1f);                       // y = the caption's TOP edge
+            // TOP just below the visible disc bottom: radius + ring floor + tunable gap. Derived from
+            // the same constants the bezel uses, so it tracks the disc across the modal/disc TargetPx.
+            float capTopY = -(_cfg.TargetPx * 0.5f + BezelRingMinPx + CaptionGapPx);
+            crt.anchoredPosition = new Vector2(0f, capTopY);
+            crt.sizeDelta = new Vector2(420f, CaptionNameFontPx + CaptionHintFontPx + 16f);
+
+            var outline = capGo.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
+            outline.effectDistance = new Vector2(1.5f, -1.5f);
         }
 
         private static void EnsureEventSystem()
