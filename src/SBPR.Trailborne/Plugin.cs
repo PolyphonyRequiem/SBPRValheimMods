@@ -98,6 +98,22 @@ namespace SBPR.Trailborne
             new System.Collections.Generic.HashSet<string>();
         internal static ConfigEntry<string>? LensClearWeatherNamesRaw = null;
 
+        // ── v3 Swamp: Sunstone Lens trophy-RING render (card t_b8a19487, Daniel 2026-06-18/19) ──
+        // The detection render surface is a screen-space, camera-relative ring of creature trophies
+        // around the player (replaces the old text placeholder). All ring geometry/feel is LIVE
+        // config so Daniel converges the look on a joined client without a rebuild (the same
+        // banner-windsock / can't-verify-headless rule the cairn banner + compass use). Nullable +
+        // ?.Value-accessed from SunstoneLensHudOverlay so a no-Plugin unit context falls back to its
+        // Default* consts (single source of truth). Bound in Awake.
+        internal static ConfigEntry<float>? LensRingRadiusPx       = null;  // fixed screen-space ring radius (px)
+        internal static ConfigEntry<float>? LensRingCenterOffsetY  = null;  // nudge ring centre up/down from screen centre
+        internal static ConfigEntry<float>? LensRingIconMinPx      = null;  // trophy size at the edge of detection range
+        internal static ConfigEntry<float>? LensRingIconMaxPx      = null;  // trophy size right on top of the player
+        internal static ConfigEntry<int>?   LensRingMaxIcons       = null;  // cap on simultaneous trophies (horde guard)
+        internal static ConfigEntry<bool>?  LensRingShowEmpty      = null;  // faint solar ring when worn+charged-but-clear
+        internal static ConfigEntry<bool>?  LensRingShowDepletedHint = null; // faint ring when depleted (default off)
+        internal static ConfigEntry<bool>?  LensRingDebugText      = null;  // legacy text readout as a debug aid
+
         // ── v3 Swamp: Iron Compass (camera-yaw HUD compass overlay, card t_ee61472f) ──
         // The needle-lag feel + the overlay anchor/size/position are LIVE config so Daniel can
         // converge "a little lag is good" and place the dial on a joined client without a rebuild
@@ -324,6 +340,36 @@ namespace SBPR.Trailborne
                 var nm = raw.Trim();
                 if (nm.Length > 0) LensClearWeatherNames.Add(nm);
             }
+
+            // v3 Swamp — Sunstone Lens trophy-RING render (card t_b8a19487). Screen-space,
+            // camera-relative ring of creature trophies (size ∝ proximity, angle = bearing, vanilla
+            // star pips, yellow/orange/red aggro tint). All geometry/feel LIVE-tunable so Daniel
+            // converges the look on a joined client without a rebuild. Defaults mirror the
+            // SunstoneLensHudOverlay.Default* consts (single source of truth).
+            LensRingRadiusPx = Config.Bind(
+                "SunstoneLens", "RingRadiusPx", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingRadiusPx,
+                "Fixed screen-space radius (px) of the detection trophy ring. Trophy size encodes distance; the ring radius does NOT.");
+            LensRingCenterOffsetY = Config.Bind(
+                "SunstoneLens", "RingCenterOffsetY", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingCenterOffsetY,
+                "Vertical nudge (px, +up) of the ring centre from screen centre, so it frames your view without covering the crosshair.");
+            LensRingIconMinPx = Config.Bind(
+                "SunstoneLens", "RingIconMinPx", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingIconMinPx,
+                "Trophy icon size (px) for a hostile at the EDGE of detection range (far = small).");
+            LensRingIconMaxPx = Config.Bind(
+                "SunstoneLens", "RingIconMaxPx", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingIconMaxPx,
+                "Trophy icon size (px) for a hostile right on top of the player (near = big).");
+            LensRingMaxIcons = Config.Bind(
+                "SunstoneLens", "RingMaxIcons", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingMaxIcons,
+                "Max trophies drawn at once (a Swamp horde shows the nearest N; pooled + capped so it never tanks framerate).");
+            LensRingShowEmpty = Config.Bind(
+                "SunstoneLens", "ShowEmptyRing", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultShowEmptyRing,
+                "When worn + charged but nothing's near, show a faint solar ring outline so you can see the lens is live (Daniel: 'a very faint solar ring').");
+            LensRingShowDepletedHint = Config.Bind(
+                "SunstoneLens", "ShowDepletedHint", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultShowDepletedHint,
+                "When the lens runs out of charge, show a dim ring outline as an 'inert, recharge me' cue. Default OFF (ring fully off when depleted).");
+            LensRingDebugText = Config.Bind(
+                "SunstoneLens", "DebugTextReadout", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultDebugTextReadout,
+                "Debug aid: also draw the legacy text line ('N hostiles · nearest Xm · charge Y%') below the ring. Default OFF.");
 
             // v3 Swamp — Iron Compass HUD overlay (card t_ee61472f). Needle-lag feel (Q3) +
             // anchor/size/position (Q4) are LIVE config: a camera-driven HUD widget can't be
