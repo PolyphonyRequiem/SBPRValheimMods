@@ -2836,6 +2836,114 @@ model and would collide if split (the v0.2.20 `MapViewer.cs` lesson). Sequence a
 render impl lands (same file). #11 (pin labels) rides the same rotating overlay but is a separate
 label-rendering change, not orientation. **SpecCheck impact: none.** Spec + code move together.
 
+#### 2H.2 — Modal in-disc chevron must counter-rotate to screen-up (the residual after §2H.1 rotation landed; issue "chevron always faces north", 2026-06-20, card t_423f5bd7)
+
+> **Status: BUG — code↔spec drift, NOT a new design call.** Reported by Daniel, v0.2.30-playtest
+> (Niflheim, NoMap → **M** opens the SBPR FieldReadOnly modal): *"the main map view has the
+> player's chevron always facing north."* This is the **residual exposed once §2H.1 rotation
+> worked** on the modal — the held map rotates-to-heading, but its in-disc player chevron was
+> never screen-stabilised, so it rides the rotating interior and pins to **map-north**. The fix
+> **conforms code to the already-locked §2H.1 / AT-DISC-MARKER-1 intent** (chevron = screen-up =
+> forward, NO north reference). No design question is open — see the "no ambiguity" note below.
+> Clean-side (ADR-0001): all SBPR-authored cartography UI; reading vanilla camera yaw is a
+> base-game read. SpecCheck impact: none (transform behaviour, not a recipe row).
+
+**No ambiguity to resolve — the symptom's "two intents" are already collapsed by the lock.**
+"Chevron always faces north" *could* mean (A) forward-up map + screen-stable chevron, or (B)
+north-up map + swinging chevron. **§2H.1 mechanic 5 + AT-LMAP-TC-5 forbid (B) outright**
+("**no** north indicator, north-up mode, or any orienting aid anywhere on the held Local Map",
+Daniel-locked 2026-06-12), and **AT-DISC-MARKER-1** (2026-06-19, shipped) locks the chevron as
+"**screen-stable pointing up = the player's facing** … never a fixed-North arrow." So intent **(A)
+is the only legal reading** and this card builds under it with no thread answer required.
+*(Do not re-derive this from `cartography-v2.md:263-276`, which still calls the held map
+"player-centred" — that is the 2026-06-11 issue-8 §2H text, re-locked the next day to TABLE-centred
+by §2H.1; the player-centred + free-rotate model shipped in v0.2.22 and was **rejected**. Only the
+carry-DISC is player-centred, R1. The impl-spec is authoritative over the living design doc.)*
+
+**Located root cause (grounded against HEAD `5037af6`, `MapSurface.cs`).** One `_modal`
+`MapSurface` is `PlayerCentred=false` (`MapViewer.cs:70`) and serves **both** FieldReadOnly (held
+map) and TableEdit. Its player marker is parented `playerMarker → overlay → cartography →
+_mapContainer` — the **rotating** interior (`EnsureBuilt :1311-1316`). `ApplyFieldOrientation`
+spins `_mapContainer` by `+rotZ = MapRotationSign * camYaw` every frame (`:964-965`, via
+`TickRotation :978-984`, which runs for the active modal unconditionally). The screen-stabilising
+`-rotZ` counter-rotation on `_playerMarker` is gated to `_cfg.PlayerCentred` (`:973-974`) → the
+**disc** gets it (`PlayerCentred=true`), the **modal does not**. So the modal in-disc chevron
+(`UpdatePlayerMarker` sets `localRotation = identity`, `:684`) inherits the container's `+rotZ` with
+no counter-spin and its tip pins to map-north. *(Candidate "rotation isn't firing" is falsified:
+`TickRotation`→`ApplyFieldOrientation` sets `_mapContainer.localRotation` every frame for the active
+modal; the content demonstrably rotates. The chevron-north symptom is the counter-rotation gap, not
+a missing rotation.)*
+
+**🔒 LOCKED ROUTE — counter-rotate the in-disc chevron on EVERY rotating surface (gate on
+off-disc, not on `PlayerCentred`, and NOT on `mode`).** The disc's existing `-rotZ` line is correct;
+generalise its *condition*, not its math:
+
+1. **In `ApplyFieldOrientation` (`:973-974`)**, replace the `_cfg.PlayerCentred` gate on the
+   chevron counter-rotation with a condition that fires for the **in-disc marker on any rotating
+   surface** and is suppressed only when the modal marker is currently the **off-disc edge-arrow**.
+   Concretely: counter-rotate `_playerMarker` to `Euler(0,0,-rotZ)` **unless** the marker is in its
+   off-disc edge-arrow state. Track that state with a single field the marker update already knows —
+   add `private bool _markerOffDisc;` set in `UpdatePlayerMarker` (`true` in the `outside` branch
+   `:672-680`, `false` in the in-disc branch `:681-688` and in the `PlayerCentred` centre-pivot
+   branch `:657-664`). Then the §2H.2 line reads, in spirit:
+   `if (_playerMarker != null && !_markerOffDisc) _playerMarker.rectTransform.localRotation =
+   Quaternion.Euler(0f, 0f, -rotZ);`
+   - **Why not gate on `mode == FieldReadOnly`?** Because **TableEdit also rotates-to-heading**
+     (§2H.1 mechanic 6 / AT-TABLEVIEW-ROT-1 — "no north-up lock anywhere"), so its in-disc chevron
+     has the **same** bug and needs the **same** screen-up fix. Gating on `FieldReadOnly` would
+     leave TableEdit's chevron pinned to map-north. The correct discriminator is "is this marker the
+     in-disc glyph (counter-rotate) or the off-disc edge-arrow (leave alone)?", which is
+     mode-agnostic. TableEdit's player stands at the table → always in-disc → always the chevron.
+   - **Why not just drop the gate entirely?** Because the **off-disc edge-arrow** (`:678`) sets its
+     own `localRotation = angleDeg` to point at the player's real bearing, and it must keep riding
+     the container's `+rotZ` so the composed on-screen angle (`rotZ + angleDeg`) tracks the rotated
+     frame (AT-MODAL-MARKER-3 / the existing AT-LMAP-TC-2 edge-arrow behaviour). Counter-rotating it
+     to `-rotZ` would cancel that and break the pointer. Hence the `!_markerOffDisc` suppression.
+2. **Disc is unaffected by construction.** On the disc, `UpdatePlayerMarker` takes the
+   `PlayerCentred` centre-pivot branch (`:657-664`, `_markerOffDisc=false`), so the generalised
+   condition keeps applying the identical `-rotZ` it applies today — no double-rotation, no behaviour
+   change (AT-MODAL-MARKER-2).
+3. **Frame ordering is already correct.** `Render()` calls `UpdatePlayerMarker` (inside
+   `RebuildOverlay`, `:235`) *before* `ApplyFieldOrientation` (`:241`), and the per-frame
+   `TickRotation` re-applies `ApplyFieldOrientation` every frame, so `_markerOffDisc` is set before
+   the counter-rotation reads it on the same frame and stays valid between renders. No reordering
+   needed; the new field is written wherever the marker's in/out state is decided.
+
+**Net change.** One new bool field + its three assignments in `UpdatePlayerMarker`, and one
+widened condition in `ApplyFieldOrientation`. No new layer nodes, no `MapRotationSign` change, no
+render/shroud/pin change. The off-disc edge-arrow branch (`:672-680`) and the disc centre-pivot
+branch are untouched in their own math.
+
+**Graceful degradation.** Inherits `ApplyFieldOrientation`'s existing null-camera guard (`:962`,
+skip the frame) — the counter-rotation only runs on frames where `rotZ` was computed.
+
+##### 2H.2 acceptance tests (named, observable — close only on Daniel's in-game check)
+- **AT-MODAL-MARKER-1 (intent A, the fix)** — with the main map (M / FieldReadOnly modal) open,
+  turning the character N→E→S→W keeps the player chevron pointing **screen-up** (= your facing)
+  while the map content rotates beneath it; it no longer pins to map-north.
+- **AT-MODAL-MARKER-2 (regression — disc unaffected)** — the corner minimap disc chevron keeps its
+  current correct screen-up behaviour (AT-DISC-MARKER-1); the generalised condition applies the
+  same `-rotZ` it did before — no double-rotation, no flip.
+- **AT-MODAL-MARKER-3 (regression — off-map edge arrow)** — when the player is outside the surveyed
+  disc on the FieldReadOnly modal, the orange **edge arrow** still points outward toward the
+  player's real bearing under rotation (its `angleDeg` + the container `rotZ` compose correctly; it
+  is NOT counter-rotated). AT-LMAP-TC-2's edge-arrow behaviour is preserved.
+- **AT-MODAL-MARKER-4 (TableEdit chevron — ALSO screen-up, NOT north-up)** — opening the Surveyor's
+  Table (TableEdit) view and turning the character keeps the in-disc chevron pointing **screen-up**
+  while the table map rotates-to-heading (per §2H.1 mechanic 6 / AT-TABLEVIEW-ROT-1). *(This
+  corrects the original card's Open-Q2, which assumed TableEdit stays north-up — the spec locked it
+  to rotate-to-heading on 2026-06-12, so its chevron gets the same screen-up fix, not an exception.)*
+- logs-green ≠ playable — real accept is Daniel on the live client (all four are in-view checks).
+
+**Supersession note.** This **refines** AT-DISC-MARKER-1's screen-up guarantee onto the modal
+surfaces (it was only verified on the disc) and is the modal half of the §2H.1 rotate-to-heading
+lock. It does **not** change any §2H.1 mechanic; it closes the one marker-orientation gap §2H.1's
+shared-builder left when the counter-rotation landed on the `PlayerCentred` disc only.
+
+**Implementation routing.** One `engineer-ui` worker owns `MapSurface.cs`, as a child of THIS card
+(t_423f5bd7). Single-file change; no §2E/render coupling. **SpecCheck impact: none.** Spec + code
+move together in that PR.
+
 > **✅ IMPL STATUS (2026-06-11, t_23b950ee → branch `feat/local-map-viewer-overhaul-t_23b950ee`).**
 > The §2H LOCKED ROUTE (P2 player-centred minimap, route-1 transform rotation) is BUILT in
 > `MapViewer.cs` on top of §2E. A new `_mapContainer` pivot node wraps the §2E

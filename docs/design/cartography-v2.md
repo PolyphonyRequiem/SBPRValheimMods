@@ -260,6 +260,17 @@ build. But this is the load-bearing aesthetic/scope decision and it's yours.
 > Large map — so under `nomap=OFF` players currently have the full vanilla map. Whether to
 > ship that nerf (a `Minimap.SetMapMode` clamp) or relax the baseline is a separate Daniel
 > call (impl-spec §2G.3).
+> **⚠️ SUPERSEDED THE NEXT DAY — read this first (2026-06-12, issue-8 re-lock → impl-spec §2H.1).**
+> The "**PLAYER-CENTRED**" + "**TableEdit stays north-up**" claims in the 2026-06-11 block below
+> were **reversed on 2026-06-12** and the player-centred + free-rotate model that shipped in
+> v0.2.22 was **rejected**. The held Local Map (FieldReadOnly) is now **TABLE-centred** (only the
+> carry-DISC is player-centred, R1), and the **Surveyor's Table (TableEdit) view ALSO
+> rotates-to-heading** ("no north-up lock anywhere"). The *rotate-to-heading, no-north* intent
+> stands; only the centring + the TableEdit orientation changed. **Authoritative orientation lock:
+> [`../v2/planning/cartography-impl-spec.md`](../v2/planning/cartography-impl-spec.md) §2H.1
+> (+ §2H.2 for the modal/TableEdit chevron screen-up fix, card t_423f5bd7).** Do not cite the
+> block below for orientation grounding — it is kept for decision history only.
+>
 > **🟢 RESOLVED (2026-06-11, issue 8, Daniel in-game).** *"Local map does not rotate freely
 > but rather is north fixed."* The first build shipped the held Local Map **north-up** because
 > §2B/§2E never specified an orientation. **Corrected: the held Local Map (FieldReadOnly view)
