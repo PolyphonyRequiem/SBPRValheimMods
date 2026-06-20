@@ -59,11 +59,20 @@ namespace SBPR.Trailborne.Features.Sunstone
         public const bool  DefaultShowDepletedHint = false; // ring fully off when depleted (Daniel)
         public const bool  DefaultDebugTextReadout = false; // legacy text line, debug aid only
 
+        public const bool  DefaultDebugMount = true;  // diagnostic cut (t_d5949685): emit mount/wear LogInfo. Bake to false once the ring is confirmed rendering in-game.
+
         private static SunstoneLensHudOverlay? _instance;
 
-        private RectTransform? _root;
+        private RectTransform? _root;       // the host — ALWAYS ACTIVE (carries this MonoBehaviour's Update pump)
+        private RectTransform? _content;    // the visibility child — toggled by SetVisible (NEVER the host; see SetVisible)
         private Image? _emptyRing;          // the faint solar ring outline (empty / substrate)
         private Text?  _debugText;          // optional legacy "⚠ N · nearest Xm · charge Y%" readout
+        private bool   _loggedFirstShow;    // diagnostic: log once on the first visible frame
+
+        // Diagnostic-logging gate (t_d5949685). Reads the live Plugin config when present (so Daniel can
+        // flip it in a joined session), else the Default* const — the no-Plugin-context fallback idiom.
+        // internal so the sibling HudBootstrap (mount log) can share the one gate.
+        internal static bool DebugMount => Plugin.LensRingDebugMount?.Value ?? DefaultDebugMount;
 
         // Pooled per-hostile ring slots (reused across sweeps — never create/destroy per frame).
         private readonly List<Slot> _slots = new List<Slot>();
@@ -124,11 +133,26 @@ namespace SBPR.Trailborne.Features.Sunstone
             _root.anchoredPosition = new Vector2(0f, offY);
             _root.sizeDelta = new Vector2(2f, 2f); // children are absolutely placed; root is a pivot
 
+            // ── Visibility container (the t_d5949685 fix): the host GameObject (_root) carries THIS
+            //    MonoBehaviour, so it MUST stay active or Unity stops calling Update() — and Update()
+            //    is the only thing that ever un-hides the overlay. So visibility toggles a CHILD
+            //    (_content), never the host. _content is a centred pivot coincident with _root, so the
+            //    absolute anchoredPositions of every child (ring/slots/text) are unchanged. (Before this
+            //    fix, SetVisible(false) at the end of Build() deactivated the host, freezing the Update
+            //    pump dead → the overlay rendered NOTHING forever, worn/charged or not — the exact
+            //    self-deactivating-host bug the Iron Compass had, PR #208.)
+            var contentGo = new GameObject("content", typeof(RectTransform));
+            contentGo.transform.SetParent(_root, worldPositionStays: false);
+            _content = contentGo.GetComponent<RectTransform>();
+            _content.anchorMin = _content.anchorMax = _content.pivot = new Vector2(0.5f, 0.5f);
+            _content.anchoredPosition = Vector2.zero;
+            _content.sizeDelta = new Vector2(2f, 2f);
+
             float radius = Plugin.LensRingRadiusPx?.Value ?? DefaultRingRadiusPx;
 
             // The faint solar ring outline (empty state + substrate). Centre-anchored, sized to 2R.
             var ringGo = new GameObject("solar_ring", typeof(RectTransform));
-            ringGo.transform.SetParent(_root, worldPositionStays: false);
+            ringGo.transform.SetParent(_content, worldPositionStays: false);
             var ringRt = ringGo.GetComponent<RectTransform>();
             ringRt.anchorMin = ringRt.anchorMax = ringRt.pivot = new Vector2(0.5f, 0.5f);
             ringRt.anchoredPosition = Vector2.zero;
@@ -151,7 +175,7 @@ namespace SBPR.Trailborne.Features.Sunstone
         private Text MakeText(string name, Font font, int size, FontStyle style, Vector2 anchored)
         {
             var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(_root, worldPositionStays: false);
+            go.transform.SetParent(_content, worldPositionStays: false);  // under _content (visibility child), not the host
 
             var rt = go.GetComponent<RectTransform>();
             rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
@@ -176,8 +200,19 @@ namespace SBPR.Trailborne.Features.Sunstone
 
         private void SetVisible(bool on)
         {
-            if (_root != null && _root.gameObject.activeSelf != on)
-                _root.gameObject.SetActive(on);
+            // Toggle the CONTENT child, NEVER the host (_root): the host carries this MonoBehaviour's
+            // Update pump, so deactivating it would freeze the overlay un-recoverably (t_d5949685 — the
+            // same self-deactivating-host bug the Iron Compass had, PR #208). The host stays active for
+            // the lifetime of the HUD; visibility lives entirely on _content.
+            if (_content == null || _content.gameObject.activeSelf == on) return;
+            _content.gameObject.SetActive(on);
+            if (!on) _loggedFirstShow = false;   // re-arm the first-show diagnostic for the next show
+            // Diagnostic (t_d5949685): a transition LINE here PROVES the Update pump is alive (the bug
+            // was that it was frozen dead). PRESENT in a client LogOutput.log = pump pumping; ABSENT
+            // across a wear/unwear = pump frozen (the old self-deactivating-host failure).
+            if (DebugMount)
+                Plugin.Log.LogInfo($"[Trailborne/Sunstone] LensHud: content → {(on ? "VISIBLE" : "hidden")} "
+                    + $"(host activeInHierarchy={_root?.gameObject.activeInHierarchy}).");
         }
 
         private void Update()
@@ -220,6 +255,17 @@ namespace SBPR.Trailborne.Features.Sunstone
             }
 
             SetVisible(true);
+
+            // Diagnostic (t_d5949685): on the FIRST visible frame, log the resolved placement so a fresh
+            // client LogOutput.log can split a mount/pump failure (this line never appears) from an
+            // on-screen-but-empty ring (line appears with a sane anchoredPosition/size). Re-armed on hide.
+            if (DebugMount && !_loggedFirstShow && _root != null && _content != null)
+            {
+                _loggedFirstShow = true;
+                Plugin.Log.LogInfo($"[Trailborne/Sunstone] LensHud first show: root.anchoredPosition={_root.anchoredPosition} "
+                    + $"ringRadiusPx={(Plugin.LensRingRadiusPx?.Value ?? DefaultRingRadiusPx)} "
+                    + $"(host activeInHierarchy={_root.gameObject.activeInHierarchy}, content active={_content.gameObject.activeSelf}).");
+            }
 
             float max = Mathf.Max(1f, lens.GetMaxDurability());
             float chargePct = Mathf.Clamp01(lens.m_durability / max) * 100f;
@@ -345,7 +391,7 @@ namespace SBPR.Trailborne.Features.Sunstone
         private Slot MakeSlot(int idx)
         {
             var go = new GameObject($"slot_{idx}", typeof(RectTransform));
-            go.transform.SetParent(_root, worldPositionStays: false);
+            go.transform.SetParent(_content, worldPositionStays: false);  // under _content (visibility child), not the host
             var rt = go.GetComponent<RectTransform>();
             rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
 
@@ -698,6 +744,13 @@ namespace SBPR.Trailborne.Features.Sunstone
                 {
                     if (__instance == null || __instance.m_rootObject == null) return;
                     EnsureBuilt(__instance.m_rootObject);
+                    // Diagnostic (t_d5949685): the success path used to be SILENT, so a client log could
+                    // neither confirm nor deny the overlay mount. Log it (DebugMount-gated) — this line
+                    // PRESENT in LogOutput.log proves the postfix ran and the overlay mounted under
+                    // m_rootObject; ABSENT means the postfix never fired / m_rootObject was null.
+                    if (DebugMount)
+                        Plugin.Log.LogInfo("[Trailborne/Sunstone] LensHud mounted under Hud.m_rootObject "
+                            + $"(m_rootObject non-null={__instance.m_rootObject != null}).");
                 }
                 catch (System.Exception e)
                 {

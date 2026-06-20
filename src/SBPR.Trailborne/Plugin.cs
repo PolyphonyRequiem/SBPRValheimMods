@@ -113,6 +113,11 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<bool>?  LensRingShowEmpty      = null;  // faint solar ring when worn+charged-but-clear
         internal static ConfigEntry<bool>?  LensRingShowDepletedHint = null; // faint ring when depleted (default off)
         internal static ConfigEntry<bool>?  LensRingDebugText      = null;  // legacy text readout as a debug aid
+        // Diagnostic-logging gate (t_d5949685 HUD-render bug, the compass-shared self-deactivating-host
+        // pump). When ON, emit the overlay MOUNT + visibility transitions + first-show placement so a
+        // client LogOutput.log splits "mount/pump fail" from "on-screen but empty." Default ON for the
+        // diagnostic cut; bake to false once Daniel confirms the ring renders in-game.
+        internal static ConfigEntry<bool>?  LensRingDebugMount     = null;
 
         // ── v3 Swamp: Iron Compass (camera-yaw HUD compass overlay, card t_ee61472f) ──
         // The needle-lag feel + the overlay anchor/size/position are LIVE config so Daniel can
@@ -370,6 +375,14 @@ namespace SBPR.Trailborne
             LensRingDebugText = Config.Bind(
                 "SunstoneLens", "DebugTextReadout", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultDebugTextReadout,
                 "Debug aid: also draw the legacy text line ('N hostiles · nearest Xm · charge Y%') below the ring. Default OFF.");
+            LensRingDebugMount = Config.Bind(
+                "SunstoneLens", "DebugMount",
+                SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultDebugMount,
+                "Diagnostic logging for the detection-ring HUD overlay (t_d5949685 render bug — the same self-deactivating-host "
+                + "Update-pump bug the Iron Compass had). When ON, the mod logs the overlay MOUNT (under Hud.m_rootObject), the "
+                + "VISIBLE/hidden transitions, and the resolved placement on first show — so a fresh client LogOutput.log can tell a "
+                + "mount/pump failure apart from an on-screen-but-empty ring. Leave ON while diagnosing; set false once the ring is "
+                + "confirmed visible in-game.");
 
             // v3 Swamp — Iron Compass HUD overlay (card t_ee61472f). Needle-lag feel (Q3) +
             // anchor/size/position (Q4) are LIVE config: a camera-driven HUD widget can't be

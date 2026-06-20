@@ -294,6 +294,44 @@ Tint multiplies onto the trophy sprite so the species is still recognisable thro
 
 ## 2. Why the lens "seems to do nothing" — the wiring audit (cause-b, CHECKED)
 
+> ### 🔴 2.0 CORRECTION (card t_d5949685, 2026-06-19) — there WAS a second bug: a dead Update pump
+>
+> The audit below concluded *"no wiring bug found; the cause is purely cause-(a) (wrong surface)."*
+> **That conclusion was wrong.** A real, deterministic render bug existed on top of the wrong-surface
+> issue — the **same self-deactivating-host Update-pump bug the Iron Compass had** (found + fixed there
+> first, card t_61aff612 / PR #208):
+>
+> - `SunstoneLensHudOverlay` is a `MonoBehaviour` whose `_root` *was* its own host GameObject
+>   (`_root = gameObject.AddComponent<RectTransform>()`).
+> - `SetVisible(on)` did `_root.gameObject.SetActive(on)` — i.e. the component deactivated **the
+>   GameObject it lives on**.
+> - Unity does not call `Update()` on a component whose GameObject is inactive, and `Update()` is the
+>   *only* caller of `SetVisible(true)`. So `Build()`'s closing `SetVisible(false)` froze the overlay
+>   inactive **permanently** — the pump that would un-hide it had been switched off by the very call that
+>   hid it. Total, deterministic absence whether or not the lens is worn/charged.
+>
+> So the audit's individual findings (both patches woven, equip-gate sound) were each correct, but they
+> were necessary-not-sufficient: the overlay mounted and the gate matched, yet `Update` never ran past
+> the first frame, so even the trophy ring would have rendered nothing.
+>
+> **Fix (card t_d5949685):** visibility now toggles a dedicated **content child** (`_content`), never
+> the host. The host stays active so its `Update()` keeps pumping; `_content` carries everything visible
+> (solar ring, trophy slots, debug text) and is what `SetVisible` activates/deactivates. A
+> `DebugMount`-gated diagnostic (default ON for this cut, `SunstoneLens.DebugMount` config) logs the
+> mount + visibility transitions + first-show placement so a fresh client `LogOutput.log` splits a
+> mount/pump failure from an on-screen-but-empty ring. Build 0/0.
+>
+> **Builtin-resource fragility audit (the card's secondary ask):** the compass fix also had to replace
+> a builtin sprite (`Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd")`, which fails to load on
+> Valheim's 0.221.x Unity build). The Sunstone overlay has **no equivalent fragility** — the solar ring
+> (`RingSprite()`), trophy-less glyph (`ProceduralThreatGlyph()`), and a missing trophy/star sprite all
+> already degrade procedurally or fail safe. The only builtin it touches is the legacy *debug-text*
+> font (`Resources.GetBuiltinResource<Font>("Arial.ttf")`, behind `VanillaUISkin.Font`), which is a
+> genuine Unity builtin font (NOT in the stripped-`.psd` class) and is only used by the default-off
+> debug readout. No sprite/asset change was needed.
+>
+> The original audit (still accurate on its own terms) follows for the record.
+
 The card flagged a possible wiring bug making even the text not show. **Audited this pass —
 no wiring bug found; the cause is purely cause-(a) (wrong surface).** Evidence:
 
