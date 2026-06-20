@@ -67,7 +67,8 @@ The trophy's billboard sprite is that prefab's `ItemDrop.m_itemData.m_shared.m_i
 **Fallback for trophy-less hostiles (Q1's open sub-question — ANSWERED):** not every hostile
 has a trophy (e.g. summoned/spawned minions, some boss adds). When the cache resolves `null`,
 render a **generic threat glyph** in the trophy's place on the ring — a simple skull/danger
-sprite shipped in the bundle (`assets/icons/ui/threat_fallback_v0.1.png`), tinted by the same
+sprite shipped in the bundle (`assets/icons/items/threat_fallback_v0.1.png`, flat-packed +
+loaded by bare filename like the other v0.1 icons), tinted by the same
 proximity-scale and star-pip rules. The fallback is a *defined slot*, not a skip: a trophy-less
 hostile still appears on the ring at the correct bearing/size — it just wears the generic glyph
 instead of a species trophy. (Bundle a placeholder per the icon doctrine; "you can tell it's a
@@ -198,23 +199,45 @@ non-square trophy icons don't stretch. The sprite is read from the trophy item's
 `m_icons[0]` — no new art needed for creatures that have trophies (most do); only the single
 generic fallback glyph is a new asset.
 
-### 1.5 Star pips above the trophy
+### 1.5 Star pips above the trophy — REUSE the real vanilla nameplate star art (Daniel, 2026-06-19)
 
-`stars = creature.GetLevel() - 1` (§Q4). Render that many ★ as small `Image`s (or a single
-`Text` of "★"×N if a star sprite isn't bundled) parented to the slot, laid out in a row centered
-**above** the trophy (`anchoredPosition.y = +scale/2 + pipPad`). 0 stars → no pips. Pool the pips
-per slot (cap at a sane N, e.g. 5 visible) and `SetActive` only as many as `stars`.
+🟢 **DECIDED (Daniel, 2026-06-19):** *"use the Valheim stars used to decorate the monster
+nameplates"* — NOT a Unicode ★ and NOT a new authored sprite. Pull the exact star sprite vanilla
+draws on enemy nameplates.
+
+`stars = creature.GetLevel() - 1` (§Q4). Render that many star `Image`s parented to the slot,
+laid out in a row centered **above** the trophy (`anchoredPosition.y = +scale/2 + pipPad`).
+0 stars → no pips. Pool the pips per slot and `SetActive` only as many as `stars`.
+
+**Where the vanilla star sprite lives (grounded):** vanilla `EnemyHud` (decomp `:38343`) holds a
+public `m_baseHud` GameObject (`:38382`) — the nameplate template. Its children **`level_2`** and
+**`level_3`** (resolved at `:38487-38488` via `m_gui.transform.Find("level_2"/"level_3")`) are the
+1★ / 2★ decorations, toggled by `SetActive(level==2/3)` (`:38532/:38536`). `EnemyHud.instance` is a
+public static accessor (`:38402`). So at runtime we read the star `Image.sprite` off
+`EnemyHud.instance.m_baseHud`'s `level_2`/`level_3` child (whichever carries the `Image`), cache it
+once, and reuse it — **zero new art, exact vanilla look.** Reading a sprite off a prefab is not
+cloning (ADR-0006-safe).
+
+> **Vanilla authors only 1★ and 2★ art** (level_2 / level_3 nameplate children — base game caps
+> wild creatures at 2 stars). For `GetLevel()-1 > 2` (modded/event creatures), repeat the 2★
+> (`level_3`) star sprite N times so a 3★+ still reads as "very starred." If the harvest fails
+> (EnemyHud not yet built, or the child has no Image), fall back to a Unicode ★ `Text` pip so the
+> star count is never lost — the look degrades, the information doesn't.
 
 ### 1.6 Empty + depleted states (AT-LENS-RING-5)
 
-- **Zero hostiles:** all slots `SetActive(false)`. The ring is **empty/invisible** — no
-  text-spam, no "clear" readout. (Optional config `Sunstone.ShowEmptyRing` to draw a faint ring
-  outline when worn+charged-but-clear, default OFF — Daniel's call; default to nothing on
-  screen.)
-- **Depleted lens (charge < `MinChargeToDetect`):** ring off entirely (same as not worn). No
-  sweep runs. The durability bar on the trinket already signals "dim" — the ring doesn't
-  duplicate it. (The old text "Sunstone Lens — dim" line is dropped; if Daniel wants a depleted
-  hint, a single faint ring outline is the tasteful version — config, default off.)
+🟢 **DECIDED (Daniel, 2026-06-19):** empty ring → show a **faint solar ring** (not nothing);
+depleted lens → ring **off**.
+
+- **Zero hostiles:** all trophy slots `SetActive(false)`, but draw a **faint solar ring outline**
+  (a thin warm/amber circle at the ring radius) so the player can see the lens is live and watching.
+  `Sunstone.ShowEmptyRing` config — **default ON** (flipped from the original draft's OFF per
+  Daniel's call). The ring tone is the sunstone's warm amber (thematic: the stored daylight glowing
+  faintly), low alpha (~0.18) so it frames the view without clutter. When ≥1 hostile is present the
+  faint ring may stay (it's the substrate the trophies sit on) — the trophies are what draw the eye.
+- **Depleted lens (charge < `MinChargeToDetect`):** ring **off entirely** (same as not worn) —
+  `Sunstone.ShowDepletedHint` default **OFF** per Daniel. No sweep runs. The durability bar on the
+  trinket already signals "dim." The old text "Sunstone Lens — dim" line is dropped.
 - **Not worn:** ring hidden, `Update` early-returns (unchanged from current behavior).
 
 ### 1.7 Optional debug fallback (keep the text, hidden)
@@ -224,6 +247,48 @@ When on, draw the legacy "⚠ N hostiles · nearest Xm" line *in addition to* th
 diagnosing "is detection finding anything?" without reading the ring. Default off so players only
 see the ring. This makes the redesign non-destructive: the working text path becomes a debug aid,
 not dead code.
+
+### 1.8 Aggro-state colour coding — the "Rune of Awareness" element (Daniel, 2026-06-19)
+
+🟢 **DECIDED (Daniel, 2026-06-19):** *"take a look at how the rune of awareness works in runemagic
+mod, I want something very similar."* Grounded: the reference is the **Rune of Alertness** in
+**Rune Magic** by **hyleanlegend** (Thunderstore `hyleanlegend/Rune_Magic`, Nexus #1359). Its
+public description (clean-room: read the PUBLIC store description for behaviour, NOT the mod's code):
+
+> *"detect nearby enemies and their direction/distance, indicated by the size/angle of the phantom
+> heads floating around you. Any alerted enemies will have a **glowing yellow** indicator above
+> their heads, which turns **orange if they aggro another player, and red if they're aggroed on
+> you**."*
+
+Our trophy ring already matches the core (per-creature marker around the player, size = distance,
+angle = bearing). The **one new element** is the **threat-state colour tint**. Fold it in: tint each
+trophy slot (the trophy `Image.color`, and its star pips) by the creature's aggro state toward the
+local player:
+
+| State | Colour | Meaning |
+|---|---|---|
+| idle / not targeting anyone | 🟡 **yellow-warm** (`#F2D24A`-ish) | detected, hasn't locked on |
+| aggroed on ANOTHER player | 🟠 **orange** (`#F28C28`-ish) | hunting someone else |
+| aggroed on YOU (local player) | 🔴 **red** (`#E5402B`-ish) | coming for you — top priority |
+
+**Grounded against vanilla primitives (clean-side — this is reproduced from the BASE GAME's own
+nameplate logic, no Rune Magic code read or needed):**
+- `BaseAI.IsAlerted()` — public, decomp `:5450`. `BaseAI.HaveTarget()` — public, `:5460`. Vanilla's
+  own `EnemyHud` toggles its `m_alerted` vs `m_aware` nameplate icons off exactly these two
+  (`:38538`), so this is the game's own "is this thing roused / hunting" surface.
+- `BaseAI.GetTargetCreature()` — public virtual, `:5564`. Compare its result against
+  `Player.m_localPlayer`:
+  - target == local player → **red**;
+  - target != null && target != local player (another player/character) → **orange**;
+  - no target (or not alerted) → **yellow**.
+- All public accessors, all base-game. Access via `creature.GetBaseAI()` (the same path EnemyHud
+  uses, `:38538`). Null-safe: a hostile with no BaseAI (rare) defaults to yellow.
+
+**Why this is the right "very similar":** Rune of Alertness floats *phantom heads*; we float
+*creature trophies* (Daniel's locked choice — more legible, real art) — same mechanic, better read.
+The yellow→orange→red escalation is the load-bearing "awareness" feel he's pointing at, and it's a
+genuinely useful threat-priority cue in a Swamp horde (which of the six blobs is actually on me?).
+Tint multiplies onto the trophy sprite so the species is still recognisable through the colour.
 
 ---
 
@@ -264,18 +329,25 @@ Replaces the placeholder `AT-LENS-DETECT` render half; the detection-mechanic AT
   enemy is on your right → its trophy sits on the right of the ring; face it → top).
 - **AT-LENS-RING-2** — as a hostile **approaches**, its trophy **grows**; as it recedes, it
   shrinks. The ring **radius stays fixed** — only icon size changes with distance.
-- **AT-LENS-RING-3** — a **1-star** enemy shows **★** above its trophy; a **2-star** shows
-  **★★**. A 0-star enemy shows no pips. (Read via `GetLevel()-1`.)
+- **AT-LENS-RING-3** — a **1-star** enemy shows the **vanilla nameplate star** above its trophy; a
+  **2-star** shows **two**. A 0-star enemy shows no pips. (Count = `GetLevel()-1`; the pip sprite is
+  harvested from vanilla `EnemyHud.m_baseHud` level_2/level_3, NOT a Unicode ★ — Daniel 2026-06-19.)
 - **AT-LENS-RING-4** — a **trophy-less** hostile (e.g. a summoned minion) appears on the ring at
   the right bearing/size wearing the **generic fallback glyph**, not missing entirely.
-- **AT-LENS-RING-5** — **zero** hostiles → the ring is **empty** (nothing on screen, no text
-  spam). A **depleted** lens → ring **off**. Removing the lens → ring gone immediately.
+- **AT-LENS-RING-5** — **zero** hostiles → the trophy slots are empty but a **faint solar ring**
+  outline shows (worn + charged; `ShowEmptyRing` default ON). A **depleted** lens → ring **off**.
+  Removing the lens → ring gone immediately.
+- **AT-LENS-RING-AGGRO** (the Rune-of-Awareness element, Daniel 2026-06-19) — a hostile that is
+  **idle/unalerted** renders its trophy **yellow**; once it **aggros another player** the trophy
+  turns **orange**; once it **targets YOU** it turns **red**. State follows the creature's own
+  `BaseAI` (IsAlerted / GetTargetCreature vs the local player) — the same surface vanilla's nameplate
+  uses.
 - **AT-LENS-RING-CAMREL** (🔴 thesis guard) — the ring is **camera-relative, never north-up**.
   Standing still and rotating the camera sweeps every trophy around the ring; the ring grants
   **no cardinal orientation** (that stays the Iron Compass's exclusive payoff). No north arrow,
   no N/E/S/W letters.
 - **AT-LENS-RING-PERF** — a Swamp horde (10+ hostiles) does not tank framerate: icons are pooled
-  and capped at `RingMaxIcons`; the trophy-sprite cache resolves each species once.
+  and capped at `RingMaxIcons`; the trophy-sprite + star-pip caches resolve each species/sprite once.
 
 ---
 
@@ -284,14 +356,16 @@ Replaces the placeholder `AT-LENS-DETECT` render half; the detection-mechanic AT
 **New config (Plugin `Sunstone` section, all live-tunable so Daniel converges feel in one
 joined session — the banner-windsock pattern):** `RingRadiusPx` (~180), `RingCenterOffsetY`
 (0), `RingIconMinPx` (~28), `RingIconMaxPx` (~64), `RingMaxIcons` (~12), `ShowEmptyRing`
-(false), `DebugTextReadout` (false). Defaults baked as `SunstoneLensHudOverlay` consts (single
+(**true** — Daniel 2026-06-19, faint solar ring), `ShowDepletedHint` (**false** — ring off when
+depleted), `DebugTextReadout` (false). Defaults baked as `SunstoneLensHudOverlay` consts (single
 source of truth, the existing `Default*` pattern). The existing detection knobs
 (`DetectRadius`, `DetectIntervalSeconds`, charge economy) are unchanged.
 
-**New asset (one):** `assets/icons/ui/threat_fallback_v0.1.png` — the generic glyph for
-trophy-less hostiles. Placeholder-grade (skull/danger) per the icon doctrine. Optionally a
-`star_pip_v0.1.png` if "★" glyph text isn't crisp enough — but the Unicode ★ is acceptable for
-v0.1 (zero art dependency). **No per-creature art** — trophies reuse vanilla `m_icons[0]`.
+**New asset (one):** `assets/icons/items/threat_fallback_v0.1.png` — the generic glyph for
+trophy-less hostiles. Placeholder-grade (skull/danger) per the icon doctrine. **Star pips reuse the
+real vanilla nameplate star** harvested from `EnemyHud.m_baseHud` (Daniel 2026-06-19) — NOT a new
+asset and NOT Unicode ★ (the ★ survives only as a last-ditch fallback if the harvest fails).
+**No per-creature art** — trophies reuse vanilla `m_icons[0]`.
 
 **Files the impl card touches:** `SunstoneLensHudOverlay.cs` (the render rewrite),
 `Plugin.cs` (the new config binds), this doc + `sunstone-lens-impl-spec.md` §4/§5/§8 (render
@@ -301,18 +375,20 @@ this is render-only). Spec-and-code move together per AGENTS.md.
 
 ---
 
-## 5. Open questions for Daniel (genuine calls, not architect-decidable)
+## 5. Open questions for Daniel — ✅ ALL RESOLVED (2026-06-19)
 
-1. **Q2 confirmation:** OK with **screen-space camera-relative radar** (recommended), or do you
-   specifically want **diegetic 3D world-space** trophies floating around the player? (3D is a
-   separate, larger card.)
-2. **Ring center + radius feel:** screen-center, or offset up/down? Radius ~180px a good frame,
-   or tighter/wider? (Config-tunable — converge in a joined session.)
-3. **Empty-ring affordance:** when worn+charged but nothing's near, show **nothing** (default),
-   or a faint ring outline so you know the lens is live? (`ShowEmptyRing`.)
-4. **Depleted hint:** ring fully off when out of charge (default), or a dim outline as a "I'm
-   inert, recharge me" cue?
-5. **Star pips:** Unicode ★ acceptable for v0.1, or do you want an authored star sprite?
+1. **Q2 confirmation:** ✅ **screen-space camera-relative radar** (Daniel: "not relevant I think" =
+   not asking for diegetic 3D). Build the recommended option.
+2. **Ring center + radius feel:** defaults stand (screen-center, ~180px) — config-tunable, converge
+   live. Not blocking.
+3. **Empty-ring affordance:** ✅ **faint solar ring** (Daniel: "faint effect of some sort, like a
+   very faint solar ring") → `ShowEmptyRing` default **ON**.
+4. **Depleted hint:** ✅ **off** (Daniel) → `ShowDepletedHint` default **OFF**.
+5. **Star pips:** ✅ **use the vanilla nameplate stars** (Daniel) — harvested from `EnemyHud`, §1.5.
 
-These are pacing/UX/art-scope calls; the build is structurally identical whichever way each
+**Plus a new locked element (Daniel 2026-06-19):** aggro-state colour coding (§1.8) — yellow/orange/
+red threat tint, modelled on Rune Magic's Rune of Alertness, reproduced from vanilla `BaseAI`
+primitives.
+
+These were pacing/UX/art-scope calls; the build is structurally identical whichever way each
 lands (each changes an isolated config default or one asset).
