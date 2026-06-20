@@ -151,6 +151,13 @@ namespace SBPR.Trailborne.Features.Cartography
         private Material?  _shaderMat;
         private Texture2D? _bezelTex;
         private RawImage? _playerMarker;
+        // §2H.2 (t_423f5bd7): true ⇔ the modal player marker is currently the OFF-disc edge-arrow,
+        // which sets its own localRotation = angleDeg and must keep riding _mapContainer's +rotZ so
+        // its composed on-screen bearing (rotZ + angleDeg) points outward (AT-MODAL-MARKER-3). For the
+        // in-disc chevron on ANY rotating surface (disc OR modal/TableEdit) this stays false, so
+        // ApplyFieldOrientation counter-rotates it to screen-up. Written in UpdatePlayerMarker, read
+        // in ApplyFieldOrientation — both run each Render/TickRotation frame, set before read.
+        private bool _markerOffDisc;
         private Text? _exitPrompt;
         private Text? _titleLabel;
         // biome-indicator-impl-spec §3.2/§4.3: the MODAL's fixed current-biome readout — a Text built
@@ -643,7 +650,7 @@ namespace SBPR.Trailborne.Features.Cartography
         {
             if (_overlayLayer == null || _mapRect == null) return;
             var player = Player.m_localPlayer;
-            if (player == null) { if (_playerMarker != null) _playerMarker.gameObject.SetActive(false); return; }
+            if (player == null) { _markerOffDisc = false; if (_playerMarker != null) _playerMarker.gameObject.SetActive(false); return; }
 
             EnsurePlayerMarker();
             if (_playerMarker == null) return;
@@ -656,6 +663,7 @@ namespace SBPR.Trailborne.Features.Cartography
             //    explicitly removed §2H.1 mechanic 2 for the disc). ──
             if (_cfg.PlayerCentred)
             {
+                _markerOffDisc = false; // §2H.2: in-disc pivot chevron → counter-rotate to screen-up
                 rt.anchoredPosition = Vector2.zero;
                 rt.localRotation = Quaternion.identity;
                 // A′: keep the chevron texture's own colours (white tint). Counter-rotation to screen-up
@@ -671,6 +679,7 @@ namespace SBPR.Trailborne.Features.Cartography
 
             if (outside)
             {
+                _markerOffDisc = true; // §2H.2: off-disc edge-arrow → keep its own angleDeg riding +rotZ (NOT counter-rotated)
                 float inset = 0.94f;
                 float ax = origin.x + (cx - origin.x) * inset;
                 float az = origin.z + (cz - origin.z) * inset;
@@ -680,6 +689,7 @@ namespace SBPR.Trailborne.Features.Cartography
             }
             else
             {
+                _markerOffDisc = false; // §2H.2: in-disc chevron on the rotating modal/TableEdit → counter-rotate to screen-up
                 rt.anchoredPosition = WorldToSurfacePx(ppos, survey);
                 rt.localRotation = Quaternion.identity;
                 // A′: in-disc marker keeps the chevron texture (white tint); the off-disc branch above
@@ -966,11 +976,14 @@ namespace SBPR.Trailborne.Features.Cartography
             CounterRotatePins(rotZ);
 
             // The player marker rides the rotating overlay too. Counter-rotate it so its icon stays
-            // screen-stable. On the player-centred disc this keeps "you" pointing screen-up while the
-            // world spins under you; on the table-centred modal the in-disc dot stays upright (the
-            // off-disc edge ARROW sets its own localRotation in UpdatePlayerMarker and is refreshed
-            // each Render, so this counter-rotation of a per-frame-rebuilt marker is harmless there).
-            if (_cfg.PlayerCentred && _playerMarker != null)
+            // screen-stable on EVERY rotating surface (§2H.2): the player-centred disc keeps "you"
+            // pointing screen-up while the world spins, AND the table-centred modal / TableEdit in-disc
+            // chevron now does the same (the pre-§2H.2 gate on _cfg.PlayerCentred left the modal chevron
+            // riding +rotZ → pinned to map-north, the t_423f5bd7 bug). The ONLY marker we must NOT
+            // counter-rotate is the off-disc edge-ARROW (_markerOffDisc), which sets its own
+            // localRotation = angleDeg in UpdatePlayerMarker and must keep riding the container's +rotZ
+            // so the composed angle (rotZ + angleDeg) points at the player's real bearing (AT-MODAL-MARKER-3).
+            if (_playerMarker != null && !_markerOffDisc)
                 _playerMarker.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -rotZ);
         }
 
