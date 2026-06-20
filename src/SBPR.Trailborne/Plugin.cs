@@ -402,13 +402,18 @@ namespace SBPR.Trailborne
             // and drops the letter tint, so a colour-only repaint left the letters on their
             // old colour. The postfix re-applies SignTag.ReapplyTextTint() on the poll cadence.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignTextRetintPatch));
-            // Make the panel usable while open: block player character input, freeze
+            // Make the surface usable while open: block player character input, freeze
             // camera mouse-look (via PlayerController.TakeInput — the vanilla gate our
-            // panel bypasses by replacing the sign text dialog), and release the mouse
-            // cursor. Three nested patch classes — register each container type.
+            // panel bypasses by replacing the sign text dialog), and free the mouse
+            // cursor. CursorPumpPatch (§2L, card t_1f82da71) re-seats the cursor-free onto
+            // the LIVE GameCamera.LateUpdate seam — the old GameCamera.UpdateMouseCapture
+            // target was emptied to a 1-byte ret by a vanilla Input-System update, so the
+            // old postfix silently did nothing (the cursor stayed locked at the map table).
+            // Four nested patch classes — register each container type so PatchCheck confirms
+            // each wove a method.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.TakeInputPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.PlayerControllerTakeInputPatch));
-            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MouseCapturePatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.CursorPumpPatch));
             // §2F (issue 7, card t_23b950ee): a Menu.Show skip-original prefix gated on
             // SignPanelInputBlock.AnyOpen, so the Escape that closes our map viewer / sign
             // panel does NOT also open the vanilla pause menu the same frame (AT-VIEWEXIT-1).
