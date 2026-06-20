@@ -99,6 +99,34 @@ both gaps:
   card t_338f723b). Supersedes the bottom-centre PLACEMENT in
   `local-map-mkey-open-impl-spec.md` §5; the `$KEY_Map` token + rebind-correctness stand.
 
+### 2.2 🟢 DECIDED (Daniel 2026-06-19 playtest) — both surfaces show the current-biome NAME (Path A)
+v0.2.27-playtest enhancement: *"Minimap and local map need to have support for biome
+indicators by the way."* — Daniel, 2026-06-19, Niflheim #bugs. On the A/B/C fork Daniel
+chose **Path A** (the vanilla biome-NAME readout, NOT colour fills or a legend) and delegated
+the layout to the architect: *"A and architect."*
+
+The §2/§2.1 model specifies the disc renders the bound local map's data + carries its NAME +
+`[M]` hint, but said nothing about a biome indicator. This addendum closes that:
+
+- 🟢 BOTH SBPR cartography surfaces show the player's **current-biome NAME** as text (the
+  literal vanilla map affordance the standalone overlay currently drops):
+  - **Minimap disc:** the biome name is a line in the under-disc caption stack (§2.1) —
+    the stack becomes **name / biome / `[M]` hint**. Updates on biome change (vanilla's
+    change-driven minimap behavior).
+  - **Local-map modal:** a **fixed** current-biome readout under the title cartouche. NOT a
+    cursor-hover readout — the SBPR modal is a passive read-only view; vanilla-large-map-style
+    cursor-hover is a **deferred follow-up** (needs modal input plumbing) if Daniel wants it
+    after seeing the fixed readout in-game.
+- 🟢 Both read the player's **current biome** (`Player.GetCurrentBiome()`), not a cursor/world
+  lookup — one shared `MapSurface` helper feeds both surfaces (no divergent second path).
+- 🔵 GROUNDED: `Player.GetCurrentBiome()` is already proven in-codebase (`SunstoneLens.cs:351`);
+  the name uses vanilla `$biome_*` tokens (locale-correct, the same construction as
+  `Minimap.UpdateBiome`), with a `Biome.None`/unlocalized guard so no `$biome_*` literal leaks
+  (the 2026-06-05 sign-bug lesson). Computed live — **no `SurveyData` wire change** (Path A,
+  not Path B-baked); pure HUD presentation; SpecCheck +0.
+- 🔴 Buildable spec: **`docs/v2/planning/local-map-biome-indicator-impl-spec.md`** (architect
+  card t_caf0f1cf). Extends the caption infrastructure landed in PR #205 (t_26bba85b).
+
 ---
 
 ## 3. Local maps = data ARTIFACTS 🟢 DECIDED (Daniel: artifact model)
