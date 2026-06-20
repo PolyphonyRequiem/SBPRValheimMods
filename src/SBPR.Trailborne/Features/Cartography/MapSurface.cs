@@ -309,15 +309,28 @@ namespace SBPR.Trailborne.Features.Cartography
 
         /// <summary>
         /// The world-space span (metres, edge-to-edge) the surface displays — the SINGLE source of truth
-        /// for both the shader zoom and the pin/marker projection (so they can never drift). When
-        /// <c>ViewSpanMeters</c> &gt; 0 the surface locks that fixed span (the corner disc's tight nav
-        /// window); when 0 it shows the full survey window (<c>Size × pixelSize</c> — the full M-view). The
-        /// fixed disc span is clamped to the survey extent so it can never frame more than was surveyed.
+        /// for the shader zoom AND every pin/marker projection (continuous, cell-snapped, and the cursor
+        /// inverse), so they can never drift. When <c>ViewSpanMeters</c> &gt; 0 the surface locks that fixed
+        /// span (the corner disc's tight nav window). When 0 (the modal) it frames the SURVEYED-DISC diameter
+        /// (2 × effective radius — §2E.5.6), NOT the over-provisioned <c>Size × pixelSize</c> window: that
+        /// 112 m surplus showed on screen as a ~22 px shroud annulus between the cartography edge and the
+        /// bronze bezel ring (Daniel, v0.2.27-playtest). Both branches are clamped to the survey extent so
+        /// neither can frame more than was surveyed.
         /// </summary>
         private float DisplayedSpanMeters(SurveyData survey, float pixelSize)
         {
             float fullSurveySpan = survey.Size * pixelSize;
-            if (_cfg.ViewSpanMeters <= 0f) return fullSurveySpan;
+            if (_cfg.ViewSpanMeters <= 0f)
+            {
+                // §2E.5.6 Knob 1 — frame the modal to the surveyed disc (2 × radius ≈ 2000 m at R=1000),
+                // so the disc's edge meets the bezel ring instead of leaving a shroud band out to the
+                // 2112 m over-provisioned window. Read the SAME effective radius RebuildOverlay uses
+                // (see :RebuildOverlay) — do NOT hard-code 1000 — so a future radius change can't silently
+                // re-open the gap. Clamp to the over-provisioned window defensively (2000 ≤ 2112 always
+                // holds at R=1000, but the guard makes "never frame more than was surveyed" structural).
+                float effectiveRadius = _req.RadiusMeters > 0f ? _req.RadiusMeters : survey.RadiusMeters;
+                return Mathf.Min(2f * effectiveRadius, fullSurveySpan);
+            }
             return Mathf.Min(_cfg.ViewSpanMeters, fullSurveySpan);
         }
 
@@ -435,11 +448,21 @@ namespace SBPR.Trailborne.Features.Cartography
         }
 
         /// <summary>
-        /// CELL-SNAPPED world→anchored-px projection (the old WorldToMapRect/MapRectAnchor path),
-        /// used for PINS on the TABLE-centred modal so they annotate discrete fog cells exactly as the
-        /// playtested view did (byte-faithful). The player-centred disc uses the continuous projection
-        /// instead — cell-snapping there would make pins jitter a whole cell as the player walks.
-        /// Returns false if the point falls outside the survey window grid.
+        /// CELL-SNAPPED world→anchored-px projection, used for PINS on the TABLE-centred modal so they
+        /// annotate discrete fog cells exactly as the playtested view did (byte-faithful cell snap). The
+        /// player-centred disc uses the continuous projection instead — cell-snapping there would make pins
+        /// jitter a whole cell as the player walks. Returns false if the point falls outside the survey
+        /// window grid.
+        ///
+        /// §2E.5.6 Knob 2 (THE LANDMINE): the snap (world→cell) is unchanged — banker's-rounded
+        /// <c>WorldToCellX/Y</c>, preserving which discrete cell each pin annotates — but the cell is then
+        /// re-projected through the SAME <see cref="DisplayedSpanMeters"/> framing <see cref="WorldToSurfacePx"/>
+        /// uses, NOT the old hard-wired <c>edge / Size</c> (≡ the 2112 m over-provisioned grid). When Knob 1
+        /// reframes the modal to 2 × radius, leaving this path on <c>edge / Size</c> would drift table pins
+        /// outward up to ~+23.6 px at the disc edge (250 m→+5.9, 500 m→+11.8, 1000 m→+23.6) — pins floating
+        /// off the terrain they annotate. Converting the snapped cell back to its world centre and reusing
+        /// <see cref="WorldToSurfacePx"/> makes snapped pins, continuous pins, terrain, the player marker, and
+        /// the <c>TryRemovePinAtCursor</c> inverse all frame at ONE span about ONE centre — they cannot desync.
         /// </summary>
         private bool WorldToSurfacePxSnapped(Vector3 world, SurveyData survey, out Vector2 anchored)
         {
@@ -449,20 +472,27 @@ namespace SBPR.Trailborne.Features.Cartography
             int textureSize = survey.TextureSize > 0 ? survey.TextureSize : 256;
             int size = survey.Size;
 
+            // Snap world → discrete fog cell exactly as today (byte-faithful: the pin still names the same
+            // cell the playtested table view did). cx/cy are the survey-origin cell, retained ONLY for the
+            // window-membership guard below — the projection no longer measures cell offsets off them.
             int cx = BoundedMapMath.WorldToCellX(survey.OriginX, pixelSize, textureSize);
             int cy = BoundedMapMath.WorldToCellY(survey.OriginZ, pixelSize, textureSize);
             int px = BoundedMapMath.WorldToCellX(world.x, pixelSize, textureSize);
             int py = BoundedMapMath.WorldToCellY(world.z, pixelSize, textureSize);
 
+            // Same Size×Size window-membership guard as before: a point off the survey window never renders.
             int half = (size - 1) / 2;
-            float wx = (px - cx) + half;
-            float wy = (py - cy) + half;
+            int wx = (px - cx) + half;
+            int wy = (py - cy) + half;
             if (wx < 0 || wy < 0 || wx >= size || wy >= size) return false;
 
-            float edge = _mapRect.sizeDelta.x;
-            float cell = edge / size;
-            anchored = new Vector2((wx + 0.5f) * cell - edge / 2f,
-                                   (wy + 0.5f) * cell - edge / 2f);
+            // §2E.5.6 Knob 2: convert the snapped cell back to its world centre, then project it through the
+            // SAME displayed-span/frame-centre as WorldToSurfacePx (the one source of truth). At the modal's
+            // reframed 2000 m span this lands the snapped pin on the exact terrain cell — not the +Δpx the old
+            // edge/Size = 2112 m grid produced.
+            float snappedWorldX = BoundedMapMath.CellCenterWorldX(px, pixelSize, textureSize);
+            float snappedWorldZ = BoundedMapMath.CellCenterWorldZ(py, pixelSize, textureSize);
+            anchored = WorldToSurfacePx(new Vector3(snappedWorldX, 0f, snappedWorldZ), survey);
             return true;
         }
 
