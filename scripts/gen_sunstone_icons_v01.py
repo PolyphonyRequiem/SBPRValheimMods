@@ -87,17 +87,26 @@ def frame(img):
 
 
 def make_sunstone():
-    img = warm_backdrop(SIZE)
+    # Transparent canvas so an equipped highlight could show through (equipable-icon
+    # transparency rule, bug t_b9a111ca). The raw Sunstone is a Material (no equip
+    # indicator) but is regenerated transparent too for set consistency. The crystal's
+    # own glow gives it a lit amber halo on transparency.
+    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     img = Image.alpha_composite(img, radial_glow(SIZE, (255, 180, 70), 0.40))
     draw_crystal(img, SIZE / 2, SIZE / 2, SIZE * 0.34, SIZE * 0.62)
     # A second small glow on top to make the core read as lit.
     img = Image.alpha_composite(img, radial_glow(SIZE, (255, 220, 130), 0.16, 2.6))
-    return frame(img)
+    return img
 
 
 def make_lens():
-    img = warm_backdrop(SIZE)
-    img = Image.alpha_composite(img, radial_glow(SIZE, (255, 170, 60), 0.44))
+    # Transparent canvas (equipable-icon transparency rule, bug t_b9a111ca, Daniel
+    # playtest 2026-06-19): the worn Lens reads as a gold crystal set in a dark iron
+    # ring; everything OUTSIDE the ring AND the area inside the ring around the crystal
+    # is transparent, so the slot's blue equipped highlight shows through. The iron ring
+    # is the icon's own border. (frame()'s .convert("RGB") used to flatten the punched
+    # hole back to opaque black — that was the visible "black disc" behind the gem.)
+    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     cx = cy = SIZE / 2
     # Dark iron ring (the frame).
@@ -113,7 +122,7 @@ def make_lens():
     # The sunstone set inside the ring (smaller crystal).
     draw_crystal(img, cx, cy, SIZE * 0.24, SIZE * 0.40)
     img = Image.alpha_composite(img, radial_glow(SIZE, (255, 224, 140), 0.14, 2.8))
-    return frame(img)
+    return img
 
 
 def main():
