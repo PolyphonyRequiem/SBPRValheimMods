@@ -176,6 +176,13 @@ namespace SBPR.Trailborne.Features.Cartography
         // → "Read map". NO hardcoded "M", NO custom $piece_* literal (the 2026-06-05 sign-bug lesson).
         private const string CaptionHintRaw = "[<color=yellow><b>$KEY_Map</b></color>] $piece_readmap";
         private readonly List<GameObject> _pinObjects = new List<GameObject>();
+        // Disc threat markers (Sunstone Lens → minimap handoff, card t_91e86951). Pulled from the
+        // Cartography.ThreatMarkers registry each disc RebuildOverlay — the SAME inversion the survey
+        // pins use (WorldPins.CollectInDiscPins). Disc-only; the modal is a nav surface, not a threat
+        // radar, and the vanilla minimap (nomap-OFF) has its own overlay. Threat GameObjects are added
+        // to _pinObjects so they counter-rotate upright + clear each rebuild for free (no new plumbing).
+        private readonly List<DiscThreatMarker> _threatScratch = new List<DiscThreatMarker>();
+        private const float ThreatBlipPx = 14f;
 
         private MapViewRequest _req;
 
@@ -663,6 +670,34 @@ namespace SBPR.Trailborne.Features.Cartography
                 SpawnPinMarker(pin, anchored);
             }
 
+            // ── Sunstone threat layer (card t_91e86951): DISC ONLY. Pull live threat markers from the
+            //    Cartography.ThreatMarkers registry — the same per-rebuild inversion the survey pins use
+            //    above — and draw a tinted dot/icon per threat. Disc-only because the modal is a nav
+            //    surface and the vanilla minimap (nomap-OFF) renders threats via its own overlay. The
+            //    Lens provider returns an empty set unless the Lens is worn+charged AND the handoff mode
+            //    feeds the disc, so this is inert with no Lens. Threat blips are added to _pinObjects so
+            //    ApplyFieldOrientation counter-rotates them upright and ClearPinObjects clears them — no
+            //    separate rotation/lifecycle plumbing (AT-LENS-DISC-CAMREL rides the same frame as pins).
+            if (_cfg.PlayerCentred && ThreatMarkers.HasProviders)
+            {
+                try
+                {
+                    ThreatMarkers.Collect(FrameCenter(), radius, _threatScratch);
+                    foreach (var t in _threatScratch)
+                    {
+                        if (!BoundedMapMath.InDisc(t.WorldPos.x, t.WorldPos.z, origin.x, origin.z, radius))
+                            continue;
+                        Vector2 anchored = WorldToSurfacePx(t.WorldPos, survey);
+                        if (anchored.sqrMagnitude > discR * discR) continue; // clip to the visible circle
+                        SpawnThreatMarker(t, anchored);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Plugin.Log.LogWarning($"[Trailborne/Cartography] MapSurface: threat-marker collect failed: {e.Message}");
+                }
+            }
+
             UpdatePlayerMarker(survey, origin, radius);
         }
 
@@ -776,6 +811,62 @@ namespace SBPR.Trailborne.Features.Cartography
             catch { /* fall through to dot */ }
             return null;
         }
+
+        // ── Sunstone threat marker (card t_91e86951) ─────────────────────────────────────────────
+        // Draw one threat blip on the disc: a tinted dot (the marker carries no Icon → BlipStyle.Dots)
+        // or the supplied trophy icon, tinted by the aggro colour. Added to _pinObjects so it rides the
+        // rotating container for POSITION and counter-rotates upright with the pins (CounterRotatePins),
+        // and is cleared each rebuild by ClearPinObjects — the threat layer needs no separate plumbing.
+        // The blip OWNS its Image.color (the aggro tint), which is why the disc honours the tint where
+        // a vanilla AddPin would be clobbered white (design §5 / the WorldPins.ReapplyColors lesson).
+        private void SpawnThreatMarker(DiscThreatMarker t, Vector2 anchored)
+        {
+            if (_overlayLayer == null) return;
+            var go = new GameObject("threat");
+            go.transform.SetParent(_overlayLayer.transform, false);
+            var img = go.AddComponent<Image>();
+            img.raycastTarget = false;
+            img.preserveAspect = true;
+            img.sprite = t.Icon != null ? t.Icon : ThreatDotSprite();
+            img.color = t.Tint;   // OUR colour — survives (the disc overlay layer is never vanilla-stomped)
+
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(ThreatBlipPx, ThreatBlipPx);
+            rt.anchoredPosition = anchored;
+            _pinObjects.Add(go);
+        }
+
+        // A code-generated near-white filled disc — the disc-side threat DOT. Cartography owns its own
+        // copy (rather than reaching into Features/Sunstone) so the dependency arrow stays one-way:
+        // Sunstone → Cartography.ThreatMarkers, never the reverse. White so the aggro tint reads via
+        // Image.color; soft 1-px edge so it isn't aliased. No disk asset (guaranteed even with zero PNGs).
+        private static Sprite? _threatDotSprite;
+        private static Sprite ThreatDotSprite()
+        {
+            if (_threatDotSprite != null) return _threatDotSprite;
+            const int sizePx = 64;
+            var tex = new Texture2D(sizePx, sizePx, TextureFormat.RGBA32, false);
+            var px = new Color[sizePx * sizePx];
+            float cx = sizePx / 2f, cy = sizePx / 2f;
+            float r = sizePx / 2f - 2f;
+            for (int y = 0; y < sizePx; y++)
+                for (int x = 0; x < sizePx; x++)
+                {
+                    float dx = x - cx, dy = y - cy;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    px[y * sizePx + x] = new Color(1f, 1f, 1f, Mathf.Clamp01(r - d));
+                }
+            tex.SetPixels(px);
+            tex.Apply();
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            _threatDotSprite = Sprite.Create(tex, new Rect(0, 0, sizePx, sizePx), new Vector2(0.5f, 0.5f), 100f);
+            _threatDotSprite.name = "SBPR_DiscThreatDot";
+            return _threatDotSprite;
+        }
+
 
         private static Color PinTint(SurveyPin pin)
             => pin.Checked ? new Color(0.5f, 0.8f, 0.5f, 1f) : new Color(0.95f, 0.85f, 0.4f, 1f);

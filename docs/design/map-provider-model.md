@@ -73,6 +73,19 @@ provider local map and the personal global map (§4).
   viewer STAYS. → This keeps card **t_d44572f2** (issue 6, edge-bleed) LIVE — it's a real bug in a
   viewer we're keeping, not one that evaporates.
 
+- 🟢 **DECIDED (Daniel 2026-06-20): the carry-disc gains its FIRST non-cartography consumer — the
+  Sunstone Lens threat overlay** (card `t_91e86951`, design PR #214). A new transient-threat-marker
+  seam (`Features/Cartography/IThreatMarkerProvider.cs`: the `IThreatMarkerProvider` interface, the
+  `ThreatMarkers` static registry, and the `DiscThreatMarker` render struct) lets non-cartography
+  features push per-rebuild markers onto the disc WITHOUT Cartography depending on them — it mirrors
+  exactly how `MapSurface.RebuildOverlay` already pulls `WorldPins.CollectInDiscPins`. The Sunstone
+  Lens registers a provider; the disc pulls it each rebuild (disc-only) and draws aggro-tinted dots
+  that ride the rotating container like pins. The dependency arrow is one-way: `Sunstone →
+  Cartography.ThreatMarkers` (Cartography never references the Lens). This is the seam any future
+  "show X on the local-map disc" feature should consume — do NOT fork a second marker path. The
+  nomap-OFF branch of that same card draws onto the **vanilla** corner minimap via a custom overlay
+  (own `Image.color`, NOT `Minimap.AddPin` — vanilla stomps pin colour every refresh); see §6.
+
 ### 2.1 🟢 DECIDED (Daniel 2026-06-19 playtest) — the disc carries its NAME + a co-located `[M]` open-hint UNDERNEATH it
 v0.2.27-playtest refinement: *"the [M] READ MAP display at the bottom doesn't really work for
 me… maybe put the name of the map under the minimap and put the M key hint there to show it

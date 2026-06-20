@@ -119,6 +119,14 @@ namespace SBPR.Trailborne
         // diagnostic cut; bake to false once Daniel confirms the ring renders in-game.
         internal static ConfigEntry<bool>?  LensRingDebugMount     = null;
 
+        // ── v3 Swamp: Sunstone Lens → minimap handoff (card t_91e86951) ──
+        // Two LIVE enums so Daniel converges the feel on a joined client without a rebuild (the
+        // banner-windsock pattern). MinimapHandoffMode: where Lens threats render when a minimap is
+        // present (DiscWhenBound = ring hides + minimap shows threats, default; RingOnly = escape hatch;
+        // Both = supplement). MinimapBlipStyle: dots+tint (default) vs trophy art on the minimap surfaces.
+        internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.MinimapHandoffMode>? LensMinimapHandoffMode = null;
+        internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.BlipStyle>?          LensMinimapBlipStyle   = null;
+
         // ── v3 Swamp: Iron Compass (camera-yaw HUD compass overlay, card t_ee61472f) ──
         // The needle-lag feel + the overlay anchor/size/position are LIVE config so Daniel can
         // converge "a little lag is good" and place the dial on a joined client without a rebuild
@@ -387,6 +395,27 @@ namespace SBPR.Trailborne
                 + "VISIBLE/hidden transitions, and the resolved placement on first show — so a fresh client LogOutput.log can tell a "
                 + "mount/pump failure apart from an on-screen-but-empty ring. Leave ON while diagnosing; set false once the ring is "
                 + "confirmed visible in-game.");
+
+            // v3 Swamp — Sunstone Lens → minimap handoff (card t_91e86951). Daniel gated all 3 knobs
+            // 2026-06-20: when a minimap is present (SBPR carry-disc in nomap-ON, or the vanilla corner
+            // map in nomap-OFF) Lens detection moves onto it; the camera-relative ring is the no-minimap
+            // fallback only. Both enums are LIVE so Daniel converges the feel on a joined client.
+            LensMinimapHandoffMode = Config.Bind(
+                "SunstoneLens", "MinimapHandoffMode",
+                SBPR.Trailborne.Features.Sunstone.MinimapHandoffMode.DiscWhenBound,
+                "When a minimap is present (the SBPR carry-disc in nomap-ON, or the vanilla corner map in "
+                + "nomap-OFF), where do Lens threats render? DiscWhenBound (default): the ring hides and the "
+                + "threats move onto the minimap. RingOnly: ignore every minimap, the ring always renders "
+                + "(the escape hatch). Both: the ring AND the minimap both show threats. Live-tunable. (The "
+                + "value name 'DiscWhenBound' predates the universal any-minimap rule — it now means 'hand "
+                + "off whenever ANY minimap is present', not only the SBPR disc.)");
+            LensMinimapBlipStyle = Config.Bind(
+                "SunstoneLens", "MinimapBlipStyle",
+                SBPR.Trailborne.Features.Sunstone.BlipStyle.Dots,
+                "How a threat draws on the minimap surfaces (the SBPR disc + the vanilla corner map). Dots "
+                + "(default): a small aggro-tinted dot, legible at the disc's tight inner threat zone. Trophy: "
+                + "the creature trophy sprite + aggro tint (richer, smaller-read). The screen-space RING is "
+                + "unaffected — it always shows the full trophy art. Live-tunable.");
 
             // v3 Swamp — Iron Compass HUD overlay (card t_ee61472f). Needle-lag feel (Q3) +
             // anchor/size/position (Q4) are LIVE config: a camera-driven HUD widget can't be
