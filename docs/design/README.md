@@ -58,6 +58,20 @@ impl-spec. Each carries its open questions inline.
   replace-vs-supplement question into a live `MinimapHandoffMode` Config enum so
   Daniel converges it in-game. Three open knobs for his gate.
 
+- **[`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md)** — the
+  **structural twin** of the Sunstone handoff above, designed jointly: when the
+  Iron Compass is worn **and** a minimap disc is bound, draw a **compass-gated north
+  ring on the disc**, else fall back to the current HUD needle. 🔴 Consciously
+  **supersedes** the Iron Compass impl-spec's "non-negotiable: the compass NEVER
+  adds a north arrow to any map" thesis — re-wording absolute *never* to *"never
+  ungated; the compass-gated disc ring is the sanctioned exception"* (north stays an
+  earned, compass-only payoff; the disc is north-blind for the compass-less player).
+  Designs the **one shared `IDiscOverlayProvider` disc-superimpose seam** both twins
+  consume — carrying world-positioned blips (Sunstone) and a single cardinal mark
+  (Compass) — resolved by one rule: *the disc shows north iff the compass is worn.*
+  Geometry is locked (north rides the rotating container, zero yaw math). Six open
+  knobs; **Q1 is whether Daniel ratifies the thesis supersession.**
+
 - **[`forge-masters-trinket.md`](forge-masters-trinket.md)** — a **standalone-mod**
   Trinket whose power, fired when the vanilla adrenaline bar caps (~80), repairs
   **+5 durability on equipped gear** instead of a combat burst. Decomp-grounded:
