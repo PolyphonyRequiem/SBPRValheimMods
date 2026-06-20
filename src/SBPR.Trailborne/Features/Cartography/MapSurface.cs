@@ -273,6 +273,13 @@ namespace SBPR.Trailborne.Features.Cartography
             _shaderMat.SetFloat("_zoom", zoom);
             _shaderMat.SetFloat("_pixelSize", 200f / Mathf.Max(zoom, 1e-4f));
             _shaderMat.SetVector("_mapCenter", new Vector4(frameCenter.x, frameCenter.y, frameCenter.z, 0f));
+            // §2E.5 defect 2 (belt-and-suspenders): the cloned material inherits vanilla's live _SharedFade,
+            // which the real Minimap drives from m_showSharedMapData (decomp :47106-47121). A bounded survey
+            // view has no notion of another player's shared overlay, so pin it to 0 — the unexplored area is
+            // our own reveal vs full shroud, never a faded shared blend. With the G=255 reveal above this is
+            // defensive (those texels are no longer in the shared bucket), but it removes any dependency on
+            // vanilla's live shared-data state bleeding the fade into our cloud.
+            _shaderMat.SetFloat("_SharedFade", 0f);
 
             // §2E.5 defect 2: reveal the bounded survey through vanilla's OWN _FogTex cloud instead of
             // laying an opaque flat shroud over the cartography. We override _FogTex on the clone with a
@@ -356,9 +363,16 @@ namespace SBPR.Trailborne.Features.Cartography
                 _revealScratch = new Color32[count];
             var px = _revealScratch;
 
-            // Vanilla Reset fills the fog mask fully fogged (R=255). We mirror that, then un-fog the disc.
-            var fogged  = new Color32(255, 0, 0, 255);
-            var cleared = new Color32(0, 0, 0, 255);
+            // §2E.5 unexplored = FULL SHROUD, not the "shared-by-others" look. Vanilla's _FogTex is
+            // R8G8: R = m_explored (self), G = m_exploredOthers (shared via table/others). Reset fills
+            // genuinely-unexplored as (255,255,255,255) — R=255 AND G=255 (Minimap.Reset, decomp :46976);
+            // Explore zeroes R (:48043), ExploreOthers zeroes G (:48091). So R=255,G=0 is literally vanilla's
+            // "someone shared this with you" code — which rendered the faded shared look Daniel rejected
+            // (t_48c23824). We must mirror Reset on BOTH channels: G=255 too, so unexplored reads as
+            // nobody-explored → solid fog-of-war cloud. cleared zeroes R (self-explored → revealed); G is
+            // don't-care once R=0, kept 255 to stay strictly in the not-shared bucket.
+            var fogged  = new Color32(255, 255, 255, 255);
+            var cleared = new Color32(0, 255, 0, 255);
             for (int i = 0; i < count; i++) px[i] = fogged;
 
             // Un-fog exactly the lit cells of the table-anchored survey window, mapped back to their

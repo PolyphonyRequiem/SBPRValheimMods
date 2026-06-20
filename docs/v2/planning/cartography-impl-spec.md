@@ -1516,16 +1516,33 @@ line is `main`). Three implementation decisions resolved the spec's implementer'
 
 1. **Defect 2 reveal — FULL-WORLD `_FogTex`, not a windowed sub-rect (§2E.5.1's documented fallback,
    chosen deliberately).** `MapSurface.BindBoundedReveal(survey, textureSize)` allocates a
-   `textureSize²` (256²) R8G8-convention reveal, fills it fully fogged (`R=255`, vanilla `Reset`
-   convention), then clears `R=0` on exactly the lit cells of the table-anchored survey window, mapped
-   back to their absolute source-cell position (the inverse of `SurveyData.CaptureWindow`). It binds via
-   `_shaderMat.SetTexture("_FogTex", _revealTex)`. Because vanilla's cloned material samples `_FogTex` in
-   FULL-texture UV space paired with the full-world `_MainTex`, a 256² reveal registers 1:1 with the
-   biome **by construction** — sidestepping the windowed-registration spike the spec flagged as the one
-   unverifiable-headless risk. The opaque `_shroudImage` RGBA overlay + `PaintShroudMask*` +
+   `textureSize²` (256²) R8G8-convention reveal, fills it fully fogged on **both** channels
+   (`R=255` **and** `G=255` — the COMPLETE vanilla `Reset` convention, `Minimap.Reset` decomp `:46976`
+   fills `(255,255,255,255)`), then clears `R=0` on exactly the lit cells of the table-anchored survey
+   window, mapped back to their absolute source-cell position (the inverse of `SurveyData.CaptureWindow`).
+   It binds via `_shaderMat.SetTexture("_FogTex", _revealTex)`. Because vanilla's cloned material samples
+   `_FogTex` in FULL-texture UV space paired with the full-world `_MainTex`, a 256² reveal registers 1:1
+   with the biome **by construction** — sidestepping the windowed-registration spike the spec flagged as
+   the one unverifiable-headless risk. The opaque `_shroudImage` RGBA overlay + `PaintShroudMask*` +
    `SampleLitAt` are **deleted**; the unexplored area is now vanilla's real shader-composited cloud.
    The reveal is absolute-world-space, so table-centred and player-centred surfaces share it with no
    resample (R1 falls out for free; the old `DiscShroudTexN=128` disc resample is gone).
+
+   > **🔴 G-CHANNEL CORRECTION (2026-06-19 → card t_48c23824, PR after #192).** The first as-built of
+   > this point filled fogged texels as `R=255, G=0` ("mirror Reset's R=255") — but that is INCOMPLETE:
+   > vanilla `_FogTex` is two-channel, **R = `m_explored`** (self; `Explore` zeroes R, decomp `:48043`)
+   > and **G = `m_exploredOthers`** (shared via the cartography table / other players; `ExploreOthers`
+   > zeroes G, `:48091`). `R=255, G=0` is therefore vanilla's encoding for *"someone else explored this
+   > and shared it with you"* — so the map shader rendered the **faded shared-map look**, NOT the full
+   > fog-of-war shroud. Daniel's v0.2.27-playtest report: *"the unexplored parts … show like … someone
+   > else has already explored and is sharing the map with you via the cartography table, but I was
+   > expecting the 'full shroud' look."* Fix: fill fogged as `R=255, G=255` (genuinely-unexplored =
+   > nobody-explored = vanilla Reset on both channels → solid shroud). `cleared` is `R=0, G=255` (the
+   > exact vanilla "self-explored only" state — `Explore` leaves G at its Reset 255). Belt-and-suspenders:
+   > the cloned material now pins `_SharedFade = 0` in `TryRenderVanillaShader` (vanilla drives it live
+   > from `m_showSharedMapData`, `:47106-47121`) so no shared-data fade can bleed into the bounded view.
+   > This is the genuine satisfaction of **AT-FOG-VANILLA** (the merge of #192 landed the `_FogTex` path
+   > but on the wrong channel; this lands the correct unexplored *appearance*).
 
 2. **Defect 3 clip — GEOMETRY fan, not a uGUI stencil/mask.** New `CircularRawImage : RawImage`
    (`Features/Cartography/CircularRawImage.cs`) overrides `OnPopulateMesh` to tessellate the rect into a
