@@ -351,6 +351,18 @@ public bool MKeyContextAllowsMapToggle()
 
 ## 5. The HUD prompt — `$KEY_Use` → `$KEY_Map`
 
+> **⚠️ PLACEMENT SUPERSEDED (2026-06-19, playtest — card t_338f723b →
+> `local-map-disc-name-hint-impl-spec.md`).** The prompt's *token* work below (`$KEY_Use` →
+> `$KEY_Map`, rebind-correct) STANDS. Its *placement + visibility* DO NOT: Daniel's v0.2.27
+> playtest ("the bottom hint doesn't really work for me") **relocates** this hint from the
+> standalone bottom-centre `SBPR_LocalMapPrompt` canvas to a caption **UNDER the minimap disc**,
+> co-located with the map's NAME, and **widens** its visibility from equipped-only to
+> disc-visibility (provider bound + nomap-ON). The bottom-centre canvas is **deleted**, not kept.
+> Read `local-map-disc-name-hint-impl-spec.md` before touching the prompt — the §9-Q1
+> "carried-but-unequipped prompt?" question below is RESOLVED there (YES, the caption shows for a
+> bound carried map). Everything in this section about WHICH token and WHY it's rebind-correct is
+> still authoritative; only WHERE the hint lives and WHEN it shows has moved.
+
 `UpdateEquippedPrompt` / `EnsurePromptCanvas` (`:274-323`) builds the prompt from
 `"[<$KEY_Use>] $piece_readmap"`. Swap the key token to **`$KEY_Map`**:
 
@@ -451,6 +463,11 @@ present-tense "opens on E" prose.)
 1. **Carried-but-unequipped prompt?** §5 keeps the HUD prompt equipped-only. M still *opens* a
    carried-unequipped bound map (§4.2), but there's no on-screen "[M]" reminder when it's put
    away. Lean: leave it (no nag); add only if Daniel wants discoverability for the put-away case.
+   **→ 🟢 RESOLVED 2026-06-19 (card t_338f723b, `local-map-disc-name-hint-impl-spec.md`):** YES,
+   add discoverability — the hint is relocated UNDER the disc and its visibility widened to
+   disc-visibility, so a bound-but-unequipped carried map DOES show "[M] opens <name>" (the
+   disc is up whenever the provider is bound + nomap-ON). The equipped-only model in §5 is
+   superseded; see the banner at the top of §5.
 2. **M as a hard global suppress vs context-gated?** §3.2 detail 2 gates the consume on
    `MKeyContextAllowsMapToggle` (mirrors vanilla's `:47074`), so M is NOT consumed while typing.
    Confirm that's the intent: the alternative (consume M *always*, even in text fields) would

@@ -73,6 +73,32 @@ provider local map and the personal global map (§4).
   viewer STAYS. → This keeps card **t_d44572f2** (issue 6, edge-bleed) LIVE — it's a real bug in a
   viewer we're keeping, not one that evaporates.
 
+### 2.1 🟢 DECIDED (Daniel 2026-06-19 playtest) — the disc carries its NAME + a co-located `[M]` open-hint UNDERNEATH it
+v0.2.27-playtest refinement: *"the [M] READ MAP display at the bottom doesn't really work for
+me… maybe put the name of the map under the minimap and put the M key hint there to show it
+will open the named local map?"* — Daniel, 2026-06-19, Niflheim #bugs.
+
+The locked §2 model above specifies the disc renders the bound local map's data, but said
+nothing about (a) showing the map's NAME or (b) where the open-hint lives. This addendum closes
+both gaps:
+
+- 🟢 The bound local map's **NAME** ("Local map for <Table>") renders as a caption **directly
+  under the minimap disc** (top-right), NOT a cartouche on the disc face.
+- 🟢 The **`[M]` open-hint** (rebind-correct `$KEY_Map`) is **co-located with the name**, under
+  the disc — one visual unit reading *"[M] opens THIS named local map."* This **relocates** the
+  old bottom-centre screen hint (it is moved, not duplicated; the floating bottom element is
+  deleted).
+- 🟢 Visibility tracks **disc-visibility** (provider bound + nomap-ON), NOT equip state — so the
+  hint is present exactly when M actually opens the map (M opens a bound map even while
+  unequipped-but-carried; the old equipped-only hint was narrower than M's real function).
+- In **nomap-OFF** there is no SBPR disc (vanilla minimap owns the corner, §6) → no caption
+  there; the map stays M-openable but the name+hint surface is the nomap-ON disc.
+- 🔵 GROUNDED: the name is already stored (`LocalMap.TryGetName` / `FormatDisplayName`, used by
+  the modal title today) — a one-call read, no new storage. Pure HUD presentation; SpecCheck +0.
+- 🔴 Buildable spec: **`docs/v2/planning/local-map-disc-name-hint-impl-spec.md`** (architect
+  card t_338f723b). Supersedes the bottom-centre PLACEMENT in
+  `local-map-mkey-open-impl-spec.md` §5; the `$KEY_Map` token + rebind-correctness stand.
+
 ---
 
 ## 3. Local maps = data ARTIFACTS 🟢 DECIDED (Daniel: artifact model)
