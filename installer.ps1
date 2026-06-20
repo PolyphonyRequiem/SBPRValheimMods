@@ -42,8 +42,8 @@
 [CmdletBinding()]
 param(
     # GitHub release asset (the assembled modpack). Pinned to a tag for stability.
-    [string]$ModpackUrl    = 'https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.2.28-playtest/SBPR-Trailborne-Modpack-v0.2.28.zip',
-    [string]$ExpectedSha256= 'f19b1441b11b012078e4ec2c6c03e0d9cae5980bd2015f52a382fd444da3c45c',
+    [string]$ModpackUrl    = 'https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.2.29-playtest/SBPR-Trailborne-Modpack-v0.2.29.zip',
+    [string]$ExpectedSha256= '68ffc1b6cfa79fc266bfe312ea7820e3d3a3b7a2ec4d135d892d7c8372bbb5e4',
     # Live server status (join code drifts on every restart, so we FETCH it at
     # runtime instead of baking a stale code in). Falls back gracefully if down.
     [string]$StatusUrl     = 'https://gist.githubusercontent.com/PolyphonyRequiem/7b54a29aeefb3effee0393df79d0b03e/raw/niflheim-status.json',
