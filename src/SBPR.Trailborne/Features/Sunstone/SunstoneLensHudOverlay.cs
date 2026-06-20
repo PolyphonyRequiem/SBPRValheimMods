@@ -39,6 +39,7 @@ using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 using SBPR.Trailborne.Runtime;
+using SBPR.Trailborne.Features.Cartography;
 
 namespace SBPR.Trailborne.Features.Sunstone
 {
@@ -81,23 +82,26 @@ namespace SBPR.Trailborne.Features.Sunstone
         private readonly List<Character> _hostiles = new List<Character>();
         private float _nextSweep;
 
-        // ── Aggro-state tint (the Rune-of-Awareness colour code, §1.8). ──
-        private static readonly Color CYellow = new Color(0.95f, 0.82f, 0.29f, 1f);  // idle / alerted, no target
-        private static readonly Color COrange = new Color(0.95f, 0.55f, 0.16f, 1f);  // aggroed on ANOTHER player
-        private static readonly Color CRed    = new Color(0.90f, 0.25f, 0.17f, 1f);  // aggroed on YOU
+        // ── Sunstone Lens → minimap handoff (card t_91e86951). ──
+        // The per-sweep render-ready blips, derived ONCE via SunstoneProjection and consumed by all
+        // three surfaces (ring / SBPR disc / vanilla minimap) — zero-drift (AT-LENS-DISC-NODRIFT).
+        private readonly List<ThreatBlip> _blips = new List<ThreatBlip>();
+        // The Cartography seam adapter: hands the SBPR carry-disc the latest blips on its rebuild pull.
+        // Registered once (first Update) into Cartography.ThreatMarkers; holds _blips by reference.
+        private SunstoneThreatProvider? _discProvider;
+        // The nomap-OFF custom overlay on the vanilla corner minimap (own Image.color → tint survives).
+        private readonly SunstoneMinimapThreatLayer _vanillaLayer = new SunstoneMinimapThreatLayer();
+        // Per-tick handoff state (set in Update, read by the disc provider's pull + the vanilla render).
+        private bool _feedDiscNow;             // true ⇔ the SBPR disc should receive _blips this rebuild
+        private BlipStyle _blipStyleNow = BlipStyle.Dots;  // dots vs trophy on the minimap surfaces
+
+        // ── Aggro-state tint (the Rune-of-Awareness colour code, §1.8). Single source of truth now
+        //    lives in SunstoneProjection; the empty-ring uses its own faint solar colour below. ──
         // Faint solar ring — the sunstone's stored daylight glowing faintly.
         private static readonly Color CSolarRing = new Color(0.98f, 0.78f, 0.36f, 0.18f);
 
         // ── Static caches (resolved once, reused). ──
-        private static readonly Dictionary<string, Sprite?> _trophyCache = new Dictionary<string, Sprite?>();
-        private static Sprite? _starSprite;        // harvested from vanilla EnemyHud nameplate
-        private static bool    _starHarvestDone;   // stop retrying once resolved (or proven absent)
         private static Sprite? _ringSprite;        // procedurally generated annulus
-        private static Sprite? _threatGlyph;       // generic glyph for trophy-less hostiles
-        private static bool    _threatGlyphDone;   // resolved once (PNG, else procedural)
-        // Loaded by BARE filename: pack-modpack.sh flattens assets/icons/items/*.png into the plugin
-        // folder root, and Assets.LoadPngAsSprite resolves Path.Combine(PluginFolder, filename).
-        private const  string  ThreatGlyphIcon = "threat_fallback_v0.1.png";
 
         /// <summary>A single pooled ring slot: a trophy Image plus a row of star pips.</summary>
         private sealed class Slot
@@ -222,6 +226,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             if (player == null || _root == null)
             {
                 SetVisible(false);
+                StandDownMinimaps();
                 return;
             }
 
@@ -229,6 +234,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             if (lens == null)
             {
                 SetVisible(false);   // not worn → overlay hidden entirely
+                StandDownMinimaps();  // and clear any threats left on a minimap surface
                 return;
             }
 
@@ -236,6 +242,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             // (Daniel: depleted hint default off). The durability bar already signals "dim".
             if (lens.m_durability < SunstoneLens.MinChargeToDetect)
             {
+                StandDownMinimaps();  // depleted = inert detection → no threats on any minimap surface
                 bool showDepleted = Plugin.LensRingShowDepletedHint?.Value ?? DefaultShowDepletedHint;
                 if (!showDepleted)
                 {
@@ -254,23 +261,24 @@ namespace SBPR.Trailborne.Features.Sunstone
                 return;
             }
 
-            SetVisible(true);
+            // ── Sunstone Lens → minimap handoff (card t_91e86951). The lens is ACTIVE here (worn +
+            //    charged). Resolve which surface owns detection this tick and how the gated
+            //    MinimapHandoffMode splits the ring vs the minimap, then render accordingly. ──
+            EnsureDiscProviderRegistered();
 
-            // Diagnostic (t_d5949685): on the FIRST visible frame, log the resolved placement so a fresh
-            // client LogOutput.log can split a mount/pump failure (this line never appears) from an
-            // on-screen-but-empty ring (line appears with a sane anchoredPosition/size). Re-armed on hide.
-            if (DebugMount && !_loggedFirstShow && _root != null && _content != null)
-            {
-                _loggedFirstShow = true;
-                Plugin.Log.LogInfo($"[Trailborne/Sunstone] LensHud first show: root.anchoredPosition={_root.anchoredPosition} "
-                    + $"ringRadiusPx={(Plugin.LensRingRadiusPx?.Value ?? DefaultRingRadiusPx)} "
-                    + $"(host activeInHierarchy={_root.gameObject.activeInHierarchy}, content active={_content.gameObject.activeSelf}).");
-            }
+            var mode = Plugin.LensMinimapHandoffMode?.Value ?? MinimapHandoffMode.DiscWhenBound;
+            _blipStyleNow = Plugin.LensMinimapBlipStyle?.Value ?? BlipStyle.Dots;
 
-            float max = Mathf.Max(1f, lens.GetMaxDurability());
-            float chargePct = Mathf.Clamp01(lens.m_durability / max) * 100f;
+            // The two live world facts the pure decision consumes. SBPR disc bound = nomap-ON + a local
+            // map bound + imprinted (CartographyViewer.IsMinimapBound). Vanilla corner map showing =
+            // nomap-OFF (Minimap forces MapMode.None under Game.m_noMap, so Small ⇔ nomap-OFF).
+            bool sbprDiscBound = CartographyViewer.IsMinimapBound;
+            var mm = Minimap.instance;
+            bool vanillaMinimapShowing = mm != null && mm.m_mode == Minimap.MapMode.Small;
 
-            // Throttled detection sweep (cheap to keep the per-frame cost low).
+            LensRenderPlan plan = LensHandoffDecision.Resolve(sbprDiscBound, vanillaMinimapShowing, mode);
+
+            // ── Throttled detection sweep (the expensive Character scan stays at the configured cadence). ──
             float interval = Plugin.LensDetectInterval?.Value ?? SunstoneLens.DefaultDetectInterval;
             if (Time.time >= _nextSweep)
             {
@@ -279,7 +287,78 @@ namespace SBPR.Trailborne.Features.Sunstone
                 SunstoneLens.GatherHostiles(player, radius, _hostiles);
             }
 
-            RenderRing(player, chargePct);
+            // Derive render-ready blips EVERY frame from the (throttled) hostile set — the cheap part
+            // (tint/trophy-cache/level), so the ring keeps its per-frame aggro-tint freshness AND the
+            // minimap surfaces read the SAME single derivation (AT-LENS-DISC-NODRIFT). One source.
+            SunstoneProjection.Project(_hostiles, player, _blips);
+
+            // ── Ring content (#209 invariant — AT-LENS-DISC-PUMP). "Ring hides" = SetVisible(false) on
+            //    the _content CHILD only; the host (_root) carrying THIS Update pump stays active, so the
+            //    sweep + projection above keep running and the minimap surfaces keep getting fed even
+            //    while the ring is hidden. NEVER deactivate the host here. ──
+            SetVisible(true);            // host stays active; _content toggled to plan below
+            LogFirstShowDiagnostic();
+
+            float max = Mathf.Max(1f, lens.GetMaxDurability());
+            float chargePct = Mathf.Clamp01(lens.m_durability / max) * 100f;
+
+            if (plan.RingContentVisible)
+            {
+                _content?.gameObject.SetActive(true);
+                RenderRing(player, chargePct);
+            }
+            else
+            {
+                // Ring suppressed (a minimap owns detection). Park the ring's visuals; the host + pump
+                // stay alive (the load-bearing #209 line). _content hidden = no trophies/solar ring drawn.
+                HideAllSlots();
+                _content?.gameObject.SetActive(false);
+            }
+
+            // ── Feed the active minimap surface (if the mode hands off). The SBPR disc pulls _blips on
+            //    its own rebuild via the registered provider (gated by _feedDiscNow); the vanilla minimap
+            //    overlay is driven directly here. Exactly one is ever live (mutually exclusive surfaces). ──
+            bool feedDisc = plan.FeedMinimap && plan.MinimapTarget == LensSurface.SbprDisc;
+            bool feedVanilla = plan.FeedMinimap && plan.MinimapTarget == LensSurface.VanillaMinimap;
+            _feedDiscNow = feedDisc;
+            if (feedVanilla) _vanillaLayer.Render(_blips, _blipStyleNow);
+            else _vanillaLayer.Clear();
+        }
+
+        /// <summary>
+        /// Stand every minimap surface down (called from the inert early-returns — not worn / depleted).
+        /// Clears the disc feed flag + the swept blips (so the disc provider hands out nothing on its next
+        /// rebuild) and clears the vanilla overlay. The ring's own visibility is handled by SetVisible at
+        /// each call site; this only governs the two MINIMAP surfaces so an unequipped/depleted lens can't
+        /// leave stale threats on a minimap.
+        /// </summary>
+        private void StandDownMinimaps()
+        {
+            _feedDiscNow = false;
+            _blips.Clear();
+            _vanillaLayer.Clear();
+        }
+
+        /// <summary>Register the SBPR-disc threat provider exactly once (idempotent via the registry).</summary>
+        private void EnsureDiscProviderRegistered()
+        {
+            if (_discProvider != null) return;
+            _discProvider = new SunstoneThreatProvider(this);
+            ThreatMarkers.Register(_discProvider);
+        }
+
+        // Diagnostic (t_d5949685): on the FIRST visible frame, log the resolved placement so a fresh
+        // client LogOutput.log can split a mount/pump failure (this line never appears) from an
+        // on-screen-but-empty ring (line appears with a sane anchoredPosition/size). Re-armed on hide.
+        private void LogFirstShowDiagnostic()
+        {
+            if (DebugMount && !_loggedFirstShow && _root != null && _content != null)
+            {
+                _loggedFirstShow = true;
+                Plugin.Log.LogInfo($"[Trailborne/Sunstone] LensHud first show: root.anchoredPosition={_root.anchoredPosition} "
+                    + $"ringRadiusPx={(Plugin.LensRingRadiusPx?.Value ?? DefaultRingRadiusPx)} "
+                    + $"(host activeInHierarchy={_root.gameObject.activeInHierarchy}, content active={_content.gameObject.activeSelf}).");
+            }
         }
 
         private void RenderRing(Player player, float chargePct)
@@ -294,26 +373,25 @@ namespace SBPR.Trailborne.Features.Sunstone
             var cam = Utils.GetMainCamera();
             Vector3 origin = player.transform.position;
 
-            // Build the to-render list: nearest-first, capped at maxIcons (a horde shows the closest N).
-            // Reuse _hostiles; sort by distance so the cap keeps the most relevant threats.
-            _hostiles.Sort((a, b) =>
+            // Render from the projected blips (the SINGLE derivation — same tint/trophy/stars the disc +
+            // vanilla minimap consume, AT-LENS-DISC-NODRIFT). Sort nearest-first so the maxIcons cap keeps
+            // the most relevant threats (a horde shows the closest N).
+            _blips.Sort((a, b) =>
             {
-                if (a == null) return 1;
-                if (b == null) return -1;
-                float da = (a.transform.position - origin).sqrMagnitude;
-                float db = (b.transform.position - origin).sqrMagnitude;
+                float da = (a.WorldPos - origin).sqrMagnitude;
+                float db = (b.WorldPos - origin).sqrMagnitude;
                 return da.CompareTo(db);
             });
 
             int shown = 0;
-            for (int i = 0; i < _hostiles.Count && shown < maxIcons; i++)
+            for (int i = 0; i < _blips.Count && shown < maxIcons; i++)
             {
-                var c = _hostiles[i];
-                if (c == null || cam == null) continue;
+                var blip = _blips[i];
+                if (blip.Character == null || cam == null) continue;
 
                 // Camera-relative bearing (THE thesis guard: never north-up). The exact angle the old
                 // BearingGlyph computed — 0° = dead ahead, +90° = hard right.
-                Vector3 to = c.transform.position - origin;
+                Vector3 to = blip.WorldPos - origin;
                 to.y = 0f;
                 Vector3 fwd = cam.transform.forward; fwd.y = 0f;
                 if (to.sqrMagnitude < 0.0001f || fwd.sqrMagnitude < 0.0001f) continue;
@@ -327,11 +405,8 @@ namespace SBPR.Trailborne.Features.Sunstone
                 float t = 1f - Mathf.Clamp01(dist / Mathf.Max(1f, detectR));
                 float scale = Mathf.Lerp(minPx, maxPx, t);
 
-                Color tint = AggroTint(c, player);
-                int stars = Mathf.Max(0, c.GetLevel() - 1);
-
                 var slot = EnsureSlot(shown);
-                ApplySlot(slot, c, pos, scale, tint, stars);
+                ApplySlot(slot, blip, pos, scale);
                 slot.Go.SetActive(true);
                 shown++;
             }
@@ -359,10 +434,10 @@ namespace SBPR.Trailborne.Features.Sunstone
                     else
                     {
                         float nearest = float.MaxValue;
-                        foreach (var c in _hostiles)
+                        foreach (var blip in _blips)
                         {
-                            if (c == null) continue;
-                            float d = (c.transform.position - origin).sqrMagnitude;
+                            if (blip.Character == null) continue;
+                            float d = (blip.WorldPos - origin).sqrMagnitude;
                             if (d < nearest) nearest = d;
                         }
                         _debugText.text = $"⚠ {shown} hostile{(shown == 1 ? "" : "s")} · nearest {Mathf.Sqrt(nearest):0}m · charge {chargePct:0}%";
@@ -408,17 +483,17 @@ namespace SBPR.Trailborne.Features.Sunstone
             return new Slot { Go = go, Rt = rt, Trophy = trophy, StarRow = rowRt };
         }
 
-        private void ApplySlot(Slot slot, Character c, Vector2 pos, float scale, Color tint, int stars)
+        private void ApplySlot(Slot slot, ThreatBlip blip, Vector2 pos, float scale)
         {
             slot.Rt.anchoredPosition = pos;
             slot.Rt.sizeDelta = new Vector2(scale, scale);
 
-            // Trophy sprite (or the generic threat glyph for trophy-less hostiles).
-            var sprite = ResolveTrophySprite(c);
-            slot.Trophy.sprite = sprite ?? ThreatGlyph();
-            slot.Trophy.color = tint;   // aggro-state tint multiplies onto the trophy
+            // Trophy sprite (or the generic threat glyph for trophy-less hostiles) — both come from the
+            // shared SunstoneProjection so the ring matches the disc + vanilla minimap exactly.
+            slot.Trophy.sprite = blip.Trophy ?? SunstoneProjection.ThreatGlyph();
+            slot.Trophy.color = blip.Tint;   // aggro-state tint multiplies onto the trophy
 
-            RenderStars(slot, stars, scale, tint);
+            RenderStars(slot, blip.Stars, scale, blip.Tint);
         }
 
         private void RenderStars(Slot slot, int stars, float trophyScale, Color tint)
@@ -426,7 +501,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             // Position the star row just above the trophy.
             slot.StarRow.anchoredPosition = new Vector2(0f, trophyScale * 0.5f + 8f);
 
-            var star = StarSprite();
+            var star = SunstoneProjection.StarSprite();
             const float pip = 12f;
 
             if (star != null)
@@ -493,190 +568,9 @@ namespace SBPR.Trailborne.Features.Sunstone
         }
 
         // ───────────────────────────────────────────────
-        // VANILLA-ASSET RESOLUTION (read-only — reproduced from base-game primitives)
+        // SOLAR-RING SPRITE (the only procedural asset still owned here; trophy/star/glyph/tint
+        // derivation moved to SunstoneProjection so all three surfaces share one copy — card t_91e86951)
         // ───────────────────────────────────────────────
-
-        /// <summary>
-        /// The trophy sprite for a creature: its <c>CharacterDrop</c> drop whose item is
-        /// <c>ItemType.Trophy</c> (enum 13, decomp :57641), taking that item's <c>m_icons[0]</c>.
-        /// Resolved once per creature prefab and cached (a null result is cached too, so a
-        /// trophy-less hostile isn't re-scanned). This is the same (creature → CharacterDrop →
-        /// Trophy) identity surface vanilla's own <c>Player.AddTrophy</c> uses, read the other way.
-        /// </summary>
-        private static Sprite? ResolveTrophySprite(Character c)
-        {
-            string key = StripCloneSuffix(c.name);
-            if (_trophyCache.TryGetValue(key, out var cached)) return cached;
-
-            Sprite? sprite = null;
-            try
-            {
-                var cd = c.GetComponent<CharacterDrop>();
-                if (cd != null && cd.m_drops != null)
-                {
-                    foreach (var d in cd.m_drops)
-                    {
-                        if (d == null || d.m_prefab == null) continue;
-                        var id = d.m_prefab.GetComponent<ItemDrop>();
-                        var shared = id != null ? id.m_itemData?.m_shared : null;
-                        if (shared == null) continue;
-                        if (shared.m_itemType != ItemDrop.ItemData.ItemType.Trophy) continue;
-                        if (shared.m_icons != null && shared.m_icons.Length > 0 && shared.m_icons[0] != null)
-                        {
-                            sprite = shared.m_icons[0];
-                            break;
-                        }
-                    }
-                }
-            }
-            catch (System.Exception e)
-            {
-                Plugin.Log.LogWarning($"[Trailborne/Sunstone] trophy resolve failed for {key}: {e.Message}");
-            }
-
-            _trophyCache[key] = sprite;
-            return sprite;
-        }
-
-        /// <summary>
-        /// Harvest the real vanilla nameplate STAR sprite from <c>EnemyHud.m_baseHud</c>'s
-        /// <c>level_2</c>/<c>level_3</c> children (the 1★/2★ decorations, decomp :38487-38488).
-        /// Returns null until <c>EnemyHud.instance</c> + its base-hud template exist (then caches).
-        /// Daniel 2026-06-19: "use the Valheim stars used to decorate the monster nameplates."
-        /// </summary>
-        private static Sprite? StarSprite()
-        {
-            if (_starHarvestDone) return _starSprite;
-            try
-            {
-                var eh = EnemyHud.instance;
-                var baseHud = eh != null ? eh.m_baseHud : null;
-                if (baseHud == null) return null;   // not ready yet — retry next render
-
-                _starSprite = FindStarSprite(baseHud.transform, "level_2")
-                              ?? FindStarSprite(baseHud.transform, "level_3");
-                _starHarvestDone = true;            // template exists: accept whatever we found (may be null)
-            }
-            catch (System.Exception e)
-            {
-                Plugin.Log.LogWarning($"[Trailborne/Sunstone] star-sprite harvest failed: {e.Message}");
-                _starHarvestDone = true;
-            }
-            return _starSprite;
-        }
-
-        private static Sprite? FindStarSprite(Transform root, string childName)
-        {
-            var t = root.Find(childName);
-            if (t == null) return null;
-            var img = t.GetComponent<Image>();
-            if (img != null && img.sprite != null) return img.sprite;
-            img = t.GetComponentInChildren<Image>(includeInactive: true);
-            return img != null ? img.sprite : null;
-        }
-
-        /// <summary>
-        /// Aggro-state tint (the Rune-of-Awareness colour code, §1.8) — reproduced from vanilla
-        /// BaseAI: <c>IsAlerted()</c> (:5450) + <c>GetTargetCreature()</c> (:5564), the same surface
-        /// vanilla's own EnemyHud reads (:38538). red = targeting the local player, orange = targeting
-        /// another player, yellow = idle/alerted-without-a-player-target. Fails safe to yellow.
-        /// </summary>
-        private static Color AggroTint(Character c, Player localPlayer)
-        {
-            try
-            {
-                var ai = c.GetBaseAI();
-                if (ai == null || !ai.IsAlerted()) return CYellow;
-                var target = ai.GetTargetCreature();
-                if (target == null) return CYellow;
-                if (target == (Character)localPlayer) return CRed;
-                if (target.IsPlayer()) return COrange;
-                return CYellow;
-            }
-            catch
-            {
-                return CYellow;
-            }
-        }
-
-        /// <summary>
-        /// The generic threat glyph for trophy-less hostiles (summoned minions, some boss adds).
-        /// Loads the shipped PNG (assets/icons/ui/threat_fallback_v0.1.png — near-white so the aggro
-        /// tint reads); if the PNG didn't ship, generates a procedural danger-triangle so a
-        /// trophy-less hostile is NEVER invisible (degrades to "still shown," never a crash). The
-        /// fallback slot is a defined position on the ring, not a skip.
-        /// </summary>
-        private static Sprite ThreatGlyph()
-        {
-            if (_threatGlyphDone && _threatGlyph != null) return _threatGlyph;
-            if (!_threatGlyphDone)
-            {
-                _threatGlyph = Assets.LoadPngAsSprite(ThreatGlyphIcon);
-                _threatGlyphDone = true;
-                if (_threatGlyph == null)
-                    Plugin.Log.LogWarning(
-                        $"[Trailborne/Sunstone] threat-fallback glyph '{ThreatGlyphIcon}' did not load; "
-                        + "using procedural danger-triangle (trophy-less hostiles still render).");
-            }
-            return _threatGlyph ?? ProceduralThreatGlyph();
-        }
-
-        private static Sprite? _proceduralThreat;
-        /// <summary>A code-generated near-white danger triangle (no disk dependency).</summary>
-        private static Sprite ProceduralThreatGlyph()
-        {
-            if (_proceduralThreat != null) return _proceduralThreat;
-            const int s = 128;
-            var tex = new Texture2D(s, s, TextureFormat.RGBA32, false);
-            var clear = new Color(1f, 1f, 1f, 0f);
-            var px = new Color[s * s];
-            for (int i = 0; i < px.Length; i++) px[i] = clear;
-
-            var ink = new Color(0.92f, 0.92f, 0.92f, 1f);
-            // Triangle vertices (apex top, base bottom), drawn as a thick outline.
-            var apex = new Vector2(s / 2f, s * 0.12f);
-            var bl   = new Vector2(s * 0.14f, s * 0.84f);
-            var br   = new Vector2(s * 0.86f, s * 0.84f);
-            DrawThickLine(px, s, apex, bl, ink, 7f);
-            DrawThickLine(px, s, bl, br, ink, 7f);
-            DrawThickLine(px, s, br, apex, ink, 7f);
-            // Exclamation bar + dot.
-            for (int y = (int)(s * 0.34f); y < (int)(s * 0.62f); y++)
-                for (int x = (int)(s / 2f - 4); x <= (int)(s / 2f + 4); x++)
-                    if (x >= 0 && x < s && y >= 0 && y < s) px[y * s + x] = ink;
-            FillDisc(px, s, new Vector2(s / 2f, s * 0.70f), 5.5f, ink);
-
-            tex.SetPixels(px);
-            tex.Apply();
-            tex.filterMode = FilterMode.Bilinear;
-            _proceduralThreat = Sprite.Create(tex, new Rect(0, 0, s, s), new Vector2(0.5f, 0.5f), 100f);
-            _proceduralThreat.name = "SBPR_ThreatGlyphProc";
-            return _proceduralThreat;
-        }
-
-        private static void DrawThickLine(Color[] px, int s, Vector2 a, Vector2 b, Color c, float w)
-        {
-            float len = Vector2.Distance(a, b);
-            int steps = Mathf.CeilToInt(len);
-            for (int i = 0; i <= steps; i++)
-            {
-                Vector2 p = Vector2.Lerp(a, b, steps == 0 ? 0f : (float)i / steps);
-                FillDisc(px, s, p, w * 0.5f, c);
-            }
-        }
-
-        private static void FillDisc(Color[] px, int s, Vector2 c, float r, Color col)
-        {
-            int x0 = Mathf.Max(0, (int)(c.x - r)), x1 = Mathf.Min(s - 1, (int)(c.x + r));
-            int y0 = Mathf.Max(0, (int)(c.y - r)), y1 = Mathf.Min(s - 1, (int)(c.y + r));
-            float r2 = r * r;
-            for (int y = y0; y <= y1; y++)
-                for (int x = x0; x <= x1; x++)
-                {
-                    float dx = x - c.x, dy = y - c.y;
-                    if (dx * dx + dy * dy <= r2) px[y * s + x] = col;
-                }
-        }
 
         /// <summary>
         /// A procedurally-generated thin annulus sprite for the faint solar ring (no disk asset —
@@ -720,13 +614,44 @@ namespace SBPR.Trailborne.Features.Sunstone
             return _ringSprite;
         }
 
-        // Mirror of vanilla ItemDrop.GetPrefabName clone-suffix strip (decomp :58940): cut at the
-        // first '(' or ' ' so "Draugr(Clone)" matches the cache key "Draugr".
-        private static string StripCloneSuffix(string name)
+        // ───────────────────────────────────────────────
+        // SBPR-DISC THREAT PROVIDER (the Cartography seam adapter — card t_91e86951)
+        // ───────────────────────────────────────────────
+
+        /// <summary>
+        /// Append this overlay's latest swept blips as <see cref="DiscThreatMarker"/>s, the Cartography
+        /// seam's pull contract. Called by <see cref="SunstoneThreatProvider"/> from inside the disc's
+        /// <c>MapSurface.RebuildOverlay</c>. Returns nothing unless THIS tick the handoff plan feeds the
+        /// SBPR disc (<see cref="_feedDiscNow"/>) — so a hidden disc / ring-only mode / depleted lens
+        /// shows no threats. Disc-clip by <paramref name="radius"/> is the producer's courtesy; the disc
+        /// also clips to its visible circle. Under <see cref="BlipStyle.Dots"/> the marker carries a null
+        /// Icon (the disc draws a tinted dot); under Trophy it carries the trophy sprite.
+        /// </summary>
+        internal void CollectDiscThreats(Vector3 origin, float radius, List<DiscThreatMarker> into)
         {
-            if (string.IsNullOrEmpty(name)) return name;
-            int i = name.IndexOfAny(new[] { '(', ' ' });
-            return i >= 0 ? name.Substring(0, i) : name;
+            if (!_feedDiscNow) return;
+            float r2 = radius > 0f ? radius * radius : float.MaxValue;
+            bool trophy = _blipStyleNow == BlipStyle.Trophy;
+            for (int i = 0; i < _blips.Count; i++)
+            {
+                var b = _blips[i];
+                if (b.Character == null) continue;
+                if ((b.WorldPos - origin).sqrMagnitude > r2) continue;
+                into.Add(new DiscThreatMarker(b.WorldPos, b.Tint, trophy ? b.Trophy : null, b.Stars));
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="IThreatMarkerProvider"/> adapter Sunstone registers into the Cartography
+        /// <c>ThreatMarkers</c> registry. Holds the owning overlay and forwards the pull — keeping the
+        /// dependency arrow Sunstone → Cartography (Cartography never references the Lens, only the seam).
+        /// </summary>
+        private sealed class SunstoneThreatProvider : IThreatMarkerProvider
+        {
+            private readonly SunstoneLensHudOverlay _owner;
+            public SunstoneThreatProvider(SunstoneLensHudOverlay owner) { _owner = owner; }
+            public void CollectThreatBlips(Vector3 origin, float radius, List<DiscThreatMarker> into)
+                => _owner.CollectDiscThreats(origin, radius, into);
         }
 
         /// <summary>

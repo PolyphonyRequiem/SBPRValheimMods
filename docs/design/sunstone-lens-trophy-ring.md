@@ -19,6 +19,16 @@ hostiles near · nearest 12m ◄ · charge 80%") whose own header calls it *"a F
 placeholder indicator (text + a simple arrow glyph)… polished threat-overlay art is a v0.x
 follow-up."* Daniel has now given the real design; this is that follow-up.
 
+> **⚠ CONDITIONAL since the minimap-handoff (2026-06-20, design ACCEPTED):** the
+> camera-relative trophy ring is now the **no-minimap FALLBACK surface only.** When
+> a minimap is present — the SBPR carry-disc (nomap-ON) or the vanilla corner map
+> (nomap-OFF) — Lens detection moves onto it and the ring hides (default
+> `MinimapHandoffMode = DiscWhenBound`). The ring renders only when no minimap
+> exists at all. See [`sunstone-lens-minimap-handoff.md`](sunstone-lens-minimap-handoff.md)
+> and the impl-spec [`../v3/planning/sunstone-minimap-handoff-impl-spec.md`](../v3/planning/sunstone-minimap-handoff-impl-spec.md).
+> Everything below still describes the ring faithfully — it is just no longer the
+> *only* surface.
+
 > **What is NOT changing (load-bearing — do not re-litigate).** The detection *mechanic* is
 > correct and stays as-is: `SunstoneLens.GatherHostiles` (the `Character.GetAllCharacters` +
 > `BaseAI.IsEnemy` hostile sweep), the solar-battery energy model (`DrainGate` prefix on
@@ -380,10 +390,14 @@ Replaces the placeholder `AT-LENS-DETECT` render half; the detection-mechanic AT
   turns **orange**; once it **targets YOU** it turns **red**. State follows the creature's own
   `BaseAI` (IsAlerted / GetTargetCreature vs the local player) — the same surface vanilla's nameplate
   uses.
-- **AT-LENS-RING-CAMREL** (🔴 thesis guard) — the ring is **camera-relative, never north-up**.
-  Standing still and rotating the camera sweeps every trophy around the ring; the ring grants
-  **no cardinal orientation** (that stays the Iron Compass's exclusive payoff). No north arrow,
-  no N/E/S/W letters.
+- **AT-LENS-RING-CAMREL** (🔴 thesis guard — **re-scoped to NoMap worlds only**, see
+  [`sunstone-lens-minimap-handoff.md`](sunstone-lens-minimap-handoff.md) §6) — the ring is
+  **camera-relative, never north-up**. Standing still and rotating the camera sweeps every
+  trophy around the ring; the ring grants **no cardinal orientation** (that stays the Iron
+  Compass's exclusive payoff). No north arrow, no N/E/S/W letters. **Scope:** this guard
+  protects the ring + the SBPR carry-disc in NoMap worlds. The vanilla-minimap path in
+  nomap-OFF is EXEMPT (it is deliberately north-up — the player already has free cardinal
+  orientation there, so detection on it leaks no Iron-Compass payoff).
 - **AT-LENS-RING-PERF** — a Swamp horde (10+ hostiles) does not tank framerate: icons are pooled
   and capped at `RingMaxIcons`; the trophy-sprite + star-pip caches resolve each species/sprite once.
 

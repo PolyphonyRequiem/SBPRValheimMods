@@ -247,6 +247,19 @@ the HUD overlay's "is the Lens worn?" visibility gate.
 > [`docs/design/sunstone-lens-trophy-ring.md`](../../design/sunstone-lens-trophy-ring.md) for
 > *what the overlay draws*.
 
+> 🟢 **CARVE-OUT — superseded again, partially, by the minimap handoff (card t_91e86951,
+> ACCEPTED design PR #214 / impl-spec
+> [`sunstone-minimap-handoff-impl-spec.md`](sunstone-minimap-handoff-impl-spec.md)).** The HUD
+> trophy ring is now the **no-minimap FALLBACK surface only.** Daniel's gated universal rule
+> (2026-06-20): when ANY minimap is present — the SBPR carry-disc in nomap-ON, OR the vanilla
+> corner minimap in nomap-OFF — Lens detection moves onto that minimap and the ring hides
+> (default `MinimapHandoffMode = DiscWhenBound`). The "render via a HUD overlay, not minimap
+> pins" doctrine below is still correct for the **NoMap-with-no-bound-disc** case (the genuine
+> no-surface world the design note worried about); it is no longer the *only* surface. The
+> nomap-OFF branch specifically REVERSES the old "a minimap reveal has no surface here" premise:
+> in nomap-OFF the vanilla corner map DOES exist, so the handoff draws a custom threat overlay
+> directly onto it (not `AddPin` — see the handoff impl-spec §5).
+
 The design note flagged: *"if the minimap is off by default, a minimap-based reveal won't have
 a surface — design the reveal independently of the minimap."* This is real on the SB server:
 `NoMapEnforcer` sets `GlobalKeys.NoMap` **server-side by default** (`Cartography/NoMapEnforcer.cs`),
