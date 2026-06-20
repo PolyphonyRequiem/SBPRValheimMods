@@ -1670,8 +1670,17 @@ collaterally re-zoomed). Single-owner this fix; do not split disc/modal.
 - **AT-RING-2** *(regression — #159 hard clip)* — cartography must **not bleed past** the ring /
   outside the disc when the interior rotates to heading. (A) grows the framed content to the ring
   edge; it must not overgrow into an out-of-disc crescent (don't re-introduce issue-6 edge-bleed).
-- **AT-RING-3** *(regression — disc unaffected)* — the corner minimap disc (125 m view) keeps its
-  current framing; the change is scoped to the modal (`ViewSpanMeters<=0`) branch only.
+- **AT-RING-3** *(regression — disc keeps its 125 m zoom; SUPERSEDED on the margin axis by §2E.5.7)* —
+  the corner minimap disc (125 m view) keeps its **framing/zoom** unchanged by *this* (§2E.5.6) modal
+  reframe; the `DisplayedSpanMeters` change is scoped to the modal (`ViewSpanMeters<=0`) branch only.
+  🔴 **What this AT no longer asserts:** §2E.5.6 originally read this as "the disc keeps its
+  *transparent ring-margin* too (untouched by construction)." That margin-scope reading was **wrong** —
+  the disc has its **own** content-to-ring gap from a *different* mechanism (the integer-floored
+  `LayoutMapRect` upscale, not the span reframe), fixed in **§2E.5.7** (card t_642687dd). AT-RING-3 now
+  protects only the disc's **zoom/feel** (125 m span, the thing §2E.5.6 actually couldn't touch); the
+  disc's *margin* is now owned by **AT-DISC-RING-1** in §2E.5.7. The two are orthogonal: §2E.5.6 changed
+  the *span* (metres framed), §2E.5.7 changes the *rect size* (mesh silhouette px) — a disc can satisfy
+  AT-RING-3 (zoom unchanged) **and** AT-DISC-RING-1 (margin closed) simultaneously.
 - **AT-RING-4** *(regression — table pins track terrain)* — after the reframe, table-view pins and
   the in-disc player marker still land on the exact terrain cell they annotate (the
   `WorldToSurfacePxSnapped` desync is fixed, not shipped). Eyeball: place a pin on a known
@@ -1682,6 +1691,149 @@ geometry, no shader); the *appearance* — that the content now visually kisses 
 band — is Daniel's GPU-client accept on AT-RING-1. The exact target is eyeball-judged: the ~1.5 px
 content-under-ring overdraw and the `BezelInsetFrac` residual are within tuning tolerance, adjustable
 by a one-line constant if Daniel wants the content pulled a hair tighter or looser.
+
+
+#### 2E.5.7 — Minimap DISC content-to-ring margin: size the cartography rect to TargetPx, not the integer-floored fog upscale (Daniel playtest, 2026-06-20, card t_642687dd)
+
+> **🟢 NEW VISUAL CRITERION (Daniel, v0.2.30-playtest #bugs, Niflheim):** *"minimap still has a
+> transparent margin between the map and the ring."* §2E.5.6 closed the margin on the **modal** (M) map
+> and its AT-RING-3 *assumed* the disc was margin-clean "by construction." It is not — the corner
+> minimap **disc** has its **own** content-to-ring gap from a **different mechanism**, excluded from the
+> #204 fix by that wrong assumption. This section adds the disc's missing *content-meets-ring* acceptance
+> criterion alongside the fix. It is a **new criterion + a second-surface bug**, not a worker violation
+> of an existing one — §2E.5.6 never specced a disc margin relation.
+
+**This is NOT a re-run of #204; the modal's mechanism does not transfer.** #204 reframed
+`DisplayedSpanMeters` (the `ViewSpanMeters<=0` branch) from the over-provisioned `Size×pixelSize` window
+to `2×radius`, so the *framed metres* matched the surveyed disc. The disc takes the **other** branch
+(`ViewSpanMeters = DiscViewSpanMeters = 125 m > 0`, `MapViewer.cs:46,84`) and frames a deliberately
+**tighter** 125 m window — its content already fills the *span*. Re-applying #204 here is a **no-op**.
+The disc gap is a **silhouette** problem, not a framing problem.
+
+**Root cause — the integer-FLOORED upscale in `LayoutMapRect` (`MapSurface.cs:471-473`).** The
+cartography rect — and therefore the `CircularRawImage` inscribed-disc mesh that *is* the visible
+content silhouette — is sized by an **integer-floored** upscale of the fog grid:
+
+```
+upscale = max(1, TargetPx / size)     // C# int division → FLOOR        (MapSurface.cs:471)
+edge    = size * upscale                                                 (MapSurface.cs:472)
+_mapRect.sizeDelta = (edge, edge)                                        (MapSurface.cs:473)
+meshR (content silhouette radius) = edge / 2     (CircularRawImage inscribed circle)
+```
+
+But the bronze bezel ring is sized off the **raw** `TargetPx`, never the floored `edge`
+(`MapSurface.cs:1207-1211`):
+
+```
+holeR      = TargetPx*0.5 − TargetPx*BezelInsetFrac          = 98.67 px @ TargetPx=200
+ringOuterR = holeR + max(TargetPx*BezelRingFrac, 4.5)        = 103.17 px @ TargetPx=200
+```
+
+When `TargetPx / size` is not an integer, the floor drops `edge` below `TargetPx`, so **`meshR < holeR`
+and a transparent ring-gap opens.** The disc has **no backdrop** (`ShowBackdrop=true` is modal-only,
+`MapSurface.cs:1263`), so that gap shows the **live game world** through it — which is exactly what the
+screenshot shows.
+
+> **🔴 EVIDENCE that discriminates this from the fog-reveal candidate (the disambiguator the ticket
+> flagged).** The annulus in Daniel's screenshot is **crisp, fully-saturated game-world** — pixel
+> samples in the gap read lake-blue `(0,57,128)`, sky `(14,129,209)`, lit-green foliage `(163,206,122)`
+> = **alpha 0, nothing drawn**. A fog-of-war reveal shortfall (`BindBoundedReveal` un-fogging too few
+> cells) would render vanilla's **OPAQUE grey cloud** — you cannot see terrain through unexplored map.
+> Crisp-transparent-world therefore means the gap is **outside the drawn mesh silhouette**, not fogged
+> cartography. That rules out the reveal path and lands the cause squarely on the mesh-vs-ring radius.
+
+> **🔴 WHY the disc gaps while the modal (#204) reads clean at the SAME `survey.Size`.** The floor acts
+> on two different `TargetPx`. At the modal's 900 px a 1-px floor slack is ~0.2% of a 450 px radius —
+> invisible at most sizes; at the disc's 200 px the same `size` can shed 5–32 px of a ~99 px radius.
+> **The `survey.Size = 33` case (vanilla `m_pixelSize=64`, `2·ceil(1000/64)+1`) is a lucky coincidence**
+> where `200//33=6 → meshR 99.0 ≈ holeR 98.67` (gap −0.3 px, clean). The spec's own warnings flag that
+> the live auto-map `m_pixelSize` "may differ from 64 m/px" (`requirements.md` §198) and the table reads
+> `mm.m_pixelSize` **live** (`SurveyorTableTag.cs:359`), so `size` is **not** guaranteed 33 — at a
+> representative `pixelSize=56 → size=37` the disc gaps **+6.2 px**, and across the plausible band the
+> disc gaps at the **majority** of sizes (proven below). The earlier "disc is clean by construction"
+> reasoning over-fit the single `size=33` arithmetic; the floor is the real, size-dependent cause.
+
+**LOCKED approach — (A) size the cartography rect to the FULL `TargetPx` square (size-independent).**
+Change `LayoutMapRect` so the on-screen mesh rect is `TargetPx × TargetPx` instead of
+`(size·upscale) × (size·upscale)`. Then `meshR = TargetPx/2` for **every** survey size on **both**
+surfaces, and `meshR = TargetPx/2 = holeR + insetPx` sits just **outside** `holeR` (covered by the
+ring's inner edge — the same intended ~`insetPx` content-under-ring overdraw §2E.5.6 already accepts)
+and strictly **inside** `ringOuterR` (a −3.2 px margin at the disc → **no** #159/issue-6 bleed). The fog
+**texture** still upscales by the integer factor (that's a `Texture2D`/`SetPixels` concern, untouched);
+only the **rect/silhouette** decouples from it. `CircularRawImage` samples `uvRect` **per-vertex**
+(`CircularRawImage.cs:56-75`), so the framed/zoomed cartography maps identically regardless of the
+rect's pixel size — **the zoom/feel does not change** (AT-DISC-RING-3 holds).
+
+> **🔴 LANDMINE — the rect `edge` is the projection scale; this is the #204 snapped-pin class again, and
+> it is why (A) must size the rect and let everything READ from it, not hard-code a second number.** Every
+> projection reads `edge = _mapRect.sizeDelta.x` and pairs it with `span = DisplayedSpanMeters`:
+> `WorldToSurfacePx` (`:489-492`, continuous pins + the player marker), `WorldToSurfacePxSnapped` (via
+> that same forward call), the pin-visibility clip `discR = edge*0.5` (`:614-615`), and the cursor
+> inverse `TryRemovePinAtCursor` (`:1151-1160`). They form one self-consistent ratio `edge/span`.
+> Because all of them read `edge` **live from the rect**, resizing the rect to `TargetPx` rescales the
+> **whole** set uniformly — pins, marker, clip, and cursor stay glued to their terrain cells (AT-DISC-
+> RING-4). The fix MUST therefore change **only** `_mapRect.sizeDelta` (the one source) and must NOT
+> introduce a separate `edge` literal anywhere — a hard-coded second number is exactly the desync #204's
+> snapped path shipped. (Net effect: the disc's `edge` goes from `size·floor(200/size)` to a constant
+> `200`; the modal's from `size·floor(900/size)` to a constant `900`. The ratio `edge/span` stays the
+> single source of truth.)
+
+**Shared-builder discipline (AGENTS.md: spec+code move together; single-owner this fix).** `MapSurface`
+is the shared renderer for both surfaces, so (A) touches the modal too. That is **desirable, not
+collateral**: the floor also gaps the **modal** at some sizes (e.g. `size=35→+6.5 px`, `size=53→+20 px`
+— see the table), so sizing the modal rect to `900` makes **#204 itself size-robust** instead of
+size-33-lucky. The change must be verified on **both** surfaces in ONE owner; do not split disc/modal.
+
+**The geometry (headless-verifiable — `scripts/disc-ring-geom-check.py`, the AT-DISC-RING reasoning aid):**
+
+| TargetPx | holeR | ringOuterR | CURRENT meshR (worst-gap size) | FIXED meshR (all sizes) | result |
+|---|---|---|---|---|---|
+| **disc 200** | 98.67 | 103.17 | 67.0 px @ size 67 → **gap +31.7 px** | **100.0 px** → gap −1.3 px, bleed −3.2 px | margin closed, no bleed |
+| **modal 900** | 444.0 | 454.0 | 422.5 px @ size 65 → **gap +21.5 px** | **450.0 px** → gap −6.0 px, bleed −4.0 px | #204 made size-robust |
+
+`scripts/disc-ring-geom-check.py` sweeps the full plausible `pixelSize`/`size` band, **reproduces** the
+current disc gap (worst +31.7 px), and **asserts** the post-fix invariants. It is a fast standalone
+reasoning aid (same role as `banner-geom-check.py`) — note `banner-geom-check.py` is **not** wired into
+any workflow, so do **not** claim the `.py` gates CI.
+
+> **🔴 The DURABLE guard is an xUnit test, not the Python script.** The repo's real headless gate is the
+> `dotnet test tests/SBPR.Trailborne.Tests.csproj` lane in `ci.yml` (link-compiles SHIPPED engine-free
+> helpers; already covers `BoundedMapMath` geometry and `MapCaptionText`). The radius arithmetic that
+> produces this bug (`upscale`/`edge`/`meshR` and `holeR`/`ringOuterR`) currently lives **inline** in
+> `MapSurface.cs`, which depends on `UnityEngine` and therefore **cannot** be link-compiled into the
+> engine-free test project. **The impl MUST extract that pure arithmetic into a tiny engine-free static
+> helper** (mirror the `MapCaptionText` / `BoundedMapMath` extraction precedent — e.g. a
+> `DiscRingGeometry` with `MeshRadius(targetPx, size)`, `HoleRadius(targetPx)`, `RingOuterRadius(targetPx)`),
+> have `MapSurface` call it (single source of truth — the bezel builder and `LayoutMapRect` both consume
+> the helper so they can never drift again), and add an xUnit test asserting `MeshRadius ≥ HoleRadius` and
+> `MeshRadius ≤ RingOuterRadius` across the swept size band → **AT-DISC-RING-1/2 become CI-gated**. The
+> `.py` stays as the human-readable derivation; the xUnit test is the regression fence.
+
+**Acceptance tests (named, observable — eyeball-judged on Daniel's GPU client; logs-green ≠ playable):**
+- **AT-DISC-RING-1** *(Daniel is the judge)* — on the corner minimap disc over a fully-surveyed area,
+  the cartography content edge **meets the inside of the bronze ring** with **no transparent gap** (the
+  live game world is no longer visible between content and ring). Headless proxy: `meshR ≥ holeR` at
+  every survey size (`disc-ring-geom-check.py`).
+- **AT-DISC-RING-2** *(regression — #159 / issue-6 edge-bleed)* — content does **not** bleed past
+  `ringOuterR` / outside the disc as the interior rotates to heading. Headless proxy: `meshR ≤ ringOuterR`
+  (the fix lands −3.2 px inside it).
+- **AT-DISC-RING-3** *(regression — zoom/feel)* — the disc keeps its **125 m tight zoom**; it is **not**
+  collaterally re-zoomed. (Guaranteed by construction: `uvRect` is span-driven and rect-size-independent;
+  the fix changes rect px, not span.) This is what the old AT-RING-3 was really protecting — preserved.
+- **AT-DISC-RING-4** *(regression — pins/marker track terrain)* — the in-disc player chevron and any
+  pins still land on the exact terrain cell they annotate under rotation/walk (the `edge`-as-projection-
+  scale landmine is read-from-rect, not hard-coded). Eyeball: place a pin on a known feature, walk, and
+  confirm it stays glued.
+- **Walk test (the disambiguator, now resolved)** — Daniel's "does the gap move as I walk?" question
+  routes the mechanism. The fix predicts **constant** behaviour: a *silhouette* (rect-size) cause is
+  player-position-independent, so the gap is closed **everywhere**, including at the survey edge — unlike
+  a reveal-extent cause (ruled out above) which would have widened near the survey boundary.
+
+**Headless boundary:** the mesh-vs-ring radius arithmetic is fully verifiable on the build box
+(`disc-ring-geom-check.py`, pure geometry, no shader); the *appearance* — that the content visually
+kisses the ring with no world showing through — is Daniel's GPU-client accept on AT-DISC-RING-1. The
+~1.3 px content-under-ring overdraw is within the same tuning tolerance §2E.5.6 already accepts (the ring
+covers it); adjustable by the same `BezelInsetFrac` one-liner if Daniel wants it a hair tighter.
 
 
 ### 2F — Viewer exit UX: suppress the Escape→menu leak + show an exit prompt (issue 7, 2026-06-11)
