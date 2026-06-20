@@ -101,16 +101,24 @@ namespace SBPR.Trailborne.Features.Exploration
         public const float DefaultSize      = 140f;  // dial footprint, px square
         public const float DefaultOffsetX   = 0f;    // nudge from the anchor, px (+right)
         public const float DefaultOffsetY   = -94f;  // nudge from the anchor, px (TopCenter: −down from the top edge)
+        public const bool  DefaultDebugMount = true; // diagnostic cut (t_61aff612): emit mount/wear/anchor LogInfo. Bake to false once the dial is confirmed rendering in-game.
 
-        private RectTransform? _root;      // the anchored host (visibility + placement)
+        private RectTransform? _root;      // the anchored host — ALWAYS ACTIVE (carries this MonoBehaviour's Update pump + placement)
+        private RectTransform? _content;   // the visibility child — toggled by SetVisible (NEVER the host; see SetVisible)
         private RectTransform? _tiltRect;  // the pitch-tilt container (holds dial + needle)
         private RectTransform? _needleRect; // the rotating needle
 
         private float _needleAngle;        // current (lagged) needle Z angle, degrees
         private bool  _needleSeeded;       // snap to target on first show (no spin-up from 0)
+        private bool  _loggedFirstShow;    // diagnostic: log resolved anchor/size once on first show
 
         private CompassAnchor _appliedAnchor = (CompassAnchor)(-1); // force first ApplyAnchor
         private bool _unwiredAnchorWarned;
+
+        // Diagnostic-logging gate (t_61aff612). Reads the live Plugin config when present (so Daniel can
+        // flip it in a joined session), else the Default* const — the no-Plugin-context fallback idiom.
+        // internal so the sibling CompassHudBootstrapPatch (mount log) can share the one gate.
+        internal static bool DebugMount => Plugin.CompassDebugMount?.Value ?? DefaultDebugMount;
 
         // Cream/parchment + alarm tones matching the rest of the SBPR uGUI (MapViewer / Sunstone).
         private static readonly Color CDiscBackdrop = new Color(0.10f, 0.11f, 0.09f, 0.55f); // translucent dark dial
@@ -127,23 +135,39 @@ namespace SBPR.Trailborne.Features.Exploration
             // Placement is (re)applied every Update from config, so just seed a size here.
             ApplyAnchor(CompassAnchor.TopCenter, DefaultSize, DefaultOffsetX, DefaultOffsetY);
 
-            // ── Tilt container: fills the root; pitch rotates THIS so the whole dial face
+            // ── Visibility container (the t_61aff612 fix): the host GameObject (_root) carries THIS
+            //    MonoBehaviour, so it MUST stay active or Unity stops calling Update() — and Update()
+            //    is the only thing that ever un-hides the overlay. So visibility toggles a CHILD
+            //    (_content), never the host. _content fills the host; everything visible parents under
+            //    it. (Before this fix, SetVisible(false) deactivated the host at the end of Build(),
+            //    freezing the Update pump dead → the overlay rendered NOTHING forever, worn or not.)
+            var contentGo = new GameObject("content", typeof(RectTransform));
+            contentGo.transform.SetParent(_root, worldPositionStays: false);
+            _content = contentGo.GetComponent<RectTransform>();
+            StretchFull(_content);
+
+            // ── Tilt container: fills the content; pitch rotates THIS so the whole dial face
             //    tilts away as you look up/down (AT-COMPASS-TILT "dial face"), while the needle
             //    rotates within it for heading. Keeps tilt (pitch) and heading (yaw) independent.
             var tiltGo = new GameObject("tilt", typeof(RectTransform));
-            tiltGo.transform.SetParent(_root, worldPositionStays: false);
+            tiltGo.transform.SetParent(_content, worldPositionStays: false);
             _tiltRect = tiltGo.GetComponent<RectTransform>();
             _tiltRect.anchorMin = Vector2.zero;
             _tiltRect.anchorMax = Vector2.one;
             _tiltRect.offsetMin = Vector2.zero;
             _tiltRect.offsetMax = Vector2.zero;
 
-            // ── Dial backdrop: a translucent disc (built-in round Knob sprite if available, else
-            //    a solid quad). The fixed lettered ring — does NOT rotate (spec §4.2). v0.1
-            //    placeholder; a real authored dial sprite drops into this Image later.
+            // ── Dial backdrop: a translucent disc behind a procedurally-generated round sprite, so the
+            //    dial reads as a circle on every Unity build. (t_61aff612: the old
+            //    Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd") FAILS to load on Valheim's
+            //    0.221.x Unity build — "The resource UI/Skin/Knob.psd could not be loaded" — leaving a
+            //    null sprite; with preserveAspect=true on a null sprite the quad would not reliably show.
+            //    The procedural disc has zero disk/asset-bundle dependency, the RingSprite idiom the
+            //    Sunstone overlay already ships.) A real authored dial sprite can still drop into this
+            //    Image later (spec §4.2). The fixed lettered ring does NOT rotate (spec §4.2).
             var disc = MakeImage("dial", _tiltRect, CDiscBackdrop);
             StretchFull(disc.rectTransform);
-            disc.sprite = Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd"); // round, optional
+            disc.sprite = DiscSprite();
             disc.type = Image.Type.Simple;
             disc.preserveAspect = true;
 
@@ -228,8 +252,16 @@ namespace SBPR.Trailborne.Features.Exploration
             }
 
             bool wearing = IsWearingCompass(player);
-            if (_root.gameObject.activeSelf != wearing) SetVisible(wearing);
-            if (!wearing) { _needleSeeded = false; return; }
+            // Visibility toggles _content (the host stays active so Update keeps pumping — t_61aff612).
+            bool wasVisible = _content != null && _content.gameObject.activeSelf;
+            if (wasVisible != wearing)
+            {
+                SetVisible(wearing);
+                if (DebugMount)
+                    Plugin.Log.LogInfo($"[Trailborne/Exploration] CompassHud: IsWearingCompass {wasVisible} → {wearing} "
+                        + $"(content now {(wearing ? "VISIBLE" : "hidden")}).");
+            }
+            if (!wearing) { _needleSeeded = false; _loggedFirstShow = false; return; }
 
             // Re-apply placement from live config so Daniel can tune anchor/size/offset in one
             // joined session (Q4) without a rebuild — cheap (a few RectTransform field writes).
@@ -242,6 +274,17 @@ namespace SBPR.Trailborne.Features.Exploration
             {
                 ApplyAnchor(anchor, size, offX, offY);
                 _appliedAnchor = anchor;
+            }
+
+            // Diagnostic (t_61aff612): on the FIRST visible frame, log the resolved placement so a
+            // fresh client LogOutput.log can split B1′ (mount/pump fail — this line never appears) from
+            // B2 (mounted but off-screen — line appears with an anchoredPosition that lands off-screen).
+            if (DebugMount && !_loggedFirstShow)
+            {
+                _loggedFirstShow = true;
+                Plugin.Log.LogInfo($"[Trailborne/Exploration] CompassHud first show: anchor={_appliedAnchor} "
+                    + $"anchoredPosition={_root.anchoredPosition} sizeDelta={_root.sizeDelta} "
+                    + $"(host activeInHierarchy={_root.gameObject.activeInHierarchy}).");
             }
 
             var cam = GameCamera.instance;   // decomp :85422 — null until the camera spawns
@@ -312,11 +355,54 @@ namespace SBPR.Trailborne.Features.Exploration
 
         private void SetVisible(bool on)
         {
-            if (_root != null && _root.gameObject.activeSelf != on)
-                _root.gameObject.SetActive(on);
+            // Toggle the CONTENT child, NEVER the host (_root): the host carries this MonoBehaviour's
+            // Update pump, so deactivating it would freeze the overlay un-recoverably (t_61aff612).
+            if (_content != null && _content.gameObject.activeSelf != on)
+                _content.gameObject.SetActive(on);
         }
 
         // ── UGUI construction helpers (additive — the MapViewer / SunstoneLensHudOverlay idiom) ──
+
+        // Procedurally-generated round dial sprite (t_61aff612). Replaces the builtin
+        // Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd"), which FAILS to load on Valheim's
+        // 0.221.x Unity build ("The resource UI/Skin/Knob.psd could not be loaded from the resource
+        // file!"), leaving a null dial sprite. White anti-aliased filled disc, tinted by Image.color —
+        // zero disk/asset-bundle dependency, the RingSprite idiom the Sunstone overlay already ships
+        // (SunstoneLensHudOverlay.RingSprite). Cached statically (built once, reused across mounts).
+        private static Sprite? _discSprite;
+        private static Sprite DiscSprite()
+        {
+            if (_discSprite != null) return _discSprite;
+            const int size = 256;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            var px = new Color[size * size];
+            var clear = new Color(1f, 1f, 1f, 0f);
+            for (int i = 0; i < px.Length; i++) px[i] = clear;
+
+            float cx = size / 2f, cy = size / 2f;
+            float outer = size / 2f - 2f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x - cx, dy = y - cy;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (d <= outer)
+                    {
+                        // 1px anti-aliased edge so the disc isn't aliased.
+                        float a = Mathf.Clamp01(outer - d);
+                        px[y * size + x] = new Color(1f, 1f, 1f, a < 1f ? a : 1f);
+                    }
+                }
+            }
+            tex.SetPixels(px);
+            tex.Apply();
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            _discSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+            _discSprite.name = "SBPR_CompassDial";
+            return _discSprite;
+        }
 
         private static Image MakeImage(string name, RectTransform parent, Color color)
         {
@@ -393,6 +479,14 @@ namespace SBPR.Trailborne.Features.Exploration
                 var host = new GameObject("SBPR_CompassHud", typeof(RectTransform));
                 host.transform.SetParent(__instance.m_rootObject.transform, worldPositionStays: false);
                 host.AddComponent<SBPR_CompassHud>().Build();
+
+                // Diagnostic (t_61aff612): the success path used to be SILENT, so a client log could
+                // neither confirm nor deny the mount (the B1′ ambiguity). Log it (DebugMount-gated) —
+                // this line PRESENT in LogOutput.log proves the postfix ran and the host mounted under
+                // m_rootObject; ABSENT means the postfix never fired / m_rootObject was null (B1′).
+                if (SBPR_CompassHud.DebugMount)
+                    Plugin.Log.LogInfo("[Trailborne/Exploration] CompassHud mounted under Hud.m_rootObject "
+                        + $"(m_rootObject non-null={__instance.m_rootObject != null}).");
             }
             catch (System.Exception e)
             {

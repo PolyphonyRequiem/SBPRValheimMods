@@ -289,6 +289,36 @@ at the edge of your sight — the swamp can't hide the cardinal directions from 
 ---
 ## 4. The HUD overlay (`SBPR_CompassHud` + `CompassHudBootstrapPatch`)
 
+> ### 🔴 4.0 Render-bug fix (card t_61aff612, 2026-06-19) — the overlay rendered NOTHING when worn
+>
+> **Symptom:** Daniel equipped the compass in the Trinket slot on v0.2.28 and saw nothing at
+> top-center. The mount succeeded and the equip-gate matched — yet the dial never showed.
+>
+> **Root cause (a dead `Update` pump, NOT the candidate fork the bug card proposed):** the
+> `SBPR_CompassHud` MonoBehaviour lives on the host GameObject, and the original `_root` *was*
+> that host. The visibility toggle did `_root.gameObject.SetActive(wearing)` — i.e. the component
+> deactivated **the GameObject it lives on**. Unity does not call `Update()` on a component whose
+> GameObject is inactive, and `Update()` is the *only* code that ever calls `SetVisible(true)`. So
+> the closing `SetVisible(false)` in `Build()` froze the overlay inactive **permanently** — the pump
+> that would un-hide it had been switched off by the very call that hid it. Total, deterministic
+> absence, matching "nothing." (This also explains why the sibling **Sunstone Lens** overlay — same
+> self-deactivating-host structure — was dead too: one shared mechanism, not two anchor bugs.)
+>
+> **Fix:** visibility now toggles a dedicated **content child** (`_content`), never the host. The
+> host stays active so its `Update()` keeps pumping; `_content` carries everything visible and is
+> what `SetVisible` activates/deactivates. (§4.2, §4.3 updated to match.)
+>
+> **Two secondary fixes shipped in the same cut:**
+> - **Dial sprite:** `Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd")` FAILS to load on
+>   Valheim's 0.221.x Unity build (client log: *"The resource UI/Skin/Knob.psd could not be loaded
+>   from the resource file!"*), leaving a null sprite. Replaced with a procedurally-generated round
+>   disc (`DiscSprite()`, the `SunstoneLensHudOverlay.RingSprite` idiom — zero asset dependency). An
+>   authored sprite can still drop into the same `Image` later.
+> - **Diagnostic logging (`IronCompass.DebugMount`, default ON for this cut):** the bootstrap mount,
+>   the `IsWearingCompass` transitions, and the resolved anchor/size on first show now LogInfo so a
+>   fresh client `LogOutput.log` can tell a mount/pump failure apart from an off-screen placement in
+>   one playtest. Bake `DefaultDebugMount` to `false` once Daniel confirms the dial renders in-game.
+
 ### 4.1 Mounting the overlay — the `Hud.Awake` postfix (the one Harmony patch)
 
 The overlay is attached once, when the HUD comes up, via a postfix on `Hud.Awake`:
@@ -306,10 +336,16 @@ internal static class CompassHudBootstrapPatch
 
         var host = new GameObject("SBPR_CompassHud", typeof(RectTransform));
         host.transform.SetParent(__instance.m_rootObject.transform, worldPositionStays: false);
-        host.AddComponent<SBPR_CompassHud>();                // builds its own children in Awake
+        host.AddComponent<SBPR_CompassHud>().Build();        // mounts the dial + needle children
+        // (t_61aff612) DebugMount-gated LogInfo: proves the postfix ran + host mounted (vs. the
+        // formerly-silent success path that couldn't be confirmed in a client log).
     }
 }
 ```
+
+> ⚠️ **Do NOT deactivate the host (`SBPR_CompassHud`) GameObject to hide the overlay** — it carries
+> the `SBPR_CompassHud` MonoBehaviour, and an inactive GameObject gets no `Update()` (the t_61aff612
+> render bug). Visibility toggles the `_content` child instead (§4.3).
 
 **Verified hooks:** `Hud` is a `MonoBehaviour` (decomp `:38930`); `Hud.m_rootObject` is a public
 `GameObject` (`:38949`); `Hud.instance => m_instance` (`:39259`); `Hud.Awake` is a private void
@@ -329,13 +365,18 @@ diffs `[HarmonyPatch]`-attributed classes against the woven set and ERROR-logs a
 UGUI idiom the in-repo `MapViewer` uses (`MapViewer.cs:47` host, `AddComponent` children). Two visual
 layers:
 
-- **The dial** (`Image`, the fixed backdrop): a static sprite — a ring with the cardinal letters
-  (N/E/S/W) or tick marks — sized ~`128×128` px, anchored per Q4. Does **not** rotate.
+- **The dial** (`Image`, the fixed backdrop): a procedurally-generated round disc sprite
+  (`DiscSprite()` — the `SunstoneLensHudOverlay.RingSprite` idiom, zero asset-bundle dependency)
+  behind the cardinal letters (N/E/S/W), sized ~`128×128` px, anchored per Q4. Does **not** rotate.
+  *(t_61aff612: the original `Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd")` does not load
+  on Valheim's 0.221.x Unity build; the procedural disc replaces it. An authored sprite can still
+  drop into this same `Image` later.)*
 - **The needle** (`Image` child, the rotating element): a north-pointing arrow sprite. **This** is the
   element we rotate to heading. Its `RectTransform.localRotation` is driven in `Update` (§4.4).
 
-Both sprites come from the asset bundle (placeholder-grade per Q2). Anchor/size are `Config.Bind`-tunable
-(Q4). Store references in fields (`_dial`, `_needle`, `_needleRect`) cached in `Awake`.
+The dial sprite is procedural (above); the needle uses procedural UGUI quads (placeholder-grade per
+Q2). Anchor/size are `Config.Bind`-tunable (Q4). Everything visible parents under a **`_content`
+child** of the host (the t_61aff612 visibility container — §4.3), not directly under the host.
 
 ### 4.3 Visibility gate — equip, not carry (the corrected gate)
 
@@ -362,11 +403,12 @@ private static bool IsWearingCompass(Player player)
 // StripCloneSuffix: cut at first '(' or ' ' — the CartographersKit mirror of ItemDrop.GetPrefabName (:58940)
 ```
 
-`Update` toggles `_root.gameObject.SetActive(wearing)` and early-returns when not worn, so the needle
-math only runs while the compass is equipped (zero per-frame cost otherwise). **This is the §2
-correction realized:** the design note's `HaveItem` carry-gate is replaced by the slot equip-gate the
-Kit already proves in-repo. (Filtering on the Trinket slot — not just the prefab name — means a future
-Trinket can't accidentally satisfy the check, the exact discipline `CartographersKit.cs:245` documents.)
+`Update` toggles the **`_content` child's** `SetActive(wearing)` (NOT the host — t_61aff612) and
+early-returns when not worn, so the needle math only runs while the compass is equipped (zero
+per-frame cost otherwise). **This is the §2 correction realized:** the design note's `HaveItem`
+carry-gate is replaced by the slot equip-gate the Kit already proves in-repo. (Filtering on the
+Trinket slot — not just the prefab name — means a future Trinket can't accidentally satisfy the
+check, the exact discipline `CartographersKit.cs:245` documents.)
 
 ### 4.4 Driving the needle — camera yaw with lag, pitch → tilt
 
@@ -377,7 +419,8 @@ private void Update()
 {
     var player = Player.m_localPlayer;
     bool wearing = IsWearingCompass(player);
-    if (_root.activeSelf != wearing) _root.SetActive(wearing);
+    // Toggle the _content CHILD, never the host — the host carries this Update pump (t_61aff612).
+    if (_content.activeSelf != wearing) _content.SetActive(wearing);
     if (!wearing || GameCamera.instance == null) return;
 
     Vector3 euler = GameCamera.instance.transform.eulerAngles;   // VERIFIED: GameCamera :85308, instance :85422
