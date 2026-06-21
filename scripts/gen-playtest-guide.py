@@ -26,6 +26,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 LEDGER = REPO / "docs/playtest/playtest-ledger.md"
 
+# Single source of truth for "what counts as a gameplay code change". Used by the
+# walk, the net-diff set, and the per-commit footprint so all three agree on the
+# same file universe (a mismatch here would re-open the count/net discrepancy).
+SRC_PATHSPEC = "src/**/*.cs"
+
 def sh(*args):
     return subprocess.run(args, cwd=REPO, capture_output=True, text=True).stdout.strip()
 
@@ -45,15 +50,52 @@ def extract_section(text, header):
     m = pat.search(text)
     return m.group(1).strip() if m else ""
 
+def net_changed_src_files(last_tag, ref):
+    """src/**/*.cs files whose NET diff across last_tag..ref is non-empty.
+
+    A revert pair (forward commit + a later `revert`) cancels here: a file touched
+    only by both halves has identical content at `last_tag` and `ref`, so it never
+    appears in this set. This is the mechanism that lets the walk net out reverts
+    without parsing commit messages or maintaining an allowlist (card t_0fc06f42).
+    """
+    raw = sh("git", "diff", "--name-only", last_tag, ref, "--", SRC_PATHSPEC)
+    return {ln.strip() for ln in raw.splitlines() if ln.strip()}
+
+def commit_src_files(sha):
+    """src/**/*.cs files a single commit touched.
+
+    `-m` expands merge commits (diff against each parent) so a merge that carried a
+    src change isn't silently empty; without it `git diff-tree -r` prints nothing
+    for merges. We only ever USE this set to DROP a commit when it's both non-empty
+    AND fully outside the net-changed set, so an empty result here is treated as
+    "can't prove net-zero" and the commit is kept (see git_code_changes).
+    """
+    raw = sh("git", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m",
+             sha, "--", SRC_PATHSPEC)
+    return {ln.strip() for ln in raw.splitlines() if ln.strip()}
+
 def git_code_changes(last_tag, ref):
+    """Commits touching src/**/*.cs in last_tag..ref, with net-zero commits dropped.
+
+    A commit is kept only if at least one src file it touched still has a non-empty
+    NET diff at `ref` (net_changed_src_files). A commit whose every touched src file
+    nets to zero — both halves of a revert pair, the most common case — is dropped:
+    its net effect on the tree is nil, so there's nothing new for a tester to test
+    and it must not inflate the count or trip the "unledgered" guard.
+
+    Conservative by construction: a commit that touches even one genuinely-changed
+    file stays counted, so a real change interleaved with a revert is never hidden
+    and the guard keeps its value for genuinely-missed changes.
+    """
     if not last_tag:
         return []
     # Read the FULL message (subject + body) per commit, not just --oneline. Card ids
     # often live in the BODY (e.g. signs #228 carried t_6cc9f652 only in its body), so a
     # subject-only scan silently misses them — the exact blind spot that let the v0.2.33
     # ledger drift. %x1f = unit sep (sha|subject|body), %x1e = record sep between commits.
+    net_files = net_changed_src_files(last_tag, ref)
     raw = sh("git", "log", f"{last_tag}..{ref}", "--no-merges",
-             "--pretty=format:%h%x1f%s%x1f%b%x1e", "--", "src/**/*.cs")
+             "--pretty=format:%h%x1f%s%x1f%b%x1e", "--", SRC_PATHSPEC)
     out = []
     for rec in raw.split("\x1e"):
         rec = rec.strip()
@@ -64,6 +106,14 @@ def git_code_changes(last_tag, ref):
         subject = parts[1].strip() if len(parts) > 1 else ""
         body = parts[2].strip() if len(parts) > 2 else ""
         if not sha:
+            continue
+        # Drop a commit only if we can PROVE its net tree effect is zero: it touched
+        # at least one src file AND every src file it touched nets to zero at ref
+        # (both halves of a revert pair). If the footprint is empty (e.g. a merge
+        # commit diff-tree couldn't expand), we can't prove net-zero — keep it, so
+        # the guard never hides a change it couldn't reason about.
+        footprint = commit_src_files(sha)
+        if footprint and not (footprint & net_files):
             continue
         out.append((sha, subject, f"{subject}\n{body}"))
     return out
