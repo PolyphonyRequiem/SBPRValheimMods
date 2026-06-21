@@ -210,6 +210,17 @@ This is a **temporary comparison harness, NOT a final ship state.** All four ban
 > **(2) two-tone returns** — a sign now carries a **text color AND a border color**.
 > Still ONE buildable sign piece (the four-variant sprawl stays dropped).
 
+> **⚠️ PROVISIONAL re-wire (Daniel 2026-06-21, "for now" — NOT yet re-locked):**
+> the slot→surface mapping below changed. **Text Color** now paints **ONLY the
+> written letters** (no longer the board plank). **Border Color** now paints **BOTH
+> the board plank AND the border frame** (the two mesh surfaces share one tone for
+> now). The two ZDO slots, the panel layout, the two-swatch UI, and the
+> per-pigment cost model are all **unchanged** — only which surface each slot tints
+> moved. Table cells below are annotated `[6/21]` where this override applies; the
+> 6/05 lock text is preserved struck-through in intent. Re-lock or split the board
+> into its own third slot is an open follow-up (Daniel may want board ≠ frame
+> later).
+
 A single panel handles **both** painting and text, opened by interacting with a
 placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 
@@ -229,10 +240,10 @@ placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 |---|---|
 | **Base** | ONE buildable piece (`piece_sbpr_sign`), variant of the vanilla wood sign. Placed **UNPAINTED** (plain wood). Build cost **2 Wood** (pigment is NOT a build ingredient) |
 | **Panel** | Interacting with a placed sign opens the **combined Painted Sign panel** (custom uGUI built on Unity **layout groups**), NOT the vanilla text dialog. Two sections: PAINTING + TEXT. Rebuilt each open so swatch rows reflect current discovery |
-| **Set Text Color** | Swatch row — an explicit **`∅ None`** tile (clears the slot) followed by one swatch per **DISCOVERED** pigment (discovery = *ever-discovered material OR known recipe OR owned*; primary signal `IsKnownMaterial`, persistent so swatches don't flicker on last-unit spend). Undiscovered pigments are **NOT rendered** (no dead/unclickable reserved boxes). Sets the **board/text** tint — which colours BOTH the board mesh AND the written letters (`Sign.m_textWidget`) |
-| **Border Color** | Second swatch row, same `∅ None` + discovered-only swatches. Sets a **separate border** tint (two-tone). `None` removes the border color |
+| **Set Text Color** | Swatch row — an explicit **`∅ None`** tile (clears the slot) followed by one swatch per **DISCOVERED** pigment (discovery = *ever-discovered material OR known recipe OR owned*; primary signal `IsKnownMaterial`, persistent so swatches don't flicker on last-unit spend). Undiscovered pigments are **NOT rendered** (no dead/unclickable reserved boxes). **[6/21]** Sets the **text** tint — colours **ONLY the written letters** (`Sign.m_textWidget`). _(6/05 lock: also tinted the board mesh; the board now rides the Border slot — see provisional callout above.)_ |
+| **Border Color** | Second swatch row, same `∅ None` + discovered-only swatches. **[6/21]** Sets the tint for **BOTH the board plank AND the border frame** (the two mesh surfaces share one tone for now). `None` reverts both to plain wood. _(6/05 lock: this slot tinted only the border frame; the board was on the Text slot.)_ |
 | **Cost** | **Crafting-style requirement rows** (replicates `InventoryGui`'s recipe-requirement idiom): per pigment an **icon + pigment name + `have/need` count**, the count flashing **red while short**. One pigment per filled color slot (text Red + border White → 1 Red + 1 White Pigment). Same color in both slots = **2 of that pigment**. Border is **optional** (text-only paint = 1 pigment); **at least one** color required |
-| **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed pigments from inventory, tints board=text color + sign letters=text color + border element=border color, writes both to ZDO. **Disabled** unless the player holds the required pigments. **Re-painting later re-consumes** |
+| **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed pigments from inventory, **[6/21]** tints **sign letters = text color** + **board plank = border color** + **border frame = border color**, writes both to ZDO. **Disabled** unless the player holds the required pigments. **Re-painting later re-consumes** |
 | **`{ Update Text }`** | Commits the text. **Free** (no pigment cost — Cost applies to PAINTING only). Text field is **locked until ≥1 paint color is chosen** |
 | **Camera** | While the panel is open, **mouse-look is frozen** and the cursor is released, matching every vanilla full-screen GUI. Achieved by routing through vanilla's own suppression gate (`PlayerController.TakeInput` → false while open — the same gate the vanilla sign dialog used, which our panel bypasses by replacing that dialog), NOT by overriding `GameCamera.UpdateCamera` |
 | **Color persistence** | Per-instance ZDO: `SBPR_SignTextColor`, `SBPR_SignBorderColor` (`""` = unset) + vanilla text. Persists across reloads, syncs to clients, both tints (board + text widget + border) re-applied on spawn (mirrors `CairnTag`) |

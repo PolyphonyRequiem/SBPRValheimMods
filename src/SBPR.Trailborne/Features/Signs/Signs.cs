@@ -794,7 +794,8 @@ namespace SBPR.Trailborne.Features.Signs
         /// masked). No-op on a headless server (no renderers). SKIPS renderers under the
         /// decorative pole (<see cref="PostChildName"/>) AND under the two-tone border
         /// (<see cref="BorderChildName"/>) so this colours the board only. Driven by
-        /// SignTag for the per-instance text/board tone.
+        /// SignTag from the BORDER slot tone (Daniel 2026-06-21 re-wire — the board plank
+        /// rides the border colour, NOT the text colour).
         /// </summary>
         public static void TintBoard(GameObject go, Color c)
         {

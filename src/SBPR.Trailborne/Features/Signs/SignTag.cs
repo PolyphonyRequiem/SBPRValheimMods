@@ -6,9 +6,13 @@ namespace SBPR.Trailborne.Features.Signs
     /// <summary>
     /// Tag attached to the single Painted Sign clone. Carries the sign's TWO-TONE
     /// painted state as ZDO-backed runtime state (NOT baked into the prefab):
-    /// a board/text color (<see cref="Signs.ZdoTextColor"/>) and a separate border
+    /// a text color (<see cref="Signs.ZdoTextColor"/>) and a separate border
     /// color (<see cref="Signs.ZdoBorderColor"/>). Re-applies both tints on spawn so
     /// they persist across reloads + sync to joined clients (mirrors CairnTag).
+    ///
+    /// Slot → surface (Daniel 2026-06-21 re-wire): the TEXT slot colours ONLY the TMP
+    /// letters; the BORDER slot colours BOTH the board plank AND the border frame ("for
+    /// now" the two mesh surfaces share one tone). See <see cref="ApplyColorsFromZdo"/>.
     ///
     /// Each color identity is one of Signs.Colors ("red"/"white"/"blue"/"black") or
     /// the empty string for "that slot unset". Owner-only writes via ZNetView.
@@ -22,8 +26,10 @@ namespace SBPR.Trailborne.Features.Signs
     {
         private ZNetView? nview;
 
-        // Sentinels: nothing applied yet (force first tint even for the unpainted "").
-        private string? lastAppliedText   = null;
+        // Sentinel: nothing applied yet (force first tint even for the unpainted "").
+        // Only the BORDER slot gates a mesh re-apply now — the text slot drives only the
+        // TMP letters (via ReapplyTextTint, which has its own cheap early-out), so it needs
+        // no mesh-change sentinel (Daniel 2026-06-21 re-wire).
         private string? lastAppliedBorder = null;
 
         // The TMP text widget's ORIGINAL (unpainted) face colour, captured once the
@@ -47,7 +53,7 @@ namespace SBPR.Trailborne.Features.Signs
         // seats flush; only a placed instance (live ZDO) disables it. Shared verbatim with
         // MarkerSignTag so the two features can never diverge on this.
 
-        /// <summary>Current board/text color id, or "" if unset.</summary>
+        /// <summary>Current text (TMP letter) color id, or "" if unset.</summary>
         public string ReadTextColor()
         {
             if (nview == null || nview.GetZDO() == null) return "";
@@ -79,46 +85,50 @@ namespace SBPR.Trailborne.Features.Signs
         /// <summary>
         /// Read both ZDO colors and tint board + text + border to match. Empty/unknown
         /// colors leave that element in its vanilla (unpainted wood / default text)
-        /// material. Idempotent: skips re-applying an element whose color hasn't changed
-        /// since the last apply.
+        /// material. Idempotent: skips re-applying the mesh when the border color hasn't
+        /// changed since the last apply.
         ///
-        /// The TEXT tone drives BOTH the board mesh (<see cref="Signs.TintBoard"/>) AND
-        /// the TMP text widget (<see cref="Signs.TintText"/>): §A2.6 "Set Text Color"
-        /// colours the written letters, not just the plank (Issue 4b — previously the
-        /// text never changed). The text-letter re-pin is delegated to
-        /// <see cref="ReapplyTextTint"/> (the single source of truth for the letter
-        /// colour). NOTE: this per-APPLY re-pin alone does NOT survive the vanilla
-        /// <c>Sign.UpdateText</c> ~2 Hz poll — apply only fires on spawn (Awake) and
-        /// paint (WriteColors), and the poll reconstructs/rewrites <c>m_textWidget</c>
-        /// AFTER our apply, dropping the colour. The <see cref="SignTextRetintPatch"/>
-        /// postfix is what keeps the letters pinned across polls (it calls
-        /// <see cref="ReapplyTextTint"/> on the poll's cadence).
+        /// Slot → surface mapping (Daniel 2026-06-21 re-wire):
+        ///   • TEXT slot   → ONLY the TMP text widget (<see cref="Signs.TintText"/>) — the
+        ///     written letters. It no longer tints the board plank.
+        ///   • BORDER slot → BOTH the board plank (<see cref="Signs.TintBoard"/>) AND the
+        ///     border frame (<see cref="Signs.TintBorder"/>) — "for now" the two mesh
+        ///     surfaces share one tone.
+        ///
+        /// The text-letter re-pin is delegated to <see cref="ReapplyTextTint"/> (the single
+        /// source of truth for the letter colour). NOTE: that per-APPLY re-pin alone does
+        /// NOT survive the vanilla <c>Sign.UpdateText</c> ~2 Hz poll — apply only fires on
+        /// spawn (Awake) and paint (WriteColors), and the poll reconstructs/rewrites
+        /// <c>m_textWidget</c> AFTER our apply, dropping the colour. The
+        /// <see cref="SignTextRetintPatch"/> postfix is what keeps the letters pinned across
+        /// polls (it calls <see cref="ReapplyTextTint"/> on the poll's cadence).
         /// </summary>
         public void ApplyColorsFromZdo()
         {
-            string textColor = ReadTextColor();
-            if (textColor != lastAppliedText)
-            {
-                lastAppliedText = textColor;
-                if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var tcol))
-                    Signs.TintBoard(gameObject, tcol);
-                else
-                    Signs.RestoreBoard(gameObject); // "remove text color" → vanilla wood board
-            }
-
-            // The text TONE drives the TMP letters too (Issue 4b). Delegated to
-            // ReapplyTextTint() — the SINGLE source of truth for the letter colour — so
-            // the spawn/paint apply and the Sign.UpdateText-poll postfix can never drift.
+            // The TEXT tone drives ONLY the TMP letters (Daniel 2026-06-21 re-wire — the
+            // text slot no longer tints the board plank). Delegated to ReapplyTextTint() —
+            // the SINGLE source of truth for the letter colour — so the spawn/paint apply
+            // and the Sign.UpdateText-poll postfix can never drift.
             ReapplyTextTint();
 
+            // The BORDER tone drives BOTH the board plank (Signs.TintBoard) AND the border
+            // frame (Signs.TintBorder) — "for now" the two mesh surfaces share one tone
+            // (Daniel 2026-06-21). Re-derived together off the single border slot so the
+            // plank and frame can never drift; cleared together → vanilla wood.
             string borderColor = ReadBorderColor();
             if (borderColor != lastAppliedBorder)
             {
                 lastAppliedBorder = borderColor;
                 if (!string.IsNullOrEmpty(borderColor) && Signs.ColorValues.TryGetValue(borderColor, out var bcol))
+                {
+                    Signs.TintBoard(gameObject, bcol);
                     Signs.TintBorder(gameObject, bcol);
+                }
                 else
-                    Signs.RestoreBorder(gameObject); // "remove border color" → vanilla wood border
+                {
+                    Signs.RestoreBoard(gameObject);  // "remove border color" → vanilla wood board
+                    Signs.RestoreBorder(gameObject); // … and vanilla wood border (shared tone)
+                }
             }
         }
 
@@ -170,17 +180,21 @@ namespace SBPR.Trailborne.Features.Signs
         /// </summary>
         public void ReapplyMeshTint()
         {
-            string textColor = ReadTextColor();
-            if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var tcol))
-                Signs.TintBoard(gameObject, tcol);
-            else
-                Signs.RestoreBoard(gameObject);
-
+            // Board plank AND border frame both ride the BORDER slot (Daniel 2026-06-21
+            // re-wire); the text slot drives only the TMP letters (unaffected by the hammer
+            // highlight, which clobbers only the MaterialMan mesh layer). Re-derive both
+            // mesh surfaces off the single border tone so they recover together.
             string borderColor = ReadBorderColor();
             if (!string.IsNullOrEmpty(borderColor) && Signs.ColorValues.TryGetValue(borderColor, out var bcol))
+            {
+                Signs.TintBoard(gameObject, bcol);
                 Signs.TintBorder(gameObject, bcol);
+            }
             else
+            {
+                Signs.RestoreBoard(gameObject);
                 Signs.RestoreBorder(gameObject);
+            }
         }
 
         // Delay (seconds) from the LAST hammer-highlight frame to our mesh re-assert.
