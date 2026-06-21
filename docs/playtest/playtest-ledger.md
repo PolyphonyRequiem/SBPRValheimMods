@@ -6,8 +6,8 @@ purpose: >
   work merges (no reliance on memory). When a playtest is prepped, scripts/gen-playtest-guide.py
   rolls the PENDING section + git-derived code changes into a numbered Playtest #N testers guide,
   then the shipped items move to the ARCHIVE section under that playtest number.
-playtest_counter: 4            # next playtest is #4 (human-facing series; DISTINCT from vX.Y.Z-playtest tags)
-last_playtest_tag: v0.2.30-playtest
+playtest_counter: 5            # next playtest is #5 (human-facing series; DISTINCT from vX.Y.Z-playtest tags)
+last_playtest_tag: v0.2.31-playtest
 ---
 
 # SBPR Trailborne — Playtest Ledger
@@ -36,65 +36,104 @@ markers; the **Playtest #N** counter here is the *human-facing* testing series.
 
 ---
 
-## PENDING — accrues for the next playtest (Playtest #4)
+## PENDING — accrues for the next playtest (Playtest #5)
 
-> Build target: `v0.2.30-playtest` (SBPR Trailborne 0.2.30). Test **local solo** on a
-> fresh client build unless an item says otherwise.
+> Build target: `v0.2.31-playtest` (SBPR Trailborne 0.2.31) for items **1–2** (already shipped in the
+> v0.2.31 tag); items **3–4** (#218/#220) are **merged to `main` and await the next build tag**
+> (v0.2.32+, currently unreleased). Test **local solo** on a fresh client build unless an item says
+> otherwise.
 >
-> _Why this PENDING is large — the #3 guide is stale. The Playtest #3 testers guide was
-> generated on the **v0.2.29** build (`generated_from_tag: v0.2.29`, cut 18:28 as part of
-> the #2→#3 roll), but Playtest #3 actually **shipped under `v0.2.30`** (tagged 22:37). In
-> the gap, **five `src/**/*.cs` PRs landed** (#204/#205/#207/#208/#209) plus the equipable-icon
-> PR #201 — none of which the #3 guide describes. Worse: two of them (#208 compass, #209 lens)
-> are **"rendered NOTHING — dead Update pump"** fixes, so the #3 guide's trophy-ring headline
-> was **dead-on-arrival on the v0.2.29 build it targeted** — `v0.2.30` is the **first build the
-> Sunstone trophy ring and the Iron Compass needle actually draw**. So **#4 is the first guide
-> that correctly describes the whole v0.2.30 surface set.** All six surfaces are seeded by hand
-> below (same pattern as the trophy ring was hand-seeded into #3) because the roll-time git
-> window `v0.2.30..main` is clean — see the cross-check section._
+> _Why items 1–2 are hand-seeded: the Playtest #4 testers guide was generated on the **v0.2.30**
+> build (`generated_from_tag: v0.2.30`, cut 00:32) and correctly describes the six v0.2.30 surfaces.
+> But Playtest #4 actually **shipped under `v0.2.31`** (tagged 14:28), and **two `src/**/*.cs` PRs
+> landed in the gap** — #216 (minimap-DISC margin) and #215 (modal chevron counter-rotate), both
+> ~12:50 — **after the #4 guide was cut**, so the #4 guide describes neither. They get their first
+> correct in-game checklist here (the same pattern by which the six v0.2.30 surfaces were hand-seeded
+> into #4). Items 3–4 are the git cross-check candidates merged to `main` since v0.2.31 (the auto
+> feeder) — see the cross-check section._
 
-### 🆕 First correct guide for the v0.2.30 surface set (test now)
+### 🆕 Shipped in v0.2.31 after the #4 guide was cut (test on v0.2.31 now)
 
 | # | Feature | Card | Status | What to verify in-game |
 |---|---------|------|--------|------------------------|
-| 1 | **Sunstone Lens — trophy-RING detection render (NOW LIVE)** | t_b8a19487 (render #199) + t_d5949685 (dead-pump fix #209) | ✅ render shipped #199 (`v0.2.29`); **dead Update pump fixed #209 (`v0.2.30`)** — **first build it actually draws**; both cards `blocked` awaiting Daniel's in-game accept | 🔴 **This is the first build the ring renders at all** — #199's render was frozen inactive by a self-deactivating-host Update pump (`SetVisible(false)` killed the GameObject its own `Update` lived on), fixed in #209 by moving visibility to a `_content` child. So a totally-absent ring on v0.2.29 was the *pump bug*, not the equip-gate. Now: equip the Sunstone Lens, let it **solar-charge in daylight**, then approach hostiles (solo: spawn Greydwarves / a Draugr Elite). Verify: **(a)** a **trophy ring** appears — each detected hostile shows its **creature trophy** at that enemy's **screen bearing, camera-relative** (turning the camera sweeps the ring; **NOT** north-locked — preserves the Compass's north payoff); **(b) size ∝ proximity** (ring radius fixed ~180 px); **(c) vanilla star pips** above starred enemies (real nameplate art, not ★ glyphs); **(d) aggro-colour tint** 🟡 idle · 🟠 aggroed on another player · 🔴 aggroed on **YOU**; **(e)** trophy-less hostile → generic threat glyph (never invisible); **(f)** worn+charged, nothing near → faint **solar ring** (`ShowEmptyRing` default ON); depleted / not worn → ring **OFF**. `SunstoneLens.DebugMount` logs mount + visibility transitions (default ON this cut) — a fresh `LogOutput.log` now splits mount/pump-fail from on-screen-but-empty. `[SunstoneLens]` config (`RingRadiusPx`/`RingIcon{Min,Max}Px`/`RingMaxIcons`/…) is live-tunable. AT-LENS-RING-1..5 / AGGRO / CAMREL; logs-green ≠ playable — Daniel's in-game look closes t_b8a19487 + t_d5949685. |
-| 2 | **Iron Compass — HUD needle render (NOW LIVE)** | t_61aff612 (dead-pump fix #208) + t_ee61472f (orig #171) | ✅ dead Update pump + `Knob.psd` sprite fixed #208 (`v0.2.30`) — **first build the dial/needle actually draw**; t_61aff612 `blocked` awaiting Daniel | 🔴 **Same dead-pump bug as the lens, fixed first here.** The compass HUD showed **nothing** when worn (Daniel, v0.2.28): `SBPR_CompassHud`'s `_root` *was* its own host GameObject, so `SetVisible(false)` deactivated the object its `Update` pump lives on — froze it permanently. Fix: visibility toggles a dedicated `_content` child; host stays active. Secondary fix: the dial sprite (`Resources.GetBuiltinResource<Sprite>("UI/Skin/Knob.psd")`) **fails to load on Valheim's 0.221.x Unity** — replaced with a procedural disc (`DiscSprite()`). Verify: equip the **Iron Compass in the Trinket slot** → a HUD compass overlay (dial + cardinal N/E/S/W + needle) appears top-centre. **AT-COMPASS-HEADING** — needle points to **true world north**: face N → needle up; turn to face E → needle reads east (camera-relative wrap, smooth). **AT-COMPASS-LAG** — needle lags slightly behind a fast spin and settles (not an instant snap). **AT-COMPASS-TILT** — looking up/down tilts the dial ≤~45° then clamps. **AT-COMPASS-EQUIP-GATE** — overlay shows **only while equipped** in the Trinket slot; carried-unequipped → no overlay; unequip → hides immediately. **AT-COMPASS-NOMAP-SAFE** — renders correctly under the SB server's default NoMap (no minimap). `IronCompass.DebugMount` logs (default ON this cut) split mount/pump-fail from off-screen; `SBPR_CompassNeedleLag` is live-tunable. Bake `DefaultDebugMount`→false once Daniel confirms the dial. logs-green ≠ playable — Daniel's worn-compass look closes t_61aff612. |
-| 3 | **[M] open-hint + map NAME UNDER the minimap disc** | t_26bba85b (#205) | ✅ shipped #205 (`v0.2.30`); card `done`, awaiting Daniel's in-game accept | nomap-ON, carry a named, imprinted Local Map. Verify: **(a) AT-MAPNAME-UNDER-DISC** — the map's name ("Local map for <Table>") renders **directly under the minimap disc** (top-right), legible at the ~200 px disc, **NOT** a floating bottom-centre element; **(b) AT-MKEY-HINT-COLOCATED** — the `[M]` open-hint sits **with the name** as one unit, rebind-correct (rebind Map → key updates; no hardcoded "M"); **(c) AT-HINT-VISIBILITY** — the caption is visible **whenever the disc is** (provider bound + nomap-ON), **including bound-but-unequipped** (the old bottom hint only showed while equipped — this widening is the recommended Q2 model; tell Daniel if he'd rather it be equipped-only, a one-line flip); **(d) AT-HINT-NO-BOTTOM** — there is **no** `[M] Read map` element at screen bottom-centre anymore; **(e) AT-CAPTION-NO-ROTATE** — the caption is **screen-stable**, it does NOT spin when the disc rotates to heading; **(f) AT-MAPNAME-BLANK** — a pre-naming map shows the hint line **only**, never "Local map for " with an empty tail; **(g)** disc render + on-face chevron + the modal's BARE title cartouche are **unchanged**. **Build-calibration knobs** (`CaptionNameFontPx 18` / `CaptionHintFontPx 16` / `CaptionGapPx 10` in `MapSurface.cs`) — tell Daniel if the placement/legibility under the disc feels off. logs-green ≠ playable — Daniel's GPU eyeball on the top-right placement closes t_26bba85b. |
-| 4 | **Biome NAME readout on BOTH cartography surfaces (Path A)** | t_304076fa (#207) | ✅ shipped #207 (`v0.2.30`); card `done`, awaiting Daniel — **sequence with item 3** | nomap-ON, carry a named, imprinted Local Map; walk across biome borders (e.g. Meadows → Black Forest → Swamp). Verify: **(a) AT-BIOME-MINIMAP** — the disc caption now shows the **current-biome NAME as the MIDDLE line** (stack reads **name / biome / `[M]` hint**), and it **updates on biome change** as you cross a border; **(b) AT-BIOME-MODAL** — open the modal (M): a **fixed current-biome readout** sits **under the title cartouche** ("Local map for X" / **biome**) and tracks the player live while open (NOT a cursor-hover readout — that's a deferred follow-up); **(c) AT-BIOME-SHARED** — both surfaces show the **same** biome name (one shared code path); **(d) AT-BIOME-CLEAN** — the biome name is **locale-correct** (switch language → it follows the vanilla `$biome_*` tokens), and a raw `$biome_*` literal **never** appears; **(e) AT-BIOME-NONE-OMIT** — in a `Biome.None` edge state (pre-spawn / between zones) the disc **omits** the biome line (falls back to name / hint) and the modal **hides** its biome label — never an empty row or `$biome_none`; **(f) regressions** — the PR #205 name + `[M]` hint lines are **unchanged**, the caption is still **screen-stable** (does NOT spin), and the modal's BARE title cartouche is unchanged (biome sits **below** it, no overlap). **Build-calibration knobs** (`CaptionBiomeFontPx 16` disc / `ModalBiomeFontPx 22` modal, plus the modal label's `anchoredPosition -84` in `MapSurface.cs`) — tell Daniel if the biome line's size/placement/order feels off (the name/biome/hint order + sizes are his eyeball's to tune). logs-green ≠ playable — Daniel's GPU eyeball on **both** surfaces (placement, legibility, update-on-border-crossing) closes t_304076fa. |
-| 5 | **Modal map content-to-ring margin — zeroed (frame surveyed disc)** | t_89d30da3 (#204) | ✅ shipped #204 (`v0.2.30`); card `done`, awaiting Daniel's GPU eyeball | Open the **full circular modal map (M)** over a **fully-surveyed** area. **AT-RING-1** — the cartography disc edge **meets the bronze bezel ring with NO visible shroud/fog band** (Daniel's v0.2.27 ask: "no margin at all"; the old ~22 px band is gone — modal now frames 2×survey-radius ≈ 2000 m instead of the over-provisioned 2112 m window). **AT-RING-2** (regression #159) — cartography does **not** bleed past the ring / outside the disc under rotation. **AT-RING-3** (regression) — the **corner minimap disc (125 m)** keeps its current framing (untouched by this fix). **AT-RING-4** (THE LANDMINE) — **table pins + the in-disc player marker still land on the exact terrain cell they annotate** under rotation/zoom (the snapped-pin projection was re-derived through the shared span; headless arithmetic shows +0 px drift vs. the +23.6 px it would drift if only the modal span were changed). Headless verified build 0/0 + BoundedMapMath 27/27, but the parchment shader can't render headless — **AT-RING-1/2/4 are Daniel's GPU-client eyeball.** logs-green ≠ playable. |
-| 6 | **Equipable icons — transparent backgrounds (blue equipped-indicator shows)** | t_b9a111ca (#201) | ✅ shipped #201 (`v0.2.30`); card `done`, awaiting Daniel's in-game equip check | **AT-EQUIP-IND-1** — equip each of **Cartographer's Kit / Sunstone Lens / Iron Compass / Trailblazer's Spade / Local Map** → the vanilla **blue "equipped" highlight is visible** behind/around the icon in the inventory slot (it draws behind the icon Image; the old opaque icon backgrounds occluded it). **AT-EQUIP-IND-2** — each item silhouette still reads clearly in the slot: **no haloing, no eaten edges, no leftover background fringe**. **AT-EQUIP-IND-3 (Local Map)** — the Local Map now ships a **real transparent-bg icon** (it previously had **no icon at all** → magenta fallback); confirm a parchment-map icon **and** the equipped indicator. **AT-EQUIP-IND-REGRESSION** — the marker build-piece icons (`marker_*`) are unchanged (already transparent). A CI-gating `EquipableIconTransparencyTests.cs` (42/42) now red-fails if any equipable icon ships opaque again. logs-green ≠ playable — Daniel equipping each item is the accept. |
+| 1 | **Minimap DISC content-to-ring margin — closed (§2E.5.7)** | t_12e15162 (#216) | ✅ shipped #216 (`v0.2.31`); awaiting Daniel's GPU eyeball | nomap-ON, carry a named Local Map, open the **corner minimap disc** over a surveyed area. **AT-DISC-RING-1** — the cartography content edge **meets the bronze bezel ring with NO transparent annulus** (no live game world showing through a gap). This is the **second surface** of the content-to-ring family: #204 fixed the **MODAL** only; the **DISC** still gapped 5–32 px on most survey sizes (the `LayoutMapRect` integer-floored upscale made meshR < holeR; survey.Size=33 was a lucky clean case). The fix sizes the on-screen rect to the full **TargetPx** so meshR ≥ holeR for **every** survey size. **AT-DISC-RING-2** (regression #159) — cartography does **not** bleed past the ring under rotation. **AT-DISC-RING-3** — the disc's **125 m zoom/feel is unchanged** (the fog *texture* still upscales by the integer factor; only the on-screen rect size changed). **AT-DISC-RING-4** (THE LANDMINE) — **table pins + the in-disc player marker still land on the exact terrain cell** under rotation/zoom (every projection reads `edge` live from the rect; only `_mapRect.sizeDelta` changed, no second hard-coded edge literal — the #204 snapped-pin desync class). Headless `DiscRingGeometryTests` (meshR ≥ holeR ≤ ringOuterR swept across sizes 17..69 for disc TargetPx=200 + modal 900) + build 0/0 are green, but the parchment shader can't render headless — **AT-DISC-RING-1/2/4 are Daniel's GPU eyeball.** logs-green ≠ playable — closes t_12e15162. |
+| 2 | **Modal / TableEdit in-disc chevron — counter-rotate to screen-up (§2H.2)** | t_423f5bd7 (#215) | ✅ shipped #215 (`v0.2.31`); awaiting Daniel's in-game look | Fixes Daniel's v0.2.30 report: *"the main map view has the player's chevron always facing north."* The held map already rotates-to-heading, but its in-disc chevron rode the rotating interior and pinned to **map-north** (the residual after §2H.1 rotation landed). **AT-MODAL-MARKER-1 (the fix)** — open the **main map (M / FieldReadOnly modal)**, turn the character **N→E→S→W**: the player chevron stays pointing **screen-up** (= your facing) while the map content rotates beneath it; it **no longer pins to map-north**. **AT-MODAL-MARKER-2 (regression — disc)** — the **corner minimap disc** chevron keeps its current correct screen-up behaviour (no double-rotation/flip). **AT-MODAL-MARKER-3 (regression — edge arrow)** — when the player is **outside** the surveyed disc on the modal, the orange **edge arrow** still points **outward toward the player's real bearing** under rotation (it is NOT counter-rotated — its own `angleDeg` composes with the container `+rotZ`). **AT-MODAL-MARKER-4 (TableEdit)** — open the **Surveyor's Table** (TableEdit) view and turn the character: the in-disc chevron is **also** screen-up while the table map rotates-to-heading (TableEdit was locked to rotate-to-heading on 2026-06-12 — same screen-up fix, not an exception). logs-green ≠ playable — Daniel's modal + table look closes t_423f5bd7. |
+
+### 🆕 Merged to `main` since v0.2.31 — git cross-check candidates (need the next build tag)
+
+| # | Feature | Card | Status | What to verify in-game |
+|---|---------|------|--------|------------------------|
+| 3 | **Sunstone Lens → minimap detection handoff (any-minimap rule)** | t_91e86951 (#218) | ✅ merged to `main` (`f6456ed`); awaiting next build + Daniel | The full implementation of the Lens→minimap handoff (Daniel gated the 3 design knobs in #214, then directed the build). **When ANY minimap is present, the Lens' hostile detection moves ONTO it; the camera-relative trophy ring (Playtest #4 item 1) becomes the NO-minimap fallback only.** Defaults: `MinimapHandoffMode = DiscWhenBound`, `BlipStyle = Dots` (both live Config enums). Equip + solar-charge the Lens, approach hostiles (spawn Greydwarves / a Draugr Elite), and verify per the active minimap: **(a)** nomap-ON with the carry-disc bound → threat **blips ride the carry-disc** at each hostile's correct map position, counter-rotating + clearing with the disc (they ride `_pinObjects`); **(b)** nomap-OFF (vanilla corner minimap) → blips appear on the **vanilla corner minimap**, **north-up**, with the **aggro tint surviving** vanilla's per-frame `UpdatePins` (the overlay owns its `Image.color`); **(c) AT-LENS-DISC-NODRIFT** — tint/trophy/star derivation is single-sourced (`SunstoneProjection`), so a given hostile reads the **same** threat state on ring/disc/vanilla; **(d)** with **NO** minimap present, the camera-relative **trophy ring still renders** (the #4-item-1 behaviour, now the fallback — ring hides via `_content`, never the host, per the #209 dead-pump guard). Build 0/0, tests 186/186 (19 new truth-table cases), but render is GPU-only — Daniel's in-game look on each surface is the accept. logs-green ≠ playable — closes t_91e86951. _(Large render rework; if any surface behaves unexpectedly, verify against PR #218 / card t_91e86951 before filing a fix card.)_ |
+| 4 | **Sunstone Lens NOT repairable at any station (`m_canBeReparied=false`)** | t_1afb94cd (#220) | ✅ merged to `main` (`ec057b1`); awaiting next build + Daniel | The Lens carries a durability/energy bar (`m_useDurability=true`) and crafts at the **Explorer's Bench**, so vanilla `InventoryGui.CanRepair` treated a partially-drained Lens as a valid **Repair** target there — a one-click free refill of the solar battery that bypassed the sunlight-only `CanRecharge` gate and defeated the sun-charge design. **AT-LENS-NOREPAIR** — with a **sun-depleted (partially-drained) Lens** in inventory: stand at the **Explorer's Bench** → the Lens does **NOT** appear as a repairable item (no hammer/repair affordance); confirm the same at a vanilla **Workbench** and **Forge** (non-repairable at **every** station, unconditionally — the flag short-circuits before any station-name match). The **charge meter + drain/recharge model are unchanged** (`m_useDurability` stays true); the **only** way to refill is **standing in sunlight**. logs-green ≠ playable — Daniel confirming no bench-repair + intact sun-charge closes t_1afb94cd. |
 
 ### 🔁 Carried forward — not yet shipped / not yet verified
 
-Did **not** ship a code change in `v0.2.30-playtest` (blocked / verify-only), so it rolls
-into #4 rather than #3's shipped archive.
+Did **not** ship a code change in any tag (blocked / verify-only), so it carries into #5 rather than
+into #4's shipped archive.
 
 | # | Feature | Card | Status | What to verify in-game |
 |---|---------|------|--------|------------------------|
-| 7 | **Portal Seed crafting cost** | t_a6831e8e | `blocked` — verify local solo (NRE root-crash #154 shipped in #1) | At the Explorer's Bench, Portal Seed shows cost **AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2**, and crafting **consumes** exactly that. Verify **local solo on current `main`** (the per-frame tooltip NRE that masked this, t_2dd7c705/#154, shipped in #1). If correct → close t_a6831e8e; if wrong → spawn a fix card from the observed failure mode (A no cost / B wrong cost / C not craftable / D shown-but-not-consumed). |
+| 5 | **Portal Seed crafting cost** | t_a6831e8e | `blocked` — verify local solo (NRE root-crash #154 shipped in #1) | At the Explorer's Bench, Portal Seed shows cost **AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2**, and crafting **consumes** exactly that. Verify **local solo on current `main`** (the per-frame tooltip NRE that masked this, t_2dd7c705/#154, shipped in #1). If correct → close t_a6831e8e; if wrong → spawn a fix card from the observed failure mode (A no cost / B wrong cost / C not craftable / D shown-but-not-consumed). |
 
 ### 🧭 Ground-truth cross-check at roll time (git)
 
-- **`src/**/*.cs` changes on `main` since `v0.2.30-playtest`: 0 commits.** The only
-  post-tag change is the installer SHA pin **#210** (`e0975b9`) — a release chore, not a
-  gameplay surface. So the auto cross-check window is clean.
-- The six headline items above (#204/#205/#207/#208/#209 + icon #201) all shipped *inside*
-  the `v0.2.30` tag, **after** the Playtest #3 guide was cut on the `v0.2.29` build (18:28),
-  so they appear in **no** prior guide and are seeded by hand here for their first correct
-  in-game checklist — the same pattern by which the trophy ring was hand-seeded into #3.
-- `scripts/gen-playtest-guide.py --ref main` confirms 0 code changes / 0 unledgered for
-  this window (it diffs `v0.2.30..main`).
+- **`src/**/*.cs` changes on `main` since `v0.2.31-playtest`: 2 commits** — #218 (`f6456ed`, card
+  t_91e86951) and #220 (`ec057b1`, card t_1afb94cd) — **both seeded above** as PENDING items 3 & 4.
+  The only other post-tag change is the installer SHA pin **#219** (`a8561f9`) — a release chore, not
+  a gameplay surface. So the auto cross-check is **clean (0 unledgered)**.
+- Items **1–2** (#216/#215) shipped **inside** the `v0.2.31` tag **after** the Playtest #4 guide was
+  cut on the `v0.2.30` build (00:32 < ~12:50 < tag 14:28), so they appear in **no** prior guide and
+  are seeded by hand here for their first correct in-game checklist — the same pattern by which the
+  six v0.2.30 surfaces were hand-seeded into #4.
+- `scripts/gen-playtest-guide.py --ref main` confirms **2** code changes / **0** unledgered for this
+  window (it diffs `v0.2.31..main`; both #218/#220 card ids are in the PENDING rows above).
 
 ### ⏳ In-flight (will join PENDING when merged)
 
-- Nothing currently `running` against `main`. (All of #204/#205/#207/#208/#209/#201 merged
-  into the `v0.2.30` tag and are now PENDING items 1–6 above.)
-- Design/blocked cards not yet built (no test item until they ship): biome indicators were
-  Path A and shipped (#207); no other built-but-unmerged cartography/HUD surface is open.
+- Nothing else `running` against `main` (#218/#220 are merged → PENDING items 3–4 above).
+- **Open design PR #217** (`design/iron-compass-minimap-ring`, card t_85a46f42) — a **design-doc twin**
+  of the Lens→minimap handoff: a compass-gated **north-ring on the minimap disc**. **Not built / not
+  merged** → no test item until it ships.
 
 ---
 
 ## ARCHIVE — shipped playtests
+
+### Playtest #4 — shipped v0.2.31-playtest (2026-06-20)
+
+Build tag: `v0.2.31-playtest` (SBPR Trailborne 0.2.31). Guide:
+[`playtest-4-testers-guide.md`](playtest-4-testers-guide.md) — the **first guide that correctly
+describes the whole v0.2.30 surface set** (cut on the v0.2.30 build at 00:32, after the #3 guide had
+been cut on v0.2.29). Playtest #4 actually **shipped under `v0.2.31`** (tagged 14:28): **2** further
+`src/**/*.cs` PRs landed in the gap — **#215** (modal chevron counter-rotate, `af4202f`) and **#216**
+(minimap-DISC margin, `8601647`), both ~12:50 — **after the #4 guide was cut**, so the #4 guide
+describes neither. They carry into **Playtest #5** (hand-seeded, the same pattern by which the six
+v0.2.30 surfaces were seeded into #4). Daniel's local-solo run on the v0.2.31 client is the accept —
+logs-green ≠ playable.
+
+| # | Feature | Card | PR | What to verify in-game |
+|---|---------|------|-----|------------------------|
+| 1 | **Sunstone Lens trophy-RING — first build it draws** | t_b8a19487 + t_d5949685 | #199/#209 (`v0.2.29`/`v0.2.30`) | The #199 render was frozen by a self-deactivating-host Update pump; #209 moved visibility to a `_content` child so `v0.2.30` is the first build the ring draws. Full AT-LENS-RING-1..5/AGGRO/CAMREL checklist → #4 guide item 1. |
+| 2 | **Iron Compass HUD needle — first build it draws** | t_61aff612 + t_ee61472f | #208 (`v0.2.30`) | Same dead-pump bug as the lens + an unloadable `Knob.psd` sprite (replaced with a procedural disc); `v0.2.30` is the first build the dial/needle render. Full AT-COMPASS-HEADING/LAG/TILT/EQUIP-GATE/NOMAP-SAFE → #4 guide item 2. |
+| 3 | **[M] open-hint + map NAME under the minimap disc** | t_26bba85b | #205 (`v0.2.30`) | Relocated the bottom-centre `[M] Read map` hint under the carry disc, co-located with the map name as one screen-stable unit. Full AT-MAPNAME-UNDER-DISC/MKEY-HINT-COLOCATED/HINT-VISIBILITY/HINT-NO-BOTTOM/CAPTION-NO-ROTATE/MAPNAME-BLANK → #4 guide item 3. |
+| 4 | **Biome NAME on both cartography surfaces (Path A)** | t_304076fa | #207 (`v0.2.30`) | Current-biome NAME on the disc caption middle line + a fixed modal readout, one shared `$biome_*`-localized path. Full AT-BIOME-MINIMAP/MODAL/SHARED/CLEAN/NONE-OMIT → #4 guide item 4. |
+| 5 | **Modal map content-to-ring margin — zeroed** | t_89d30da3 | #204 (`v0.2.30`) | The §2E.5.6 two-knob reframe (2×survey-radius + re-derived snapped pins) closed the ~22 px MODAL shroud band. Full AT-RING-1..4 → #4 guide item 5. **(NB: the corner DISC margin was a separate surface — fixed later in #216, now Playtest #5 item 1.)** |
+| 6 | **Equipable icons — transparent backgrounds** | t_b9a111ca | #201 (`v0.2.30`) | Transparent RGBA canvas so vanilla's blue equipped indicator shows through; Local Map gets a real icon; a CI-gating test guards regressions. Full AT-EQUIP-IND-1/2/3/REGRESSION → #4 guide item 6. |
+
+#### 🧭 Ground-truth cross-check (git) — what shipped under Playtest #4
+
+- Items 1–6 are the v0.2.30 surface set the **#4 guide** describes (carried from #3 because the #3
+  guide was cut on the v0.2.29 build). All await Daniel's v0.2.31-client run — logs-green ≠ playable.
+- **Two PRs landed in the `v0.2.31` tag AFTER the #4 guide was cut (00:32 → tag 14:28):**
+  - **PR #216** (squash `8601647`, card t_12e15162) — close the minimap **DISC** content-to-ring
+    margin (§2E.5.7; size the cartography rect to the full TargetPx so meshR ≥ holeR on every survey
+    size; extracted a `DiscRingGeometry` helper, CI-gated via `DiscRingGeometryTests`). The **second**
+    surface of the content-to-ring family (#204 fixed the MODAL only). **Tested under Playtest #5**
+    (PENDING item 1). (`v0.2.31`)
+  - **PR #215** (squash `af4202f`, card t_423f5bd7) — modal/TableEdit **in-disc chevron counter-rotate
+    to screen-up** (§2H.2; generalise the counter-rotation gate from `PlayerCentred` to
+    `!_markerOffDisc`). Fixes Daniel's v0.2.30 "main map chevron always faces north." **Tested under
+    Playtest #5** (PENDING item 2). (`v0.2.31`)
 
 ### Playtest #3 — shipped v0.2.30-playtest (2026-06-19)
 
