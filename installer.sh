@@ -35,8 +35,8 @@
 set -euo pipefail
 
 # ── Pinned release asset (bumped together by the CI auto-pin step, like the PS1) ──
-MODPACK_URL='https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.2.31-playtest/SBPR-Trailborne-Modpack-v0.2.31.zip'
-EXPECTED_SHA256='8a0dd7b0a283a271370721fb4abc169e6482efb5e8e56b08a75fa12395a2df16'
+MODPACK_URL='https://github.com/PolyphonyRequiem/SBPRValheimMods/releases/download/v0.2.32-playtest/SBPR-Trailborne-Modpack-v0.2.32.zip'
+EXPECTED_SHA256='212759364976bfeb5d6d80516c83d3ff258ce01c205ba9f1d890cbf7f7dfb0ce'
 # Live server status (join code drifts on every restart — fetched at runtime).
 STATUS_URL='https://gist.githubusercontent.com/PolyphonyRequiem/7b54a29aeefb3effee0393df79d0b03e/raw/niflheim-status.json'
 MODDED_DIRNAME='Valheim-Modded'
