@@ -65,6 +65,7 @@ markers; the **Playtest #N** counter here is the *human-facing* testing series.
 |---|---------|------|--------|------------------------|
 | 3 | **Sunstone Lens → minimap detection handoff (any-minimap rule)** | t_91e86951 (#218) | ✅ merged to `main` (`f6456ed`); awaiting next build + Daniel | The full implementation of the Lens→minimap handoff (Daniel gated the 3 design knobs in #214, then directed the build). **When ANY minimap is present, the Lens' hostile detection moves ONTO it; the camera-relative trophy ring (Playtest #4 item 1) becomes the NO-minimap fallback only.** Defaults: `MinimapHandoffMode = DiscWhenBound`, `BlipStyle = Dots` (both live Config enums). Equip + solar-charge the Lens, approach hostiles (spawn Greydwarves / a Draugr Elite), and verify per the active minimap: **(a)** nomap-ON with the carry-disc bound → threat **blips ride the carry-disc** at each hostile's correct map position, counter-rotating + clearing with the disc (they ride `_pinObjects`); **(b)** nomap-OFF (vanilla corner minimap) → blips appear on the **vanilla corner minimap**, **north-up**, with the **aggro tint surviving** vanilla's per-frame `UpdatePins` (the overlay owns its `Image.color`); **(c) AT-LENS-DISC-NODRIFT** — tint/trophy/star derivation is single-sourced (`SunstoneProjection`), so a given hostile reads the **same** threat state on ring/disc/vanilla; **(d)** with **NO** minimap present, the camera-relative **trophy ring still renders** (the #4-item-1 behaviour, now the fallback — ring hides via `_content`, never the host, per the #209 dead-pump guard). Build 0/0, tests 186/186 (19 new truth-table cases), but render is GPU-only — Daniel's in-game look on each surface is the accept. logs-green ≠ playable — closes t_91e86951. _(Large render rework; if any surface behaves unexpectedly, verify against PR #218 / card t_91e86951 before filing a fix card.)_ |
 | 4 | **Sunstone Lens NOT repairable at any station (`m_canBeReparied=false`)** | t_1afb94cd (#220) | ✅ merged to `main` (`ec057b1`); awaiting next build + Daniel | The Lens carries a durability/energy bar (`m_useDurability=true`) and crafts at the **Explorer's Bench**, so vanilla `InventoryGui.CanRepair` treated a partially-drained Lens as a valid **Repair** target there — a one-click free refill of the solar battery that bypassed the sunlight-only `CanRecharge` gate and defeated the sun-charge design. **AT-LENS-NOREPAIR** — with a **sun-depleted (partially-drained) Lens** in inventory: stand at the **Explorer's Bench** → the Lens does **NOT** appear as a repairable item (no hammer/repair affordance); confirm the same at a vanilla **Workbench** and **Forge** (non-repairable at **every** station, unconditionally — the flag short-circuits before any station-name match). The **charge meter + drain/recharge model are unchanged** (`m_useDurability` stays true); the **only** way to refill is **standing in sunlight**. logs-green ≠ playable — Daniel confirming no bench-repair + intact sun-charge closes t_1afb94cd. |
+| 6 | **Map fullscreen (M) no longer steals the cursor (§2L.7-R)** | t_8b86adb3 (impl) / t_12acb9ce (spec #222) | ✅ merged to `main`; awaiting next build + Daniel | Fixes Daniel's 2026-06-20 report: *"both the localmap fullscreen and the painted sign 'steal' the mouse cursor."* This is the **map half (Surface A)** only — the Painted Sign (Surface B) is a separate open design decision still owed Daniel (accept / confine-to-rect / hide-until-move). `CursorPumpPatch` now keys on a narrower `CursorNeeded` (sign panels + the map viewer **only in TableEdit**) instead of `AnyOpen`, so the read-only M field map keeps mouse-look-freeze + world-input-block but no longer throws a free cursor over a surface with nothing to click. **AT-TABLE-FIELD-CURSOR** — equip a Local Map, press **M**: mouse-look stays frozen, WASD/world-input stays blocked, **NO free cursor appears**; close M → cursor re-locks + hides cleanly (no stuck-free cursor). **AT-TABLE-FIELD-CURSOR-REGRESSION** — open the **Surveyor's Table** (TableEdit): the free cursor **still** appears and pin-click-removal **still** works (the t_1f82da71 behaviour is preserved for the Table — only the M field view narrowed). **AT-SIGN-CURSOR-REGRESSION** — Painted Sign + Marker Sign panels still free the cursor; painting/text entry unaffected. **AT-CURSOR-PATCHCHECK** — `Runtime/PatchCheck` reports no UNREGISTERED PATCH CLASS at boot (the patch is unchanged; only the predicate it reads narrowed). Build 0/0, tests 186/186; cursor visibility is GPU-only so Daniel's eyeball on a client is the accept. logs-green ≠ playable — closes t_8b86adb3. |
 
 ### 🔁 Carried forward — not yet shipped / not yet verified
 
@@ -77,10 +78,11 @@ into #4's shipped archive.
 
 ### 🧭 Ground-truth cross-check at roll time (git)
 
-- **`src/**/*.cs` changes on `main` since `v0.2.31-playtest`: 2 commits** — #218 (`f6456ed`, card
-  t_91e86951) and #220 (`ec057b1`, card t_1afb94cd) — **both seeded above** as PENDING items 3 & 4.
-  The only other post-tag change is the installer SHA pin **#219** (`a8561f9`) — a release chore, not
-  a gameplay surface. So the auto cross-check is **clean (0 unledgered)**.
+- **`src/**/*.cs` changes on `main` since `v0.2.31-playtest`: 3 commits** — #218 (`f6456ed`, card
+  t_91e86951), #220 (`ec057b1`, card t_1afb94cd), and the §2L.7-R cursor-narrow (card t_8b86adb3) —
+  **all three seeded above** as PENDING items 3, 4 & 6. The only non-gameplay post-tag change is the
+  installer SHA pin **#219** (`a8561f9`) — a release chore, not a gameplay surface. So the auto
+  cross-check is **clean (0 unledgered)**.
 - Items **1–2** (#216/#215) shipped **inside** the `v0.2.31` tag **after** the Playtest #4 guide was
   cut on the `v0.2.30` build (00:32 < ~12:50 < tag 14:28), so they appear in **no** prior guide and
   are seeded by hand here for their first correct in-game checklist — the same pattern by which the
@@ -94,17 +96,17 @@ into #4's shipped archive.
 - **Open design PR #217** (`design/iron-compass-minimap-ring`, card t_85a46f42) — a **design-doc twin**
   of the Lens→minimap handoff: a compass-gated **north-ring on the minimap disc**. **Not built / not
   merged** → no test item until it ships.
-- **Map fullscreen (M) cursor narrowing** (card t_12acb9ce → spec PR open, engineer-ui impl child
-  spawned) — Daniel's 2026-06-20 playtest: the equipped Local Map full view (**M**) "steals the mouse
-  cursor." Spec reverses cartography-impl-spec §2L.7 (→ §2L.7-R): the cursor pump narrows from
-  `AnyOpen` to `CursorNeeded` (sign panels + Surveyor's-Table `TableEdit` only), so the read-only M
-  map keeps mouse-look-freeze + input-block but no longer shows a free cursor; the Table keeps its
-  pin-click cursor; the **Painted Sign** is a separate open design question (Surface B) NOT folded in.
-  **Not built / not merged** → its PENDING test row (AT-TABLE-FIELD-CURSOR inverted: M map = NO free
-  cursor; AT-TABLE-FIELD-CURSOR-REGRESSION: Table cursor + pin-removal intact) lands when the
-  engineer-ui impl PR ships. **Note for the #5 roll:** this does NOT touch archived Playtest #2 item 7
-  — that row is a true record of what shipped in v0.2.28; the M-map half of it was over-scoped and is
-  being corrected forward, not rewritten in history.
+- **Map fullscreen (M) cursor narrowing** (spec card t_12acb9ce / impl card t_8b86adb3) — Daniel's
+  2026-06-20 playtest: the equipped Local Map full view (**M**) "steals the mouse cursor." Spec reverses
+  cartography-impl-spec §2L.7 (→ §2L.7-R): the cursor pump narrows from `AnyOpen` to `CursorNeeded`
+  (sign panels + Surveyor's-Table `TableEdit` only), so the read-only M map keeps mouse-look-freeze +
+  input-block but no longer shows a free cursor; the Table keeps its pin-click cursor; the **Painted
+  Sign** is a separate open design question (Surface B) NOT folded in. ✅ **Spec (#222) AND code both
+  merged to `main`** → now a real PENDING test row above (item 6, AT-TABLE-FIELD-CURSOR +
+  -REGRESSION). **Note for the #5 roll:** this does NOT touch archived Playtest #2 item 7 — that row is
+  a true record of what shipped in v0.2.28; the M-map half of it was over-scoped and is being corrected
+  forward, not rewritten in history. The **Painted Sign cursor** (Surface B) remains an open design
+  decision owed Daniel — not yet a test item.
 
 ---
 
