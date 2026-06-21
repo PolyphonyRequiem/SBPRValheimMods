@@ -129,6 +129,20 @@ namespace SBPR.Trailborne.Features.Cartography
         private static readonly Color32 CShroud    = new Color32(14, 13, 11, 255);
         private static readonly Color   CBackdrop  = new Color(0f, 0f, 0f, 0.92f);
 
+        // ── Compass north ring palette (card t_fb53c9e4, M1) ──
+        // IronTint MULTIPLIES the bronze-baked bezel texture (which already encodes (0.62,0.55,0.42)), so
+        // Color.white shows native bronze and IronTint shows iron. Iron in Valheim reads as a cool,
+        // desaturated steel-grey — a touch blue-cool and LIGHTER than bronze so the ring reads "iron",
+        // not "dark bronze". 🔴 This is the ONE genuinely visual constant in M1: Daniel EYEBALLS it
+        // in-game against a real iron item and tunes (AT-COMPASS-BEZEL-GATED). Starting value per §3.4.
+        private static readonly Color CIronTint  = new Color(0.66f, 0.68f, 0.72f, 1f);
+        // The N-glyph + ticks colour: a high-contrast off-white so it reads on the iron band (§3.4).
+        private static readonly Color CNorthGlyph = new Color(0.92f, 0.93f, 0.96f, 1f);
+        // The N-glyph font size as a fraction of the bezel hole radius, so the letter scales with the
+        // surface (≈26 px on the 200 px disc, ≈120 px on the 900 px modal) — never a hard-coded px.
+        private const float NorthGlyphFontFrac = 0.135f;
+        private const float NorthTickFontFrac  = 0.105f;
+
         // ── Per-surface UI refs ──
         private readonly Transform _host;
         private readonly MapSurfaceConfig _cfg;
@@ -147,6 +161,20 @@ namespace SBPR.Trailborne.Features.Cartography
         private Material?  _shaderMat;
         private Texture2D? _bezelTex;
         private RawImage? _playerMarker;
+        // ── Compass north ring (card t_fb53c9e4, M1) ──
+        // The Iron Compass feature pushes its equip-state here each frame via SetCompassNorth (MapViewer
+        // forwards it to both surfaces). When true: the bezel tints IRON (Path a — a per-frame _bezel.color
+        // write, NEVER a _bezelTex mutation) and the N-glyph + ticks layer shows; when false the bezel
+        // reverts to bronze (Color.white over the bronze-baked texture) and the N layer hides. North is a
+        // property of the COMPASS, drawn on the surface only when worn (§5 invariant) — no persistence flag.
+        private bool _compassWorn;
+        // The N-glyph + ticks chevron-sibling. Parented to the ROTATING _mapContainer (:139, NOT the fixed
+        // _frame the bezel rides) at a FIXED container-local point (0, +HoleRadius) = local-up: the
+        // container's per-frame rotZ carries it to world-north's screen position for free (the player-marker
+        // idiom, :1085-1098), and we counter-rotate the glyph itself by −rotZ for legibility. Built additively
+        // (new GameObject + Image, ADR-0006); toggled by _compassWorn in ApplyFieldOrientation.
+        private RectTransform? _northLayer;   // the orbiting container (N + ticks), child of _mapContainer
+        private Text? _northGlyph;            // the "N" letter
         // §2H.2 (t_423f5bd7): true ⇔ the modal player marker is currently the OFF-disc edge-arrow,
         // which sets its own localRotation = angleDeg and must keep riding _mapContainer's +rotZ so
         // its composed on-screen bearing (rotZ + angleDeg) points outward (AT-MODAL-MARKER-3). For the
@@ -197,6 +225,14 @@ namespace SBPR.Trailborne.Features.Cartography
         /// <summary>Open-state is derived from the live root (un-latchable — §2I.1), never a side bool.</summary>
         public bool IsActive => _root != null && _root.activeSelf;
         public MapViewerMode Mode => _req.Mode;
+
+        /// <summary>
+        /// Compass north ring (card t_fb53c9e4, M1). The Iron Compass feature pushes its equip-state here
+        /// each frame (via <c>MapViewer.SetCompassNorth</c>). Stores the flag only; the actual iron/bronze
+        /// bezel tint + N-glyph toggle apply per-frame in <see cref="ApplyFieldOrientation"/> (the same
+        /// rotation path the player marker rides), so a hidden/inactive surface costs nothing. Idempotent.
+        /// </summary>
+        public void SetCompassNorth(bool compassWorn) => _compassWorn = compassWorn;
 
         public void Show(MapViewRequest request)
         {
@@ -1096,6 +1132,54 @@ namespace SBPR.Trailborne.Features.Cartography
             // so the composed angle (rotZ + angleDeg) points at the player's real bearing (AT-MODAL-MARKER-3).
             if (_playerMarker != null && !_markerOffDisc)
                 _playerMarker.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -rotZ);
+
+            ApplyCompassNorth(rotZ);
+        }
+
+        /// <summary>
+        /// Compass north ring (card t_fb53c9e4, M1) — the per-frame iron/bronze tint + the orbiting N.
+        /// Driven off <c>_compassWorn</c> (pushed by the Iron Compass feature via SetCompassNorth), called
+        /// from <see cref="ApplyFieldOrientation"/> so it shares the same <paramref name="rotZ"/> the map
+        /// container and player marker ride.
+        ///
+        /// (a) BEZEL TINT — Path a (§3.4): a per-frame write to the RawImage <c>_bezel.color</c>. The bezel
+        /// texture is a white-bronze band, so <c>Color.white</c> shows native bronze and <c>CIronTint</c>
+        /// multiplies it to iron. We NEVER mutate the cached <c>_bezelTex</c> (that would corrupt the
+        /// shared bronze constant). The bezel is a child of the NON-rotating <c>_frame</c>, so a recolor
+        /// is rotation-invariant — correct, an iron ring reads identically at every heading.
+        ///
+        /// (b) THE N + TICKS — toggle the orbiting <c>_northLayer</c> on the same gate, then counter-rotate
+        /// each child by <c>−rotZ</c> so the letters stay upright while the layer itself rides the
+        /// container's <c>+rotZ</c> to world-north (the player-marker idiom). Face north → N at 12 o'clock;
+        /// face east → N orbits to 9 o'clock; the letter never tilts.
+        /// </summary>
+        private void ApplyCompassNorth(float rotZ)
+        {
+            // (a) The iron/bronze bezel recolor — gated, reverts to bronze when the compass comes off.
+            //     Write only when the bezel is the live ring (circular: disc + FieldReadOnly modal). On the
+            //     square TableEdit view the bezel is deactivated (UpdateFrameForMode) — nothing to tint.
+            bool bezelShown = _bezel != null && _bezel.gameObject.activeSelf;
+            if (_bezel != null)
+                _bezel.color = _compassWorn ? CIronTint : Color.white;
+
+            // (b) The orbiting N + ticks. The N is the rim-of-the-iron-band marker, so it shows exactly
+            //     where that band is a visible ring: gate it on (worn AND the bezel is shown). This couples
+            //     the N to the iron ring as ONE element — both appear on the disc + the FieldReadOnly
+            //     full-map modal (Daniel ④), and both stay off on the square TableEdit pin-editing view
+            //     (where the bezel is hidden and a floating rim-N would have no ring to sit on). 🟡 The spec
+            //     says "disc AND modal" without splitting FieldReadOnly vs TableEdit; tying the N to the
+            //     bezel's own circular gate is the visually-coherent reading — flagged in the PR.
+            if (_northLayer == null) return;
+            bool showNorth = _compassWorn && bezelShown;
+            if (_northLayer.gameObject.activeSelf != showNorth)
+                _northLayer.gameObject.SetActive(showNorth);
+            if (!showNorth) return;
+
+            // The layer rides _mapContainer's +rotZ (it's a child) → carried to world-north for free.
+            // Counter-rotate each glyph by −rotZ so "N" and the ticks read upright at every heading.
+            var counter = Quaternion.Euler(0f, 0f, -rotZ);
+            for (int i = 0; i < _northLayer.childCount; i++)
+                _northLayer.GetChild(i).localRotation = counter;
         }
 
         /// <summary>Re-apply rotation every frame on the live survey (cheap: a yaw read + a transform set).</summary>
@@ -1453,6 +1537,12 @@ namespace SBPR.Trailborne.Features.Cartography
             bzRt.pivot = new Vector2(0.5f, 0.5f);
             bzRt.sizeDelta = new Vector2(bezelEdge, bezelEdge);
 
+            // Compass north ring (card t_fb53c9e4, M1): the N-glyph + ticks chevron-sibling. Parented to
+            // the ROTATING _mapContainer (NOT the fixed _frame the bezel rides) so it ORBITS to world-north
+            // for free off the container's per-frame rotZ. Built here (hidden); toggled + counter-rotated
+            // per-frame in ApplyFieldOrientation off _compassWorn.
+            BuildNorthLayer();
+
             if (_cfg.ShowPrompts) BuildPrompts();
             if (_cfg.ShowCaption) BuildCaption();
 
@@ -1603,6 +1693,90 @@ namespace SBPR.Trailborne.Features.Cartography
             var outline = capGo.AddComponent<Outline>();
             outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
             outline.effectDistance = new Vector2(1.5f, -1.5f);
+        }
+
+        /// <summary>
+        /// Compass north ring (card t_fb53c9e4, M1): build the N-glyph + cardinal ticks chevron-sibling.
+        ///
+        /// 🔴 PARENT = <c>_mapContainer</c> (the ROTATING interior), NOT the fixed <c>_frame</c> the bezel
+        /// rides. This is the load-bearing parent split (§3.2): the iron BEZEL is a recolor that looks
+        /// identical at every rotation, so it stays on the non-rotating <c>_frame</c>; the N glyph must
+        /// ORBIT to follow world-north, so it rides <c>_mapContainer</c>'s per-frame <c>rotZ</c>. Same
+        /// gate (<c>_compassWorn</c>), different parents. Pin N to <c>_frame</c> by mistake → a dead,
+        /// non-orbiting glyph.
+        ///
+        /// Layout: <c>_northLayer</c> is a zero-size pivot coincident with <c>_mapContainer</c>'s centre.
+        /// The N sits at container-local <c>(0, +HoleRadius)</c> = local-UP; the three ticks at the other
+        /// cardinals (E/S/W) at the same radius. The container's <c>rotZ</c> sweeps the whole layer to the
+        /// world bearing for free (zero yaw math); <see cref="ApplyFieldOrientation"/> counter-rotates each
+        /// child by <c>−rotZ</c> so the letters stay upright (the player-marker idiom, :1098). The radius is
+        /// bound SYMBOLICALLY to <c>DiscRingGeometry.HoleRadius(_cfg.TargetPx)</c> (the post-#213 single
+        /// source of truth) — NEVER a literal — so it tracks the iron band on both the 200 px disc and the
+        /// 900 px modal and follows any future margin tune. Built additively (new GameObject + Text,
+        /// ADR-0006); starts hidden, toggled by the compass gate. raycastTarget=false (passive overlay).
+        /// </summary>
+        private void BuildNorthLayer()
+        {
+            if (_mapContainer == null) return;
+
+            // The orbiting layer: a zero-size pivot at the container centre. Rides _mapContainer's rotation.
+            var layerGo = new GameObject("compassNorth");
+            layerGo.transform.SetParent(_mapContainer.transform, false);
+            _northLayer = layerGo.AddComponent<RectTransform>();
+            _northLayer.anchorMin = _northLayer.anchorMax = new Vector2(0.5f, 0.5f);
+            _northLayer.pivot = new Vector2(0.5f, 0.5f);
+            _northLayer.sizeDelta = Vector2.zero;
+
+            // Radius = the bezel hole (on/just inside the iron band). Bound to the helper, never a literal.
+            float r = DiscRingGeometry.HoleRadius(_cfg.TargetPx);
+            float glyphPx = Mathf.Max(10f, r * NorthGlyphFontFrac);
+            float tickPx  = Mathf.Max(8f,  r * NorthTickFontFrac);
+
+            // N at local-UP (0, +r) — the world-north anchor. The big, high-contrast letter.
+            _northGlyph = MakeNorthLabel("N", (int)glyphPx, new Vector2(0f, r));
+            // Cardinal ticks at the other three rim positions so the ring reads as an oriented compass
+            // (a thin "·" mark, dimmer than the N). They ride the same _northLayer + counter-rotate idiom.
+            MakeNorthLabel("\u00b7", (int)tickPx, new Vector2(r, 0f));    // E
+            MakeNorthLabel("\u00b7", (int)tickPx, new Vector2(0f, -r));   // S
+            MakeNorthLabel("\u00b7", (int)tickPx, new Vector2(-r, 0f));   // W
+
+            // Start hidden — the compass gate (ApplyFieldOrientation, off _compassWorn) shows it when worn.
+            _northLayer.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// Build one north-ring label (the N or a cardinal tick) as a child of <c>_northLayer</c> at a fixed
+        /// container-local position. Mirrors the caption/pin-label text idiom (VanillaUISkin font + Outline
+        /// for legibility over the live world; raycastTarget=false). The pivot is centred so the per-frame
+        /// <c>−rotZ</c> counter-rotation in <see cref="ApplyFieldOrientation"/> spins it about its own centre.
+        /// </summary>
+        private Text MakeNorthLabel(string glyph, int fontPx, Vector2 localPos)
+        {
+            var go = new GameObject("north_" + glyph);
+            go.transform.SetParent(_northLayer!.transform, false);
+
+            var txt = go.AddComponent<Text>();
+            txt.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                       ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+            txt.fontSize = Mathf.Max(8, fontPx);
+            txt.fontStyle = FontStyle.Bold;
+            txt.alignment = TextAnchor.MiddleCenter;
+            txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+            txt.verticalOverflow = VerticalWrapMode.Overflow;
+            txt.text = glyph;
+            txt.color = CNorthGlyph;
+            txt.raycastTarget = false;
+
+            var rt = txt.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = localPos;
+            rt.sizeDelta = new Vector2(fontPx * 2f + 8f, fontPx * 2f + 8f);
+
+            var outline = go.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
+            outline.effectDistance = new Vector2(1.5f, -1.5f);
+            return txt;
         }
 
         private static void EnsureEventSystem()
