@@ -173,6 +173,12 @@ This is the gnarly one. Spec: distinct namespace from vanilla portals, no-portal
 > `CartographersKit.IsWearingKit` precedent, not `HaveItem`. (Enum `Trinket = 24` re-verified this pass
 > at decomp line 57652; the `:57627` below is the enum's start line.) Everything else here is confirmed
 > accurate (`Hud.m_rootObject`, `GameCamera.instance.transform.eulerAngles`, no game-state patches).
+>
+> **→ SURFACE-RING BRANCH (2026-06-20, Daniel-gated):** when the compass is worn AND an SBPR map
+> surface is showing, the cardinal payoff also draws **on the surface** as a compass-gated iron
+> N-ring (HUD needle hides) — design [`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md),
+> build spec [`docs/v3/planning/iron-compass-minimap-ring-impl-spec.md`](../v3/planning/iron-compass-minimap-ring-impl-spec.md).
+> The HUD overlay here stays the **no-surface fallback**.
 
 - **Item:** new ItemDrop `SBPR_IronCompass`, accessory slot (`m_shared.m_itemType = ItemData.ItemType.Trinket`, enum value 24 — confirmed at line 57627).
 - **Render:** a small UGUI Image as child of `Hud.instance.m_rootObject`, positioned bottom-center below the map-icon area.

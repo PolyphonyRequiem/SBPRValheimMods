@@ -85,6 +85,19 @@ provider local map and the personal global map (§4).
   "show X on the local-map disc" feature should consume — do NOT fork a second marker path. The
   nomap-OFF branch of that same card draws onto the **vanilla** corner minimap via a custom overlay
   (own `Image.color`, NOT `Minimap.AddPin` — vanilla stomps pin colour every refresh); see §6.
+- 🟢 **DECIDED (Daniel 2026-06-20): the disc + modal also gain a compass-gated NORTH overlay — and it
+  is DELIBERATELY NOT routed through `IThreatMarkerProvider`** (card `t_85a46f42` design / `t_ed803a83`
+  impl-spec; [`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md),
+  [`../v3/planning/iron-compass-minimap-ring-impl-spec.md`](../v3/planning/iron-compass-minimap-ring-impl-spec.md)).
+  The "do NOT fork a second marker path" rule above is for *world-positioned, per-rebuild* markers —
+  the compass N glyph is a **different marker KIND**: screen-bearing (no world point — it rides
+  container-local "up"), **per-frame** (it orbits smoothly as the camera turns, not per-rebuild), and
+  on **both** surfaces (the threat seam is disc-only). It is a **player-chevron sibling** parented to
+  the rotating `_mapContainer` (the `_playerMarker` idiom, counter-rotated upright), toggled by the
+  Iron Compass equip-gate. Forcing it through the world-positioned/per-rebuild/disc-only
+  `DiscThreatMarker` struct would refactor shipped Sunstone code for negative benefit. The two seams
+  stay separate because the marker kinds genuinely differ; the single "north is compass-gated" rule
+  reconciles the twin features (north appears on a surface IFF the compass is worn).
 
 ### 2.1 🟢 DECIDED (Daniel 2026-06-19 playtest) — the disc carries its NAME + a co-located `[M]` open-hint UNDERNEATH it
 v0.2.27-playtest refinement: *"the [M] READ MAP display at the bottom doesn't really work for
