@@ -787,10 +787,12 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Tint the sign BOARD (the painted plank) to <paramref name="c"/> by cloning
-        /// its shared materials and setting the lit shader's _Color. No-op on a headless
-        /// server (no renderers). SKIPS renderers under the decorative pole
-        /// (<see cref="PostChildName"/>) AND under the two-tone border
+        /// Tint the sign BOARD (the painted plank) to <paramref name="c"/> by writing
+        /// <c>_Color</c> into each board renderer's per-renderer MaterialPropertyBlock — the
+        /// render-time layer vanilla itself paints these pieces through (see
+        /// <see cref="TintRenderer"/> for the full mechanism + why shared-material writes were
+        /// masked). No-op on a headless server (no renderers). SKIPS renderers under the
+        /// decorative pole (<see cref="PostChildName"/>) AND under the two-tone border
         /// (<see cref="BorderChildName"/>) so this colours the board only. Driven by
         /// SignTag for the per-instance text/board tone.
         /// </summary>
@@ -841,22 +843,20 @@ namespace SBPR.Trailborne.Features.Signs
         /// </summary>
         public static void TintBorder(GameObject go, Color c)
         {
-            var prop = Shader.PropertyToID("_Color");
             foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
             {
                 if (rend == null) continue;
                 if (!IsUnderBorder(rend.transform)) continue; // border subtree only
-                TintRendererMaterials(rend, c, prop, go.name);
+                TintRenderer(rend, c);
             }
         }
 
         /// <summary>
-        /// Revert the BOARD (and text-tinted plank renderers) to their original
-        /// unpainted materials — the "remove text color" / None affordance (§A2.6,
-        /// Issue 4). Restores from the per-renderer backup captured on the first tint,
-        /// so the change is visible LIVE (not only after a reload). No-op for renderers
-        /// that were never tinted. Skips the pole + border subtrees, mirroring
-        /// <see cref="TintBoard"/>'s selection.
+        /// Revert the BOARD (and text-tinted plank renderers) to their unpainted
+        /// appearance — the "remove text color" / None affordance (§A2.6, Issue 4). Drops
+        /// the per-renderer <c>_Color</c> MPB override so the board falls back to its
+        /// material's own colour, visible LIVE (not only after a reload). Skips the pole +
+        /// border subtrees, mirroring <see cref="TintBoard"/>'s selection.
         /// </summary>
         public static void RestoreBoard(GameObject go)
         {
@@ -865,14 +865,14 @@ namespace SBPR.Trailborne.Features.Signs
                 if (rend == null) continue;
                 if (IsUnderPost(rend.transform)) continue;
                 if (IsUnderBorder(rend.transform)) continue; // border reverts separately
-                RestoreRendererMaterials(rend);
+                RestoreRenderer(rend);
             }
         }
 
         /// <summary>
-        /// Revert ONLY the kitbashed border element to its original (unpainted) material
-        /// — the "remove border color" / None affordance (§A2.6, Issue 4). Restores from
-        /// the per-renderer backup so it's visible LIVE. No-op if never tinted.
+        /// Revert ONLY the kitbashed border element to its unpainted appearance — the
+        /// "remove border color" / None affordance (§A2.6, Issue 4). Drops the per-renderer
+        /// <c>_Color</c> MPB override on the border bars so they revert LIVE.
         /// </summary>
         public static void RestoreBorder(GameObject go)
         {
@@ -880,7 +880,7 @@ namespace SBPR.Trailborne.Features.Signs
             {
                 if (rend == null) continue;
                 if (!IsUnderBorder(rend.transform)) continue;
-                RestoreRendererMaterials(rend);
+                RestoreRenderer(rend);
             }
         }
 
@@ -905,7 +905,6 @@ namespace SBPR.Trailborne.Features.Signs
         /// </summary>
         private static void TintMatching(GameObject go, Color c, bool includeBorder)
         {
-            var prop = Shader.PropertyToID("_Color");
             foreach (var rend in go.GetComponentsInChildren<Renderer>(includeInactive: true))
             {
                 if (rend == null) continue;
@@ -913,50 +912,77 @@ namespace SBPR.Trailborne.Features.Signs
                 if (IsUnderPost(rend.transform)) continue;
                 // Skip the border subtree unless explicitly included (it has its own tone).
                 if (!includeBorder && IsUnderBorder(rend.transform)) continue;
-                TintRendererMaterials(rend, c, prop, go.name);
+                TintRenderer(rend, c);
             }
         }
 
-        private static void TintRendererMaterials(Renderer rend, Color c, int prop, string ownerName)
+        // Cached "_Color" shader id — the lit-shader tint slot vanilla itself paints
+        // these exact pieces through (WearNTear.Highlight's support overlay), so we know
+        // the material consumes it.
+        private static readonly int s_ColorId = Shader.PropertyToID("_Color");
+
+        // Reused scratch block so per-renderer tint does NOT allocate a MaterialPropertyBlock
+        // per call (and per re-assert frame). GetPropertyBlock overwrites its contents with
+        // the renderer's CURRENT overrides each time, so reuse is safe + read-modify-write.
+        private static readonly MaterialPropertyBlock s_mpb = new MaterialPropertyBlock();
+
+        /// <summary>
+        /// Tint ONE renderer's <c>_Color</c> via a per-renderer
+        /// <see cref="MaterialPropertyBlock"/> (MPB) — the SAME render-time layer vanilla
+        /// uses to paint build-piece colour (bug t_f3310406 / parent t_24ad2570 diagnosis).
+        ///
+        /// Why MPB and NOT <c>sharedMaterials.SetColor</c> (the old mechanism): every placed
+        /// sign carries a <c>WearNTear</c> (kitbashed off the vanilla <c>sign</c>), and
+        /// Valheim paints piece colour through an MPB managed by <c>MaterialMan</c> /
+        /// <c>WearNTear.Highlight</c>. An MPB <b>overrides</b> the material's own <c>_Color</c>
+        /// at render time, so the old shared-material write landed on a layer the MPB sits in
+        /// front of → the board/border never visibly changed (only the TMP text, which is a
+        /// Canvas renderer outside MaterialMan, worked). Writing OUR colour into the renderer's
+        /// own MPB puts it on the winning layer.
+        ///
+        /// Per-RENDERER (not per-<c>GameObject</c> via <c>MaterialMan.SetValue</c>) is
+        /// deliberate: <c>MaterialMan</c> registers ALL child renderers of a <c>go</c> under one
+        /// shared block, so a per-<c>go</c> call could not give the board and the (child-of-board)
+        /// border independent tones — the two-tone requirement (§A2.6). Driving the MPB directly
+        /// per renderer sidesteps that granularity and keeps board vs border disjoint.
+        ///
+        /// Read-modify-write (<c>GetPropertyBlock</c> first) so we PRESERVE any other property
+        /// MaterialMan may have pushed onto this renderer (e.g. <c>_TakingAshlandsDamage</c>) —
+        /// we only add/replace <c>_Color</c>. No-op on a headless server (no renderers).
+        /// </summary>
+        private static void TintRenderer(Renderer rend, Color c)
         {
             try
             {
-                // Snapshot the original materials ONCE, before the first tint, so the
-                // None affordance can revert (the tint replaces sharedMaterials with
-                // clones; without a backup the original reference is lost on this
-                // renderer until a fresh spawn). The backup component lives on the
-                // renderer's own GameObject — pure runtime state, no ZDO.
-                var backup = rend.GetComponent<SignTintBackup>();
-                if (backup == null)
-                {
-                    backup = rend.gameObject.AddComponent<SignTintBackup>();
-                    backup.Original = rend.sharedMaterials;
-                }
-
-                var mats = rend.sharedMaterials;
-                var newMats = new Material[mats.Length];
-                for (int i = 0; i < mats.Length; i++)
-                {
-                    if (mats[i] == null) continue;
-                    var m = new Material(mats[i]);
-                    if (m.HasProperty(prop)) m.SetColor(prop, c);
-                    newMats[i] = m;
-                }
-                rend.sharedMaterials = newMats;
+                rend.GetPropertyBlock(s_mpb);
+                s_mpb.SetColor(s_ColorId, c);
+                rend.SetPropertyBlock(s_mpb);
             }
             catch (Exception e)
             {
-                Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint failed on {ownerName}: {e.Message}");
+                Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint failed on {rend.gameObject.name}: {e.Message}");
             }
         }
 
-        private static void RestoreRendererMaterials(Renderer rend)
+        /// <summary>
+        /// Revert ONE renderer to its unpainted appearance — the <c>∅ None</c> affordance
+        /// (§A2.6, Issue 4). With the MPB mechanism there is no cloned material to restore;
+        /// "unpainted" is simply "no <c>_Color</c> override," i.e. the renderer falling through
+        /// to its material's own <c>_Color</c>. We reproduce that by writing the material's base
+        /// <c>_Color</c> back into the MPB (rather than clearing the whole block, which would
+        /// also drop any MaterialMan-owned property). Idempotent + headless-safe.
+        /// </summary>
+        private static void RestoreRenderer(Renderer rend)
         {
-            var backup = rend.GetComponent<SignTintBackup>();
-            if (backup == null || backup.Original == null) return; // never tinted
             try
             {
-                rend.sharedMaterials = backup.Original;
+                var mat = rend.sharedMaterial;
+                Color baseColor = (mat != null && mat.HasProperty(s_ColorId))
+                    ? mat.GetColor(s_ColorId)
+                    : Color.white;
+                rend.GetPropertyBlock(s_mpb);
+                s_mpb.SetColor(s_ColorId, baseColor);
+                rend.SetPropertyBlock(s_mpb);
             }
             catch (Exception e)
             {

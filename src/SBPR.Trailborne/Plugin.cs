@@ -501,6 +501,15 @@ namespace SBPR.Trailborne
             // and drops the letter tint, so a colour-only repaint left the letters on their
             // old colour. The postfix re-applies SignTag.ReapplyTextTint() on the poll cadence.
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignTextRetintPatch));
+            // Re-pin OUR sign's BOARD + BORDER mesh tint after the hammer support-overlay
+            // clears (bug t_f3310406, AT-SIGN-HIGHLIGHT-REASSERT). The board/border tint now
+            // rides a per-renderer MaterialPropertyBlock _Color override (the render-time layer
+            // vanilla itself paints pieces through). WearNTear.Highlight pushes its own _Color
+            // via MaterialMan while hovered and ResetHighlight wipes it ~0.2s later WITHOUT
+            // restoring ours, so a hovered painted sign would drop to plain wood. This postfix
+            // (gated to our SignTag) debounces a one-shot re-assert just after the wipe. MUST be
+            // registered here or it ships dead and PatchCheck ERRORs at boot.
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignMeshRetintPatch));
             // Make the surface usable while open: block player character input, freeze
             // camera mouse-look (via PlayerController.TakeInput — the vanilla gate our
             // panel bypasses by replacing the sign text dialog), and free the mouse

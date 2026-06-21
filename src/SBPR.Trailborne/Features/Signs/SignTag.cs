@@ -152,6 +152,61 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
+        /// UNCONDITIONALLY re-pin the BOARD + BORDER mesh tint from ZDO — the single
+        /// source of truth for the plank/frame colour, the mesh-layer analogue of
+        /// <see cref="ReapplyTextTint"/>. Unlike <see cref="ApplyColorsFromZdo"/> this does
+        /// NOT consult the <c>lastApplied*</c> change-detection sentinels: it always re-walks
+        /// the renderers and re-writes the per-renderer <c>_Color</c> MPB from the current ZDO
+        /// state. That is exactly what the highlight-recovery path needs — after the hammer
+        /// support-overlay clears, the renderer's MPB has been wiped but the ZDO + sentinels
+        /// are unchanged, so a sentinel-gated re-apply would skip the re-tint and leave the
+        /// board stuck on plain wood (bug t_f3310406, AT-SIGN-HIGHLIGHT-REASSERT).
+        ///
+        /// Does NOT touch the TMP text (that rides the <c>Sign.UpdateText</c> poll via
+        /// <see cref="ReapplyTextTint"/>) — the hammer highlight only clobbers the MaterialMan
+        /// mesh layer, never the Canvas-renderer letters. Headless-safe (the tint helpers
+        /// no-op without renderers). Leaves the sentinels untouched (it re-asserts current
+        /// state, it does not change it).
+        /// </summary>
+        public void ReapplyMeshTint()
+        {
+            string textColor = ReadTextColor();
+            if (!string.IsNullOrEmpty(textColor) && Signs.ColorValues.TryGetValue(textColor, out var tcol))
+                Signs.TintBoard(gameObject, tcol);
+            else
+                Signs.RestoreBoard(gameObject);
+
+            string borderColor = ReadBorderColor();
+            if (!string.IsNullOrEmpty(borderColor) && Signs.ColorValues.TryGetValue(borderColor, out var bcol))
+                Signs.TintBorder(gameObject, bcol);
+            else
+                Signs.RestoreBorder(gameObject);
+        }
+
+        // Delay (seconds) from the LAST hammer-highlight frame to our mesh re-assert.
+        // Vanilla WearNTear fires ResetHighlight 0.2s after the last Highlight; MaterialMan
+        // clears our _Color on its next Update (~1 frame later). We re-assert at 0.3s — a
+        // ~0.1s margin past that clear so we re-write AFTER MaterialMan's wipe, not before
+        // (re-writing before would just be wiped again). CancelInvoke-rearm on every
+        // Highlight means this fires once, ~0.3s after the player stops hovering.
+        private const float MeshReassertDelay = 0.3f;
+
+        /// <summary>
+        /// Schedule a one-shot mesh re-assert <see cref="MeshReassertDelay"/> seconds out,
+        /// cancelling any already-pending one. Called from <see cref="SignMeshRetintPatch"/>
+        /// on every <c>WearNTear.Highlight</c> tick while the player hovers our sign with the
+        /// Hammer, so the re-assert lands just after the support-overlay clears.
+        /// </summary>
+        public void ScheduleMeshReassert()
+        {
+            CancelInvoke(nameof(MeshReassertInvoke));
+            Invoke(nameof(MeshReassertInvoke), MeshReassertDelay);
+        }
+
+        // Invoke target (Unity Invoke needs a no-arg instance method by name).
+        private void MeshReassertInvoke() => ReapplyMeshTint();
+
+        /// <summary>
         /// One-way migration of a pre-two-tone save: if the legacy single-color field
         /// (SBPR_SignColor) holds a value and the new text-color field is still empty,
         /// copy it into the text-color field (owner-write) and clear the legacy field
