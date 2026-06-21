@@ -58,6 +58,22 @@ impl-spec. Each carries its open questions inline.
   replace-vs-supplement question into a live `MinimapHandoffMode` Config enum so
   Daniel converges it in-game. Three open knobs for his gate.
 
+- **[`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md)** — the
+  structural **twin** of the Sunstone handoff, mirror-imaged on north: Daniel's
+  2026-06-20 idea that when the Iron Compass is worn AND an SBPR map surface
+  (carry-disc or full-map) is showing, the surface gains a **compass-gated north
+  indicator** — an **iron bezel + N + ticks** that reverts to bronze when the
+  compass comes off — else it falls back to the current HUD needle. Consciously
+  **supersedes** the iron-compass impl-spec's "never a north arrow on any map"
+  thesis ("never *ungated*; the compass-gated ring is the sanctioned exception")
+  AND the "no north-up alternative" disc-rotation lock (an opt-in auto-north-orient
+  config, default OFF). Re-grounded against what SHIPPED: the N marker is a
+  **player-chevron sibling** on the rotating container, NOT routed through the
+  already-merged `IThreatMarkerProvider` (wrong marker kind — world-positioned vs
+  screen-bearing), so no shared seam is needed. Resolved with the twin by ONE rule:
+  *the surface shows north IFF the compass is worn.* Daniel's 4 follow-up answers
+  folded in; one knob (nomap-OFF vanilla minimap) open. CLEAN-SIDE, SpecCheck +0.
+
 - **[`forge-masters-trinket.md`](forge-masters-trinket.md)** — a **standalone-mod**
   Trinket whose power, fired when the vanilla adrenaline bar caps (~80), repairs
   **+5 durability on equipped gear** instead of a combat burst. Decomp-grounded:
