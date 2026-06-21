@@ -57,6 +57,7 @@ using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 using SBPR.Trailborne.Runtime;
+using SBPR.Trailborne.Features.Cartography;   // CompassNorthGate / CompassRenderPlan / MapViewer / CartographyViewer (the north-ring push, card t_fb53c9e4)
 
 namespace SBPR.Trailborne.Features.Exploration
 {
@@ -248,19 +249,41 @@ namespace SBPR.Trailborne.Features.Exploration
             if (player == null || _root == null)
             {
                 SetVisible(false);
+                MapViewer.Instance?.SetCompassNorth(false);   // no player → stand the surface ring down (revert bronze)
                 return;
             }
 
             bool wearing = IsWearingCompass(player);
-            // Visibility toggles _content (the host stays active so Update keeps pumping — t_61aff612).
+
+            // ── Compass → SBPR map-surface north ring (M1, card t_fb53c9e4). Resolve the CompassNorthGate
+            //    from the live world state (worn? an SBPR surface showing?) + the gated CompassDiscMode,
+            //    then (a) PUSH the "draw the surface ring" bool to Cartography (MapViewer forwards it to
+            //    both the carry-disc AND the full-map modal), and (b) under DiscWhenBound, hide THIS HUD
+            //    needle when a surface owns north (① "it goes away"). The dependency arrow stays
+            //    Exploration → Cartography (Cartography never references this class / IronCompass). ──
+            bool surfaceShowing = CartographyViewer.IsMinimapBound
+                                  || (MapViewer.Instance != null && MapViewer.Instance.IsOpen);
+            var discMode = Plugin.CompassDiscMode?.Value ?? CompassDiscModeEnum.DiscWhenBound;
+            CompassRenderPlan plan = CompassNorthGate.Resolve(surfaceShowing, wearing, discMode);
+            MapViewer.Instance?.SetCompassNorth(plan.ShowSurfaceRing);
+
+            // ① "the needle goes away" — visibility toggles _content (the host stays active so Update keeps
+            //    pumping the yaw the surface ring also consumes — t_61aff612 / #208/#209, AT-COMPASS-DISC-
+            //    PUMP). The needle shows iff worn AND the gate is NOT handing north to a surface. NEVER
+            //    deactivate the host here; this reuses the EXISTING SetVisible(_content) path (§6.3).
+            bool needleVisible = wearing && !plan.HideHudNeedle;
             bool wasVisible = _content != null && _content.gameObject.activeSelf;
-            if (wasVisible != wearing)
+            if (wasVisible != needleVisible)
             {
-                SetVisible(wearing);
+                SetVisible(needleVisible);
                 if (DebugMount)
-                    Plugin.Log.LogInfo($"[Trailborne/Exploration] CompassHud: IsWearingCompass {wasVisible} → {wearing} "
-                        + $"(content now {(wearing ? "VISIBLE" : "hidden")}).");
+                    Plugin.Log.LogInfo($"[Trailborne/Exploration] CompassHud: needle visible {wasVisible} → {needleVisible} "
+                        + $"(wearing={wearing}, surfaceShowing={surfaceShowing}, mode={discMode}, ring={plan.ShowSurfaceRing}).");
             }
+            // Not worn → reset the seed/diagnostic and stop (the surface push above already stood the ring
+            // down). When worn-but-needle-hidden (DiscWhenBound + surface), we DON'T return: the yaw pump
+            // below must keep running so the surface ring stays fed and the needle restores with no dead
+            // frame when the surface closes (AT-COMPASS-DISC-PUMP).
             if (!wearing) { _needleSeeded = false; _loggedFirstShow = false; return; }
 
             // Re-apply placement from live config so Daniel can tune anchor/size/offset in one
@@ -326,7 +349,10 @@ namespace SBPR.Trailborne.Features.Exploration
         //    and matches m_dropPrefab.name (clone-suffix-stripped) against IronCompass.CompassName.
         //    The CartographersKit.IsWearingKit / SunstoneLens.GetEquippedLens precedent. Gating on
         //    the SLOT (not just the name) means a future Trinket can't accidentally satisfy it.
-        private static bool IsWearingCompass(Player player)
+        //    INTERNAL (card t_fb53c9e4): the map-surface north ring reads this same equip-gate to
+        //    decide whether to draw north (§5 invariant — north IFF the compass is worn). Promoted
+        //    private→internal so the Cartography push path can consume it WITHOUT a second equip read.
+        internal static bool IsWearingCompass(Player player)
         {
             if (player == null) return false;
             var inv = player.GetInventory();

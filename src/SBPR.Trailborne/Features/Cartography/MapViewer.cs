@@ -112,6 +112,28 @@ namespace SBPR.Trailborne.Features.Cartography
         public void UnbindMinimap() => _disc?.Hide();
         public bool IsMinimapBound => _disc != null && _disc.IsActive;
 
+        // ── Compass → map-surface north ring (card t_fb53c9e4, M1) ───────────────────────
+        // The ONE Cartography-owned push the Iron Compass feature calls each frame: "is the
+        // compass worn (so this surface should draw the iron bezel + N + ticks north ring)?"
+        // MapViewer forwards the flag into BOTH surfaces — the carry-disc AND the full-map modal
+        // (Daniel ④ scope) — so one bool covers both. The dependency arrow stays
+        // Exploration → Cartography: MapSurface holds only a bool; it NEVER references
+        // SBPR_CompassHud / IronCompass. Idempotent + cheap (a bool write each surface guards
+        // its own rebuild). The actual iron tint + N-glyph toggle live in MapSurface, driven off
+        // this flag in its per-frame ApplyFieldOrientation (the same path the player marker rides).
+
+        /// <summary>
+        /// Push the compass-worn state to both surfaces so each draws (or reverts) its north ring.
+        /// Called every frame from <c>SBPR_CompassHud.Update</c> (via the resolved CompassNorthGate
+        /// plan). Safe before the surfaces exist (null-guarded). Reverts to bronze / hides the N when
+        /// passed false.
+        /// </summary>
+        public void SetCompassNorth(bool compassWorn)
+        {
+            _disc?.SetCompassNorth(compassWorn);
+            _modal?.SetCompassNorth(compassWorn);
+        }
+
         // ── Per-frame tick: rotation for both surfaces; modal also runs its own input ────
 
         private void Update()

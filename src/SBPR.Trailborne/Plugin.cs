@@ -144,6 +144,19 @@ namespace SBPR.Trailborne
         // cut; bake to false once Daniel confirms the dial renders in-game.
         internal static ConfigEntry<bool>?  CompassDebugMount = null;
 
+        // ── v3 Swamp: Iron Compass → map-surface north ring (card t_fb53c9e4, M1) ──
+        // CompassDiscMode (the §0-① HUD-needle-vs-surface-ring policy) is a LIVE enum so Daniel can flip
+        // the feel on a joined client (the LensMinimapHandoffMode / banner-windsock pattern). It mirrors the
+        // Sunstone twin's enum bind exactly. The enum type lives in the engine-free CompassNorthGate.cs so
+        // the bind here and the unit test share one definition. Nullable + ?.Value-accessed from
+        // SBPR_CompassHud so a no-Plugin unit context falls back to the default. Bound in Awake.
+        internal static ConfigEntry<SBPR.Trailborne.Features.Cartography.CompassDiscModeEnum>? CompassDiscMode = null;
+        // CompassAutoNorthUp (the §6 opt-in north-up lock) — bound here for the config surface, default
+        // OFF (Daniel ③). M1 leaves it INERT: nothing reads it yet (M2, CompassAutoNorthUp, wires the
+        // surface north-up branch). Binding it now keeps the IronCompass config section stable across the
+        // M1→M2 split so Daniel sees the full knob set at once.
+        internal static ConfigEntry<bool>? CompassAutoNorthUp = null;
+
         private void Awake()
         {
             Log = Logger;
@@ -471,6 +484,26 @@ namespace SBPR.Trailborne
                 + "MOUNT (under Hud.m_rootObject), the WEARING true/false transitions, and the resolved anchor/size on "
                 + "first show — so a fresh client LogOutput.log can tell a mount/pump failure apart from an off-screen "
                 + "placement. Leave ON while diagnosing; set false once the dial is confirmed visible in-game.");
+
+            // v3 Swamp — Iron Compass → map-surface north ring (card t_fb53c9e4, M1). The HUD-needle-vs-
+            // surface-ring policy is a LIVE enum so Daniel can flip the feel on a joined client (the
+            // LensMinimapHandoffMode pattern). The opt-in north-up lock is bound now (default OFF) but stays
+            // INERT in M1 — M2 (CompassAutoNorthUp) wires the surface north-up branch.
+            CompassDiscMode = Config.Bind(
+                "IronCompass", "DiscMode",
+                SBPR.Trailborne.Features.Cartography.CompassDiscModeEnum.DiscWhenBound,   // ← DEFAULT (Daniel ①)
+                "When the Iron Compass is worn AND an SBPR map surface (carry-disc or full-map) is showing, how "
+                + "is north drawn? DiscWhenBound (default): the HUD needle hides and an iron bezel + N + ticks "
+                + "north ring is drawn on the surface. HudOnly: ignore the surface, the HUD needle always renders "
+                + "(today's behaviour / escape hatch). Both: the HUD needle AND the surface ring both render. "
+                + "Live-tunable. (No surface showing, or compass off → the HUD needle, every mode.)");
+            CompassAutoNorthUp = Config.Bind(
+                "IronCompass", "AutoNorthUp",
+                false,                                                                   // ← DEFAULT OFF (Daniel ③)
+                "OPT-IN north-up lock (default OFF). false: the surface stays heading-up and the iron N-ring orbits "
+                + "the rim (the default no-map disorientation is intact). true: worn + a surface showing → the "
+                + "surface locks north-up and the player chevron rotates. NOTE: this knob is INERT in M1 — the "
+                + "north-up rotation lands in M2; binding it now keeps the config section stable across the split.");
 
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
