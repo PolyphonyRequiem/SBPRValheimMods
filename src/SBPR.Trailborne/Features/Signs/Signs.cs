@@ -121,9 +121,14 @@ namespace SBPR.Trailborne.Features.Signs
         // (SBPR_SignColor) is read once on spawn and folded into SBPR_SignTextColor.
         public const string ZdoColor = "SBPR_SignColor";
 
-        // Two-tone ZDO fields (§A2.6, re-lock 2026-06-05). Board/text tone + a separate
-        // border tone. "" = that slot unset. Owner-write via ZNetView (mirrors CairnTag).
+        // Three-tone ZDO fields. Letters / board plank / border frame — each an
+        // INDEPENDENT colour (§A2.6, three-slot model Daniel 2026-06-21). "" = that slot
+        // unset. Owner-write via ZNetView (mirrors CairnTag).
+        //   ZdoTextColor   → TMP letters only
+        //   ZdoBoardColor  → board plank mesh only        (NEW — was coupled to text/border)
+        //   ZdoBorderColor → border frame bars only
         public const string ZdoTextColor   = "SBPR_SignTextColor";
+        public const string ZdoBoardColor  = "SBPR_SignBoardColor";
         public const string ZdoBorderColor = "SBPR_SignBorderColor";
 
         // Name of the kitbashed decorative pole child. TintRenderers skips renderers

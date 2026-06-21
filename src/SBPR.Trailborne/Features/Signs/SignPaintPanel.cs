@@ -61,8 +61,13 @@ namespace SBPR.Trailborne.Features.Signs
         // ── Target + selection state ─────────────────────────────────
         private Sign? _sign;
         private SignTag? _tag;
-        private string _selText = "";   // chosen board/text color ("" = none)
-        private string _selBorder = ""; // chosen border color ("" = none)
+        // Which of the three independent color slots a swatch row / click targets
+        // (Daniel 2026-06-21 three-slot model). Text → letters, Board → plank, Border → frame.
+        private enum Slot { Text, Board, Border }
+
+        private string _selText = "";   // chosen letter color ("" = none)
+        private string _selBoard = "";  // chosen board-plank color ("" = none)
+        private string _selBorder = ""; // chosen border-frame color ("" = none)
 
         // ── UI refs (window rebuilt per-open so swatches reflect discovery) ──
         private GameObject? _root;
@@ -75,6 +80,7 @@ namespace SBPR.Trailborne.Features.Signs
         private Button? _updateTextBtn;
         private Text? _updateTextBtnLabel;
         private readonly List<(string color, Button btn)> _textSwatches = new List<(string, Button)>();
+        private readonly List<(string color, Button btn)> _boardSwatches = new List<(string, Button)>();
         private readonly List<(string color, Button btn)> _borderSwatches = new List<(string, Button)>();
         private Font? _font;
 
@@ -157,6 +163,7 @@ namespace SBPR.Trailborne.Features.Signs
             // Seed selection from the sign's current ZDO state so re-opening shows what
             // it already is; an empty slot stays empty (unpainted).
             _selText = tag.ReadTextColor() ?? "";
+            _selBoard = tag.ReadBoardColor() ?? "";
             _selBorder = tag.ReadBorderColor() ?? "";
 
             // Rebuild the window so swatch rows reflect the current discovery state.
@@ -214,6 +221,7 @@ namespace SBPR.Trailborne.Features.Signs
             // Drop the previous window so a re-open reflects fresh discovery state.
             if (_window != null) Destroy(_window);
             _textSwatches.Clear();
+            _boardSwatches.Clear();
             _borderSwatches.Clear();
             _costList = null;
             _paintBtn = null; _paintBtnLabel = null;
@@ -257,11 +265,15 @@ namespace SBPR.Trailborne.Features.Signs
             MakeRowLabel(col_t, "PaintHeader", Loc("$sbpr_sign_painting", "— PAINTING —"), 18, FontStyle.Bold,
                 TextAnchor.MiddleCenter, 26);
 
-            // Text-color swatch row (label + swatches in a horizontal row)
-            BuildSwatchSection(col_t, Loc("$sbpr_sign_set_text_color", "Set Text Color:"), isBorder: false);
+            // Three independent swatch rows (Daniel 2026-06-21): letters, board, frame.
+            // Set Text Color → the written letters.
+            BuildSwatchSection(col_t, Loc("$sbpr_sign_set_text_color", "Set Text Color:"), Slot.Text);
 
-            // Border-color swatch row
-            BuildSwatchSection(col_t, Loc("$sbpr_sign_border_color", "Border Color:"), isBorder: true);
+            // Board Color → the plank mesh.
+            BuildSwatchSection(col_t, Loc("$sbpr_sign_board_color", "Board Color:"), Slot.Board);
+
+            // Border Color → the frame bars.
+            BuildSwatchSection(col_t, Loc("$sbpr_sign_border_color", "Border Color:"), Slot.Border);
 
             // Cost section (crafting-style requirement rows)
             MakeRowLabel(col_t, "CostLabel", Loc("$sbpr_sign_cost", "Cost:"), 16, FontStyle.Bold,
@@ -312,9 +324,11 @@ namespace SBPR.Trailborne.Features.Signs
 
         // ── Swatch section ───────────────────────────────────────────
 
-        private void BuildSwatchSection(Transform parent, string label, bool isBorder)
+        private void BuildSwatchSection(Transform parent, string label, Slot slot)
         {
-            var section = new GameObject(isBorder ? "BorderRow" : "TextRow");
+            string rowName = slot == Slot.Border ? "BorderRow" : slot == Slot.Board ? "BoardRow" : "TextRow";
+            string pfx     = slot == Slot.Border ? "Br" : slot == Slot.Board ? "Bd" : "T";
+            var section = new GameObject(rowName);
             section.transform.SetParent(parent, false);
             section.AddComponent<RectTransform>();
             var row = section.AddComponent<HorizontalLayoutGroup>();
@@ -326,16 +340,16 @@ namespace SBPR.Trailborne.Features.Signs
             row.childForceExpandHeight = false;
             AddLayoutElement(section, minHeight: 48);
 
-            // Row label (fixed width so both rows align)
+            // Row label (fixed width so all rows align)
             var lbl = MakeFreeLabel(section.transform, "Label", label, 16, FontStyle.Normal, TextAnchor.MiddleLeft);
             AddLayoutElement(lbl.gameObject, preferredWidth: 170, minHeight: 44);
 
-            var list = isBorder ? _borderSwatches : _textSwatches;
+            var list = SwatchListFor(slot);
             var player = Player.m_localPlayer;
 
-            // Explicit "None" affordance FIRST (Issue 4 — visible clear for BOTH rows).
-            var none = MakeSwatch(section.transform, $"{(isBorder ? "B" : "T")}_none", CSwatchNone, isNone: true,
-                () => OnSwatchClicked("", isBorder));
+            // Explicit "None" affordance FIRST (Issue 4 — visible clear for every row).
+            var none = MakeSwatch(section.transform, $"{pfx}_none", CSwatchNone, isNone: true,
+                () => OnSwatchClicked("", slot));
             list.Add(("", none));
 
             // Then one swatch per DISCOVERED pigment (no dead reserved slots).
@@ -344,23 +358,29 @@ namespace SBPR.Trailborne.Features.Signs
                 if (player != null && !SignPaintBackend.IsPigmentDiscovered(player, color))
                     continue; // undiscovered → not rendered at all
                 var capture = color;
-                var swatch = MakeSwatch(section.transform, $"{(isBorder ? "B" : "T")}_{color}",
+                var swatch = MakeSwatch(section.transform, $"{pfx}_{color}",
                     Signs.ColorValues.TryGetValue(color, out var c) ? c : Color.gray, isNone: false,
-                    () => OnSwatchClicked(capture, isBorder));
+                    () => OnSwatchClicked(capture, slot));
                 list.Add((color, swatch));
             }
         }
 
+        // The swatch-button list backing a given slot's row.
+        private List<(string color, Button btn)> SwatchListFor(Slot slot) =>
+            slot == Slot.Border ? _borderSwatches : slot == Slot.Board ? _boardSwatches : _textSwatches;
+
         // ── Event handlers ───────────────────────────────────────────
 
-        private void OnSwatchClicked(string color, bool isBorder)
+        private void OnSwatchClicked(string color, Slot slot)
         {
             // Clicking "None" (color == "") clears; clicking a color sets it. Clicking
             // the already-selected color also clears (toggle), so either affordance works.
-            if (isBorder)
-                _selBorder = (_selBorder == color) ? "" : color;
-            else
-                _selText = (_selText == color) ? "" : color;
+            switch (slot)
+            {
+                case Slot.Border: _selBorder = (_selBorder == color) ? "" : color; break;
+                case Slot.Board:  _selBoard  = (_selBoard  == color) ? "" : color; break;
+                default:          _selText   = (_selText   == color) ? "" : color; break;
+            }
 
             RefreshSwatchHighlights();
             RefreshDynamic();
@@ -370,11 +390,11 @@ namespace SBPR.Trailborne.Features.Signs
         {
             if (_tag == null) { Hide(); return; }
             var player = Player.m_localPlayer;
-            var result = SignPaintBackend.CommitPaint(_tag, player, _selText, _selBorder);
+            var result = SignPaintBackend.CommitPaint(_tag, player, _selText, _selBoard, _selBorder);
             switch (result)
             {
                 case SignPaintBackend.PaintResult.Success:
-                    var cost = SignPaintBackend.ComputeCost(_selText, _selBorder);
+                    var cost = SignPaintBackend.ComputeCost(_selText, _selBoard, _selBorder);
                     MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center,
                         $"{Loc("$sbpr_sign_painted", "Painted sign")} ({DescribeCost(cost)}).");
                     break;
@@ -409,12 +429,12 @@ namespace SBPR.Trailborne.Features.Signs
 
         // ── Dynamic refresh ──────────────────────────────────────────
 
-        private bool AnyColorChosen() => !string.IsNullOrEmpty(_selText) || !string.IsNullOrEmpty(_selBorder);
+        private bool AnyColorChosen() => !string.IsNullOrEmpty(_selText) || !string.IsNullOrEmpty(_selBoard) || !string.IsNullOrEmpty(_selBorder);
 
         private void RefreshDynamic()
         {
             var player = Player.m_localPlayer;
-            var cost = SignPaintBackend.ComputeCost(_selText, _selBorder);
+            var cost = SignPaintBackend.ComputeCost(_selText, _selBoard, _selBorder);
 
             // Crafting-style cost rows (Issue 5).
             BuildCostRows(cost, player);
@@ -444,6 +464,7 @@ namespace SBPR.Trailborne.Features.Signs
                 }
             }
             Mark(_textSwatches, _selText);
+            Mark(_boardSwatches, _selBoard);
             Mark(_borderSwatches, _selBorder);
         }
 

@@ -4,15 +4,16 @@ using SBPR.Trailborne.Runtime;
 namespace SBPR.Trailborne.Features.Signs
 {
     /// <summary>
-    /// Tag attached to the single Painted Sign clone. Carries the sign's TWO-TONE
+    /// Tag attached to the single Painted Sign clone. Carries the sign's THREE-TONE
     /// painted state as ZDO-backed runtime state (NOT baked into the prefab):
-    /// a text color (<see cref="Signs.ZdoTextColor"/>) and a separate border
-    /// color (<see cref="Signs.ZdoBorderColor"/>). Re-applies both tints on spawn so
-    /// they persist across reloads + sync to joined clients (mirrors CairnTag).
+    /// a text color (<see cref="Signs.ZdoTextColor"/>), a board color
+    /// (<see cref="Signs.ZdoBoardColor"/>), and a border color
+    /// (<see cref="Signs.ZdoBorderColor"/>). Re-applies all tints on spawn so they
+    /// persist across reloads + sync to joined clients (mirrors CairnTag).
     ///
-    /// Slot → surface (Daniel 2026-06-21 re-wire): the TEXT slot colours ONLY the TMP
-    /// letters; the BORDER slot colours BOTH the board plank AND the border frame ("for
-    /// now" the two mesh surfaces share one tone). See <see cref="ApplyColorsFromZdo"/>.
+    /// Slot → surface (Daniel 2026-06-21, three independent slots): TEXT → TMP letters;
+    /// BOARD → board plank mesh; BORDER → border frame bars. Each is independent — a sign
+    /// can read e.g. white board, red frame, blue letters. See <see cref="ApplyColorsFromZdo"/>.
     ///
     /// Each color identity is one of Signs.Colors ("red"/"white"/"blue"/"black") or
     /// the empty string for "that slot unset". Owner-only writes via ZNetView.
@@ -26,10 +27,11 @@ namespace SBPR.Trailborne.Features.Signs
     {
         private ZNetView? nview;
 
-        // Sentinel: nothing applied yet (force first tint even for the unpainted "").
-        // Only the BORDER slot gates a mesh re-apply now — the text slot drives only the
-        // TMP letters (via ReapplyTextTint, which has its own cheap early-out), so it needs
-        // no mesh-change sentinel (Daniel 2026-06-21 re-wire).
+        // Sentinels: nothing applied yet (force first tint even for the unpainted "").
+        // The BOARD and BORDER mesh slots each gate their own re-apply; the text slot
+        // drives only the TMP letters (via ReapplyTextTint, its own cheap early-out), so
+        // it needs no mesh-change sentinel. Three independent slots (Daniel 2026-06-21).
+        private string? lastAppliedBoard  = null;
         private string? lastAppliedBorder = null;
 
         // The TMP text widget's ORIGINAL (unpainted) face colour, captured once the
@@ -60,7 +62,14 @@ namespace SBPR.Trailborne.Features.Signs
             return nview.GetZDO().GetString(Signs.ZdoTextColor, "");
         }
 
-        /// <summary>Current border color id, or "" if unset.</summary>
+        /// <summary>Current board (plank mesh) color id, or "" if unset.</summary>
+        public string ReadBoardColor()
+        {
+            if (nview == null || nview.GetZDO() == null) return "";
+            return nview.GetZDO().GetString(Signs.ZdoBoardColor, "");
+        }
+
+        /// <summary>Current border (frame bars) color id, or "" if unset.</summary>
         public string ReadBorderColor()
         {
             if (nview == null || nview.GetZDO() == null) return "";
@@ -68,32 +77,32 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Owner-write BOTH tones at once and re-tint immediately. Pass "" for a slot
-        /// to leave it unpainted (border is optional). Returns false if the ZDO isn't
-        /// ready (e.g. ghost/uninitialised) so the caller can avoid consuming pigments.
+        /// Owner-write all THREE tones at once and re-tint immediately. Pass "" for a slot
+        /// to leave it unpainted (every slot is optional individually; ≥1 required is a
+        /// caller/backend concern). Returns false if the ZDO isn't ready (e.g.
+        /// ghost/uninitialised) so the caller can avoid consuming pigments.
         /// </summary>
-        public bool WriteColors(string textColor, string borderColor)
+        public bool WriteColors(string textColor, string boardColor, string borderColor)
         {
             if (nview == null || nview.GetZDO() == null) return false;
             if (!nview.IsOwner()) nview.ClaimOwnership();
             nview.GetZDO().Set(Signs.ZdoTextColor,   textColor ?? "");
+            nview.GetZDO().Set(Signs.ZdoBoardColor,  boardColor ?? "");
             nview.GetZDO().Set(Signs.ZdoBorderColor, borderColor ?? "");
             ApplyColorsFromZdo();
             return true;
         }
 
         /// <summary>
-        /// Read both ZDO colors and tint board + text + border to match. Empty/unknown
-        /// colors leave that element in its vanilla (unpainted wood / default text)
-        /// material. Idempotent: skips re-applying the mesh when the border color hasn't
-        /// changed since the last apply.
+        /// Read all three ZDO colors and tint letters + board + border to match.
+        /// Empty/unknown colors leave that element in its vanilla (unpainted wood / default
+        /// text) material. Idempotent: each mesh slot skips re-applying when its own color
+        /// hasn't changed since the last apply.
         ///
-        /// Slot → surface mapping (Daniel 2026-06-21 re-wire):
-        ///   • TEXT slot   → ONLY the TMP text widget (<see cref="Signs.TintText"/>) — the
-        ///     written letters. It no longer tints the board plank.
-        ///   • BORDER slot → BOTH the board plank (<see cref="Signs.TintBoard"/>) AND the
-        ///     border frame (<see cref="Signs.TintBorder"/>) — "for now" the two mesh
-        ///     surfaces share one tone.
+        /// Slot → surface mapping (Daniel 2026-06-21, three independent slots):
+        ///   • TEXT slot   → ONLY the TMP text widget (<see cref="Signs.TintText"/>).
+        ///   • BOARD slot  → ONLY the board plank mesh (<see cref="Signs.TintBoard"/>).
+        ///   • BORDER slot → ONLY the border frame bars (<see cref="Signs.TintBorder"/>).
         ///
         /// The text-letter re-pin is delegated to <see cref="ReapplyTextTint"/> (the single
         /// source of truth for the letter colour). NOTE: that per-APPLY re-pin alone does
@@ -105,30 +114,31 @@ namespace SBPR.Trailborne.Features.Signs
         /// </summary>
         public void ApplyColorsFromZdo()
         {
-            // The TEXT tone drives ONLY the TMP letters (Daniel 2026-06-21 re-wire — the
-            // text slot no longer tints the board plank). Delegated to ReapplyTextTint() —
-            // the SINGLE source of truth for the letter colour — so the spawn/paint apply
-            // and the Sign.UpdateText-poll postfix can never drift.
+            // TEXT slot → TMP letters only. Delegated to ReapplyTextTint() (the single
+            // source of truth for the letter colour) so the spawn/paint apply and the
+            // Sign.UpdateText-poll postfix can never drift.
             ReapplyTextTint();
 
-            // The BORDER tone drives BOTH the board plank (Signs.TintBoard) AND the border
-            // frame (Signs.TintBorder) — "for now" the two mesh surfaces share one tone
-            // (Daniel 2026-06-21). Re-derived together off the single border slot so the
-            // plank and frame can never drift; cleared together → vanilla wood.
+            // BOARD slot → board plank mesh only (independent of letters and frame).
+            string boardColor = ReadBoardColor();
+            if (boardColor != lastAppliedBoard)
+            {
+                lastAppliedBoard = boardColor;
+                if (!string.IsNullOrEmpty(boardColor) && Signs.ColorValues.TryGetValue(boardColor, out var bdcol))
+                    Signs.TintBoard(gameObject, bdcol);
+                else
+                    Signs.RestoreBoard(gameObject); // "remove board color" → vanilla wood board
+            }
+
+            // BORDER slot → border frame bars only (independent of letters and board).
             string borderColor = ReadBorderColor();
             if (borderColor != lastAppliedBorder)
             {
                 lastAppliedBorder = borderColor;
                 if (!string.IsNullOrEmpty(borderColor) && Signs.ColorValues.TryGetValue(borderColor, out var bcol))
-                {
-                    Signs.TintBoard(gameObject, bcol);
                     Signs.TintBorder(gameObject, bcol);
-                }
                 else
-                {
-                    Signs.RestoreBoard(gameObject);  // "remove border color" → vanilla wood board
-                    Signs.RestoreBorder(gameObject); // … and vanilla wood border (shared tone)
-                }
+                    Signs.RestoreBorder(gameObject); // "remove border color" → vanilla wood border
             }
         }
 
@@ -180,21 +190,21 @@ namespace SBPR.Trailborne.Features.Signs
         /// </summary>
         public void ReapplyMeshTint()
         {
-            // Board plank AND border frame both ride the BORDER slot (Daniel 2026-06-21
-            // re-wire); the text slot drives only the TMP letters (unaffected by the hammer
-            // highlight, which clobbers only the MaterialMan mesh layer). Re-derive both
-            // mesh surfaces off the single border tone so they recover together.
+            // BOARD slot → board plank, BORDER slot → frame bars (independent, Daniel
+            // 2026-06-21 three-slot model); the text slot drives only the TMP letters
+            // (unaffected by the hammer highlight, which clobbers only the MaterialMan mesh
+            // layer). Re-derive each mesh surface off its own slot so they recover correctly.
+            string boardColor = ReadBoardColor();
+            if (!string.IsNullOrEmpty(boardColor) && Signs.ColorValues.TryGetValue(boardColor, out var bdcol))
+                Signs.TintBoard(gameObject, bdcol);
+            else
+                Signs.RestoreBoard(gameObject);
+
             string borderColor = ReadBorderColor();
             if (!string.IsNullOrEmpty(borderColor) && Signs.ColorValues.TryGetValue(borderColor, out var bcol))
-            {
-                Signs.TintBoard(gameObject, bcol);
                 Signs.TintBorder(gameObject, bcol);
-            }
             else
-            {
-                Signs.RestoreBoard(gameObject);
                 Signs.RestoreBorder(gameObject);
-            }
         }
 
         // Delay (seconds) from the LAST hammer-highlight frame to our mesh re-assert.
@@ -221,25 +231,27 @@ namespace SBPR.Trailborne.Features.Signs
         private void MeshReassertInvoke() => ReapplyMeshTint();
 
         /// <summary>
-        /// One-way migration of a pre-two-tone save: if the legacy single-color field
-        /// (SBPR_SignColor) holds a value and the new text-color field is still empty,
-        /// copy it into the text-color field (owner-write) and clear the legacy field
-        /// so this runs at most once. No-op on clients (owner-gated) and on signs that
-        /// were never painted under the old model.
+        /// One-way migration of a pre-three-slot save: if the legacy single-color field
+        /// (SBPR_SignColor) holds a value and the new BOARD-color field is still empty,
+        /// copy it into the board-color field (owner-write) and clear the legacy field so
+        /// this runs at most once. The legacy single color tinted the board plank, so the
+        /// board slot is its correct home under the three-slot model (Daniel 2026-06-21).
+        /// No-op on clients (owner-gated) and on signs never painted under the old model.
         /// </summary>
         private void MigrateLegacyColor()
         {
             if (nview == null || nview.GetZDO() == null) return;
             var zdo = nview.GetZDO();
+
             string legacy = zdo.GetString(Signs.ZdoColor, "");
             if (string.IsNullOrEmpty(legacy)) return;
-            string current = zdo.GetString(Signs.ZdoTextColor, "");
+            string current = zdo.GetString(Signs.ZdoBoardColor, "");
             if (!string.IsNullOrEmpty(current)) return; // already migrated / set
             if (!nview.IsOwner()) return;               // only the owner mutates the ZDO
 
-            zdo.Set(Signs.ZdoTextColor, legacy);
+            zdo.Set(Signs.ZdoBoardColor, legacy);
             zdo.Set(Signs.ZdoColor, ""); // consume the legacy field so we don't re-migrate
-            Plugin.Log.LogInfo($"[Trailborne/M1] Migrated legacy sign color '{legacy}' → SBPR_SignTextColor.");
+            Plugin.Log.LogInfo($"[Trailborne/M1] Migrated legacy sign color '{legacy}' → SBPR_SignBoardColor.");
         }
     }
 }
