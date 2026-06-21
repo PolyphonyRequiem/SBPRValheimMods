@@ -18,10 +18,15 @@ manifest impact.
 > Map keeps that disorientation as Daniel-locked intended difficulty (the cartography spec's
 > 2026-06-12 re-lock §2H.1, verbatim: *"there is **no** north indicator"*; the held disc's interior
 > rotates, the bezel is fixed, nothing points north). The Iron Compass is the **earned tool** that
-> finally grants cardinal orientation — and it grants it on a **separate HUD overlay**, *never* by
-> adding a north arrow back onto the map. **Putting a north arrow on the local map would delete this
-> item's entire reason to exist** and reverse a Daniel-locked difficulty choice. The withheld
-> orientation IS the design; the compass is the payoff for earning your way to iron.
+> finally grants cardinal orientation — and it grants it on a **separate HUD overlay** *or*, when the
+> Iron Compass is worn **and** an SBPR map surface (carry-disc or full-map modal) is showing, as a
+> **compass-gated north ring on that surface** — *never* by adding north to the map **ungated**.
+> **An *ungated* north arrow on the local map would delete this item's entire reason to exist** and
+> reverse a Daniel-locked difficulty choice; the **compass-gated** ring does not, because north
+> remains an earned, compass-only payoff — a player without the compass sees a north-blind map on
+> every surface (`../../design/iron-compass-minimap-ring.md` §4, Daniel ratified 2026-06-20). The
+> withheld orientation IS the design; the compass is the payoff for earning your way to iron, now on
+> the HUD **and** (when worn) the map surface it is drawn over.
 
 > **Clean-side note (ADR-0001):** every decomp line cited here is the base game
 > (`assembly_valheim`), which is **fair game to read and adapt** (repo AGENTS.md + the 2026-06-09
@@ -528,9 +533,11 @@ the build PR does NOT self-close these.
   (clamped, legible); looking level returns it flat.
 - **AT-COMPASS-NOMAP-SAFE** (🔴 the thesis guard) — the overlay renders correctly with the SB server's
   **default NoMap** (no minimap present). It does **not** depend on the minimap being on, and crucially
-  it adds **no** north indicator to any map — the Local Map's no-north disorientation (cartography
-  §2H.1) is **unchanged** by this feature. The compass is the *separate earned tool*; the map stays
-  north-blind.
+  it adds **no *ungated*** north indicator to any map — the Local Map's no-north disorientation
+  (cartography §2H.1) is **unchanged** for the compass-less player. The compass-gated ring
+  (`../../design/iron-compass-minimap-ring.md`) is the sanctioned exception: north appears on an SBPR
+  surface **iff the compass is worn**, so the map stays north-blind for anyone not wearing it. The
+  compass is the *separate earned tool*; the map stays north-blind by default.
 - **AT-COMPASS-HUD-HIDE** — when the HUD is hidden (e.g. the hide-HUD key, or `Hud.m_rootObject` slid
   to its not-visible position), the compass overlay hides with it (free correct behaviour from parenting
   under `m_rootObject`).
@@ -566,8 +573,11 @@ the build PR does NOT self-close these.
   `GameCamera.instance.transform.eulerAngles` (decomp-verified `:85422`).
 - **Equip-gate, not carry-gate** — `GetEquippedItems()` + Trinket-slot filter + prefab-name match (the
   `CartographersKit.IsWearingKit` precedent, `:233`), correcting the design note's `HaveItem`.
-- **NoMap-safe + map-untouched** — the compass NEVER adds a north arrow to any map; the withheld
-  map-orientation stays withheld (cartography §2H.1). This is non-negotiable design thesis, not a knob.
+- **NoMap-safe + map-untouched (gated exception)** — the compass NEVER adds *ungated* north to any
+  map; the compass-gated ring is the **one** sanctioned exception (Daniel ratified 2026-06-20,
+  `../../design/iron-compass-minimap-ring.md` §4). The withheld map-orientation stays withheld for
+  anyone not wearing the compass. The **gating** is the non-negotiable thesis; the surface (HUD vs
+  map ring) and the opt-in north-up lock are the knobs.
 - **One Harmony patch, PatchCheck-registered** — the `Hud.Awake` postfix is registered in `Plugin.Awake`
   (the unregistered-patch lesson, t_564f695a). Everything else is patch-free.
 - New **`Features/Exploration/`** slice for placement.

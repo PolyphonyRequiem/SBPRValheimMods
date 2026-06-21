@@ -722,7 +722,11 @@ untouched. **SpecCheck / drift manifest: no change** (display-only; no recipe / 
 > **§2H.1** (the 2026-06-12 re-lock), NOT this section and NOT the original §2H. The held Local
 > Map is a **fixed-window, TABLE-centred, circular, rotate-to-heading** minimap: the player
 > marker moves within a static disc and is hidden + edge-arrowed when outside it; only the
-> circular interior rotates (the bezel/frame is fixed); there is **no** north indicator. The
+> circular interior rotates (the bezel/frame is fixed); there is **no** north indicator **— except
+> the compass-gated north ring, which renders on the disc AND the full-map/table view only while the
+> Iron Compass is equipped (`../../design/iron-compass-minimap-ring.md` §5). The surface itself
+> remains north-blind; the ring is the compass's payoff drawn on the surface, not a property of the
+> map.** The
 > Surveyor's Table / TableEdit view ALSO rotates-to-heading now (issue #1, Daniel-locked
 > 2026-06-12 — no north-up lock anywhere) but keeps its fuller table-centred **square** extent for
 > pin-editing visibility, with no north indicator either. Bounding/shroud (1000 m around the table)
@@ -2725,8 +2729,14 @@ rotate-to-heading minimap.** Point by point:
      Daniel reversed it — disorientation is the design. There is no north-up mode to expose, so
      **drop that flag entirely.**
 
-5. **NO north reference of any kind (Daniel-locked).** Do not add a north-up mode, a compass rose,
-   a North arrow, a fixed-North bezel mark, or any orienting aid to the held Local Map. Reading the
+5. **NO north reference of any kind (Daniel-locked) — except the worn Iron Compass.** Do not add a
+   north-up mode, a compass rose, a North arrow, a fixed-North bezel mark, or any orienting aid to
+   the held Local Map **for the compass-less player. The Iron Compass, when worn, is the sanctioned
+   exception (the earned tool this very note points toward — see the "future swamp-tier compass"
+   clause below): it draws a compass-gated iron N-ring on the surface, plus an opt-in (default-OFF)
+   north-up lock. Both are gated on the equipped compass; the default no-compass experience is
+   unchanged (`../../design/iron-compass-minimap-ring.md` §4-§5, Daniel ratified 2026-06-20).**
+   Reading the
    spinning table-centred disc IS the intended challenge of the no-map exploration loop until a
    future **swamp-tier compass** item ships. (Consistent with the v1 lock:
    `docs/v0.1.0/planning/requirements.md:57` / `:646` — "minimap ONLY, freely rotating, **no north
@@ -2775,7 +2785,10 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
   **orbit** screen-centre (intended). The rotation **sense** is correct after `MapRotationSign`
   calibration.
 - **AT-LMAP-TC-5 (Daniel disorientation lock)** — there is **no** north indicator, compass rose,
-  north-up mode, or any orienting aid anywhere on the held Local Map.
+  north-up mode, or any orienting aid anywhere on the held Local Map — **except the compass-gated
+  north ring (iron bezel + N + ticks), which appears IFF the Iron Compass is worn
+  (`../../design/iron-compass-minimap-ring.md` §5); the surface stays north-blind for the
+  compass-less player.**
 - **AT-LMAP-TC-6 (no regression)** — AT-MAP-BOUND (1000 m reveal), AT-MAP-FIXEDZOOM, the §2E.1
   CPU-composite render, pin position+icon-upright behaviour, the §2F exit prompt, and the §2G open
   input are unchanged. The Surveyor's Table (TableEdit) view stays table-centred + **square** +
@@ -2783,7 +2796,9 @@ player-centring offset (#4), delete `UpdatePlayerMarkerFieldCentred` + `_staticO
   **no** north indicator.
 - **AT-TABLEVIEW-ROT-1 (issue #1)** — opening the Surveyor's Table view and turning the player
   rotates the table map to heading (it is **no longer north-locked**); there is **no** North
-  indicator/compass rose on the table view; left-click pin removal still works while rotated.
+  indicator/compass rose on the table view **— except the compass-gated ring when the Iron Compass
+  is worn (same rule as the disc; `../../design/iron-compass-minimap-ring.md` §5)**; left-click pin
+  removal still works while rotated.
 - **AT-DISC-MARKER-1 (A′ player-marker art, card t_efe8b32b, 2026-06-19)** — the carry-disc player
   marker is a **chevron "you are here" glyph**, NOT a bare flat blue quad: it reads as a player
   arrowhead dead-centre on the disc. The glyph is **screen-stable pointing up = the player's facing**

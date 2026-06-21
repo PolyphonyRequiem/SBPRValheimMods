@@ -415,6 +415,19 @@ sweeps every threat blip around the SBPR disc; the disc grants no cardinal
 orientation. (This test does NOT apply to the vanilla-minimap path, which is
 deliberately north-up per the re-scope above.)
 
+> 🔵 **Twin reconciliation — the Iron Compass north-ring (`iron-compass-minimap-ring.md`,
+> card `t_85a46f42` design / `t_ed803a83` impl-spec).** This card's invariant is *Sunstone
+> MUST NOT show north*; the compass twin's is *Compass MUST show north*. They are resolved
+> by **one** rule: **an SBPR surface renders a north marker IFF the Iron Compass is worn.**
+> The compass N marker is deliberately **NOT** routed through this card's shipped
+> `IThreatMarkerProvider` — it is a *different marker kind* (screen-bearing / per-frame /
+> both-surfaces, a player-chevron sibling on `_mapContainer`), not a world-positioned
+> per-rebuild disc blip. The two overlays are spatially disjoint (threat blips in the inner
+> ~48 %; the compass N at the bezel radius) and can both be active at once without
+> contaminating each other: no compass → north-blind surface + pure camera-relative blips;
+> compass worn → the iron N-ring is the *only* element encoding north, blips stay
+> world-positioned. See [`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md) §5.
+
 ---
 
 ## 7. Clean/dirty routing + spec impact
