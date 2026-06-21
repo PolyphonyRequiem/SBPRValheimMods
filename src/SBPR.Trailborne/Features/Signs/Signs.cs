@@ -932,6 +932,54 @@ namespace SBPR.Trailborne.Features.Signs
         // the renderer's CURRENT overrides each time, so reuse is safe + read-modify-write.
         private static readonly MaterialPropertyBlock s_mpb = new MaterialPropertyBlock();
 
+        // ── Stained-wood albedo neutralization (card t_6cc9f652, Daniel 2026-06-21) ──────
+        // The MPB _Color we write is a MULTIPLY over the renderer's albedo (_MainTex). The
+        // sign board + the four border bars carry the vanilla BROWN wood albedo, so the
+        // composite was wood_brown × _Color and rendered MUDDY: a white paint only brightened
+        // the brown (never read white) and saturated colours — especially RED — went dark and
+        // desaturated to maroon (Daniel, colour-blind, could not read them as tinted; pixel
+        // measurements on the GPU harness confirmed it, NOT a perception miss). #224 had
+        // correctly moved the tint onto the winning render layer (per-renderer MPB _Color);
+        // THIS is the next layer down — what that _Color multiplies OVER.
+        //
+        // Fix (LOCKED: STAINED WOOD, not a flat painted plaque — Daniel 2026-06-21): push,
+        // through the SAME per-renderer MPB, a NEUTRALISED copy of the wood albedo — the grain
+        // LUMINANCE is preserved (so it still reads as wood grain, the "stain" look) but the
+        // brown HUE is removed (desaturate → neutral grey) and the level lifted into a light
+        // band, so _Color now multiplies over light neutral grain and the chosen hue reads
+        // TRUE. Built once per unique source texture and cached. Client/graphics only — on a
+        // headless server graphicsDeviceType is Null, there are no renderers, and we no-op
+        // (identical to the prior behaviour, so server + headless tests are unaffected).
+        //
+        // Lives in the SAME MPB as _Color, so when MaterialMan/WearNTear.Highlight wipes our
+        // block (the #224 hazard) it drops BOTH our _Color and our _MainTex together, and the
+        // SignTag 0.3s mesh re-assert re-pushes both — no new failure mode, #224 preserved.
+        private static readonly int s_MainTexId = Shader.PropertyToID("_MainTex");
+
+        // Neutral-base cache, keyed by SOURCE texture instance id (the board plank and all four
+        // border bars share one wood texture → the neutral base is built exactly once). Null is
+        // cached too, so a bad/headless source is not re-attempted every paint frame.
+        private static readonly Dictionary<int, Texture2D?> s_neutralBaseCache =
+            new Dictionary<int, Texture2D?>();
+
+        // Stain band — the neutralised grain is remapped into [StainFloor, StainCeil] across the
+        // wood texture's OWN luminance range, so grain contrast is intrinsic + preserved for every
+        // paint colour. FLOOR sets the grain VALLEYS (lower = deeper, more visible grain); CEIL
+        // sets the grain PEAKS and is held BELOW 1.0 so the brightest grain never clamps to flat
+        // pure white (what blew the v2 board out to plastic — Daniel rejected it). The gap
+        // (ceil−floor) is the visible grain depth. The harness captures under FULL DIRECT SUN —
+        // the worst case for grain, since Valheim's lit shader blows out highlights + lifts the
+        // valleys — so the band is tuned WIDE enough that grain reads even there (it'll read more
+        // in varied in-game light). Tuned by eye + measured pixels on the SignPaintPreview harness.
+        private const float StainFloor = 0.50f;
+        private const float StainCeil  = 0.92f;
+
+        /// <summary>True on a headless dedicated server (no graphics device) — no renderers,
+        /// no texture work; the stain neutralization no-ops and tint falls back to bare
+        /// _Color (the prior behaviour).</summary>
+        private static bool IsHeadlessGraphics() =>
+            SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null;
+
         /// <summary>
         /// Tint ONE renderer's <c>_Color</c> via a per-renderer
         /// <see cref="MaterialPropertyBlock"/> (MPB) — the SAME render-time layer vanilla
@@ -962,11 +1010,139 @@ namespace SBPR.Trailborne.Features.Signs
             {
                 rend.GetPropertyBlock(s_mpb);
                 s_mpb.SetColor(s_ColorId, c);
+                // STAINED-WOOD basis (card t_6cc9f652): also push a neutralised copy of the
+                // renderer's wood albedo so the _Color multiply reads as a true-hue stain
+                // (grain preserved, brown removed) instead of muddy wood_brown × _Color.
+                // No-op + harmless on headless (no graphics) — falls back to bare _Color.
+                var neutral = GetNeutralBaseFor(rend);
+                if (neutral != null) s_mpb.SetTexture(s_MainTexId, neutral);
                 rend.SetPropertyBlock(s_mpb);
             }
             catch (Exception e)
             {
                 Plugin.Log.LogWarning($"[Trailborne/M1] Sign tint failed on {rend.gameObject.name}: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Return (building + caching once) the NEUTRALISED stain base texture for this
+        /// renderer's current albedo — the grain with its brown hue removed and its level
+        /// lifted, so a per-renderer MPB <c>_Color</c> multiply over it reads as a TRUE-hue
+        /// wood STAIN (card t_6cc9f652, look LOCKED stained-wood by Daniel 2026-06-21).
+        ///
+        /// Keyed by the SOURCE texture's instance id: the board plank and all four border bars
+        /// share one wood texture, so the neutral base is built exactly ONCE and reused. A null
+        /// result (headless / unreadable texture) is cached too, so we never re-attempt the
+        /// readback every paint frame. Returns null on a headless server (no graphics device) —
+        /// the caller then writes bare <c>_Color</c> (the pre-stain behaviour), so server +
+        /// headless tests are unaffected.
+        /// </summary>
+        private static Texture2D? GetNeutralBaseFor(Renderer rend)
+        {
+            if (IsHeadlessGraphics()) return null;
+
+            var mat = rend.sharedMaterial;
+            if (mat == null || !mat.HasProperty(s_MainTexId)) return null;
+            var src = mat.GetTexture(s_MainTexId) as Texture2D;
+            if (src == null) return null;
+
+            int key = src.GetInstanceID();
+            if (s_neutralBaseCache.TryGetValue(key, out var cached)) return cached;
+
+            Texture2D? neutral = BuildNeutralBase(src);
+            s_neutralBaseCache[key] = neutral; // cache null too (don't retry a bad source)
+            return neutral;
+        }
+
+        /// <summary>
+        /// Build a neutral-grain stain base from a wood albedo: per-texel convert to greyscale
+        /// (kill the brown hue) then SCALE every texel's luminance by one global factor that
+        /// lifts the texture's MEAN luminance to <see cref="StainTargetMean"/>. Scaling (not
+        /// flattening) PRESERVES grain contrast — the wood grain still shows through the stain —
+        /// while removing the dark brown that made <c>_Color</c> multiply muddy.
+        ///
+        /// Robust to non-readable source textures: we BLIT the source through a temporary
+        /// RenderTexture into a readable CPU copy first (a sign's wood albedo usually ships
+        /// non-readable, so a direct GetPixels would throw). Public UnityEngine API only —
+        /// clean-room (we read the vanilla albedo we are modding; no third-party code). Returns
+        /// null if anything fails, so the caller falls back to bare <c>_Color</c>.
+        /// </summary>
+        private static Texture2D? BuildNeutralBase(Texture2D src)
+        {
+            RenderTexture? rt = null;
+            RenderTexture? prevActive = null;
+            try
+            {
+                int w = src.width, h = src.height;
+                rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32,
+                                                RenderTextureReadWrite.Linear);
+                Graphics.Blit(src, rt); // works even when src.isReadable == false
+                prevActive = RenderTexture.active;
+                RenderTexture.active = rt;
+
+                var readable = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false, linear: true);
+                readable.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+                readable.Apply(updateMipmaps: false);
+
+                Color[] px = readable.GetPixels();
+
+                // Pass 1: greyscale each texel (Rec.601 luma — the grain detail we keep) and
+                // find the texture's OWN luminance range [lo, hi]. We normalise by the texture's
+                // intrinsic range, NOT a global gain-to-mean: a plain gain×clamp either leaves a
+                // very dark wood muddy (gain too small) or, cranked up, clamps every bright grain
+                // texel to pure white and FLATTENS the grain (the v2 result Daniel rejected — the
+                // board blew out to plastic white). Range-normalising preserves grain by
+                // construction.
+                float lo = float.MaxValue, hi = float.MinValue;
+                var lum = new float[px.Length];
+                for (int i = 0; i < px.Length; i++)
+                {
+                    float l = 0.299f * px[i].r + 0.587f * px[i].g + 0.114f * px[i].b;
+                    lum[i] = l;
+                    if (l < lo) lo = l;
+                    if (l > hi) hi = l;
+                }
+                float range = hi - lo;
+                if (range < 1e-4f) range = 1f; // flat source → avoid div0 (grain is absent anyway)
+
+                // Pass 2: normalise each texel into [0,1] by the texture's OWN range, then remap
+                // into the STAIN BAND [StainFloor, StainCeil]. The band is light enough that a
+                // white _Color multiply reads bright (floor well above black) but CAPPED BELOW
+                // 1.0 (ceil < 1) so the brightest grain never clamps to pure white — grain
+                // contrast is preserved for EVERY paint colour, white included. A red _Color
+                // then multiplies over light-grey grain → vivid red with grain showing (stain),
+                // not dark maroon (muddy) and not flat plastic (blown out).
+                float bandSpan = StainCeil - StainFloor;
+                for (int i = 0; i < px.Length; i++)
+                {
+                    float norm = (lum[i] - lo) / range;          // 0..1 across the wood's own grain
+                    float g = Mathf.Clamp01(StainFloor + norm * bandSpan);
+                    px[i] = new Color(g, g, g, px[i].a);         // neutral grey grain, alpha preserved
+                }
+
+                var outTex = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: true, linear: false);
+                outTex.wrapMode = src.wrapMode;
+                outTex.filterMode = src.filterMode;
+                outTex.SetPixels(px);
+                outTex.Apply(updateMipmaps: true);
+
+                UnityEngine.Object.Destroy(readable);
+                Plugin.Log.LogInfo(
+                    $"[Trailborne/M1] Built stained-wood neutral base from '{src.name}' " +
+                    $"({w}×{h}, src lum [{lo:F3},{hi:F3}] → stain band [{StainFloor:F2},{StainCeil:F2}]).");
+                return outTex;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/M1] Stain neutral-base build failed for '{src.name}': {e.Message}; " +
+                    "sign tint falls back to bare _Color (pre-stain look).");
+                return null;
+            }
+            finally
+            {
+                RenderTexture.active = prevActive;
+                if (rt != null) RenderTexture.ReleaseTemporary(rt);
             }
         }
 
@@ -977,6 +1153,13 @@ namespace SBPR.Trailborne.Features.Signs
         /// to its material's own <c>_Color</c>. We reproduce that by writing the material's base
         /// <c>_Color</c> back into the MPB (rather than clearing the whole block, which would
         /// also drop any MaterialMan-owned property). Idempotent + headless-safe.
+        ///
+        /// STAIN restore (card t_6cc9f652): a painted-then-cleared surface also carries our
+        /// neutralised <c>_MainTex</c> override in the MPB; if we only reset <c>_Color</c> the
+        /// board would keep the grey stain base and read washed-out wood, not the original
+        /// brown. So we ALSO re-push the material's OWN albedo back into the MPB, overriding our
+        /// neutral base back to the real wood texture — returning the surface to true vanilla
+        /// wood. No-op if the material exposes no <c>_MainTex</c>.
         /// </summary>
         private static void RestoreRenderer(Renderer rend)
         {
@@ -988,6 +1171,13 @@ namespace SBPR.Trailborne.Features.Signs
                     : Color.white;
                 rend.GetPropertyBlock(s_mpb);
                 s_mpb.SetColor(s_ColorId, baseColor);
+                // Undo the stain base: put the material's OWN albedo back on the MPB so a
+                // cleared surface returns to true brown wood, not the neutralised grain.
+                if (mat != null && mat.HasProperty(s_MainTexId))
+                {
+                    var baseTex = mat.GetTexture(s_MainTexId);
+                    if (baseTex != null) s_mpb.SetTexture(s_MainTexId, baseTex);
+                }
                 rend.SetPropertyBlock(s_mpb);
             }
             catch (Exception e)
