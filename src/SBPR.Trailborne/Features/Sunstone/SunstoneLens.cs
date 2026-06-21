@@ -190,6 +190,15 @@ namespace SBPR.Trailborne.Features.Sunstone
                 shared.m_durabilityPerLevel = 0f;
                 shared.m_destroyBroken     = false; // belt-and-suspenders: even if vanilla's break
                                                     // path were ever reached, never destroy the lens.
+                shared.m_canBeReparied     = false; // charge is SUNLIGHT-only — never "Repair"-refillable.
+                                                    // Because m_useDurability stays true (the energy bar),
+                                                    // the lens is a perpetual repair candidate; without this
+                                                    // it'd be free-refillable at the Explorer's Bench
+                                                    // (recipe craft-station name-matches vanilla CanRepair,
+                                                    // :42798), defeating the sun-charge design. This flag is
+                                                    // the FIRST gate in CanRepair (:42776) so it blocks repair
+                                                    // at EVERY station unconditionally. Mirrors LocalMap.cs.
+                                                    // (sic: vanilla field is misspelled "Reparied".)
 
                 // New lenses come fully charged so a freshly-crafted lens is immediately useful
                 // (it still drains from there). m_durability is the live energy; persists across
