@@ -2051,6 +2051,14 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
 > permits this; a class-doc note records that it is the shared modal guard). Build: 0 errors, 0
 > warnings. Closes on Daniel's in-game check of AT-TABLE-FIELD-CURSOR / AT-TABLE-CURSOR-FREE /
 > AT-TABLE-PIN-REMOVE / AT-TABLE-RESTORE / AT-SIGN-CURSOR-REGRESSION (logs-green ≠ playable).
+>
+> **🔁 PARTIALLY SUPERSEDED 2026-06-20 (card t_12acb9ce).** The cursor *re-seat* (dead seam → live
+> `GameCamera.LateUpdate`) above is correct and stays. But the SCOPE decision it shipped with —
+> free the cursor in **FieldReadOnly** too (AT-TABLE-FIELD-CURSOR as originally worded) — was
+> falsified by Daniel's playtest ("the M map steals the cursor"). §2L.7 is superseded by **§2L.7-R**:
+> the cursor pump now keys on a narrower `CursorNeeded` (sign panels + TableEdit only), so the
+> read-only field map keeps freeze+block but NO free cursor. AT-TABLE-FIELD-CURSOR is inverted in
+> §2L.10. The re-seat, restore-edge, sign-cursor, and TableEdit halves are unaffected.
 
 > **Build seen:** v0.2.26-dev (Daniel, 2026-06-17 in-game playtest). Daniel: *"issue 7, at the
 > map table, my mouse is not free to move and click on pins to remove."*
@@ -2270,15 +2278,101 @@ implementation detail; **AT-TABLE-CURSOR-FREE + AT-TABLE-RESTORE are the contrac
 
 #### 2L.7 Scope — TableEdit vs FieldReadOnly (resolves the card's open question)
 
-The card asks whether the FieldReadOnly (carry/equipped) full view also needs the cursor free.
-**Answer: it falls out for free and should NOT be specially gated.** `AnyOpen` keys on
-`IsViewerOpen` = the modal being active, regardless of mode — so the same cursor pump frees the
-cursor for BOTH the TableEdit modal and the FieldReadOnly modal. That is correct and desirable:
-even the read-only field map is a full-screen modal you Escape out of, and a free cursor there is
-consistent (and harmless — there are no clickable pins to remove, so a free cursor simply does
-nothing extra). The passive **minimap disc** is the one surface that must stay cursor-locked — and
-it already is, because it contributes via `IsMinimapBound`, not `IsViewerOpen`/`AnyOpen`. No
-mode-specific cursor branching is needed; **one pump, gated on `AnyOpen`, covers it.**
+> **🔴 SUPERSEDED (2026-06-20, card t_12acb9ce — Daniel playtest).** The §2L.7 decision below
+> ("free the cursor in FieldReadOnly too; harmless — nothing to click") shipped in PR #196
+> (v0.2.28) and was **falsified in-game**: Daniel reported the equipped Local Map full view (M)
+> "steals the mouse cursor, which undermines its usefulness." The premise was wrong on the part
+> that mattered — a free cursor on the field map is **not** harmless: it throws a hardware pointer
+> over a read-only surface that has **no clickable target**, and the player reads that as the map
+> grabbing focus for no reason. The corrected rule is in **§2L.7-R** immediately below; the
+> original paragraph is kept here as the reasoning that was overturned.
+>
+> **Why this is a spec change, not a bug-vs-spec drift:** the shipped code matches this section
+> exactly (`CursorPumpPatch` reads `AnyOpen`, which includes `FieldReadOnly` via `IsViewerOpen`).
+> The defect is in the *decision*, so per AGENTS.md (spec + code move together) the fix amends
+> this spec section **and** the code in the same change-set. The accidental-over-application
+> framing in card t_12acb9ce is close but understates it: this was a **named, ratified call**
+> (with acceptance test AT-TABLE-FIELD-CURSOR, §2L.10, asserting the free cursor), not a silent
+> sweep — so the AT inverts too (§2L.10).
+
+> **Original §2L.7 (HISTORICAL — overturned by Daniel's 2026-06-20 playtest; do not build from this):**
+> The card asks whether the FieldReadOnly (carry/equipped) full view also needs the cursor free.
+> **Answer: it falls out for free and should NOT be specially gated.** `AnyOpen` keys on
+> `IsViewerOpen` = the modal being active, regardless of mode — so the same cursor pump frees the
+> cursor for BOTH the TableEdit modal and the FieldReadOnly modal. That is correct and desirable:
+> even the read-only field map is a full-screen modal you Escape out of, and a free cursor there is
+> consistent (and harmless — there are no clickable pins to remove, so a free cursor simply does
+> nothing extra). The passive **minimap disc** is the one surface that must stay cursor-locked — and
+> it already is, because it contributes via `IsMinimapBound`, not `IsViewerOpen`/`AnyOpen`. No
+> mode-specific cursor branching is needed; **one pump, gated on `AnyOpen`, covers it.**
+
+#### 2L.7-R Scope (REVISED 2026-06-20, card t_12acb9ce) — cursor is freed ONLY where something is clickable
+
+**Decision:** the free/visible cursor is a function of whether the open surface has a clickable
+target, NOT of "is any SBPR modal open." Decouple the cursor pump from the broad `AnyOpen`
+predicate; gate it on a narrower, **intent-carrying** predicate that excludes the read-only field
+map.
+
+- **`CursorPumpPatch` keys on `CursorNeeded`, not `AnyOpen`.** Introduce a sibling predicate next to
+  `AnyOpen` (`SignPanelInputBlock.cs`), consumed **only** by `CursorPumpPatch`:
+
+  ```csharp
+  // Cursor is freed ONLY on surfaces with a clickable target. The read-only field
+  // Local Map (FieldReadOnly) has none — pin removal is TableEdit-only (MapSurface
+  // gate) — so it is excluded here while STILL keeping mouse-look-freeze + input-block
+  // via the broad AnyOpen (you don't want the world spinning while reading the map).
+  internal static bool CursorNeeded =>
+      SignPaintPanel.IsOpen
+      || MarkerSignPanel.IsOpen
+      || (CartographyViewer.IsViewerOpen
+          && CartographyViewer.CurrentMode == MapViewerMode.TableEdit);
+  ```
+
+  `CartographyViewer.CurrentMode` already exists (`Features/Cartography/CartographyViewer.cs:200`,
+  null-safe default `FieldReadOnly`), so the discriminator is free — no new wire, no new state.
+  `MapViewerMode` is the **namespace-level** enum in `SBPR.Trailborne.Features.Cartography`
+  (`CartographyViewer.cs:26`), NOT nested in `CartographyViewer` — reference it bare as
+  `MapViewerMode.TableEdit` (exactly as `LocalMapController.cs` / `MapSurface.cs:1252` already do),
+  and add a `using SBPR.Trailborne.Features.Cartography;` to `SignPanelInputBlock.cs` if it isn't
+  already importing the namespace (it currently fully-qualifies `CartographyViewer` inline at the
+  `AnyOpen` definition, so add the `using` or fully-qualify `MapViewerMode` the same way).
+
+- **The other two postfixes are UNCHANGED — they keep keying on `AnyOpen`.** The
+  `Player.TakeInput` block, the `PlayerController.TakeInput(bool)` mouse-look freeze, and the
+  `Menu.Show` suppress prefix must STILL fire for FieldReadOnly: reading the map should freeze the
+  world and block character input on **every** surface. Only the *cursor* differs by surface. This
+  is the whole point — the monolithic `AnyOpen` conflated "block the world" (wanted everywhere)
+  with "show a cursor" (wanted only where there's a target).
+
+- **Net effect by surface:**
+  - **FieldReadOnly (equipped Local Map, M):** mouse-look frozen + world-input blocked (unchanged),
+    **cursor stays locked + hidden** (the fix). No pointer thrown over a read-only surface.
+  - **TableEdit (Surveyor's Table):** cursor free + visible (unchanged — `TryRemovePinAtCursor` at
+    `MapSurface.cs:1252` needs a real pointer; do NOT regress this).
+  - **Sign panels (Painted Sign, Marker Sign):** cursor free + visible (unchanged — swatches,
+    buttons, text `InputField` all need it).
+  - **Minimap disc:** cursor locked (unchanged — it never contributes to `AnyOpen`/`CursorNeeded`,
+    it's a passive HUD element gated on `IsMinimapBound`).
+
+- **Close-edge restore stays correct.** The `_wasOpen` edge-detector that restores
+  `lockState=Locked; visible=false` on the cursor-pump's true→false transition must now track
+  **`CursorNeeded`**, not `AnyOpen` — otherwise a TableEdit→closed transition wouldn't restore (and
+  a FieldReadOnly open would never set `_wasOpen` at all, which is correct). Concretely: the pump's
+  `open` local reads `CursorNeeded`; the restore fires on `CursorNeeded` going false. Verify the
+  TableEdit→closed restore is still deterministic (the AT-TABLE-RESTORE / restore-edge guard,
+  §2L.10) — this is the pre-existing fragility class t_1f82da71 was built to kill; don't reintroduce
+  a stuck-free cursor.
+
+- **PatchCheck seam unchanged.** `CursorPumpPatch` stays a woven `[HarmonyPatch]` on
+  `GameCamera.LateUpdate`; only the *predicate it reads* changes. `Runtime/PatchCheck` still finds
+  the same registered container at boot (no UNREGISTERED PATCH CLASS), so AT-CURSOR-PATCHCHECK holds
+  with no `Plugin.cs` registration delta.
+
+**Out of scope for this revision:** the **Painted Sign** cursor behavior (Surface B in card
+t_12acb9ce). The sign genuinely needs a cursor (swatches + text entry); whether to make it feel
+less intrusive (confine-to-rect / hide-until-move / accept-as-is) is **Daniel's open design
+decision**, tracked on the card — NOT folded in here, and `requirements.md:237` (§A2.6, which locks
+the sign's cursor-release) is deliberately left untouched until he rules.
 
 #### 2L.8 The sibling sign panels have the IDENTICAL dead seam (fix once, fix all three)
 
@@ -2323,9 +2417,17 @@ here — they share the regression).
 - **AT-TABLE-RESTORE** — Closing the map (Esc) restores normal cursor lock + camera look + player
   input, with **no** stuck cursor and no stuck input-block. (The explicit `AnyOpen:true→false`
   restore, §2L.4b — deterministic, not relying on vanilla to re-lock.)
-- **AT-TABLE-FIELD-CURSOR** — The FieldReadOnly (equipped Local Map) full view ALSO shows a free
-  cursor while open and restores on close (same `AnyOpen` pump; §2L.7). The passive minimap **disc**
-  does NOT free the cursor (it never trips `AnyOpen`).
+- **AT-TABLE-FIELD-CURSOR** — **🔁 REVISED 2026-06-20 (card t_12acb9ce, Daniel playtest — inverts
+  the original assertion).** The FieldReadOnly (equipped Local Map, **M**) full view keeps mouse-look
+  frozen + world-input blocked but shows **NO free cursor** (`CursorNeeded` excludes FieldReadOnly —
+  §2L.7-R); closing M restores the locked+hidden gameplay cursor cleanly (no stuck-free cursor). The
+  passive minimap **disc** also does NOT free the cursor (it never trips `AnyOpen`/`CursorNeeded`).
+  *(Original §2L.7 wording asserted the field view ALSO shows a free cursor "same `AnyOpen` pump";
+  that shipped in PR #196 and was falsified in-game — Daniel: the M map "steals the mouse cursor.")*
+- **AT-TABLE-FIELD-CURSOR-REGRESSION** (the guard that pairs with the revision) — the Surveyor's Table
+  (**TableEdit**) STILL shows the free, visible cursor and pin-click-removal still works; do NOT undo
+  the t_1f82da71 cursor-free for the Table while narrowing the field view (`CursorNeeded` includes
+  `TableEdit`).
 - **AT-SIGN-CURSOR-REGRESSION** — Re-verify the Painted Sign + Marker Sign panels: cursor is free
   while open and restored on close (they share the re-seated seam; this finally confirms
   `v0.1.0-PLAYTEST.md:49`, which the dead seam left unverified).
