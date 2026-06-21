@@ -94,6 +94,17 @@ into #4's shipped archive.
 - **Open design PR #217** (`design/iron-compass-minimap-ring`, card t_85a46f42) — a **design-doc twin**
   of the Lens→minimap handoff: a compass-gated **north-ring on the minimap disc**. **Not built / not
   merged** → no test item until it ships.
+- **Map fullscreen (M) cursor narrowing** (card t_12acb9ce → spec PR open, engineer-ui impl child
+  spawned) — Daniel's 2026-06-20 playtest: the equipped Local Map full view (**M**) "steals the mouse
+  cursor." Spec reverses cartography-impl-spec §2L.7 (→ §2L.7-R): the cursor pump narrows from
+  `AnyOpen` to `CursorNeeded` (sign panels + Surveyor's-Table `TableEdit` only), so the read-only M
+  map keeps mouse-look-freeze + input-block but no longer shows a free cursor; the Table keeps its
+  pin-click cursor; the **Painted Sign** is a separate open design question (Surface B) NOT folded in.
+  **Not built / not merged** → its PENDING test row (AT-TABLE-FIELD-CURSOR inverted: M map = NO free
+  cursor; AT-TABLE-FIELD-CURSOR-REGRESSION: Table cursor + pin-removal intact) lands when the
+  engineer-ui impl PR ships. **Note for the #5 roll:** this does NOT touch archived Playtest #2 item 7
+  — that row is a true record of what shipped in v0.2.28; the M-map half of it was over-scoped and is
+  being corrected forward, not rewritten in history.
 
 ---
 
