@@ -1,7 +1,7 @@
 ---
 title: index — docs/playtest
 status: living
-last_updated: 2026-06-19
+last_updated: 2026-06-20
 ---
 
 # index — docs/playtest
@@ -14,7 +14,9 @@ Machine-readable manifest of the playtest tracking system.
 | playtest-ledger.md | living | Living source of truth for what needs in-game testing: PENDING (accrues as work merges) + ARCHIVE (shipped playtests). Carries `playtest_counter` + `last_playtest_tag` in frontmatter. |
 | playtest-1-testers-guide.md | historical | Generated Playtest #1 testers guide — install + acceptance checklist for everything merged since v0.2.25-playtest, with git ground-truth cross-check. Superseded by #2/#3. |
 | playtest-2-testers-guide.md | historical | Generated Playtest #2 testers guide (cut at the v0.2.28 build) — disc render / fog-shroud / cursor-free cartography work. Its Sunstone item is stale (trophy-ring landed in v0.2.29 #199, ~6 min after this guide was generated); the corrected Sunstone checklist is in #3. |
-| playtest-3-testers-guide.md | current | Generated Playtest #3 testers guide (cut at v0.2.29) — first guide to describe the shipped Sunstone Lens trophy-ring render (#199) + the Portal Seed cost verify carryforward. |
+| playtest-3-testers-guide.md | historical | Generated Playtest #3 testers guide (cut at v0.2.29) — first guide to describe the shipped Sunstone Lens trophy-ring render (#199) + the Portal Seed cost verify carryforward. Superseded by #4 (the first guide cut on the v0.2.30 surface set). |
+| playtest-4-testers-guide.md | historical | Generated Playtest #4 testers guide (cut at v0.2.30, 00:32) — first guide to correctly describe the whole v0.2.30 surface set (lens/compass dead-pump fixes, [M]+map-name under disc, biome readouts, modal margin, equipable icons). Playtest #4 shipped under v0.2.31; two further PRs (#215/#216) landed after this guide was cut and are seeded into #5. Its six items remain Daniel's to accept in-game. Superseded by #5. |
+| playtest-5-testers-guide.md | current | Generated Playtest #5 testers guide (cut at v0.2.31) — minimap-DISC margin (#216) + modal chevron counter-rotate (#215) that landed after the #4 guide, plus the Lens→minimap detection handoff (#218) + Lens-not-repairable (#220) merged to main, and the Portal Seed cost carryforward. |
 
 ## Conventions
 
