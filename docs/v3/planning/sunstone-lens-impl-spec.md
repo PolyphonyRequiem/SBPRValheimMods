@@ -185,6 +185,19 @@ optional clear-name allowlist as a config so a server can tune what counts as "s
 `m_isWet` field is the load-bearing one (rain/overcast envs set it), so the allowlist is a
 refinement, not the gate.
 
+**Charge is sunlight-only — the Lens is NOT bench-repairable (`m_canBeReparied = false`).**
+Because `m_useDurability = true` (the energy bar) and the Lens's recipe craft-station is the
+Explorer's Bench, vanilla `InventoryGui.CanRepair` (`:42798`) would otherwise treat the
+partially-drained Lens as a valid **Repair** target at that bench — letting a player refill the
+solar battery to full for free with one click, bypassing the entire `CanRecharge` sun-gate above.
+We set `shared.m_canBeReparied = false` in `RegisterLensTrinket`; it is the **first** gate in
+`CanRepair` (`:42776`) and short-circuits before any station-name match **and** before the
+world-level OR-clause, so the Lens is non-repairable at **every** station (Explorer's Bench,
+vanilla Workbench, Forge) unconditionally. The only charge source is sunlight (§3 drain/recharge
+prefix). This mirrors `LocalMap.cs` (`m_canBeReparied = false`); the difference is that the Lens
+**keeps** `m_useDurability = true` (it needs the meter), which is exactly why the repair flag is
+load-bearing here rather than redundant. (sic: the vanilla field is misspelled `m_canBeReparied`.)
+
 ## 4. Detection — reproduce rune-of-detection from vanilla primitives (AC#3)
 
 > 🔴 **RENDER SUPERSEDED (card t_b8a19487, 2026-06-18).** Daniel gave the real detection render
@@ -325,6 +338,10 @@ note moved together when it was removed.
 - **AT-LENS-ZERO-INERT:** drain the bar to 0 → detection stops, but the Lens stays equipped and
   in inventory (NOT consumed, NO `$msg_broke`); recharge it in sunlight → detection resumes
   (AC#5).
+- **AT-LENS-NOREPAIR:** with the Lens partially drained, stand at an Explorer's Bench → the Lens
+  has **no working Repair** (the repair affordance does not refill its charge). Same at a vanilla
+  Workbench and a Forge → no repair at any station. Charge only ever returns via sunlight
+  (regression-paired with AT-LENS-CHARGE). Guards the `m_canBeReparied = false` knob (§3).
 - **AT-LENS-VANILLA-ONLY:** no third-party mod code; all hooks are base-game (AC#6).
 - **AT-LENS-DOCS:** theme + render method documented (this doc, the dataset entry, PLAYER_GUIDE)
   (AC#7).

@@ -36,7 +36,10 @@ A **charge/drain accessory**, not a consumable:
   GROUND the exact vanilla members against the decomp before building (don't guess the API).
 - **Energy = durability:** reuse the item durability bar as the energy meter — sunlight
   *repairs* it, equip *drains* it at a fixed rate. When empty, detection switches off (item
-  stays equipped, just inert until re-charged). This avoids a bespoke meter UI.
+  stays equipped, just inert until re-charged). This avoids a bespoke meter UI. **Sunlight is
+  the ONLY repair source — the item is not repairable at any crafting station** (implemented
+  as `m_canBeReparied = false`); otherwise a player could click "Repair" at the Explorer's
+  Bench to refill the charge for free and bypass the whole sun-charge rhythm.
 - **Detection effect:** reproduce the *behavior* of rune-of-detection (reveal nearby hostiles)
   — but per ADR-0001, do NOT copy the Rune Magic mod's code. Either build the reveal from
   vanilla (query nearby `Character`/`BaseAI` hostiles, surface them on the minimap/an overlay)
