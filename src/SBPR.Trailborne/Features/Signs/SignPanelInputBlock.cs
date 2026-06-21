@@ -61,29 +61,6 @@ namespace SBPR.Trailborne.Features.Signs
             || MarkerSignPanel.IsOpen
             || SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen;
 
-        // §2L.7-R (issue: map "steals" the cursor — card t_12acb9ce / impl t_8b86adb3): the cursor
-        // pump keys on THIS narrower predicate, NOT AnyOpen. Free + show the hardware cursor ONLY on
-        // surfaces that actually have a clickable target:
-        //   • SignPaintPanel / MarkerSignPanel — swatches, buttons, text InputField (need a cursor), and
-        //   • the map viewer ONLY in TableEdit mode — the Surveyor's Table, where pins are click-removable.
-        // The equipped Local Map full view (M) opens in FieldReadOnly with PinEditor=null
-        // (LocalMapController), and pin removal is hard-gated to TableEdit (MapSurface) — so the read-only
-        // field map has NOTHING clickable and must NOT show a free cursor. The old §2L.7 freed it anyway
-        // (AnyOpen swept FieldReadOnly in), which is the reported defect: a cursor thrown over a map with
-        // nothing to click. AnyOpen still drives the freeze / input-block / menu-suppress (you still don't
-        // want the world spinning while reading the M map) — only the CURSOR narrows here.
-        //
-        // LIVENESS (same invariant as AnyOpen): derives ONLY from live IsOpen / IsViewerOpen / CurrentMode
-        // probes — no hand-flipped side-bool that could latch the cursor free after the surface is gone.
-        // MapViewerMode is namespace-level in Features.Cartography (NOT nested in CartographyViewer);
-        // CurrentMode is null-safe (defaults to FieldReadOnly when no viewer is open → cursor stays locked).
-        internal static bool CursorNeeded =>
-            SignPaintPanel.IsOpen
-            || MarkerSignPanel.IsOpen
-            || (SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen
-                && SBPR.Trailborne.Features.Cartography.CartographyViewer.CurrentMode
-                   == SBPR.Trailborne.Features.Cartography.MapViewerMode.TableEdit);
-
         [HarmonyPatch(typeof(Player), "TakeInput")]
         public static class TakeInputPatch
         {
@@ -137,17 +114,11 @@ namespace SBPR.Trailborne.Features.Signs
         // RESTORE ON CLOSE (§2L.4b). The old design relied on vanilla's UpdateMouseCapture to
         // re-lock the next frame; that re-lock is gone from managed code. So we own the close edge:
         // a single `_wasOpen` edge-detector restores lockState=Locked/visible=false exactly once on
-        // the CursorNeeded true→false transition, making AT-TABLE-RESTORE deterministic rather than luck.
+        // the AnyOpen true→false transition, making AT-TABLE-RESTORE deterministic rather than luck.
         // The next frame vanilla/Input-System resumes ownership for normal play.
         //
-        // §2L.7-R — KEYS ON CursorNeeded, NOT AnyOpen. Only surfaces with a clickable target free the
-        // cursor (sign panels + the map viewer in TableEdit). The read-only M field map is deliberately
-        // EXCLUDED: it keeps AnyOpen's freeze/input-block/menu-suppress but shows NO free cursor (nothing
-        // to click). Do NOT "simplify" this back to AnyOpen — that re-introduces card t_12acb9ce (cursor
-        // thrown over the M map with no clickable target). AnyOpen stays the freeze/block/menu gate above.
-        //
         // Server-safe: GameCamera does not exist on the dedicated server, so LateUpdate never fires
-        // there; CursorNeeded is also always false (no local Player). Pure pass-through either way.
+        // there; AnyOpen is also always false (no local Player). Pure pass-through either way.
         private static bool _wasOpen;
 
         [HarmonyPatch(typeof(GameCamera), "LateUpdate")]
@@ -156,7 +127,7 @@ namespace SBPR.Trailborne.Features.Signs
             [HarmonyPostfix]
             private static void Postfix()
             {
-                bool open = CursorNeeded;
+                bool open = AnyOpen;
 
                 if (open)
                 {
