@@ -31,11 +31,11 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Crafting-style cost for a (text, border) choice: a map of COLOR id → count
-        /// of that pigment required. One per filled slot; same color in both slots → 2.
-        /// Empty/"" slots contribute nothing. Caller treats an empty map as "no color".
+        /// Crafting-style cost for a (text, board, border) choice: a map of COLOR id →
+        /// count of that pigment required. One per filled slot; the same color in N slots →
+        /// N. Empty/"" slots contribute nothing. Caller treats an empty map as "no color".
         /// </summary>
-        public static Dictionary<string, int> ComputeCost(string textColor, string borderColor)
+        public static Dictionary<string, int> ComputeCost(string textColor, string boardColor, string borderColor)
         {
             var cost = new Dictionary<string, int>(StringComparer.Ordinal);
             void Add(string c)
@@ -45,6 +45,7 @@ namespace SBPR.Trailborne.Features.Signs
                 cost[c] = n + 1;
             }
             Add(textColor);
+            Add(boardColor);
             Add(borderColor);
             return cost;
         }
@@ -148,15 +149,15 @@ namespace SBPR.Trailborne.Features.Signs
         /// The held-check (3) happens before any removal, so an under-stocked player
         /// never loses pigments and the sign is never half-painted (accept-test 9).
         /// </summary>
-        public static PaintResult CommitPaint(SignTag tag, Player player, string textColor, string borderColor)
+        public static PaintResult CommitPaint(SignTag tag, Player player, string textColor, string boardColor, string borderColor)
         {
-            var cost = ComputeCost(textColor, borderColor);
+            var cost = ComputeCost(textColor, boardColor, borderColor);
             if (cost.Count == 0) return PaintResult.NoColorChosen;
             if (player == null)  return PaintResult.NoPlayer;
             if (!HasPigments(player, cost)) return PaintResult.InsufficientItems;
 
             // Write the ZDO first; if it isn't ready we bail BEFORE consuming anything.
-            if (tag == null || !tag.WriteColors(textColor ?? "", borderColor ?? ""))
+            if (tag == null || !tag.WriteColors(textColor ?? "", boardColor ?? "", borderColor ?? ""))
                 return PaintResult.ZdoNotReady;
 
             // Consume exactly the cost. We already proved sufficiency above.
