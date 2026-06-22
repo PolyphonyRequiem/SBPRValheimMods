@@ -1,6 +1,6 @@
 ---
 title: "Local Map provider binding persists across relog — buildable implementation spec"
-status: proposed
+status: current
 purpose: "Build-ready architect spec for fixing the session-scoped provider binding: the SBPR minimap disc must survive a logout/login as long as the imprinted Local Map remains carried (AT-MAP-DURABLE), instead of vanishing until the player next equips a map. Reverses the one carve-out (map-provider-binding-impl-spec.md §3.1) that made the provider session-scoped, realigning it with the LOCKED requirement AT-MAP-DURABLE and with design map-provider-model.md §3.2 (both of which never sanctioned a relog exception). Specifies the fix as a one-shot cold-start carry re-derivation latch in LocalMapController (NO new persisted key, NO LocalMap.cs change, SpecCheck +0), names the rejected persist-identity alternatives, and carries the spec-reversal routing (the §3.1 + design §3.1/§3.2 content flip rides the engineer's CODE PR, same-PR-as-code per spec-first). Grounded against main @ e904b16 + assembly_valheim decomp. Authored by the architect for BUG card t_5fc02f00. Daniel gates the doc-review + the in-game ATs; an engineer-ui child builds it."
 owner: Daniel (design authority); architect (spec capture + grounding)
 supersedes_partial:
