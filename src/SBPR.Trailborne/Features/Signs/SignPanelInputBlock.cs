@@ -181,5 +181,78 @@ namespace SBPR.Trailborne.Features.Signs
                 return !AnyOpen;
             }
         }
+
+        // §2L.12 (re-report ticket-cursor-captive-modals, card t_f7a5ad53): the REAL fix for the
+        // cursor "capture"/snap-to-centre on every SBPR modal. Supersedes the per-frame
+        // CursorPumpPatch approach as the load-bearing mechanism (the pump is kept only as a
+        // belt-and-suspenders visible-cursor assert; this patch is what actually stops the snap).
+        //
+        // ROOT CAUSE (decompiled, verified — assembly_valheim + assembly_utils + Unity.InputSystem):
+        // Valheim 0.221.x routes UI pointers through the new Unity Input System, whose
+        // InputSystemUIInputModule.ProcessPointer FORCES every mouse pointer event to screen-centre
+        // and discards the real delta whenever Cursor.lockState == Locked (Unity.InputSystem
+        // ~:47456) — that IS the snap. Nothing in the Input System WRITES lockState; the only
+        // managed writers during play are Menu.UpdateCursor (assembly_valheim :45817) and
+        // FejdStartup.UpdateCursor (:83091), BOTH computing
+        //   Cursor.lockState = !ZInput.IsMouseActive() ? Locked : None
+        // and both firing EVENT-DRIVEN on ZInput.OnInputLayoutChanged (an input-source switch),
+        // never per-frame. So the cursor is re-Locked precisely when IsMouseActive() is false, i.e.
+        // when the active input source is NOT KeyboardMouse (assembly_utils Internal_IsMouseActive
+        // :10847 → m_inputSource == KeyboardMouse). On Daniel's KEYBOARD+MOUSE rig the culprit is
+        // STEAM INPUT presenting a VIRTUAL gamepad: its drifting stick keeps firing OnActionPerformed
+        // → flips m_inputSource to Gamepad → OnInputLayoutChanged → UpdateCursor recomputes Locked
+        // every frame → ProcessPointer center-snaps. That is also why opening the inventory (a
+        // mouse-driven action → m_mouseInputThisFrame suppresses the gamepad switch, OnInput :9590)
+        // momentarily freed the cursor: the mouse action flipped the source back to KeyboardMouse.
+        //
+        // WHY THE PER-FRAME PUMP LOSES. CursorPumpPatch sets lockState=None in GameCamera.LateUpdate,
+        // but the event-driven UpdateCursor sets it back to Locked in its own phase whenever the
+        // virtual pad re-grabs the source — so the pump fights the engine and loses, constantly.
+        //
+        // THE FIX (work WITH the engine, don't race it). Postfix ZInput.IsMouseActive() → force true
+        // while AnyOpen. Then vanilla's OWN UpdateCursor computes None+visible (no snap), and the very
+        // drifting-pad churn that caused the bug now DRIVES the fix every frame. This mirrors the
+        // existing TakeInputPatch idiom exactly (postfix a vanilla predicate → force a constant while
+        // a modal is open). Blast radius is contained: IsMouseActive() has 9 readers; the only ones
+        // that can fire while an SBPR modal owns the screen are the two UpdateCursor sites (exactly
+        // what we want freed) — the gamepad item-drag gate (InventoryGui.UpdateItemDrag :41647) and
+        // the large-map mouse raycast (Minimap.UpdateBiome :48730) are inert (Player/PlayerController
+        // .TakeInput already forced false by AnyOpen; no vanilla inventory/large-map open over our
+        // modal). Design intent confirmed by Daniel 2026-06-21: he uses KB+M, no gamepad-usability
+        // requirement on the SBPR modals — the modals just need a free cursor regardless of the
+        // source Steam Input presents. Server-safe: AnyOpen is always false on a dedicated server.
+        [HarmonyPatch(typeof(ZInput), "IsMouseActive")]
+        public static class MouseActiveForcePatch
+        {
+            [HarmonyPostfix]
+            private static void Postfix(ref bool __result)
+            {
+                // While any SBPR modal is open, report the mouse as the active input source so
+                // vanilla's event-driven UpdateCursor computes lockState=None (cursor free, no
+                // Input-System center-snap) even when Steam Input's virtual pad owns the source.
+                if (AnyOpen) __result = true;
+            }
+        }
+
+        // §2L.13 (card t_a1cf35b0, sibling of the cursor fix): the Inventory hotkey must NOT open the
+        // inventory while an SBPR modal owns the screen. The toggle is read inside InventoryGui.Update
+        // (assembly_valheim :41458 → Show(null)), NOT through Player.TakeInput, so the TakeInput block
+        // above never gated it — Daniel could pop the inventory over the sign panel and the Local Map.
+        // Mirror MenuOpenSuppressPatch: a skip-original prefix on InventoryGui.Show(Container, int)
+        // gated on AnyOpen. While a modal is up, no legitimate container/station open can be triggered
+        // (Player.TakeInput is forced false), so blocking Show here only suppresses the stray toggle.
+        // Self-clearing (AnyOpen false the moment the modal closes → inventory opens normally again)
+        // and server-safe (AnyOpen always false on a dedicated server).
+        [HarmonyPatch(typeof(InventoryGui), "Show", new Type[] { typeof(Container), typeof(int) })]
+        public static class InventoryOpenSuppressPatch
+        {
+            [HarmonyPrefix]
+            private static bool Prefix()
+            {
+                // Return false → skip InventoryGui.Show (inventory does not open) while any SBPR
+                // modal UI is up. Return true → normal vanilla behaviour.
+                return !AnyOpen;
+            }
+        }
     }
 }

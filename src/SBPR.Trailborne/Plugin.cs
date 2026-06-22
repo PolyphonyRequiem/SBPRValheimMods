@@ -562,6 +562,18 @@ namespace SBPR.Trailborne
             // ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch
             // lesson). Self-clearing + server-safe (AnyOpen false → pass-through).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MenuOpenSuppressPatch));
+            // §2L.12 (card t_f7a5ad53, re-report ticket-cursor-captive-modals): the REAL cursor fix —
+            // postfix ZInput.IsMouseActive() → true while AnyOpen so vanilla's own event-driven
+            // UpdateCursor computes lockState=None (no Input-System center-snap) even when Steam Input
+            // presents a virtual gamepad that keeps grabbing the input source. Works WITH the engine
+            // instead of racing it like the per-frame CursorPumpPatch. §2L.13 (card t_a1cf35b0): a
+            // skip-original prefix on InventoryGui.Show(Container,int) gated on AnyOpen, so the
+            // Inventory hotkey can't pop the inventory over an SBPR modal (the toggle is read in
+            // InventoryGui.Update, not Player.TakeInput, so the TakeInput block never gated it). Two
+            // more nested SignPanelInputBlock containers — MUST be registered here or they ship dead
+            // and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MouseActiveForcePatch));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.InventoryOpenSuppressPatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content
             // actually craftable/buildable on a joined client (task
