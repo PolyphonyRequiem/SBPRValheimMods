@@ -223,10 +223,11 @@ iron one."** The bezel is drawn by `EnsureBezelTexture` (`MapSurface.cs:1315-136
 helper (`:1335-1336`), bronze constant `new Color(0.62f, 0.55f, 0.42f, 1f)` (`:1339`
 🔵). The N glyph rides at `r ≈ holeR` (on/just inside the iron band).
 
-🔵 **Clear of the Sunstone threat zone by construction.** The twin quantified threats
-landing within the inner ~48 % (~48 px) of the 200 px disc; the compass N at ~94 px
-radius never collides with a Sunstone blip. The two overlays are spatially disjoint —
-clean co-existence (§5).
+🔵 **Clear of the Sunstone threat zone — but the margin narrowed at 50 m detect.** The twin quantified threats
+landing within the inner ~80 % (~80 px) of the 200 px disc; the compass N at ~94 px
+radius still clears a worst-case Sunstone blip (a ~14 px margin, down from ~46 px under the
+old 30 m radius). The two overlays remain spatially disjoint — co-existence holds (§5), though
+the margin is now modest; worth an in-game eye that a max-range blip near the N bearing doesn't read as cluttered.
 
 > 🔴 **Parent split — the load-bearing impl subtlety.** The **bezel is a child of the
 > NON-rotating `_frame`** (`MapSurface.cs:1446` 🔵), so it never spins — correct for
@@ -338,7 +339,7 @@ The two cards carry **opposite** north-invariants:
 The features never conflict because **north is never a property of the surface** — it
 is a property of the **compass**, drawn on the surface only when worn. Sunstone-on-disc
 and Compass-on-disc can both be active at once (worn compass + worn lens + bound
-disc): the lens contributes world-blips in the inner ~48 %, the compass contributes
+disc): the lens contributes world-blips in the inner ~80 %, the compass contributes
 one N glyph at the bezel radius (§3.3), spatially disjoint, neither contaminating the
 other's invariant.
 

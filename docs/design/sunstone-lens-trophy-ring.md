@@ -195,7 +195,7 @@ t = 1 - Clamp01(distance / DetectRadius)     // 1 at the player, 0 at the edge o
 scale = Lerp(RingIconMinPx, RingIconMaxPx, t)  // far = small, near = big
 ```
 
-`DetectRadius` is the existing `Plugin.LensDetectRadius` (default 30m). `RingIconMinPx` /
+`DetectRadius` is the existing `Plugin.LensDetectRadius` (default 50m). `RingIconMinPx` /
 `RingIconMaxPx` are config (defaults ~28px / ~64px). A creature right on top of you renders at
 max size; one at the detection edge renders at min size. Set the slot `Image`'s
 `rectTransform.sizeDelta = (scale, scale)`. (Optional polish, config-flagged: a slight alpha
