@@ -234,6 +234,125 @@ namespace SBPR.Trailborne.Features.Signs
             }
         }
 
+        // ════════════════════════════════════════════════════════════════════════════════════
+        // §2L.14 (ticket-cursor-lock-map-sign, card t_cad2c6f3): the SOURCE-INDEPENDENT cursor
+        // assert + a diagnostic probe. THE THIRD report of this family — and the forensic reason
+        // the §2L.12 fix above did NOT stick for Daniel.
+        //
+        // WHY §2L.12 MISSES DANIEL'S RIG (decompile-grounded, RequiemPrime logs 2026-06-22):
+        // MouseActiveForcePatch makes vanilla's OWN UpdateCursor compute lockState=None — but both
+        // UpdateCursor sites (Menu :45815, FejdStartup :83089) are EVENT-DRIVEN on
+        // ZInput.OnInputLayoutChanged; they fire ONLY when the active input SOURCE flips. On a box
+        // with Steam-Input's drifting VIRTUAL gamepad the source flips every frame → UpdateCursor
+        // fires every frame → the fix rides that churn (works). On Daniel's KB+M box there is NO
+        // gamepad at all (verified: no /dev/input/js*, no controller, Steam Input off) → the source
+        // NEVER flips while the modal is open → UpdateCursor never runs → the forced IsMouseActive
+        // is never read → the cursor is never recomputed to free. §2L.12 is parasitic on churn that
+        // is ABSENT here; he is the exact case it does not cover.
+        //
+        // WHY THE OLD PUMP (CursorPumpPatch on GameCamera.LateUpdate) ALSO LOSES: Unity's
+        // InputSystemUIInputModule.ProcessPointer center-snaps the pointer whenever it reads
+        // lockState==Locked, and it runs in the UPDATE phase — BEFORE GameCamera.LateUpdate. So the
+        // LateUpdate pump writes None one frame too late: the snap has already read Locked this frame.
+        //
+        // THE FIX (source-independent — does not depend on ANY input source or churn): a dedicated
+        // MonoBehaviour that asserts lockState=None + visible=true in BOTH Update() AND LateUpdate()
+        // every frame AnyOpen is true. The Update() assert runs early enough that ProcessPointer reads
+        // None (no snap); the LateUpdate() assert re-affirms after vanilla's camera pass. This is the
+        // belt the §2L.12 patch's "belt-and-suspenders pump" was supposed to be, moved to the phase
+        // that actually beats the snap, and decoupled from the gamepad-churn assumption entirely.
+        // Kept ALONGSIDE MouseActiveForcePatch (which still helps the virtual-pad case) — together they
+        // cover both rigs. Server-safe: Hud.Awake only runs on a client (no Hud on the dedicated
+        // server), and AnyOpen is always false there regardless.
+        //
+        // THE DIAGNOSTIC (gated on the SBPR_CursorDiag config flag, default ON in this build): every
+        // ~30 frames while AnyOpen, log the INCOMING lockState (the money read — Locked at entry proves
+        // something re-locks per-frame [H1/H2]; None at entry while Daniel still reports lock would be
+        // H3, a snap-without-lockState), the raw vs forced IsMouseActive, and each contributor's open
+        // flag. This turns the next client repro into ground-truth instead of a fourth guess.
+        // ════════════════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Bootstraps <see cref="ModalCursorDriver"/> onto the Hud the moment it awakes on a client.
+        /// Hud.Awake is a clean every-client-start seam (never runs on the dedicated server → the
+        /// whole driver is client-only, no server guard needed). Registered in Plugin.Awake; if you
+        /// forget, PatchCheck ERRORs at boot (the t_564f695a lesson).
+        /// </summary>
+        [HarmonyPatch(typeof(Hud), "Awake")]
+        public static class ModalCursorDriverBootstrapPatch
+        {
+            [HarmonyPostfix]
+            private static void Postfix(Hud __instance)
+            {
+                if (__instance == null) return;
+                // One driver for the whole session. Attached to the Hud GameObject so it lives and
+                // dies with the in-world HUD (gone on the main menu, back on world load).
+                if (__instance.gameObject.GetComponent<ModalCursorDriver>() == null)
+                    __instance.gameObject.AddComponent<ModalCursorDriver>();
+            }
+        }
+
+        /// <summary>
+        /// The source-independent per-frame cursor assert + the §2L.14 diagnostic probe. Asserts a
+        /// free, visible cursor in BOTH Update (early enough to beat ProcessPointer's center-snap)
+        /// and LateUpdate (re-affirm after the camera pass) every frame any SBPR modal is open, and
+        /// restores the gameplay lock exactly once on the close edge. Pure client component.
+        /// </summary>
+        public sealed class ModalCursorDriver : MonoBehaviour
+        {
+            private bool _wasOpenLocal;
+            private int _frame;
+
+            private void Update()
+            {
+                bool open = AnyOpen;
+
+                if (open)
+                {
+                    // DIAGNOSTIC: capture the INCOMING lockState BEFORE we overwrite it — this is the
+                    // decisive read. Locked-at-entry every frame ⇒ a per-frame re-locker (H1/H2);
+                    // None-at-entry while Daniel still sees a captured cursor ⇒ a snap that ignores
+                    // lockState (H3). Throttled to ~every 30 frames to keep the log readable.
+                    if ((Plugin.CursorDiag?.Value ?? false) && (_frame++ % 30 == 0))
+                    {
+                        Plugin.Log.LogInfo(
+                            "[Trailborne/CursorDiag] AnyOpen=true incomingLockState=" + Cursor.lockState
+                            + " incomingVisible=" + Cursor.visible
+                            + " rawIsMouseActive=" + ZInput.IsMouseActive()
+                            + " | paint=" + SignPaintPanel.IsOpen
+                            + " marker=" + MarkerSignPanel.IsOpen
+                            + " viewer=" + SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen);
+                    }
+
+                    // The fix: assert a free cursor in the UPDATE phase so ProcessPointer (also Update
+                    // phase, runs after this) reads None and does NOT center-snap. Source-independent —
+                    // no dependency on input-source churn or the event-driven UpdateCursor firing.
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                    _wasOpenLocal = true;
+                }
+                else if (_wasOpenLocal)
+                {
+                    // Close edge (true→false): hand the cursor back to gameplay exactly once.
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                    _wasOpenLocal = false;
+                    _frame = 0;
+                }
+            }
+
+            private void LateUpdate()
+            {
+                // Re-affirm after vanilla's camera/UI pass — cheap insurance the Update-phase write
+                // wasn't clobbered later in the frame. No diagnostic here (Update owns the logging).
+                if (AnyOpen)
+                {
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
+            }
+        }
+
         // §2L.13 (card t_a1cf35b0, sibling of the cursor fix): the Inventory hotkey must NOT open the
         // inventory while an SBPR modal owns the screen. The toggle is read inside InventoryGui.Update
         // (assembly_valheim :41458 → Show(null)), NOT through Player.TakeInput, so the TakeInput block

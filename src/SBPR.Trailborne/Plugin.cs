@@ -163,6 +163,14 @@ namespace SBPR.Trailborne
         // M1→M2 split so Daniel sees the full knob set at once.
         internal static ConfigEntry<bool>? CompassAutoNorthUp = null;
 
+        // §2L.14 (ticket-cursor-lock-map-sign, card t_cad2c6f3): diagnostic toggle for the modal
+        // cursor-free path. When true, ModalCursorDriver.Update logs the INCOMING Cursor.lockState +
+        // raw IsMouseActive + per-contributor open flags every ~30 frames while a modal is open — the
+        // ground-truth probe that localizes WHY the cursor re-locks on a KB+M box (this bug has
+        // shipped-dead twice on seam guesses; this flag makes the next client repro decisive). Default
+        // ON in this diagnostic build; flip to false (cheap) once the fix is confirmed in-game.
+        internal static ConfigEntry<bool>? CursorDiag = null;
+
         private void Awake()
         {
             Log = Logger;
@@ -176,6 +184,16 @@ namespace SBPR.Trailborne
                 "When true, Shift+E on a pristine cairn (≥75% HP) drops it to 70% HP so the repair/upgrade combo " +
                 "gesture is exercisable without waiting for natural decay. v0.1.0 playtest aid. Flip false (or " +
                 "remove this section) once decay tuning lands.");
+
+            CursorDiag = Config.Bind(
+                "Debug",
+                "SBPR_CursorDiag",
+                true,
+                "When true, logs the modal cursor-free diagnostic (§2L.14, ticket-cursor-lock-map-sign): every " +
+                "~30 frames while an SBPR map/sign modal is open, the INCOMING Cursor.lockState + raw IsMouseActive " +
+                "+ per-contributor open flags are written to the BepInEx log. Localizes WHY the cursor re-locks on " +
+                "a keyboard+mouse box. Default ON in this diagnostic build; flip false once the fix is confirmed " +
+                "in-game (it's a pure logging gate — the cursor FIX runs regardless of this flag).");
 
             CairnDecayHpPerDay = Config.Bind(
                 "Cairns",
@@ -608,6 +626,13 @@ namespace SBPR.Trailborne
             // more nested SignPanelInputBlock containers — MUST be registered here or they ship dead
             // and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MouseActiveForcePatch));
+            // §2L.14 (ticket-cursor-lock-map-sign, card t_cad2c6f3): source-independent cursor assert +
+            // diagnostic. Bootstraps ModalCursorDriver onto the Hud (Hud.Awake postfix) — a client-only
+            // every-frame Update+LateUpdate cursor-free assert that does NOT depend on input-source churn,
+            // fixing the KB+M case §2L.12 (gamepad-churn-parasitic) misses. MUST be registered here or it
+            // ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson). Never
+            // fires on the dedicated server (no Hud there).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.ModalCursorDriverBootstrapPatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.InventoryOpenSuppressPatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content
