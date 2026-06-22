@@ -74,9 +74,13 @@ namespace SBPR.Trailborne.Runtime
             },
             // Single Painted Sign (§A2.6, re-lock 2026-06-05): ONE buildable piece,
             // placed UNPAINTED, then painted via the combined Paint+Text panel which
-            // consumes one pigment per filled color slot (text + optional border) at
-            // paint time. Pigment is NOT a build ingredient — the build recipe stays
-            // Wood x2. This replaced the four tinted sign buildables (each Wood + ink).
+            // consumes one pigment per CHANGED color slot (delta vs the sign's current
+            // ZDO color — §A2.6 per-changed, LOCKED Daniel 2026-06-21 / card t_6df12ca8;
+            // unchanged slots + clears free) at paint time. Pigment is NOT a build
+            // ingredient — the build recipe stays Wood x2. This replaced the four tinted
+            // sign buildables (each Wood + ink). NOTE: this manifest asserts only the
+            // BUILD recipe (Wood x2); the consume-cost rule is enforced by SignPaintDelta
+            // + tests/SignPaintDeltaTests.cs, not by a SpecCheck runtime assert.
             new RecipeSpec {
                 Piece = "piece_sbpr_sign", Station = null,
                 Resources = new[] { R("Wood", 2) }
