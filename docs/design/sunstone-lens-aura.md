@@ -23,6 +23,24 @@ graduated_to: "docs/v3/planning/sunstone-lens-aura-impl-spec.md (the buildable s
 > (PR #226). Read §3 first if you read only one section — it's the insight that
 > turns five "open" knobs into two grounded + three eyeball calls.
 
+> 🐛 **PARTIAL SUPERSESSION (card `t_2d500d45`, Daniel `/bug`, 2026-06-22).** Daniel
+> reported the no-minimap "ring" as *"just a screen space circle, not a 3d slowly
+> pulsing 'sun corona' disc like we discussed."* That **redirects this card's
+> flat-pulse half**: the no-minimap pulsing art is now a **world-space 3D sun-corona
+> disc**, NOT an animated flat `_emptyRing`. The buildable spec is
+> [`../v3/planning/sunstone-lens-corona-impl-spec.md`](../v3/planning/sunstone-lens-corona-impl-spec.md).
+>
+> - **§0–§5 below (pulse the FLAT `_emptyRing` for the no-minimap home) → SUPERSEDED**
+>   by the 3D corona. The screen-space annulus is removed, not animated.
+> - **The MINIMAP-RIM RE-HOMING half (§3 / §7 AT-AURA-MINIMAP-RIM / AT-AURA-FOLLOWS-
+>   DETECTION) → PARKED, still a live proposal.** Drawing the lens aura on a *minimap
+>   surface* (vanilla corner-map rim / carry-disc bezel) when a minimap owns detection
+>   is a **different surface and a different concern** (the §2 disc-bezel colour
+>   collision) — it is **NOT built by `t_2d500d45`** and was **not blocked on it**.
+>   Per Daniel it is **conditional on him still wanting the aura on a minimap surface**;
+>   if he confirms, cut a fresh `engineer-ui` card then. This doc stays `proposed` for
+>   that parked half.
+
 Daniel's idea, verbatim (2026-06-21, via `/bug`, ticket `ticket-sunstone-lens-aura`):
 
 > "when the lens is equipped, a faint golden aura should be present pulsing around
