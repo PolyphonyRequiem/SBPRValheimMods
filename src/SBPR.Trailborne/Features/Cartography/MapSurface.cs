@@ -1727,6 +1727,25 @@ namespace SBPR.Trailborne.Features.Cartography
             _northLayer.pivot = new Vector2(0.5f, 0.5f);
             _northLayer.sizeDelta = Vector2.zero;
 
+            // 🔴 Z-ORDER (card t_3f7f3a0f): lift the N + ticks IN FRONT of the iron bezel. The layer is parented
+            // under _mapContainer (sibling 0 of _frame) while _bezel is sibling 1, so by uGUI's depth-first
+            // sibling paint order the ENTIRE _mapContainer subtree — this layer included — draws BENEATH the
+            // bezel and the iron band occludes the N. We can't fix it by reordering siblings (the map image
+            // MUST stay below the bezel, which hard-alpha-clips the map edge at :1527) and we won't reparent
+            // the N off _mapContainer (that's the orbit-for-free idiom documented above). Instead give
+            // _northLayer its OWN nested Canvas with overrideSorting and a sortingOrder one above THIS surface's
+            // canvas: it lifts only the N + ticks above the bezel while everything else stays put, and the
+            // layer keeps riding _mapContainer's +rotZ (a Canvas component does not decouple transform
+            // inheritance), so the orbit and the per-child −rotZ counter-rotation are completely unchanged.
+            // 🔴 RELATIVE order (_cfg.SortingOrder + 1), NOT a hardcoded 5000: the disc's N (3000+1) must still
+            // sort BELOW the modal surface (5000) when both exist, otherwise a global value would punch the
+            // disc N through the modal. Precedent: the surface canvas sorts at _cfg.SortingOrder (:1465);
+            // SignPaintPanel.cs:201 / MarkerSignPanel.cs:175 use sortingOrder to layer overlay UI. Every glyph
+            // is raycastTarget=false (MakeNorthLabel), so this passive overlay needs no GraphicRaycaster.
+            var northCanvas = layerGo.AddComponent<Canvas>();
+            northCanvas.overrideSorting = true;
+            northCanvas.sortingOrder = _cfg.SortingOrder + 1;
+
             // Radius = the bezel hole (on/just inside the iron band). Bound to the helper, never a literal.
             float r = DiscRingGeometry.HoleRadius(_cfg.TargetPx);
             float glyphPx = Mathf.Max(10f, r * NorthGlyphFontFrac);
