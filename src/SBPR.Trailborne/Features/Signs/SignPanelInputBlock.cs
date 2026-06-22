@@ -273,11 +273,17 @@ namespace SBPR.Trailborne.Features.Signs
         // cover both rigs. Server-safe: Hud.Awake only runs on a client (no Hud on the dedicated
         // server), and AnyOpen is always false there regardless.
         //
+        // §2L.15 UPDATE: the §2L.14 diag build's first client test (RequiemPrime 2026-06-22) showed
+        // this per-frame MonoBehaviour assert wins ~2/3 of frames but a re-locker still beats it ~1/3.
+        // The decisive fix is MenuUpdateCursorForcePatch below (a direct postfix on the method that
+        // writes lockState). This driver is KEPT as the belt-and-suspenders layer + the diag host.
+        //
         // THE DIAGNOSTIC (gated on the SBPR_CursorDiag config flag, default ON in this build): every
-        // ~30 frames while AnyOpen, log the INCOMING lockState (the money read — Locked at entry proves
-        // something re-locks per-frame [H1/H2]; None at entry while Daniel still reports lock would be
-        // H3, a snap-without-lockState), the raw vs forced IsMouseActive, and each contributor's open
-        // flag. This turns the next client repro into ground-truth instead of a fourth guess.
+        // ~30 frames while AnyOpen, log the INCOMING lockState, the raw IsMouseActive (NOTE: contaminated
+        // by MouseActiveForcePatch — reads true while open), the UNCONTAMINATED gamepadActive source
+        // signal, the count of Menu.UpdateCursor fires since the last line (high ⇒ event-driven re-lock
+        // churn; zero ⇒ the Locked frames come from a native/non-managed seam), and each contributor's
+        // open flag. This turns the next client repro into ground-truth instead of a guess.
         // ════════════════════════════════════════════════════════════════════════════════════
 
         /// <summary>
@@ -318,18 +324,21 @@ namespace SBPR.Trailborne.Features.Signs
                 if (open)
                 {
                     // DIAGNOSTIC: capture the INCOMING lockState BEFORE we overwrite it — this is the
-                    // decisive read. Locked-at-entry every frame ⇒ a per-frame re-locker (H1/H2);
-                    // None-at-entry while Daniel still sees a captured cursor ⇒ a snap that ignores
-                    // lockState (H3). Throttled to ~every 30 frames to keep the log readable.
+                    // decisive read. Locked-at-entry ⇒ something re-locked since last frame; None-at-entry
+                    // ⇒ our asserts are holding. The updateCursorFires count + gamepadActive disambiguate
+                    // WHICH re-locker. Throttled to ~every 30 frames to keep the log readable.
                     if ((Plugin.CursorDiag?.Value ?? false) && (_frame++ % 30 == 0))
                     {
                         Plugin.Log.LogInfo(
                             "[Trailborne/CursorDiag] AnyOpen=true incomingLockState=" + Cursor.lockState
                             + " incomingVisible=" + Cursor.visible
                             + " rawIsMouseActive=" + ZInput.IsMouseActive()
+                            + " gamepadActive=" + ZInput.GamepadActive
+                            + " updateCursorFires=" + MenuUpdateCursorForcePatch.FireCount
                             + " | paint=" + SignPaintPanel.IsOpen
                             + " marker=" + MarkerSignPanel.IsOpen
                             + " viewer=" + SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen);
+                        MenuUpdateCursorForcePatch.FireCount = 0;
                     }
 
                     // The fix: assert a free cursor in the UPDATE phase so ProcessPointer (also Update
@@ -358,6 +367,49 @@ namespace SBPR.Trailborne.Features.Signs
                     Cursor.lockState = CursorLockMode.None;
                     Cursor.visible = true;
                 }
+            }
+        }
+
+        // §2L.15 (ticket-cursor-lock-map-sign, card t_cad2c6f3 — FOLLOW-UP after the §2L.14 diag
+        // build's first client test): the DIRECT, inlining-immune fix for the re-lock that §2L.12's
+        // indirect IsMouseActive force could not stop.
+        //
+        // WHAT THE §2L.14 DIAG PROVED (RequiemPrime, 2026-06-22): with the per-frame ModalCursorDriver
+        // running, the cursor reads None on ~2/3 of frames but STILL flips to Locked on ~1/3 — every
+        // such Locked frame snaps the cursor to centre, so it still reads as "locked." A full scan of
+        // BOTH game assemblies (assembly_valheim + assembly_utils/ZInput) confirms the ONLY managed
+        // writers of lockState=Locked during play are Menu.UpdateCursor (:45815) and
+        // FejdStartup.UpdateCursor (:83089, start-screen only). §2L.12 forces ZInput.IsMouseActive()
+        // → true so UpdateCursor *should* compute None — yet Locked still gets through. The signature
+        // of that is INLINING: IsMouseActive (a tiny assembly_utils method) is inlined into
+        // UpdateCursor, so the Harmony detour on the standalone IsMouseActive never executes at that
+        // call site (the exact class of failure that killed the old UpdateMouseCapture seam, §2L).
+        //
+        // THE FIX: postfix Menu.UpdateCursor itself and force lockState=None + visible=true when a
+        // modal is open. This patches the METHOD THAT WRITES lockState, so it's immune to whether
+        // IsMouseActive was inlined — whatever UpdateCursor computed, we overwrite it. UpdateCursor is
+        // GUARANTEED non-inlined and patchable because vanilla references it as a delegate
+        // (`ZInput.OnInputLayoutChanged += UpdateCursor`, :81810) — you cannot take a delegate to an
+        // inlined body, so a real method body must exist. Server-safe: Menu only exists on a client,
+        // and AnyOpen is always false on the dedicated server regardless.
+        [HarmonyPatch(typeof(Menu), "UpdateCursor")]
+        public static class MenuUpdateCursorForcePatch
+        {
+            // Diagnostic counter: how many times UpdateCursor fired since the last CursorDiag line.
+            // A high count while a modal is open = vanilla's event-driven re-lock is the culprit
+            // (something is flickering OnInputLayoutChanged). Zero = the Locked frames come from
+            // elsewhere (native Input System) and need a different seam.
+            internal static int FireCount;
+
+            [HarmonyPostfix]
+            private static void Postfix()
+            {
+                if (!AnyOpen) return;
+                FireCount++;
+                // Overwrite whatever UpdateCursor just computed — free, visible cursor while a modal
+                // owns the screen, regardless of the (possibly inlined) IsMouseActive it read.
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
             }
         }
 

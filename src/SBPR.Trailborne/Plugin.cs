@@ -633,6 +633,13 @@ namespace SBPR.Trailborne
             // ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson). Never
             // fires on the dedicated server (no Hud there).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.ModalCursorDriverBootstrapPatch));
+            // §2L.15 (ticket-cursor-lock-map-sign, card t_cad2c6f3): the DIRECT inlining-immune cursor
+            // fix. Postfix on Menu.UpdateCursor (the method that actually writes lockState) forces the
+            // cursor free while a modal is open — immune to whether the §2L.12 IsMouseActive force was
+            // inlined away (which the §2L.14 diag build proved it was: cursor still flipped Locked ~1/3
+            // of frames). MUST be registered here or it ships dead and PatchCheck ERRORs at boot (the
+            // t_564f695a unregistered-patch lesson). Never fires on the dedicated server (no Menu).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MenuUpdateCursorForcePatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.InventoryOpenSuppressPatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content
