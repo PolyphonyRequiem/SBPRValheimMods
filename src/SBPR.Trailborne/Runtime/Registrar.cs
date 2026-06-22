@@ -93,6 +93,15 @@ namespace SBPR.Trailborne.Runtime
                 // SBPR prefab — placement here just keeps the exploration tools together.
                 IronCompass.RegisterPrefabs(__instance);
 
+                // v3 Swamp — Sunstone Lens trophy-less startup DUMP (card t_d17d9b58 Knob #3c). Default ON.
+                // After ALL RegisterPrefabs above so the full creature catalog (vanilla + any SBPR creatures)
+                // is present in ZNetScene.m_prefabs. Enumerates every Character prefab, resolves each to
+                // (own trophy | remap-sibling | none), and logs the unmapped set as ONE reviewable block so
+                // Daniel can grow SunstoneProjection._trophyRemap. Purely diagnostic; idempotent (runs once
+                // per session). Gated on the config flag (default true).
+                if (Plugin.LensDumpUnmappedCreatures?.Value ?? SunstoneProjection.DefaultDumpUnmappedCreatures)
+                    SunstoneProjection.DumpUnmappedCreatures();
+
                 znetSceneDone = true;
                 Plugin.Log.LogInfo("[Trailborne] ZNetScene registration complete.");
 

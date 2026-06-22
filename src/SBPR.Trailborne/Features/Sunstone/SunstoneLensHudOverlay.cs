@@ -1,37 +1,40 @@
 // ============================================================================
-//  Trailborne v3 (Swamp) — Sunstone Lens HUD overlay (the trophy-ring detection surface)
+//  Trailborne v3 (Swamp) — Sunstone Lens HUD overlay (the detection pump + empty-state surface)
 // ----------------------------------------------------------------------------
-//  Design   : docs/design/sunstone-lens-trophy-ring.md (card t_b8a19487, Daniel 2026-06-18/19)
-//  Impl spec: docs/v3/planning/sunstone-lens-impl-spec.md §4-§5 (render SUPERSEDED by the ring)
-//  Mechanic : SunstoneLens.GatherHostiles (unchanged — this file only RENDERS the result)
+//  Design   : docs/design/sunstone-lens-trophy-ring.md (card t_68672b6b → t_d17d9b58, world-space)
+//  Impl spec: docs/v3/planning/sunstone-lens-impl-spec.md §4-§5 (render → the world halo)
+//  Mechanic : SunstoneLens.GatherHostiles (unchanged — this file PUMPS the sweep + drives surfaces)
 //
-//  The render surface for the Sunstone Lens' monster detection: a screen-space,
-//  camera-relative RING of creature TROPHIES around the player. Replaces the old
-//  bottom-center text placeholder (which survives only as an optional debug readout).
-//  This is the real design Daniel locked:
-//    • Per detected hostile → its TROPHY sprite (read from the creature's CharacterDrop),
-//      placed on a fixed-radius ring at the camera-relative BEARING to that enemy.
-//    • Trophy SIZE ∝ proximity (near = big, far = small); the ring RADIUS is fixed.
-//    • Star pips above the trophy for star-level enemies — using the REAL vanilla
-//      nameplate star art harvested from EnemyHud (Daniel 2026-06-19).
-//    • Aggro-state COLOUR tint (the "Rune of Awareness" element, Daniel 2026-06-19):
-//      yellow = idle/alerted, orange = aggroed on another player, red = aggroed on YOU.
-//      Reproduced from vanilla BaseAI primitives (IsAlerted / GetTargetCreature).
-//    • Empty (worn+charged, nothing near) → a faint SOLAR RING outline (Daniel).
-//    • Depleted (charge < MinChargeToDetect) or not worn → ring off.
+//  This MonoBehaviour is the client-only detection PUMP + lifecycle owner. Mounted once under
+//  Hud.m_rootObject by HudBootstrap; its Update() runs the throttled hostile sweep, derives the
+//  shared ThreatBlips (SunstoneProjection), resolves the minimap-handoff plan, and drives whichever
+//  surface owns detection this tick. The standalone (no-minimap) render surface is the WORLD-SPACE
+//  eidetic trophy halo (SunstoneWorldRing) — a head-centric halo of billboarded creature trophies
+//  floating in the 3D world at their real bearings (variable radius+scale ∝ distance, vanilla star
+//  pips, aggro tint). The earlier screen-space camera-relative radar is SUPERSEDED (card t_68672b6b).
 //
-//  Client-only by construction: Hud.Awake never fires on the dedicated server (no Hud),
-//  and Character.GetAllCharacters / Player.m_localPlayer / EnemyHud.instance are client
-//  concerns. Everything here is cosmetic — it reads game state, never writes it.
+//  What this file still draws directly (screen-space, under Hud.m_rootObject):
+//    • the faint SOLAR RING empty-state affordance (design §1.6 — "either surface is acceptable"
+//      for the empty cue; kept screen-space as the lower-risk choice),
+//    • the optional legacy debug text readout (Sunstone.DebugTextReadout, default off).
+//  The threat TROPHIES are delegated to SunstoneWorldRing (world space, its own scene root).
 //
-//  Clean-side (ADR-0001): reads base-game Hud/Player/Character/CharacterDrop/BaseAI/
-//  EnemyHud/GameCamera only; the uGUI surface is our own (the MapViewer / Iron Compass
-//  idiom this repo already ships). No vanilla UI cloned, no third-party mod code read —
-//  the Rune-of-Awareness *behaviour* is reproduced from vanilla primitives only.
-//  ADR-0006: the ring + trophy + star Images are built additively (new GameObject +
-//  AddComponent); reusing the trophy/star SPRITES is reading an asset, not cloning.
+//  🔴 #209 invariant (t_d5949685 / PR #208): SetVisible toggles a _content CHILD, NEVER the host
+//  GameObject — the host carries THIS Update pump, and the minimap surfaces' detection feed depends
+//  on it staying alive. The world halo's slot objects live in WORLD space (NOT under Hud.m_rootObject);
+//  only the visuals move, the pump stays.
 //
-//  logs-green ≠ playable — Daniel verifies AT-LENS-RING-* in-game.
+//  Client-only by construction: Hud.Awake never fires on the dedicated server (no Hud), and
+//  Character.GetAllCharacters / Player.m_localPlayer / EnemyHud.instance are client concerns.
+//  Everything here is cosmetic — it reads game state, never writes it.
+//
+//  Clean-side (ADR-0001): reads base-game Hud/Player/Character/CharacterDrop/BaseAI/EnemyHud/
+//  GameCamera/Billboard only; the uGUI surface is our own. No vanilla UI cloned, no third-party mod
+//  code read — the Rune-of-Awareness behaviour is reproduced from vanilla primitives only. ADR-0006:
+//  every world slot + the solar ring are built additively (new GameObject + AddComponent); reusing
+//  the trophy/star SPRITES is reading an asset, not cloning.
+//
+//  logs-green ≠ playable — Daniel verifies AT-EIDETIC-* in-game on a GPU client.
 // ============================================================================
 
 using System.Collections.Generic;
@@ -49,34 +52,42 @@ namespace SBPR.Trailborne.Features.Sunstone
     /// </summary>
     public class SunstoneLensHudOverlay : MonoBehaviour
     {
-        // ── Ring render tuning (single source of truth; Plugin binds ConfigEntry mirrors so Daniel
-        //    converges feel on a joined client without a rebuild — the banner-windsock pattern). ──
-        public const float DefaultRingRadiusPx     = 180f;  // fixed screen-space ring radius
-        public const float DefaultRingCenterOffsetY = 0f;   // nudge ring centre up/down from screen centre
-        public const float DefaultRingIconMinPx    = 28f;   // trophy size at the edge of detection range
-        public const float DefaultRingIconMaxPx    = 64f;   // trophy size right on top of the player
-        public const int   DefaultRingMaxIcons     = 12;    // cap so a horde doesn't spawn 80 images
+        // ── Empty-state solar-ring + readout tuning (single source of truth; Plugin binds ConfigEntry
+        //    mirrors so Daniel converges feel on a joined client without a rebuild — the banner-windsock
+        //    pattern). The screen-space ring-geometry knobs (RingRadiusPx/CenterOffsetY/IconMin/Max) are
+        //    REMOVED with the screen radar — the trophy halo is now world-space (SunstoneWorldRing, the
+        //    Halo* knobs). The faint solar ring stays a screen-space empty-state affordance (design §1.6
+        //    engineer's escape hatch: "an empty-state cue, not a threat marker, so either surface is
+        //    acceptable") at a fixed size — no live knob, it's a minor affordance. ──
+        public const int   DefaultRingMaxIcons     = 12;    // cap so a horde doesn't spawn 80 slots (carried)
         public const bool  DefaultShowEmptyRing    = true;  // faint solar ring when worn+charged-but-clear (Daniel)
-        public const bool  DefaultShowDepletedHint = false; // ring fully off when depleted (Daniel)
+        public const bool  DefaultShowDepletedHint = false; // halo + ring fully off when depleted (Daniel)
         public const bool  DefaultDebugTextReadout = false; // legacy text line, debug aid only
 
-        public const bool  DefaultDebugMount = true;  // diagnostic cut (t_d5949685): emit mount/wear LogInfo. Bake to false once the ring is confirmed rendering in-game.
+        public const bool  DefaultDebugMount = true;  // diagnostic cut (t_d5949685): emit mount/wear LogInfo. Bake to false once the halo is confirmed rendering in-game.
+
+        // Fixed screen-space radius (px) of the faint solar empty-state ring (replaces the removed
+        // live RingRadiusPx — the ring is an ambient "lens is live" cue, not a tunable threat surface).
+        private const float SolarRingRadiusPx = 140f;
 
         private static SunstoneLensHudOverlay? _instance;
 
         private RectTransform? _root;       // the host — ALWAYS ACTIVE (carries this MonoBehaviour's Update pump)
         private RectTransform? _content;    // the visibility child — toggled by SetVisible (NEVER the host; see SetVisible)
-        private Image? _emptyRing;          // the faint solar ring outline (empty / substrate)
+        private Image? _emptyRing;          // the faint solar ring outline (empty / substrate) — SCREEN-space affordance
         private Text?  _debugText;          // optional legacy "⚠ N · nearest Xm · charge Y%" readout
         private bool   _loggedFirstShow;    // diagnostic: log once on the first visible frame
+
+        // ── The WORLD-SPACE eidetic trophy halo (card t_d17d9b58). The standalone (no-minimap) render
+        //    surface: a head-centric halo of billboarded creature trophies floating in the 3D world at
+        //    their real bearings. Owned here (this MonoBehaviour is the single Update pump, #209), but
+        //    its slot objects live in WORLD space (its own scene root), NOT under Hud.m_rootObject. ──
+        private readonly SunstoneWorldRing _worldRing = new SunstoneWorldRing();
 
         // Diagnostic-logging gate (t_d5949685). Reads the live Plugin config when present (so Daniel can
         // flip it in a joined session), else the Default* const — the no-Plugin-context fallback idiom.
         // internal so the sibling HudBootstrap (mount log) can share the one gate.
         internal static bool DebugMount => Plugin.LensRingDebugMount?.Value ?? DefaultDebugMount;
-
-        // Pooled per-hostile ring slots (reused across sweeps — never create/destroy per frame).
-        private readonly List<Slot> _slots = new List<Slot>();
 
         // Reused across sweeps to avoid per-frame allocations.
         private readonly List<Character> _hostiles = new List<Character>();
@@ -101,18 +112,7 @@ namespace SBPR.Trailborne.Features.Sunstone
         private static readonly Color CSolarRing = new Color(0.98f, 0.78f, 0.36f, 0.18f);
 
         // ── Static caches (resolved once, reused). ──
-        private static Sprite? _ringSprite;        // procedurally generated annulus
-
-        /// <summary>A single pooled ring slot: a trophy Image plus a row of star pips.</summary>
-        private sealed class Slot
-        {
-            public GameObject Go = null!;
-            public RectTransform Rt = null!;
-            public Image Trophy = null!;
-            public RectTransform StarRow = null!;
-            public readonly List<Image> Pips = new List<Image>();
-            public Text? PipText;   // Unicode-★ fallback when no vanilla star sprite resolved
-        }
+        private static Sprite? _ringSprite;        // procedurally generated annulus (the faint solar ring)
 
         /// <summary>Idempotently build the overlay under the given Hud root.</summary>
         public static void EnsureBuilt(GameObject hudRoot)
@@ -129,19 +129,19 @@ namespace SBPR.Trailborne.Features.Sunstone
         private void Build()
         {
             _root = gameObject.AddComponent<RectTransform>();
-            // Centre on screen (camera-relative radar). Anchored centre so it scales with the canvas.
+            // Centre on screen — the host carries the faint solar empty-state ring + optional debug text.
+            // (The threat trophies now live in WORLD space, in SunstoneWorldRing, NOT on this canvas.)
             _root.anchorMin = new Vector2(0.5f, 0.5f);
             _root.anchorMax = new Vector2(0.5f, 0.5f);
             _root.pivot     = new Vector2(0.5f, 0.5f);
-            float offY = Plugin.LensRingCenterOffsetY?.Value ?? DefaultRingCenterOffsetY;
-            _root.anchoredPosition = new Vector2(0f, offY);
+            _root.anchoredPosition = Vector2.zero;
             _root.sizeDelta = new Vector2(2f, 2f); // children are absolutely placed; root is a pivot
 
             // ── Visibility container (the t_d5949685 fix): the host GameObject (_root) carries THIS
             //    MonoBehaviour, so it MUST stay active or Unity stops calling Update() — and Update()
             //    is the only thing that ever un-hides the overlay. So visibility toggles a CHILD
             //    (_content), never the host. _content is a centred pivot coincident with _root, so the
-            //    absolute anchoredPositions of every child (ring/slots/text) are unchanged. (Before this
+            //    absolute anchoredPositions of every child (solar ring/text) are unchanged. (Before this
             //    fix, SetVisible(false) at the end of Build() deactivated the host, freezing the Update
             //    pump dead → the overlay rendered NOTHING forever, worn/charged or not — the exact
             //    self-deactivating-host bug the Iron Compass had, PR #208.)
@@ -152,15 +152,15 @@ namespace SBPR.Trailborne.Features.Sunstone
             _content.anchoredPosition = Vector2.zero;
             _content.sizeDelta = new Vector2(2f, 2f);
 
-            float radius = Plugin.LensRingRadiusPx?.Value ?? DefaultRingRadiusPx;
-
-            // The faint solar ring outline (empty state + substrate). Centre-anchored, sized to 2R.
+            // The faint solar ring outline (empty state + substrate) — a SCREEN-space affordance at a
+            // fixed radius (design §1.6: the empty-state cue may stay screen-space — "either surface is
+            // acceptable"). The world halo draws the actual threats; this is just the "lens is live" glow.
             var ringGo = new GameObject("solar_ring", typeof(RectTransform));
             ringGo.transform.SetParent(_content, worldPositionStays: false);
             var ringRt = ringGo.GetComponent<RectTransform>();
             ringRt.anchorMin = ringRt.anchorMax = ringRt.pivot = new Vector2(0.5f, 0.5f);
             ringRt.anchoredPosition = Vector2.zero;
-            ringRt.sizeDelta = new Vector2(radius * 2f, radius * 2f);
+            ringRt.sizeDelta = new Vector2(SolarRingRadiusPx * 2f, SolarRingRadiusPx * 2f);
             _emptyRing = ringGo.AddComponent<Image>();
             _emptyRing.sprite = RingSprite();
             _emptyRing.color = CSolarRing;
@@ -170,7 +170,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             // Optional legacy debug text, just below the ring.
             var font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
                        ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
-            _debugText = MakeText("debug", font, 14, FontStyle.Normal, new Vector2(0f, -(radius + 22f)));
+            _debugText = MakeText("debug", font, 14, FontStyle.Normal, new Vector2(0f, -(SolarRingRadiusPx + 22f)));
             _debugText.gameObject.SetActive(false);
 
             SetVisible(false);
@@ -204,6 +204,13 @@ namespace SBPR.Trailborne.Features.Sunstone
 
         private void SetVisible(bool on)
         {
+            // The world halo must never linger when the overlay is being hidden (unequip / depleted /
+            // no-player / minimap-owns-detection): hide it here so every inert path drops it immediately
+            // (AT-EIDETIC-5 "unequip → halo gone immediately"). When turning visible the caller decides
+            // whether to actually draw the halo (RenderWorldHalo) vs only the empty/depleted affordance —
+            // we don't show it here, we only guarantee the OFF case. Safe before the ring is built (no-op).
+            if (!on) _worldRing.Hide();
+
             // Toggle the CONTENT child, NEVER the host (_root): the host carries this MonoBehaviour's
             // Update pump, so deactivating it would freeze the overlay un-recoverably (t_d5949685 — the
             // same self-deactivating-host bug the Iron Compass had, PR #208). The host stays active for
@@ -249,9 +256,9 @@ namespace SBPR.Trailborne.Features.Sunstone
                     SetVisible(false);
                     return;
                 }
-                // Optional faint hint: show ONLY the solar ring, dimmer, no trophies.
+                // Optional faint hint: show ONLY the solar ring, dimmer, no trophies. The world halo is off.
                 SetVisible(true);
-                HideAllSlots();
+                _worldRing.Hide();
                 if (_emptyRing != null)
                 {
                     _emptyRing.gameObject.SetActive(true);
@@ -305,13 +312,14 @@ namespace SBPR.Trailborne.Features.Sunstone
             if (plan.RingContentVisible)
             {
                 _content?.gameObject.SetActive(true);
-                RenderRing(player, chargePct);
+                RenderWorldHalo(player, chargePct);
             }
             else
             {
-                // Ring suppressed (a minimap owns detection). Park the ring's visuals; the host + pump
-                // stay alive (the load-bearing #209 line). _content hidden = no trophies/solar ring drawn.
-                HideAllSlots();
+                // Halo suppressed (a minimap owns detection). Park the world halo + the screen content;
+                // the host + pump stay alive (the load-bearing #209 line). _content hidden = no solar
+                // ring/text; the world halo's own root is hidden too = no trophies in the world.
+                _worldRing.Hide();
                 _content?.gameObject.SetActive(false);
             }
 
@@ -356,73 +364,47 @@ namespace SBPR.Trailborne.Features.Sunstone
             {
                 _loggedFirstShow = true;
                 Plugin.Log.LogInfo($"[Trailborne/Sunstone] LensHud first show: root.anchoredPosition={_root.anchoredPosition} "
-                    + $"ringRadiusPx={(Plugin.LensRingRadiusPx?.Value ?? DefaultRingRadiusPx)} "
+                    + $"worldHaloBuilt={_worldRing.Built} "
                     + $"(host activeInHierarchy={_root.gameObject.activeInHierarchy}, content active={_content.gameObject.activeSelf}).");
             }
         }
 
-        private void RenderRing(Player player, float chargePct)
+        /// <summary>
+        /// Render the standalone (no-minimap) detection surface: the WORLD-SPACE eidetic trophy halo
+        /// (delegated to <see cref="SunstoneWorldRing"/>) plus the screen-space faint solar ring + the
+        /// optional debug readout. Consumes the shared <see cref="_blips"/> derivation (same tint/trophy/
+        /// stars the disc + vanilla minimap read — AT-EIDETIC-MINIMAP-UNAFFECTED holds: one source).
+        /// </summary>
+        private void RenderWorldHalo(Player player, float chargePct)
         {
-            float ringR    = Plugin.LensRingRadiusPx?.Value   ?? DefaultRingRadiusPx;
-            float detectR  = Plugin.LensDetectRadius?.Value    ?? SunstoneLens.DefaultDetectRadius;
-            float minPx    = Plugin.LensRingIconMinPx?.Value   ?? DefaultRingIconMinPx;
-            float maxPx    = Plugin.LensRingIconMaxPx?.Value   ?? DefaultRingIconMaxPx;
-            int   maxIcons = Plugin.LensRingMaxIcons?.Value     ?? DefaultRingMaxIcons;
-            bool  showEmpty = Plugin.LensRingShowEmpty?.Value   ?? DefaultShowEmptyRing;
+            float detectR   = Plugin.LensDetectRadius?.Value     ?? SunstoneLens.DefaultDetectRadius;
+            int   maxIcons  = Plugin.LensRingMaxIcons?.Value      ?? DefaultRingMaxIcons;
+            bool  showEmpty = Plugin.LensRingShowEmpty?.Value     ?? DefaultShowEmptyRing;
+            float radMin    = Plugin.LensHaloRadiusMin?.Value     ?? SunstoneWorldRing.DefaultHaloRadiusMin;
+            float radMax    = Plugin.LensHaloRadiusMax?.Value     ?? SunstoneWorldRing.DefaultHaloRadiusMax;
+            float scaleMax  = Plugin.LensHaloScaleMax?.Value      ?? SunstoneWorldRing.DefaultHaloScaleMax;
+            float scaleMin  = Plugin.LensHaloScaleMin?.Value      ?? SunstoneWorldRing.DefaultHaloScaleMin;
+            float eyeOffset = Plugin.LensHaloEyeOffsetY?.Value    ?? SunstoneWorldRing.DefaultHaloEyeOffsetY;
 
-            var cam = Utils.GetMainCamera();
-            Vector3 origin = player.transform.position;
+            // The halo anchor is the player's EYE-POINT (Character.GetEyePoint(), public :8655) — the
+            // head-centric halo (Knob #1/#2). Recompute every frame; the per-slot Billboard handles facing.
+            Vector3 eye = player.GetEyePoint();
 
-            // Render from the projected blips (the SINGLE derivation — same tint/trophy/stars the disc +
-            // vanilla minimap consume, AT-LENS-DISC-NODRIFT). Sort nearest-first so the maxIcons cap keeps
-            // the most relevant threats (a horde shows the closest N).
-            _blips.Sort((a, b) =>
-            {
-                float da = (a.WorldPos - origin).sqrMagnitude;
-                float db = (b.WorldPos - origin).sqrMagnitude;
-                return da.CompareTo(db);
-            });
+            // Draw the world halo from the shared projection. Camera-relative by construction (each
+            // trophy sits on the REAL blip.WorldPos - eye bearing — the thesis guard, no SignedAngle,
+            // no north frame). The world ring pools + caps + sorts nearest-N internally.
+            _worldRing.Render(eye, _blips, detectR, radMin, radMax, scaleMax, scaleMin, eyeOffset, maxIcons);
 
-            int shown = 0;
-            for (int i = 0; i < _blips.Count && shown < maxIcons; i++)
-            {
-                var blip = _blips[i];
-                if (blip.Character == null || cam == null) continue;
+            int shown = Mathf.Min(maxIcons, CountBlips());
 
-                // Camera-relative bearing (THE thesis guard: never north-up). The exact angle the old
-                // BearingGlyph computed — 0° = dead ahead, +90° = hard right.
-                Vector3 to = blip.WorldPos - origin;
-                to.y = 0f;
-                Vector3 fwd = cam.transform.forward; fwd.y = 0f;
-                if (to.sqrMagnitude < 0.0001f || fwd.sqrMagnitude < 0.0001f) continue;
-                float signed = Vector3.SignedAngle(fwd.normalized, to.normalized, Vector3.up);
-                float rad = signed * Mathf.Deg2Rad;
-                // 0° at the TOP of the ring (straight ahead), +90° to the right.
-                Vector2 pos = new Vector2(Mathf.Sin(rad) * ringR, Mathf.Cos(rad) * ringR);
-
-                // Size ∝ proximity (fixed ring radius; only icon size encodes distance).
-                float dist = to.magnitude;
-                float t = 1f - Mathf.Clamp01(dist / Mathf.Max(1f, detectR));
-                float scale = Mathf.Lerp(minPx, maxPx, t);
-
-                var slot = EnsureSlot(shown);
-                ApplySlot(slot, blip, pos, scale);
-                slot.Go.SetActive(true);
-                shown++;
-            }
-
-            // Park the unused tail.
-            for (int i = shown; i < _slots.Count; i++)
-                _slots[i].Go.SetActive(false);
-
-            // Faint solar ring: shown whenever worn+charged (substrate + empty-state affordance).
+            // Faint solar ring (screen-space empty-state affordance): shown whenever worn+charged.
             if (_emptyRing != null)
             {
                 _emptyRing.gameObject.SetActive(showEmpty);
                 _emptyRing.color = CSolarRing;
             }
 
-            // Optional legacy debug readout.
+            // Optional legacy debug readout (default off).
             bool debug = Plugin.LensRingDebugText?.Value ?? DefaultDebugTextReadout;
             if (_debugText != null)
             {
@@ -437,7 +419,7 @@ namespace SBPR.Trailborne.Features.Sunstone
                         foreach (var blip in _blips)
                         {
                             if (blip.Character == null) continue;
-                            float d = (blip.WorldPos - origin).sqrMagnitude;
+                            float d = (blip.WorldPos - eye).sqrMagnitude;
                             if (d < nearest) nearest = d;
                         }
                         _debugText.text = $"⚠ {shown} hostile{(shown == 1 ? "" : "s")} · nearest {Mathf.Sqrt(nearest):0}m · charge {chargePct:0}%";
@@ -446,125 +428,20 @@ namespace SBPR.Trailborne.Features.Sunstone
             }
         }
 
-        private void HideAllSlots()
+        /// <summary>Count of non-null blips this tick (for the debug readout's "N hostiles").</summary>
+        private int CountBlips()
         {
-            for (int i = 0; i < _slots.Count; i++)
-                _slots[i].Go.SetActive(false);
+            int n = 0;
+            for (int i = 0; i < _blips.Count; i++)
+                if (_blips[i].Character != null) n++;
+            return n;
         }
 
-        // ───────────────────────────────────────────────
-        // SLOT POOLING + RENDER
-        // ───────────────────────────────────────────────
-
-        private Slot EnsureSlot(int index)
+        /// <summary>Tear the world halo down with the overlay (logout / Hud teardown). #209: only the
+        /// visuals are destroyed; the host pump's own lifecycle is Unity's to manage.</summary>
+        private void OnDestroy()
         {
-            while (_slots.Count <= index)
-                _slots.Add(MakeSlot(_slots.Count));
-            return _slots[index];
-        }
-
-        private Slot MakeSlot(int idx)
-        {
-            var go = new GameObject($"slot_{idx}", typeof(RectTransform));
-            go.transform.SetParent(_content, worldPositionStays: false);  // under _content (visibility child), not the host
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-
-            var trophy = go.AddComponent<Image>();
-            trophy.raycastTarget = false;
-            trophy.preserveAspect = true;
-
-            // Star row above the trophy.
-            var rowGo = new GameObject("stars", typeof(RectTransform));
-            rowGo.transform.SetParent(rt, worldPositionStays: false);
-            var rowRt = rowGo.GetComponent<RectTransform>();
-            rowRt.anchorMin = rowRt.anchorMax = rowRt.pivot = new Vector2(0.5f, 0.5f);
-
-            return new Slot { Go = go, Rt = rt, Trophy = trophy, StarRow = rowRt };
-        }
-
-        private void ApplySlot(Slot slot, ThreatBlip blip, Vector2 pos, float scale)
-        {
-            slot.Rt.anchoredPosition = pos;
-            slot.Rt.sizeDelta = new Vector2(scale, scale);
-
-            // Trophy sprite (or the generic threat glyph for trophy-less hostiles) — both come from the
-            // shared SunstoneProjection so the ring matches the disc + vanilla minimap exactly.
-            slot.Trophy.sprite = blip.Trophy ?? SunstoneProjection.ThreatGlyph();
-            slot.Trophy.color = blip.Tint;   // aggro-state tint multiplies onto the trophy
-
-            RenderStars(slot, blip.Stars, scale, blip.Tint);
-        }
-
-        private void RenderStars(Slot slot, int stars, float trophyScale, Color tint)
-        {
-            // Position the star row just above the trophy.
-            slot.StarRow.anchoredPosition = new Vector2(0f, trophyScale * 0.5f + 8f);
-
-            var star = SunstoneProjection.StarSprite();
-            const float pip = 12f;
-
-            if (star != null)
-            {
-                // Image pips using the real vanilla nameplate star art.
-                if (slot.PipText != null) slot.PipText.gameObject.SetActive(false);
-
-                float startX = -(stars - 1) * 0.5f * pip;
-                for (int i = 0; i < stars; i++)
-                {
-                    Image img;
-                    if (i < slot.Pips.Count) img = slot.Pips[i];
-                    else
-                    {
-                        var pgo = new GameObject($"pip_{i}", typeof(RectTransform));
-                        pgo.transform.SetParent(slot.StarRow, worldPositionStays: false);
-                        var prt = pgo.GetComponent<RectTransform>();
-                        prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
-                        prt.sizeDelta = new Vector2(pip, pip);
-                        img = pgo.AddComponent<Image>();
-                        img.raycastTarget = false;
-                        img.preserveAspect = true;
-                        slot.Pips.Add(img);
-                    }
-                    img.sprite = star;
-                    img.color = tint;
-                    img.rectTransform.anchoredPosition = new Vector2(startX + i * pip, 0f);
-                    img.gameObject.SetActive(true);
-                }
-                for (int i = stars; i < slot.Pips.Count; i++)
-                    slot.Pips[i].gameObject.SetActive(false);
-            }
-            else
-            {
-                // Fallback: a single Unicode ★ Text so the star count is never lost.
-                for (int i = 0; i < slot.Pips.Count; i++) slot.Pips[i].gameObject.SetActive(false);
-                if (slot.PipText == null && stars > 0)
-                {
-                    var font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
-                               ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
-                    var tgo = new GameObject("pip_text", typeof(RectTransform));
-                    tgo.transform.SetParent(slot.StarRow, worldPositionStays: false);
-                    var trt = tgo.GetComponent<RectTransform>();
-                    trt.anchorMin = trt.anchorMax = trt.pivot = new Vector2(0.5f, 0.5f);
-                    trt.sizeDelta = new Vector2(80f, 16f);
-                    slot.PipText = tgo.AddComponent<Text>();
-                    slot.PipText.font = font;
-                    slot.PipText.fontSize = 13;
-                    slot.PipText.alignment = TextAnchor.MiddleCenter;
-                    slot.PipText.horizontalOverflow = HorizontalWrapMode.Overflow;
-                    slot.PipText.verticalOverflow = VerticalWrapMode.Overflow;
-                    slot.PipText.raycastTarget = false;
-                }
-                if (slot.PipText != null)
-                {
-                    slot.PipText.gameObject.SetActive(stars > 0);
-                    if (stars > 0)
-                    {
-                        slot.PipText.text = new string('\u2605', Mathf.Min(stars, 6));
-                        slot.PipText.color = tint;
-                    }
-                }
-            }
+            _worldRing.Dispose();
         }
 
         // ───────────────────────────────────────────────

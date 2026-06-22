@@ -98,21 +98,27 @@ namespace SBPR.Trailborne
             new System.Collections.Generic.HashSet<string>();
         internal static ConfigEntry<string>? LensClearWeatherNamesRaw = null;
 
-        // ── v3 Swamp: Sunstone Lens trophy-RING render (card t_b8a19487, Daniel 2026-06-18/19) ──
-        // The detection render surface is a screen-space, camera-relative ring of creature trophies
-        // around the player (replaces the old text placeholder). All ring geometry/feel is LIVE
-        // config so Daniel converges the look on a joined client without a rebuild (the same
-        // banner-windsock / can't-verify-headless rule the cairn banner + compass use). Nullable +
-        // ?.Value-accessed from SunstoneLensHudOverlay so a no-Plugin unit context falls back to its
-        // Default* consts (single source of truth). Bound in Awake.
-        internal static ConfigEntry<float>? LensRingRadiusPx       = null;  // fixed screen-space ring radius (px)
-        internal static ConfigEntry<float>? LensRingCenterOffsetY  = null;  // nudge ring centre up/down from screen centre
-        internal static ConfigEntry<float>? LensRingIconMinPx      = null;  // trophy size at the edge of detection range
-        internal static ConfigEntry<float>? LensRingIconMaxPx      = null;  // trophy size right on top of the player
-        internal static ConfigEntry<int>?   LensRingMaxIcons       = null;  // cap on simultaneous trophies (horde guard)
+        // ── v3 Swamp: Sunstone Lens WORLD-SPACE eidetic halo render (card t_68672b6b → t_d17d9b58) ──
+        // The detection render surface is now a world-space head-halo of billboarded creature trophies
+        // floating around the player (supersedes the screen-space ring). All halo geometry/feel is LIVE
+        // config so Daniel converges the look on a joined client without a rebuild (the banner-windsock /
+        // can't-verify-headless rule the cairn banner + compass use). Nullable + ?.Value-accessed from
+        // SunstoneWorldRing / SunstoneLensHudOverlay so a no-Plugin unit context falls back to its
+        // Default* consts (single source of truth). Bound in Awake. The old screen-space knobs
+        // (RingRadiusPx / RingCenterOffsetY / RingIconMinPx / RingIconMaxPx) are REMOVED with the radar.
+        internal static ConfigEntry<float>? LensHaloRadiusMin     = null;  // inner halo radius (m) — near enemies, close to your face
+        internal static ConfigEntry<float>? LensHaloRadiusMax     = null;  // outer halo radius (m) — far enemies push out
+        internal static ConfigEntry<float>? LensHaloScaleMax      = null;  // trophy world-scale for the nearest enemy (big)
+        internal static ConfigEntry<float>? LensHaloScaleMin      = null;  // trophy world-scale at the detection edge (shrinks toward nothing)
+        internal static ConfigEntry<float>? LensHaloEyeOffsetY    = null;  // lift the halo plane off the eye-point (clear the crosshair)
+        internal static ConfigEntry<int>?   LensRingMaxIcons       = null;  // cap on simultaneous trophies (horde guard, pooled nearest-N)
         internal static ConfigEntry<bool>?  LensRingShowEmpty      = null;  // faint solar ring when worn+charged-but-clear
         internal static ConfigEntry<bool>?  LensRingShowDepletedHint = null; // faint ring when depleted (default off)
         internal static ConfigEntry<bool>?  LensRingDebugText      = null;  // legacy text readout as a debug aid
+        // Default-ON startup dump (card t_d17d9b58 Knob #3c): at ZNetScene-ready, enumerate all Character
+        // prefabs, resolve each → (own trophy | remap-sibling | none), and log the "none" set as ONE
+        // reviewable block so Daniel can grow SunstoneProjection._trophyRemap over time.
+        internal static ConfigEntry<bool>?  LensDumpUnmappedCreatures = null;
         // Diagnostic-logging gate (t_d5949685 HUD-render bug, the compass-shared self-deactivating-host
         // pump). When ON, emit the overlay MOUNT + visibility transitions + first-show placement so a
         // client LogOutput.log splits "mount/pump fail" from "on-screen but empty." Default ON for the
@@ -371,23 +377,45 @@ namespace SBPR.Trailborne
                 if (nm.Length > 0) LensClearWeatherNames.Add(nm);
             }
 
-            // v3 Swamp — Sunstone Lens trophy-RING render (card t_b8a19487). Screen-space,
-            // camera-relative ring of creature trophies (size ∝ proximity, angle = bearing, vanilla
-            // star pips, yellow/orange/red aggro tint). All geometry/feel LIVE-tunable so Daniel
-            // converges the look on a joined client without a rebuild. Defaults mirror the
-            // SunstoneLensHudOverlay.Default* consts (single source of truth).
-            LensRingRadiusPx = Config.Bind(
-                "SunstoneLens", "RingRadiusPx", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingRadiusPx,
-                "Fixed screen-space radius (px) of the detection trophy ring. Trophy size encodes distance; the ring radius does NOT.");
-            LensRingCenterOffsetY = Config.Bind(
-                "SunstoneLens", "RingCenterOffsetY", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingCenterOffsetY,
-                "Vertical nudge (px, +up) of the ring centre from screen centre, so it frames your view without covering the crosshair.");
-            LensRingIconMinPx = Config.Bind(
-                "SunstoneLens", "RingIconMinPx", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingIconMinPx,
-                "Trophy icon size (px) for a hostile at the EDGE of detection range (far = small).");
-            LensRingIconMaxPx = Config.Bind(
-                "SunstoneLens", "RingIconMaxPx", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingIconMaxPx,
-                "Trophy icon size (px) for a hostile right on top of the player (near = big).");
+            // v3 Swamp — Sunstone Lens WORLD-SPACE eidetic halo render (card t_68672b6b → t_d17d9b58).
+            // A head-centric halo of billboarded creature trophies floating in the 3D world at their real
+            // bearings (variable radius AND scale ∝ distance, vanilla star pips, yellow/orange/red aggro
+            // tint). Supersedes the screen-space ring. All geometry/feel LIVE-tunable so Daniel converges
+            // the look on a joined client without a rebuild (a world-space visual can't be verified
+            // headless — the cairn-banner lesson). Range-clamped so a fat-finger in the .cfg can't blow
+            // the halo up. Defaults mirror the SunstoneWorldRing.Default* consts (single source of truth).
+            LensHaloRadiusMin = Config.Bind(
+                "SunstoneLens", "HaloRadiusMin",
+                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloRadiusMin,
+                new ConfigDescription(
+                    "Inner halo radius (world metres): how close to your eye-point the NEAREST detected enemy's trophy floats. "
+                    + "Small on purpose — this is a halo around your head, not a ground ring at detection distance.",
+                    new AcceptableValueRange<float>(0.3f, 6f)));
+            LensHaloRadiusMax = Config.Bind(
+                "SunstoneLens", "HaloRadiusMax",
+                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloRadiusMax,
+                new ConfigDescription(
+                    "Outer halo radius (world metres): how far out a FAR (edge-of-range) enemy's trophy pushes. "
+                    + "Far enemies sit at the outer radius; near ones pull in to HaloRadiusMin.",
+                    new AcceptableValueRange<float>(0.5f, 12f)));
+            LensHaloScaleMax = Config.Bind(
+                "SunstoneLens", "HaloScaleMax",
+                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloScaleMax,
+                new ConfigDescription(
+                    "Trophy world-scale for the NEAREST enemy (big). The trophy quad's world size in metres at zero distance.",
+                    new AcceptableValueRange<float>(0.05f, 3f)));
+            LensHaloScaleMin = Config.Bind(
+                "SunstoneLens", "HaloScaleMin",
+                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloScaleMin,
+                new ConfigDescription(
+                    "Trophy world-scale at the detection EDGE (shrinks toward nothing so a just-detected threat fades in rather than popping).",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            LensHaloEyeOffsetY = Config.Bind(
+                "SunstoneLens", "HaloEyeOffsetY",
+                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloEyeOffsetY,
+                new ConfigDescription(
+                    "Vertical lift (world metres, +up) of the halo plane off the eye-point, so trophies clear the crosshair. 0 = on the eye line.",
+                    new AcceptableValueRange<float>(-1f, 2f)));
             LensRingMaxIcons = Config.Bind(
                 "SunstoneLens", "RingMaxIcons", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultRingMaxIcons,
                 "Max trophies drawn at once (a Swamp horde shows the nearest N; pooled + capped so it never tanks framerate).");
@@ -408,6 +436,13 @@ namespace SBPR.Trailborne
                 + "VISIBLE/hidden transitions, and the resolved placement on first show — so a fresh client LogOutput.log can tell a "
                 + "mount/pump failure apart from an on-screen-but-empty ring. Leave ON while diagnosing; set false once the ring is "
                 + "confirmed visible in-game.");
+            LensDumpUnmappedCreatures = Config.Bind(
+                "SunstoneLens", "DumpUnmappedCreatures",
+                SBPR.Trailborne.Features.Sunstone.SunstoneProjection.DefaultDumpUnmappedCreatures,
+                "Default ON (card t_d17d9b58). At world load (ZNetScene-ready), enumerate EVERY registered creature prefab and "
+                + "resolve each to (own trophy | remapped sibling | none), logging the genuinely-unmapped set as ONE reviewable "
+                + "block in LogOutput.log. Use it to grow the variant→sibling remap table over time, then set false to silence the "
+                + "scan. Unmapped creatures still render the generic threat glyph — this dump is purely for review, it changes nothing.");
 
             // v3 Swamp — Sunstone Lens → minimap handoff (card t_91e86951). Daniel gated all 3 knobs
             // 2026-06-20: when a minimap is present (SBPR carry-disc in nomap-ON, or the vanilla corner

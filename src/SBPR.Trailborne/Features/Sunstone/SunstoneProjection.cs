@@ -76,6 +76,59 @@ namespace SBPR.Trailborne.Features.Sunstone
         internal static readonly Color COrange = new Color(0.95f, 0.55f, 0.16f, 1f);  // aggroed on ANOTHER player
         internal static readonly Color CRed    = new Color(0.90f, 0.25f, 0.17f, 1f);  // aggroed on YOU
 
+        // ── Variant→sibling TROPHY REMAP (design §Q1 Knob #3a, card t_d17d9b58). ──
+        // Some hostiles carry NO Trophy-typed CharacterDrop (juveniles, ranged/summoned variants,
+        // boss adds). Rather than fall straight to the generic glyph, a variant is first remapped
+        // onto a sibling SPECIES that DOES drop a trophy, so e.g. a Greyling wears the Greydwarf
+        // trophy (the canonical case — Greyling drops Resin only, no Trophy; wiki Greyling.md).
+        //
+        // KEYS + VALUES are vanilla PREFAB names (clone-suffix-stripped), grounded against the
+        // ServersideQoL prefab catalog + the vanilla decomp (ADR-0001 fair-to-read) — NOT display
+        // names. The map is FAIL-SAFE by construction: an unknown key simply isn't found (→ glyph),
+        // and a value whose sibling itself has no trophy resolves to null (→ glyph) — neither
+        // crashes nor silently omits a threat. Daniel grows this from the startup dump (Knob #3c).
+        //
+        // ⚠ Grounded prefab-name note: the design draft wrote "DraugrRanged"; the REAL vanilla prefab
+        // is "Draugr_Ranged" (underscore) — verified 0 hits for "DraugrRanged" vs 14 for
+        // "Draugr_Ranged" across the reference-mod corpus. Using the wrong key would have been a
+        // silent no-op (the bears+Vegvísir class of bug). Every key/value below is corpus-verified.
+        internal static readonly Dictionary<string, string> _trophyRemap = new Dictionary<string, string>
+        {
+            // Black Forest
+            { "Greyling",            "Greydwarf" },   // Greyling drops Resin only, no Trophy → Greydwarf trophy (canonical)
+            // Meadows / juveniles (Growup variants — young carry no trophy)
+            { "Boar_piggy",          "Boar"      },
+            { "Wolf_cub",            "Wolf"      },   // Mountain juvenile
+            { "Lox_Calf",            "Lox"       },   // Plains juvenile
+            { "Asksvin_hatchling",   "Asksvin"   },   // Ashlands juvenile
+            // Swamp — the ranged Draugr variant shares the base Draugr trophy
+            { "Draugr_Ranged",       "Draugr"    },
+            // Plains — Fuling ranged/caster variants → base Fuling (Goblin) trophy
+            { "GoblinArcher",        "Goblin"    },
+            { "GoblinShaman",        "GoblinShaman" }, // GoblinShaman DOES have its own trophy; identity entry is harmless (self-resolves) — kept explicit so the dump shows it mapped
+            { "GoblinShaman_Hildir", "GoblinShaman" },
+            // Ashlands — Charred summoned/twitcher variants → base Charred melee
+            { "Charred_Twitcher",          "Charred_Melee" },
+            { "Charred_Twitcher_Summoned", "Charred_Melee" },
+            { "Charred_Archer",            "Charred_Melee" },
+            { "Charred_Mage",              "Charred_Melee" },
+            // Mistlands — Dverger caster variants → base Dverger
+            { "DvergerMage",         "Dverger"   },
+            { "DvergerMageFire",     "Dverger"   },
+            { "DvergerMageIce",      "Dverger"   },
+            { "DvergerMageSupport",  "Dverger"   },
+            // Mistlands — Seeker brood (no own trophy) → SeekerBrute/Seeker base
+            { "SeekerBrood",         "Seeker"    },
+            // Ashlands — non-sleeping Morgen shares the Morgen trophy
+            { "Morgen_NonSleeping",  "Morgen"    },
+        };
+
+        // ── Startup unmapped-creature DUMP state (design §Q1 Knob #3c). Runs ONCE per session at
+        //    ZNetScene-ready: enumerates every Character prefab, resolves each to (trophy | remap |
+        //    none), and logs the "none" set as ONE reviewable block so Daniel can grow _trophyRemap. ──
+        public const bool DefaultDumpUnmappedCreatures = true;   // Knob #3c — default ON (Daniel)
+        private static bool _unmappedDumpDone;
+
         // ── Static caches (resolved once, reused) — shared across every surface. ──
         private static readonly Dictionary<string, Sprite?> _trophyCache = new Dictionary<string, Sprite?>();
         private static Sprite? _starSprite;        // harvested from the vanilla EnemyHud nameplate
@@ -144,40 +197,158 @@ namespace SBPR.Trailborne.Features.Sunstone
         /// The trophy sprite for a creature: its <c>CharacterDrop</c> drop whose item is
         /// <c>ItemType.Trophy</c>, taking that item's <c>m_icons[0]</c>. Resolved once per creature
         /// prefab and cached (a null result is cached too, so a trophy-less hostile isn't re-scanned).
+        ///
+        /// HYBRID trophy-less policy (design §Q1 Knob #3, card t_d17d9b58): when the creature's own
+        /// walk finds no Trophy drop, the <see cref="_trophyRemap"/> variant→sibling table is consulted
+        /// BEFORE caching a null — a Greyling resolves the Greydwarf sibling's trophy and caches it
+        /// under the ORIGINAL key ("Greyling"), so the variant wears a sensible sibling trophy. Only a
+        /// creature that is neither a trophy-bearer NOR a remapped variant caches null (→ the consumer
+        /// falls back to <see cref="ThreatGlyph"/>; a threat is never silently dropped).
         /// </summary>
         public static Sprite? ResolveTrophySprite(Character c)
         {
             string key = StripCloneSuffix(c.name);
             if (_trophyCache.TryGetValue(key, out var cached)) return cached;
 
-            Sprite? sprite = null;
+            // 1. Direct walk: does THIS creature carry its own Trophy drop?
+            Sprite? sprite = ResolveTrophyOnCharacter(c, key);
+
+            // 2. Variant→sibling remap (Knob #3a): if the creature itself has no trophy, see whether
+            //    it's a known variant of a sibling species that does. Resolve the sibling's sprite off
+            //    its ZNetScene prefab blueprint (GetPrefab fires no Awake — reading, not cloning).
+            if (sprite == null && _trophyRemap.TryGetValue(key, out var siblingName) && siblingName != key)
+                sprite = ResolveTrophyOnPrefabName(siblingName);
+
+            _trophyCache[key] = sprite;   // cache the result (possibly null → consumer uses ThreatGlyph)
+            return sprite;
+        }
+
+        /// <summary>
+        /// Walk a live <see cref="Character"/>'s <c>CharacterDrop</c> for its Trophy-typed drop and
+        /// return that item's <c>m_icons[0]</c>, or null. The per-frame-safe inner walk shared by the
+        /// direct resolution and (via the prefab variant) the remap path. <paramref name="logKey"/> is
+        /// only used for the warning line.
+        /// </summary>
+        private static Sprite? ResolveTrophyOnCharacter(Character c, string logKey)
+        {
             try
             {
                 var cd = c.GetComponent<CharacterDrop>();
-                if (cd != null && cd.m_drops != null)
-                {
-                    foreach (var d in cd.m_drops)
-                    {
-                        if (d == null || d.m_prefab == null) continue;
-                        var id = d.m_prefab.GetComponent<ItemDrop>();
-                        var shared = id != null ? id.m_itemData?.m_shared : null;
-                        if (shared == null) continue;
-                        if (shared.m_itemType != ItemDrop.ItemData.ItemType.Trophy) continue;
-                        if (shared.m_icons != null && shared.m_icons.Length > 0 && shared.m_icons[0] != null)
-                        {
-                            sprite = shared.m_icons[0];
-                            break;
-                        }
-                    }
-                }
+                return ResolveTrophyInDrops(cd);
             }
             catch (System.Exception e)
             {
-                Plugin.Log.LogWarning($"[Trailborne/Sunstone] trophy resolve failed for {key}: {e.Message}");
+                Plugin.Log.LogWarning($"[Trailborne/Sunstone] trophy resolve failed for {logKey}: {e.Message}");
+                return null;
             }
+        }
 
-            _trophyCache[key] = sprite;
-            return sprite;
+        /// <summary>
+        /// Resolve the Trophy sprite for a creature identified by PREFAB NAME — read its ZNetScene
+        /// prefab blueprint (<c>ZNetScene.GetPrefab</c> fires no Awake, so reading it is clean-side +
+        /// ADR-0006-safe) and walk its <c>CharacterDrop</c>. Used by the variant→sibling remap to pull
+        /// e.g. the Greydwarf trophy for a Greyling. Null-safe: a missing prefab / no trophy → null.
+        /// </summary>
+        private static Sprite? ResolveTrophyOnPrefabName(string prefabName)
+        {
+            try
+            {
+                var zns = ZNetScene.instance;
+                var prefab = zns != null ? zns.GetPrefab(prefabName) : null;
+                if (prefab == null) return null;
+                var cd = prefab.GetComponent<CharacterDrop>();
+                return ResolveTrophyInDrops(cd);
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Sunstone] sibling trophy resolve failed for {prefabName}: {e.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>The shared CharacterDrop→ItemType.Trophy→m_icons[0] walk (null-safe).</summary>
+        private static Sprite? ResolveTrophyInDrops(CharacterDrop? cd)
+        {
+            if (cd == null || cd.m_drops == null) return null;
+            foreach (var d in cd.m_drops)
+            {
+                if (d == null || d.m_prefab == null) continue;
+                var id = d.m_prefab.GetComponent<ItemDrop>();
+                var shared = id != null ? id.m_itemData?.m_shared : null;
+                if (shared == null) continue;
+                if (shared.m_itemType != ItemDrop.ItemData.ItemType.Trophy) continue;
+                if (shared.m_icons != null && shared.m_icons.Length > 0 && shared.m_icons[0] != null)
+                    return shared.m_icons[0];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Default-ON startup unmapped-creature DUMP (design §Q1 Knob #3c, card t_d17d9b58). Runs ONCE
+        /// per session (idempotent via <see cref="_unmappedDumpDone"/>): enumerate every registered
+        /// Character prefab (<c>ZNetScene.instance.m_prefabs</c>, public) carrying a <c>Character</c>
+        /// component, resolve each to (own trophy | remap-sibling | none), and log the "none" set as
+        /// ONE reviewable block so Daniel can grow <see cref="_trophyRemap"/> over time. This is a
+        /// FULL-CATALOG scan (not a lazy log-on-first-sighting trickle) — the complete list in one place.
+        ///
+        /// Read-only + side-effect-free on game state: it only reads prefab blueprints (GetPrefab/
+        /// GetComponent fire no Awake) and writes the per-prefab trophy cache (the same cache the live
+        /// sweep populates lazily). Safe to call at ZNetScene-ready. No-op on the dedicated server path
+        /// only in the sense that the dump is purely diagnostic; gate the CALL on the config flag.
+        /// </summary>
+        public static void DumpUnmappedCreatures()
+        {
+            if (_unmappedDumpDone) return;
+            _unmappedDumpDone = true;   // set first: a mid-scan exception must not re-trigger the scan
+            try
+            {
+                var zns = ZNetScene.instance;
+                if (zns == null || zns.m_prefabs == null)
+                {
+                    Plugin.Log.LogWarning("[Trailborne/Sunstone] DumpUnmappedCreatures: ZNetScene not ready; skipping.");
+                    return;
+                }
+
+                int characters = 0, withTrophy = 0, remapped = 0;
+                var unmapped = new List<string>();
+                var seen = new HashSet<string>();
+
+                foreach (var prefab in zns.m_prefabs)
+                {
+                    if (prefab == null) continue;
+                    if (prefab.GetComponent<Character>() == null) continue;   // creature prefabs only
+                    string key = StripCloneSuffix(prefab.name);
+                    if (!seen.Add(key)) continue;                            // de-dupe by prefab name
+                    characters++;
+
+                    var cd = prefab.GetComponent<CharacterDrop>();
+                    if (ResolveTrophyInDrops(cd) != null) { withTrophy++; continue; }
+
+                    // No own trophy — is it a known remap variant whose sibling has one?
+                    if (_trophyRemap.TryGetValue(key, out var sib) && sib != key && ResolveTrophyOnPrefabName(sib) != null)
+                    { remapped++; continue; }
+
+                    unmapped.Add(key);   // genuinely unmapped → renders the generic threat glyph
+                }
+
+                unmapped.Sort(System.StringComparer.Ordinal);
+                var sb = new System.Text.StringBuilder();
+                sb.Append("[Trailborne/Sunstone] Unmapped-creature dump (DumpUnmappedCreatures): ")
+                  .Append(characters).Append(" Character prefabs scanned — ")
+                  .Append(withTrophy).Append(" with own trophy, ")
+                  .Append(remapped).Append(" remapped to a sibling, ")
+                  .Append(unmapped.Count).Append(" UNMAPPED (render the generic threat glyph).");
+                if (unmapped.Count > 0)
+                {
+                    sb.Append("\n  Unmapped (no own Trophy drop, no remap entry) — add to SunstoneProjection._trophyRemap if a sibling fits:");
+                    foreach (var name in unmapped) sb.Append("\n    - ").Append(name);
+                }
+                Plugin.Log.LogInfo(sb.ToString());
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Sunstone] DumpUnmappedCreatures failed (non-fatal): {e.Message}");
+            }
         }
 
         /// <summary>
