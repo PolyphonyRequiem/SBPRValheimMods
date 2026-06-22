@@ -34,6 +34,16 @@ Planning + impl specs for the **v3 Swamp tier** of SBPR Trailborne.
   flags the card's misread of `requirements.md:696` (custom mesh is **deferred to v0.2+**, not
   mandated) as an open question. **status: proposed** — 4 open questions await Daniel's confirm before
   an impl card is cut. The Iron Compass is the **earned payoff of the no-map pillar**.
+- [`sunstone-lens-aura-impl-spec.md`](sunstone-lens-aura-impl-spec.md) — buildable spec for the
+  **Sunstone Lens pulsing solar aura** (card t_e4a6f559, graduating the look-locked design PR #235).
+  While the lens is worn+charged, the existing faint empty-state solar ring **breathes** (a steady
+  ambient `Time.time`-phased alpha pulse, ~0.25 Hz, ~0.10↔0.30 around the 0.18 baseline) and
+  **re-homes** onto whichever surface the already-shipped detection handoff points at — the
+  screen-space ring, the vanilla corner-map rim, or the SBPR carry-disc. Extends + animates an element
+  that already exists; **no new art**. The carry-disc home uses a **separate gold `Image`** (never
+  `_bezel.color`, which the now-shipped Iron Compass north-ring owns per-frame). Render-only
+  (SpecCheck +0, clean-side). **status: proposed** — Daniel gates the doc + the final in-game look on a
+  GPU client (the headless box can't render Valheim shaders); engineer-ui builds.
 
 ## Tier framing
 
