@@ -106,10 +106,8 @@ namespace SBPR.Trailborne
         // SunstoneWorldRing / SunstoneLensHudOverlay so a no-Plugin unit context falls back to its
         // Default* consts (single source of truth). Bound in Awake. The old screen-space knobs
         // (RingRadiusPx / RingCenterOffsetY / RingIconMinPx / RingIconMaxPx) are REMOVED with the radar.
-        internal static ConfigEntry<float>? LensHaloRadiusMin     = null;  // inner halo radius (m) — near enemies, close to your face
-        internal static ConfigEntry<float>? LensHaloRadiusMax     = null;  // outer halo radius (m) — far enemies push out
-        internal static ConfigEntry<float>? LensHaloScaleMax      = null;  // trophy world-scale for the nearest enemy (big)
-        internal static ConfigEntry<float>? LensHaloScaleMin      = null;  // trophy world-scale at the detection edge (shrinks toward nothing)
+        internal static ConfigEntry<float>? LensHaloRadius        = null;  // FIXED halo radius (m) — every trophy is equidistant from the eye (no range-dependent push)
+        internal static ConfigEntry<float>? LensHaloScaleMax      = null;  // trophy world-scale at FULL scale (enemy ≤10m → "1.0"); edge scale is derived (0.25×, the 10m knee)
         internal static ConfigEntry<float>? LensHaloEyeOffsetY    = null;  // lift the halo plane off the eye-point (clear the crosshair)
         internal static ConfigEntry<int>?   LensRingMaxIcons       = null;  // cap on simultaneous trophies (horde guard, pooled nearest-N)
         internal static ConfigEntry<bool>?  LensRingShowEmpty      = null;  // faint solar ring when worn+charged-but-clear
@@ -377,39 +375,34 @@ namespace SBPR.Trailborne
                 if (nm.Length > 0) LensClearWeatherNames.Add(nm);
             }
 
-            // v3 Swamp — Sunstone Lens WORLD-SPACE eidetic halo render (card t_68672b6b → t_d17d9b58).
-            // A head-centric halo of billboarded creature trophies floating in the 3D world at their real
-            // bearings (variable radius AND scale ∝ distance, vanilla star pips, yellow/orange/red aggro
-            // tint). Supersedes the screen-space ring. All geometry/feel LIVE-tunable so Daniel converges
-            // the look on a joined client without a rebuild (a world-space visual can't be verified
-            // headless — the cairn-banner lesson). Range-clamped so a fat-finger in the .cfg can't blow
-            // the halo up. Defaults mirror the SunstoneWorldRing.Default* consts (single source of truth).
-            LensHaloRadiusMin = Config.Bind(
-                "SunstoneLens", "HaloRadiusMin",
-                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloRadiusMin,
+            // v3 Swamp — Sunstone Lens WORLD-SPACE eidetic halo render (card t_68672b6b → t_d17d9b58;
+            // geometry re-locked by bug-fix t_10bacccf). A head-centric halo of billboarded creature
+            // trophies floating in the 3D world at their real bearings — FIXED ring distance + scale-only
+            // range cue (10m knee: full ≤10m, 0.25× at the 50m edge), vanilla star pips, yellow/orange/red
+            // aggro tint. Supersedes the screen-space ring. All geometry/feel LIVE-tunable so Daniel
+            // converges the look on a joined client without a rebuild (a world-space visual can't be
+            // verified headless — the cairn-banner lesson). Range-clamped so a fat-finger in the .cfg
+            // can't blow the halo up. Defaults mirror the SunstoneWorldRing.Default* consts (single
+            // source of truth). The old HaloRadiusMin/Max → a single fixed HaloRadius; HaloScaleMin is
+            // REMOVED (the edge scale is now derived as 0.25×HaloScaleMax inside SunstoneHaloGeometry).
+            LensHaloRadius = Config.Bind(
+                "SunstoneLens", "HaloRadius",
+                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloRadius,
                 new ConfigDescription(
-                    "Inner halo radius (world metres): how close to your eye-point the NEAREST detected enemy's trophy floats. "
+                    "FIXED halo radius (world metres): the SINGLE distance from your eye-point at which EVERY detected "
+                    + "enemy's trophy floats, regardless of how far the enemy actually is. A true fixed-distance ring — "
+                    + "far enemies are NOT pushed away from your face; only their SCALE shrinks with range (see HaloScaleMax). "
                     + "Small on purpose — this is a halo around your head, not a ground ring at detection distance.",
-                    new AcceptableValueRange<float>(0.3f, 6f)));
-            LensHaloRadiusMax = Config.Bind(
-                "SunstoneLens", "HaloRadiusMax",
-                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloRadiusMax,
-                new ConfigDescription(
-                    "Outer halo radius (world metres): how far out a FAR (edge-of-range) enemy's trophy pushes. "
-                    + "Far enemies sit at the outer radius; near ones pull in to HaloRadiusMin.",
-                    new AcceptableValueRange<float>(0.5f, 12f)));
+                    new AcceptableValueRange<float>(0.5f, 8f)));
             LensHaloScaleMax = Config.Bind(
                 "SunstoneLens", "HaloScaleMax",
                 SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloScaleMax,
                 new ConfigDescription(
-                    "Trophy world-scale for the NEAREST enemy (big). The trophy quad's world size in metres at zero distance.",
+                    "Trophy world-scale at FULL size — the world size of a trophy quad for an enemy within 10 m (the locked "
+                    + "\"1.0\"). SCALE carries all the distance information: an enemy \u2264 10 m renders at this full scale; one at "
+                    + "the detection edge (DetectRadius) renders at 25% of it; linear between (the 10 m knee). The edge floor "
+                    + "is derived (0.25\u00d7 this), not a separate knob. This is the eyeball tunable Daniel converges in-game.",
                     new AcceptableValueRange<float>(0.05f, 3f)));
-            LensHaloScaleMin = Config.Bind(
-                "SunstoneLens", "HaloScaleMin",
-                SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloScaleMin,
-                new ConfigDescription(
-                    "Trophy world-scale at the detection EDGE (shrinks toward nothing so a just-detected threat fades in rather than popping).",
-                    new AcceptableValueRange<float>(0f, 2f)));
             LensHaloEyeOffsetY = Config.Bind(
                 "SunstoneLens", "HaloEyeOffsetY",
                 SBPR.Trailborne.Features.Sunstone.SunstoneWorldRing.DefaultHaloEyeOffsetY,
