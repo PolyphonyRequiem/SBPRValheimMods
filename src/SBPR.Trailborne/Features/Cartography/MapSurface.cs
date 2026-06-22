@@ -129,13 +129,22 @@ namespace SBPR.Trailborne.Features.Cartography
         private static readonly Color32 CShroud    = new Color32(14, 13, 11, 255);
         private static readonly Color   CBackdrop  = new Color(0f, 0f, 0f, 0.92f);
 
-        // ── Compass north ring palette (card t_fb53c9e4, M1) ──
+        // ── Compass north ring palette (card t_fb53c9e4, M1; recolor t_540ace8c) ──
         // IronTint MULTIPLIES the bronze-baked bezel texture (which already encodes (0.62,0.55,0.42)), so
         // Color.white shows native bronze and IronTint shows iron. Iron in Valheim reads as a cool,
         // desaturated steel-grey — a touch blue-cool and LIGHTER than bronze so the ring reads "iron",
         // not "dark bronze". 🔴 This is the ONE genuinely visual constant in M1: Daniel EYEBALLS it
-        // in-game against a real iron item and tunes (AT-COMPASS-BEZEL-GATED). Starting value per §3.4.
-        private static readonly Color CIronTint  = new Color(0.66f, 0.68f, 0.72f, 1f);
+        // in-game against a real iron item and tunes (AT-COMPASS-BEZEL-GATED).
+        //
+        // 🔧 t_540ace8c — Daniel reported the equipped rim reads as a muddy dark brown-grey. Root cause:
+        // the old (0.66,0.68,0.72) tint × the warm bronze base = (104,95,77) = #685F4D, dragged dark and
+        // brown by the base. Retuned to a NEUTRAL medium grey: (0.677,0.764,1.0) × (0.62,0.55,0.42) =
+        // (107,107,107) = #6B6B6B. NOTE the cap — the base's blue channel (0.42) limits a *neutral* grey
+        // to RGB ≤ 107 on this tint-only path; a lighter neutral grey would require lifting the baked base
+        // (MapSurface.cs:1423, shared with the unworn disc rim) or a separate worn-state bake. #6B6B6B is
+        // the brightest neutral the clean single-constant edit can reach. Still AT-COMPASS-BEZEL-GATED:
+        // Daniel eyeballs the textured product in-game and may push lighter (→ shared-base path).
+        private static readonly Color CIronTint  = new Color(0.677f, 0.764f, 1.0f, 1f);
         // The N-glyph + ticks colour: a high-contrast off-white so it reads on the iron band (§3.4).
         private static readonly Color CNorthGlyph = new Color(0.92f, 0.93f, 0.96f, 1f);
         // The N-glyph font size as a fraction of the bezel hole radius, so the letter scales with the
