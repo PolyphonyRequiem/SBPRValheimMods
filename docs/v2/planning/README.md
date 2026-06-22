@@ -83,5 +83,26 @@ Planning artifacts for the Black Forest tier. Same role as
   PR #205 caption infrastructure (**t_26bba85b**). Closes card **t_caf0f1cf**. SpecCheck
   delta = **+0** (HUD presentation; biome is read live, never stored).
 
+- **`local-map-provider-persist-impl-spec.md`** — the buildable *how* for the **relog-persistence
+  fix** of the provider binding (**BUG card `t_5fc02f00`**). Daniel's 2026-06-22 playtest: the
+  SBPR minimap disc **vanishes after a logout/login** even though the imprinted Local Map is still
+  carried, returning only when the player next *equips* a map. This **reverses the one carve-out**
+  that drifted — `map-provider-binding-impl-spec.md` §3.1's *"client-only, session-scoped … null
+  on relog"* — back to the **locked** requirement **AT-MAP-DURABLE** (binding persists while the
+  item sits in inventory). Design [`../../design/map-provider-model.md`](../../design/map-provider-model.md)
+  §3.2 was **silent** on relog and never sanctioned dropping it, so this is **drift-correction
+  toward the requirement**, not a fresh override. The fix is a **one-shot cold-start carry
+  re-derivation latch** in `LocalMapController` (re-derive `_provider` from the first carried
+  *imprinted* map once per session, gated so an in-session re-pickup still stays unbound per §3.4)
+  — **no new `m_customData` key, no `LocalMap.cs` change, no new Harmony patch.** It **rejects**
+  the investigation card's recommended *(a) persist a provider-identity flag* (a permanent
+  save/wire contract **and** a cross-player stale-state leak — a traded map carries its flag) and
+  *(a′) monotonic stamp*, documenting (a′) as the reversible upgrade if Daniel ever wants exact
+  across-relog most-recent in the rare multi-carried-unequipped corner. Equipped-at-logout already
+  self-heals via vanilla `EquipInventoryItems` (decomp-grounded). The §3.1 + design §3.1/§3.2
+  **content flip rides the engineer's CODE PR** (same-PR-as-code per spec-first); this spec-pass PR
+  adds only the doc + forward-pointer breadcrumbs. `AT-PERSIST-CARRY` / `EQUIP-SELFHEAL` / `MULTI`
+  / `UNBIND-INTACT` / `BLANK` / `NOMAPOFF` / `SPEC`. SpecCheck delta = **+0**.
+
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
