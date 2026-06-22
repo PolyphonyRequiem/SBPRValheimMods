@@ -227,9 +227,10 @@ var ringColor    = new Color(0.62f, 0.55f, 0.42f, 1f);             // MapSurface
 **symbolically** to `DiscRingGeometry.HoleRadius(_cfg.TargetPx)` (helper at
 `DiscRingGeometry.cs:107`), NEVER a hard-coded pixel radius — see §3.5.
 
-🔵 **Clear of the Sunstone threat zone by construction.** The twin's threat blips land
-within the inner ~48 % of the disc; the compass N at ≈`holeR` (just inside the ring)
-never collides. The two overlays are spatially disjoint — clean co-existence (§5).
+🔵 **Clear of the Sunstone threat zone — margin narrowed at 50 m detect.** The twin's threat blips land
+within the inner ~80 % of the disc; the compass N at ≈`holeR` (just inside the ring)
+still clears them (~14 px margin at worst case, down from ~46 px under the old 30 m radius).
+The two overlays remain spatially disjoint — co-existence holds (§5), margin now modest.
 
 ### 3.4 The iron recolor — gated, reverts to bronze (Daniel ②) 🟢🔵
 

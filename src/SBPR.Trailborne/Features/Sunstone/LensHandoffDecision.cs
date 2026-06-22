@@ -57,7 +57,7 @@ namespace SBPR.Trailborne.Features.Sunstone
     /// How a threat draws on the minimap surfaces (design §3.3 geometry / Knob 2, Daniel-gated
     /// default <see cref="Dots"/>). Live Config enum so Daniel can compare in-game. The RING surface
     /// is unaffected — it always draws the full trophy art; this only styles the two minimap hosts,
-    /// where every threat sits in the inner ~48% of the disc and trophy art is ~48 px-from-centre small.
+    /// where every threat sits in the inner ~80% of the disc and trophy art is ~80 px-from-centre small.
     /// </summary>
     public enum BlipStyle
     {
