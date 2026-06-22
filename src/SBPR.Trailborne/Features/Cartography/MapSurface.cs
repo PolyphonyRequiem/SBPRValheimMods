@@ -220,6 +220,8 @@ namespace SBPR.Trailborne.Features.Cartography
         // to _pinObjects so they counter-rotate upright + clear each rebuild for free (no new plumbing).
         private readonly List<DiscThreatMarker> _threatScratch = new List<DiscThreatMarker>();
         private const float ThreatBlipPx = 14f;
+        private const float ThreatRimScale = 0.6f;   // off-disc rim indicators draw smaller than in-disc blips (card t_aab051ae)
+        private const float ThreatRimInset = 0.92f;  // seat a clamped rim blip at 92% of the visible disc radius
 
         private MapViewRequest _req;
 
@@ -733,8 +735,14 @@ namespace SBPR.Trailborne.Features.Cartography
                         if (!BoundedMapMath.InDisc(t.WorldPos.x, t.WorldPos.z, origin.x, origin.z, radius))
                             continue;
                         Vector2 anchored = WorldToSurfacePx(t.WorldPos, survey);
-                        if (anchored.sqrMagnitude > discR * discR) continue; // clip to the visible circle
-                        SpawnThreatMarker(t, anchored);
+                        // Off-disc threats are NO LONGER dropped — clamp to the rim and draw smaller
+                        // (card t_aab051ae item ④). With the 50m detection radius a hostile genuinely can
+                        // sit outside the visible disc window, so the rim indicator is the "something's
+                        // out there, that way" cue. On-disc threats draw full-size in place. The clamp is
+                        // Cartography-owned geometry (BoundedMapMath) — no upward dep on Features/Sunstone.
+                        bool offEdge = BoundedMapMath.ClampToRimPx(anchored.x, anchored.y, discR, ThreatRimInset,
+                                                                  out float drawX, out float drawY);
+                        SpawnThreatMarker(t, new Vector2(drawX, drawY), offEdge);
                     }
                 }
                 catch (Exception e)
@@ -857,14 +865,18 @@ namespace SBPR.Trailborne.Features.Cartography
             return null;
         }
 
-        // ── Sunstone threat marker (card t_91e86951) ─────────────────────────────────────────────
+        // ── Sunstone threat marker (card t_91e86951; richened t_aab051ae) ─────────────────────────
         // Draw one threat blip on the disc: a tinted dot (the marker carries no Icon → BlipStyle.Dots)
         // or the supplied trophy icon, tinted by the aggro colour. Added to _pinObjects so it rides the
         // rotating container for POSITION and counter-rotates upright with the pins (CounterRotatePins),
         // and is cleared each rebuild by ClearPinObjects — the threat layer needs no separate plumbing.
         // The blip OWNS its Image.color (the aggro tint), which is why the disc honours the tint where
         // a vanilla AddPin would be clobbered white (design §5 / the WorldPins.ReapplyColors lesson).
-        private void SpawnThreatMarker(DiscThreatMarker t, Vector2 anchored)
+        // offEdge: the threat was outside the visible disc and got clamped to the rim — draw it smaller
+        // (a "that way" cue) and skip the star pips (no room at the bezel); on-disc threats draw full
+        // size and carry a compact star row laid out locally (MountThreatStarPips) from the star sprite
+        // the producer pushed through the marker — matches the vanilla minimap surface (card t_aab051ae).
+        private void SpawnThreatMarker(DiscThreatMarker t, Vector2 anchored, bool offEdge)
         {
             if (_overlayLayer == null) return;
             var go = new GameObject("threat");
@@ -878,9 +890,69 @@ namespace SBPR.Trailborne.Features.Cartography
             var rt = img.rectTransform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(ThreatBlipPx, ThreatBlipPx);
+            float px = offEdge ? ThreatBlipPx * ThreatRimScale : ThreatBlipPx;
+            rt.sizeDelta = new Vector2(px, px);
             rt.anchoredPosition = anchored;
             _pinObjects.Add(go);
+
+            if (!offEdge && t.Stars > 0)
+                MountThreatStarPips(rt, t.Stars, px, t.Tint, t.StarSprite);
+        }
+
+        // Compact star-pip row above an on-disc threat blip (card t_aab051ae). Cartography-local so the
+        // dependency arrow stays one-way: the producer (Sunstone) pushes the star SPRITE through the
+        // DiscThreatMarker; we only lay out pips. Mirrors the vanilla-minimap overlay's row so a 2-star
+        // hostile reads identically on both surfaces. Parented under the blip rt (rides its counter-rotation
+        // + lifecycle). Falls back to a Unicode ★ Text when no sprite was supplied (never blank).
+        private const float ThreatPipPx = 7f;
+        private static void MountThreatStarPips(RectTransform blipRt, int stars, float blipPx, Color tint, Sprite? starSprite)
+        {
+            if (blipRt == null || stars <= 0) return;
+            stars = Mathf.Min(stars, 5);
+
+            var rowGo = new GameObject("stars", typeof(RectTransform));
+            rowGo.transform.SetParent(blipRt, worldPositionStays: false);
+            var rowRt = rowGo.GetComponent<RectTransform>();
+            rowRt.anchorMin = rowRt.anchorMax = rowRt.pivot = new Vector2(0.5f, 0.5f);
+            rowRt.anchoredPosition = new Vector2(0f, blipPx * 0.5f + ThreatPipPx * 0.6f);
+            rowRt.sizeDelta = Vector2.zero;
+
+            float startX = -(stars - 1) * 0.5f * ThreatPipPx;
+            if (starSprite != null)
+            {
+                for (int i = 0; i < stars; i++)
+                {
+                    var pgo = new GameObject($"pip_{i}", typeof(RectTransform));
+                    pgo.transform.SetParent(rowRt, worldPositionStays: false);
+                    var prt = pgo.GetComponent<RectTransform>();
+                    prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
+                    prt.sizeDelta = new Vector2(ThreatPipPx, ThreatPipPx);
+                    prt.anchoredPosition = new Vector2(startX + i * ThreatPipPx, 0f);
+                    var pimg = pgo.AddComponent<Image>();
+                    pimg.raycastTarget = false;
+                    pimg.preserveAspect = true;
+                    pimg.sprite = starSprite;
+                    pimg.color = tint;
+                }
+            }
+            else
+            {
+                var tgo = new GameObject("pip_text", typeof(RectTransform));
+                tgo.transform.SetParent(rowRt, worldPositionStays: false);
+                var trt = tgo.GetComponent<RectTransform>();
+                trt.anchorMin = trt.anchorMax = trt.pivot = new Vector2(0.5f, 0.5f);
+                trt.sizeDelta = new Vector2(40f, 10f);
+                var txt = tgo.AddComponent<Text>();
+                txt.font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
+                           ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+                txt.fontSize = 9;
+                txt.alignment = TextAnchor.MiddleCenter;
+                txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+                txt.verticalOverflow = VerticalWrapMode.Overflow;
+                txt.raycastTarget = false;
+                txt.text = new string('\u2605', stars);
+                txt.color = tint;
+            }
         }
 
         // A code-generated near-white filled disc — the disc-side threat DOT. Cartography owns its own

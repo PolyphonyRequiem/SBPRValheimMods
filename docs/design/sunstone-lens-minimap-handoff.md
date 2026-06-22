@@ -333,6 +333,31 @@ whole card; the impl-spec locks it as an acceptance test (AT-LENS-DISC-PUMP).
    rejected option (directional edge ticks) stays rejected by geometry — threats
    never reach the bezel.
 
+   > 🔴 **SUPERSEDED 2026-06-21 (Daniel, ticket-sunstone-minimap-render, card
+   > `t_aab051ae`) — minimap representation RICHENED to match the ring.** Daniel
+   > playtested the shipped dots-default and rejected it: *"just… ship the change."*
+   > The new locked representation on BOTH minimap surfaces (the SBPR carry-disc and
+   > the vanilla corner overlay):
+   > - **`MinimapBlipStyle` default flips `Dots → Trophy`** — the minimap shows the
+   >   creature trophy sprite (aggro-tinted), not a bare dot. Enum stays live-tunable
+   >   (`Dots` remains selectable for anyone who prefers the minimal read).
+   > - **Star pips ADDED** — a compact aggro-tinted star row sits above an on-map
+   >   blip (level-1 hostiles show none), mirroring the ring's star row at minimap
+   >   scale. Previously minimap-only surfaces dropped stars entirely.
+   > - **Off-edge RIM INDICATOR added — the "directional edge ticks" rejection is
+   >   REVERSED.** The original geometry argument ("threats never reach the bezel")
+   >   was computed for the SBPR disc's fixed view span; it does NOT hold for (a) the
+   >   vanilla corner minimap, whose zoom is player-controlled, nor (b) the 50 m
+   >   detection radius (raised from 30 m, card `t_4b9f8889`) which lets a hostile sit
+   >   outside the visible window. Off-window threats are now CLAMPED to the rim and
+   >   drawn smaller (the "smaller indicator around the rim" the reporter asked for)
+   >   instead of being dropped. Shared pixel-space clamp: `BoundedMapMath.ClampToRimPx`.
+   > The richer detail the §3.3 geometry warned against is Daniel's explicit, eyeballed
+   > call; the live `Dots` enum value preserves the minimal option. AT-LENS-DISC-NODRIFT
+   > still holds — the star count + tint derive from the one `SunstoneProjection`; the
+   > star SPRITE is pushed through `DiscThreatMarker` so Cartography draws pips without
+   > an upward dependency on Features/Sunstone.
+
 3. 🟢 **The nomap-OFF case → DRAW ON THE VANILLA MINIMAP.** 🔴 Daniel **overrode**
    the architect's "ring stays" lean. The universal rule: *any minimap present,
    for any reason, gets the handoff — including the vanilla minimap in nomap-OFF.*

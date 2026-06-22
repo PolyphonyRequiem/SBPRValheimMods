@@ -59,6 +59,8 @@ namespace SBPR.Trailborne.Features.Sunstone
         private RectTransform? _layer;            // child of Minimap.instance.m_pinRootSmall
         private readonly List<Image> _pool = new List<Image>();
         private const float BlipPx = 14f;         // on-minimap blip size (px); dots read at corner-map scale
+        private const float RimBlipScale = 0.6f;  // off-edge rim indicators draw smaller than in-window blips (card t_aab051ae)
+        private const float RimInset = 0.92f;     // seat a clamped rim blip at 92% of the visible radius
 
         /// <summary>
         /// (Re)mount the layer lazily under the vanilla small-map pin root. Returns false until the
@@ -95,20 +97,63 @@ namespace SBPR.Trailborne.Features.Sunstone
             var mm = Minimap.instance;
             if (mm == null) { Clear(); return; }
 
+            // Visible-radius of the small map (for the off-edge rim clamp). The corner map's rect is
+            // square; the inscribed circle radius is half the smaller extent.
+            float visibleR = VisibleSmallMapRadiusPx(mm);
+
             Sprite dot = SunstoneProjection.DotSprite();
             int shown = 0;
             for (int i = 0; i < blips.Count; i++)
             {
+                // Project to the small-map rect. Off-window points are NO LONGER dropped — they are
+                // clamped to the rim and drawn smaller (card t_aab051ae item ④). TryVanillaSmallMapPos
+                // returns the raw anchored pos (even out-of-window) plus whether it's inside the uv window.
                 if (!TryVanillaSmallMapPos(mm, blips[i].WorldPos, out Vector2 anchored)) continue;
+
+                bool offEdge = Cartography.BoundedMapMath.ClampToRimPx(anchored.x, anchored.y, visibleR, RimInset,
+                                                                       out float drawX, out float drawY);
+                Vector2 drawAt = new Vector2(drawX, drawY);
+
                 var img = EnsurePoolImage(shown++);
+                ClearStarPips(img);                 // pooled image reuse: drop last frame's star row first
                 var rt = img.rectTransform;
-                rt.anchoredPosition = anchored;
-                rt.sizeDelta = new Vector2(BlipPx, BlipPx);
-                img.color = blips[i].Tint;   // OUR colour — no vanilla UpdatePins runs on our layer, so it survives
+                rt.anchoredPosition = drawAt;
+                float px = offEdge ? BlipPx * RimBlipScale : BlipPx;
+                rt.sizeDelta = new Vector2(px, px);
+                img.color = blips[i].Tint;          // OUR colour — no vanilla UpdatePins runs on our layer, so it survives
                 img.sprite = style == BlipStyle.Trophy ? (blips[i].Trophy ?? dot) : dot;
                 img.gameObject.SetActive(true);
+
+                // Stars: only on in-window blips (a clamped rim indicator stays a clean small dot — no
+                // room for pips at the bezel, and the rim blip is a "something's out there" cue, not a
+                // full read). Mounted from the shared helper so the disc + vanilla map match exactly.
+                if (!offEdge && blips[i].Stars > 0)
+                    SunstoneProjection.MountStarPips(rt, blips[i].Stars, px, blips[i].Tint);
             }
-            for (int i = shown; i < _pool.Count; i++) _pool[i].gameObject.SetActive(false);  // park tail
+            for (int i = shown; i < _pool.Count; i++)
+            {
+                ClearStarPips(_pool[i]);
+                _pool[i].gameObject.SetActive(false);  // park tail
+            }
+        }
+
+        /// <summary>Destroy any star-pip children mounted on a pooled blip last frame (so reuse doesn't
+        /// accumulate rows). The pips are parented under a child named "stars" by MountStarPips.</summary>
+        private static void ClearStarPips(Image img)
+        {
+            if (img == null) return;
+            var existing = img.rectTransform.Find("stars");
+            if (existing != null) Object.Destroy(existing.gameObject);
+        }
+
+        /// <summary>Inscribed-circle radius (px) of the vanilla small-map rect — the visible map window the
+        /// rim clamp seats off-edge threats against.</summary>
+        private static float VisibleSmallMapRadiusPx(Minimap mm)
+        {
+            var img = mm.m_mapImageSmall;
+            if (img == null || img.rectTransform == null) return 0f;
+            Rect rect = img.rectTransform.rect;
+            return Mathf.Min(rect.width, rect.height) * 0.5f;
         }
 
         /// <summary>Hide every blip (called when the vanilla minimap is no longer the active surface).</summary>
@@ -139,10 +184,12 @@ namespace SBPR.Trailborne.Features.Sunstone
         /// reproducing vanilla's own math (it's private, but the arithmetic is trivial and fair to
         /// adapt per ADR-0001). The chain mirrors vanilla UpdatePins for the small map:
         ///   WorldToMapPoint:        mx = (p.x/m_pixelSize + textureSize/2) / textureSize ; my likewise on p.z
-        ///   IsPointVisible:         mx,my within m_mapImageSmall.uvRect bounds (else off-map → skip)
         ///   MapPointToLocalGuiPos:  ((m - uvMin)/uvW) * rectW  on each axis, about the rect centre
-        /// so a blip lands on the exact terrain cell a vanilla pin would. Returns false when the point
-        /// is outside the visible small-map window (clipped, like vanilla pins).
+        /// so a blip lands on the exact terrain cell a vanilla pin would. Unlike vanilla pins (which clip
+        /// off-window points away), we return the anchored pos EVEN when it falls outside the visible uv
+        /// window — the caller's <see cref="Cartography.BoundedMapMath.ClampToRimPx"/> turns an off-window
+        /// threat into a smaller rim indicator instead of dropping it (card t_aab051ae item ④). Returns false only
+        /// when the map rect genuinely can't be read (no projection possible).
         /// </summary>
         private static bool TryVanillaSmallMapPos(Minimap mm, Vector3 world, out Vector2 anchored)
         {
@@ -158,10 +205,9 @@ namespace SBPR.Trailborne.Features.Sunstone
             float my = (world.z / pixelSize + texSize / 2f) / texSize;
 
             Rect uv = img.uvRect;
-            // IsPointVisible (vanilla): inside the small map's current uv window, else off-map → skip.
-            if (mx <= uv.xMin || mx >= uv.xMax || my <= uv.yMin || my >= uv.yMax) return false;
-
-            // MapPointToLocalGuiPos (vanilla): normalize within uv, scale by the rect, centre at (0,0).
+            // MapPointToLocalGuiPos (vanilla): normalize within uv, scale by the rect, centre at (0,0). We do
+            // NOT early-out on out-of-uv here (vanilla's IsPointVisible cull) — the rim clamp wants the true
+            // projected position so it can seat an off-window threat on the bezel.
             Rect rect = img.rectTransform.rect;
             float nx = (mx - uv.xMin) / uv.width;
             float ny = (my - uv.yMin) / uv.height;
