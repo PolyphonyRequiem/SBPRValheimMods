@@ -255,7 +255,17 @@ on the gate edge). The bronze band texture already bakes `(0.62, 0.55, 0.42)`; t
 by `Color.white` shows native bronze, tinting by `IronTint` shows iron.
 
 🔴 **IronTint — ground the exact RGB at build.** Iron in Valheim reads as a cool
-desaturated steel-grey. Proposed starting value: `new Color(0.66f, 0.68f, 0.72f, 1f)`
+desaturated steel-grey. ~~Proposed starting value: `new Color(0.66f, 0.68f, 0.72f, 1f)`~~
+**Retuned to `new Color(0.677f, 0.764f, 1.0f, 1f)` (card t_540ace8c).** The first
+guess multiplied the warm bronze base to `(104,95,77)` = #685F4D — a muddy dark
+brown-grey, which Daniel reported as "the wrong color." The retune lands a NEUTRAL
+medium grey: `(0.677,0.764,1.0) × (0.62,0.55,0.42)` = `(107,107,107)` = **#6B6B6B**.
+**Cap to know:** because the tint multiplies the baked bronze base, a *neutral* grey
+is capped at RGB ≤ 107 on this tint-only path (the base's blue channel = 0.42 →
+1.0×0.42×255 = 107). #6B6B6B is the brightest neutral the clean single-constant edit
+reaches; a *lighter* neutral grey needs the baked base at `MapSurface.cs:1423` lifted
+(SHARED with the unworn disc rim → recolors the off-compass disc too) or a separate
+worn-state texture bake.
 (a touch blue-cool, lighter than bronze so the ring reads "iron" not "dark bronze").
 Because it multiplies the bronze-baked texture, the engineer-ui must **eyeball the
 product in-game** against an actual iron item and tune (AT-COMPASS-BEZEL-GATED is
