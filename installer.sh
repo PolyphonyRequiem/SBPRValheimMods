@@ -198,6 +198,16 @@ fi
 cp -a "$PAYLOAD"/. "$MODDED"/
 PLUGIN_DLL="$MODDED/BepInEx/plugins/SBPR.Trailborne/SBPR.Trailborne.dll"
 [ -f "$PLUGIN_DLL" ] || die "Overlay finished but the Trailborne DLL isn't where expected. Aborting so you don't launch a half-install."
+# Clear BepInEx's typeloader cache so an UPGRADE always re-reads plugin metadata.
+# BepInEx invalidates this cache by DLL mtime+length, but the modpack is packed
+# DETERMINISTICALLY (every file pinned to a constant 2020-01-01 mtime), so two
+# releases whose DLLs happen to share a byte-length look "unchanged" to BepInEx —
+# it then reuses the OLD release's cached type metadata and prints the PREVIOUS
+# version in its "Loading [SBPR Trailborne x.y.z]" banner even though the new code
+# is what actually runs. The cache is regenerable; deleting it on every install is
+# harmless and kills the stale-banner class outright. (Refreshes preserve BepInEx/
+# via the overlay, so without this the stale cache survives forever.)
+rm -rf "$MODDED/BepInEx/cache"
 okm "BepInEx doorstop + Trailborne DLL + icons in place."
 
 # ── 6. Launcher (doorstop 4.x env contract) ───────────────────────────────────
