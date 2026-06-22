@@ -48,23 +48,45 @@ def extract_section(text, header):
 def git_code_changes(last_tag, ref):
     if not last_tag:
         return []
-    raw = sh("git", "log", f"{last_tag}..{ref}", "--oneline", "--", "src/**/*.cs")
+    # Read the FULL message (subject + body) per commit, not just --oneline. Card ids
+    # often live in the BODY (e.g. signs #228 carried t_6cc9f652 only in its body), so a
+    # subject-only scan silently misses them — the exact blind spot that let the v0.2.33
+    # ledger drift. %x1f = unit sep (sha|subject|body), %x1e = record sep between commits.
+    raw = sh("git", "log", f"{last_tag}..{ref}", "--no-merges",
+             "--pretty=format:%h%x1f%s%x1f%b%x1e", "--", "src/**/*.cs")
     out = []
-    for line in raw.splitlines():
-        if not line.strip():
+    for rec in raw.split("\x1e"):
+        rec = rec.strip()
+        if not rec:
             continue
-        sha, _, msg = line.partition(" ")
-        out.append((sha, msg))
+        parts = rec.split("\x1f")
+        sha = parts[0].strip()
+        subject = parts[1].strip() if len(parts) > 1 else ""
+        body = parts[2].strip() if len(parts) > 2 else ""
+        if not sha:
+            continue
+        out.append((sha, subject, f"{subject}\n{body}"))
     return out
 
 def ledger_card_ids(pending):
     return set(re.findall(r"t_[a-f0-9]{8}", pending))
+
+# Conventional-commit types that introduce NO player-visible test surface, so a src
+# change of this type needs no ledger test item. Everything else (feat/fix/perf/refactor)
+# is player-visible-by-default and MUST carry a card id present in the ledger PENDING.
+EXEMPT_TYPES = {"revert", "chore", "docs", "test", "ci", "build", "style"}
+
+def commit_type(subject):
+    m = re.match(r"\s*([a-z]+)(?:\([^)]*\))?!?:", subject)
+    return m.group(1) if m else ""
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ref", default="main", help="git ref to diff to (default main)")
     ap.add_argument("--tag", default=None, help="override last_playtest_tag from ledger")
     ap.add_argument("--write", action="store_true", help="write the guide file")
+    ap.add_argument("--check", action="store_true",
+                    help="exit non-zero if any merged code change is unledgered (CI/ship guard); writes nothing")
     args = ap.parse_args()
 
     if not LEDGER.exists():
@@ -80,12 +102,36 @@ def main():
     changes = git_code_changes(last_tag, ref)
     cards_in_ledger = ledger_card_ids(pending)
 
-    # cross-check: code commit whose card id isn't in the ledger PENDING
+    # cross-check: a merged src change is "unledgered" (flagged) unless either
+    #   (a) it is an EXEMPT commit type (revert/chore/docs/test/ci/build/style) — no
+    #       player-visible surface, so no test item is owed; or
+    #   (b) it carries a card id that is present in the ledger PENDING.
+    # A feat/fix/etc. whose card id is missing from PENDING — or which carries NO card id
+    # at all — is flagged. fulltext = subject + body, so a body-only card id is matched
+    # (the exact blind spot that let the v0.2.33 ledger drift: signs #228 carried its
+    # card id only in the commit body, invisible to the old --oneline scan).
     unledgered = []
-    for sha, msg in changes:
-        ids = set(re.findall(r"t_[a-f0-9]{8}", msg))
-        if ids and not (ids & cards_in_ledger):
-            unledgered.append((sha, msg, ids))
+    for sha, subject, fulltext in changes:
+        if commit_type(subject) in EXEMPT_TYPES:
+            continue
+        ids = set(re.findall(r"t_[a-f0-9]{8}", fulltext))
+        if not (ids & cards_in_ledger):
+            unledgered.append((sha, subject, ids))
+
+    # --check: ship/CI guard. Exit non-zero if any merged code change is unledgered,
+    # so the release wrapper REFUSES to cut a build with silently-untested surfaces
+    # (the exact drift that made the v0.2.33 cut slow — a bump landed without a roll).
+    if args.check:
+        if unledgered:
+            print(f"✗ {len(unledgered)} unledgered code change(s) since {last_tag} "
+                  f"(diff vs {args.ref}):", file=sys.stderr)
+            for sha, msg, ids in unledgered:
+                print(f"    {sha} {msg}  ({', '.join(sorted(ids))})", file=sys.stderr)
+            print("  → add a ledger PENDING row (or name the card in the cross-check) "
+                  "before shipping.", file=sys.stderr)
+            sys.exit(1)
+        print(f"✓ ledger clean: all {len(changes)} code change(s) since {last_tag} are ledgered.")
+        sys.exit(0)
 
     # Version is in the csproj <Version> tag (single source of truth per the csproj comment).
     csproj = sh("git", "show", f"{ref}:src/SBPR.Trailborne/SBPR.Trailborne.csproj") or ""
@@ -155,7 +201,8 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
         guide.append("\n> ⚠️ **These merged code changes have no matching item in the ledger PENDING — "
                      "verify they're covered or add them:**\n")
         for sha, msg, ids in unledgered:
-            guide.append(f"> - `{sha}` {msg}  ({', '.join(ids)})\n")
+            tag = ', '.join(sorted(ids)) if ids else 'no card id'
+            guide.append(f"> - `{sha}` {msg}  ({tag})\n")
     else:
         guide.append("\n✅ Every merged code change maps to a ledger item. No silent-untested changes.\n")
 
