@@ -182,5 +182,33 @@ namespace SBPR.Trailborne.Features.Cartography
             clampedX = ox + ux * radius;
             clampedZ = oz + uz * radius;
         }
+
+        // ── Pixel-space rim clamp for transient overlay blips (card t_aab051ae) ───────
+
+        /// <summary>
+        /// UI-space sibling of <see cref="EdgeClampToDisc"/>: given a blip's anchored pixel position
+        /// about a map's centre and the visible map radius (px), decide how to draw an out-of-window
+        /// blip. Inside the visible circle → draw in place at full size (returns false). Beyond the
+        /// edge → clamp to a point just inside the rim (<paramref name="rimInset"/> × radius) and
+        /// return true so the caller can draw a SMALLER rim indicator — "a smaller indicator around
+        /// the rim" for off-edge threats, instead of dropping them. Pure geometry, no Unity types, so
+        /// both minimap surfaces (the SBPR disc and the vanilla corner overlay) share one clamp with no
+        /// cross-feature dependency. Inputs/outputs are (x,y) px pairs about the rect centre.
+        /// </summary>
+        public static bool ClampToRimPx(float ax, float ay, float visibleRadiusPx, float rimInset,
+                                        out float cx, out float cy)
+        {
+            float mag = (float)Math.Sqrt(ax * ax + ay * ay);
+            if (mag <= visibleRadiusPx || mag <= 1e-4f)
+            {
+                cx = ax;
+                cy = ay;
+                return false;   // on-map: draw in place at full size
+            }
+            float s = visibleRadiusPx * rimInset / mag;
+            cx = ax * s;
+            cy = ay * s;
+            return true;        // off-edge: caller draws a smaller rim indicator
+        }
     }
 }

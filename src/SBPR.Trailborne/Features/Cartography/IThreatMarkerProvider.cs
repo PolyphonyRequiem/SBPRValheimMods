@@ -46,15 +46,21 @@ namespace SBPR.Trailborne.Features.Cartography
         public readonly Color Tint;
         /// <summary>Icon sprite, or null → the disc draws a tinted dot (BlipStyle.Dots).</summary>
         public readonly Sprite? Icon;
-        /// <summary>Star-pip count (reserved for richer disc rendering; the v1 disc draws a dot/icon only).</summary>
+        /// <summary>Star-pip count (level - 1). Both minimap surfaces draw a compact star row above
+        /// an on-map blip (card t_aab051ae).</summary>
         public readonly int Stars;
+        /// <summary>The star-pip sprite (vanilla nameplate star), pushed from the producer so Cartography
+        /// renders pips WITHOUT reaching up into Features/Sunstone. Null → caller draws a Unicode ★
+        /// fallback. Carried alongside <see cref="Stars"/> (card t_aab051ae).</summary>
+        public readonly Sprite? StarSprite;
 
-        public DiscThreatMarker(Vector3 worldPos, Color tint, Sprite? icon, int stars)
+        public DiscThreatMarker(Vector3 worldPos, Color tint, Sprite? icon, int stars, Sprite? starSprite = null)
         {
             WorldPos = worldPos;
             Tint = tint;
             Icon = icon;
             Stars = stars;
+            StarSprite = starSprite;
         }
     }
 

@@ -233,5 +233,62 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(0f, dist, 4);
             Assert.False(float.IsNaN(angle));
         }
+
+        // ── ClampToRimPx: UI-space rim clamp for off-edge threat blips (t_aab051ae) ─
+
+        [Fact]
+        public void ClampToRimPx_interior_point_draws_in_place_not_offedge()
+        {
+            // A point well inside the visible radius is returned unchanged, offEdge=false.
+            bool off = BoundedMapMath.ClampToRimPx(10f, 0f, 100f, 0.92f, out float cx, out float cy);
+            Assert.False(off);
+            Assert.Equal(10f, cx, 4);
+            Assert.Equal(0f, cy, 4);
+        }
+
+        [Fact]
+        public void ClampToRimPx_point_on_circle_is_not_offedge()
+        {
+            // mag == radius is treated as on-map (<=), so a blip exactly at the edge stays full-size.
+            bool off = BoundedMapMath.ClampToRimPx(100f, 0f, 100f, 0.92f, out _, out _);
+            Assert.False(off);
+        }
+
+        [Fact]
+        public void ClampToRimPx_exterior_point_clamps_to_rim_inset_and_reports_offedge()
+        {
+            // Due-east at 500px, visible radius 100, inset 0.92 → clamps to (92, 0), offEdge=true.
+            bool off = BoundedMapMath.ClampToRimPx(500f, 0f, 100f, 0.92f, out float cx, out float cy);
+            Assert.True(off);
+            Assert.Equal(92f, cx, 3);
+            Assert.Equal(0f, cy, 3);
+            // The clamped point sits on the inset circle (preserves the bearing).
+            Assert.Equal(92f, (float)Math.Sqrt(cx * cx + cy * cy), 3);
+        }
+
+        [Fact]
+        public void ClampToRimPx_preserves_bearing_diagonal()
+        {
+            // A 3-4-5 direction scaled out (300,400)=dist 500, radius 100, inset 0.9 → magnitude 90,
+            // same unit direction (0.6, 0.8) → (54, 72).
+            bool off = BoundedMapMath.ClampToRimPx(300f, 400f, 100f, 0.9f, out float cx, out float cy);
+            Assert.True(off);
+            Assert.Equal(54f, cx, 3);
+            Assert.Equal(72f, cy, 3);
+            Assert.Equal(90f, (float)Math.Sqrt(cx * cx + cy * cy), 3);
+        }
+
+        [Fact]
+        public void ClampToRimPx_degenerate_center_point_is_defined_not_NaN()
+        {
+            // A blip exactly at the centre (mag 0) can't be projected onto a rim direction; the 1e-4
+            // guard returns it in place, offEdge=false, no divide-by-zero.
+            bool off = BoundedMapMath.ClampToRimPx(0f, 0f, 100f, 0.92f, out float cx, out float cy);
+            Assert.False(off);
+            Assert.Equal(0f, cx, 4);
+            Assert.Equal(0f, cy, 4);
+            Assert.False(float.IsNaN(cx));
+            Assert.False(float.IsNaN(cy));
+        }
     }
 }

@@ -632,12 +632,13 @@ namespace SBPR.Trailborne.Features.Sunstone
             if (!_feedDiscNow) return;
             float r2 = radius > 0f ? radius * radius : float.MaxValue;
             bool trophy = _blipStyleNow == BlipStyle.Trophy;
+            Sprite? starSprite = SunstoneProjection.StarSprite();   // pushed into the marker so the disc draws pips without an upward dep
             for (int i = 0; i < _blips.Count; i++)
             {
                 var b = _blips[i];
                 if (b.Character == null) continue;
                 if ((b.WorldPos - origin).sqrMagnitude > r2) continue;
-                into.Add(new DiscThreatMarker(b.WorldPos, b.Tint, trophy ? b.Trophy : null, b.Stars));
+                into.Add(new DiscThreatMarker(b.WorldPos, b.Tint, trophy ? b.Trophy : null, b.Stars, starSprite));
             }
         }
 

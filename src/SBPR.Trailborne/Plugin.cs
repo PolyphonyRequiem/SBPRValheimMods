@@ -424,7 +424,7 @@ namespace SBPR.Trailborne
                 + "off whenever ANY minimap is present', not only the SBPR disc.)");
             LensMinimapBlipStyle = Config.Bind(
                 "SunstoneLens", "MinimapBlipStyle",
-                SBPR.Trailborne.Features.Sunstone.BlipStyle.Dots,
+                SBPR.Trailborne.Features.Sunstone.BlipStyle.Trophy,
                 "How a threat draws on the minimap surfaces (the SBPR disc + the vanilla corner map). Dots "
                 + "(default): a small aggro-tinted dot, legible at the disc's tight inner threat zone. Trophy: "
                 + "the creature trophy sprite + aggro tint (richer, smaller-read). The screen-space RING is "
