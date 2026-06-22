@@ -230,6 +230,18 @@ one):**
 - 🔴 Redefines card **t_1d1b505b** (issue 5, "carry disc") — it was a partial glimpse of THIS
   binding state machine. Fold it into this model; don't build it standalone.
 
+> **⚠️ PENDING REVERSAL — relog persistence (BUG card t_5fc02f00, 2026-06-22).** §3.2's unbind
+> list (another map equipped / leaves inventory / death) is **silent on relog**, and a relog is
+> none of those — so the binding **must survive a logout/login while the item stays carried**, per
+> the locked requirement **AT-MAP-DURABLE**. Daniel's playtest found the disc wrongly vanishes on
+> relog. The buildable impl-spec `map-provider-binding-impl-spec.md` §3.1 had carved out
+> "session-scoped / null on relog" (now being reversed). The binding is still **client-only and
+> non-replicated**; its **lifetime is the item's inventory residency, surviving the session
+> boundary** (re-derived from carried imprinted maps at cold-start). See
+> [`../v2/planning/local-map-provider-persist-impl-spec.md`](../v2/planning/local-map-provider-persist-impl-spec.md).
+> The content flip of §3.1/§3.2 here lands in the engineer's CODE PR (same-PR-as-code); this marks
+> the plan only.
+
 ### 3.3 Resolution 🟢 DECIDED (Daniel 2026-06-15) — vanilla-native 64 m, for now
 🔵 GROUNDED: vanilla's whole map stack is **64 m per texel** (`m_pixelSize = 64f` :46694, over
 a 256² texture = 16,384 m coverage; world is ~21 km diameter, edge wall at 10,500 m :81374 — so
