@@ -74,6 +74,23 @@ impl-spec. Each carries its open questions inline.
   *the surface shows north IFF the compass is worn.* Daniel's 4 follow-up answers
   folded in; one knob (nomap-OFF vanilla minimap) open. CLEAN-SIDE, SpecCheck +0.
 
+- **[`sunstone-lens-aura.md`](sunstone-lens-aura.md)** — Daniel's 2026-06-21
+  `/bug` idea: while the Sunstone Lens is worn, a faint golden aura **pulses**
+  "around the outer rim of the minimap (or as the art for the no-minimap ring)."
+  The reframe that makes this small: the gold ring **already exists** as the lens'
+  empty-state affordance (`_emptyRing`, colour `CSolarRing`, sprite `RingSprite()`),
+  so the work is **extend + animate** — make it pulse, and **re-home** it onto the
+  minimap rim when a minimap owns detection. The central insight: Daniel's "or as
+  the…" maps exactly onto the **already-shipped** Sunstone→minimap handoff — the
+  handoff hides the whole ring when a minimap takes over, so the aura is just the
+  empty-ring re-homed onto whichever surface the handoff already targets (one
+  concept, no new gate or art). Corrects three grounding slips in the bug card and
+  flags one real conflict — on the carry-disc the bezel colour channel is **already
+  owned** by the Iron Compass tint, so a lens aura there needs its own element.
+  Two knobs are settled by grounding; three (pulse style/rate/depth) are eyeball
+  calls Daniel locks via an interactive HTML mock (`~/sunstone-aura-mock/`). Clean,
+  no new assets, SpecCheck +0.
+
 - **[`forge-masters-trinket.md`](forge-masters-trinket.md)** — a **standalone-mod**
   Trinket whose power, fired when the vanilla adrenaline bar caps (~80), repairs
   **+5 durability on equipped gear** instead of a combat burst. Decomp-grounded:
