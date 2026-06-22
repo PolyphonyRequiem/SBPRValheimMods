@@ -316,6 +316,54 @@ namespace SBPR.Trailborne.Features.Signs
         {
             private bool _wasOpenLocal;
             private int _frame;
+            private int _diagLinesEmitted;
+            private Coroutine? _eofLoop;
+
+            private void OnEnable()
+            {
+                // §2L.16: start the end-of-frame assert loop. WaitForEndOfFrame fires AFTER all
+                // Update/LateUpdate/coroutine phases AND after the Input System's pointer processing
+                // for the frame — the latest managed point we can write before the next frame's input
+                // is sampled. This catches a re-lock/warp that lands LATER in the frame than our
+                // LateUpdate assert (the §2L.15 build still snapped-to-centre on Daniel's client while
+                // lockState read None at our Update sample — the signature of a late-frame writer our
+                // earlier phases didn't cover).
+                _eofLoop = StartCoroutine(EndOfFrameAssert());
+            }
+
+            private void OnDisable()
+            {
+                if (_eofLoop != null) { StopCoroutine(_eofLoop); _eofLoop = null; }
+            }
+
+            private System.Collections.IEnumerator EndOfFrameAssert()
+            {
+                var eof = new WaitForEndOfFrame();
+                while (true)
+                {
+                    yield return eof;
+                    if (!AnyOpen) continue;
+
+                    // DIAGNOSTIC (per-frame while open, capped): if lockState reads Locked HERE — at
+                    // end-of-frame, after the Input System ran — that's the snap window the earlier
+                    // asserts miss. Capped at 40 lines/open-session so the log stays readable.
+                    if ((Plugin.CursorDiag?.Value ?? false)
+                        && Cursor.lockState != CursorLockMode.None
+                        && _diagLinesEmitted < 40)
+                    {
+                        _diagLinesEmitted++;
+                        Plugin.Log.LogWarning(
+                            "[Trailborne/CursorDiag] EOF re-lock caught! lockState=" + Cursor.lockState
+                            + " visible=" + Cursor.visible
+                            + " gamepadActive=" + ZInput.GamepadActive
+                            + " | this is the late-frame writer the Update/LateUpdate asserts miss.");
+                    }
+
+                    // Assert free at the latest possible managed point in the frame.
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
+            }
 
             private void Update()
             {
@@ -355,6 +403,7 @@ namespace SBPR.Trailborne.Features.Signs
                     Cursor.visible = false;
                     _wasOpenLocal = false;
                     _frame = 0;
+                    _diagLinesEmitted = 0;
                 }
             }
 
