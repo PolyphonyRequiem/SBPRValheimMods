@@ -380,10 +380,8 @@ namespace SBPR.Trailborne.Features.Sunstone
             float detectR   = Plugin.LensDetectRadius?.Value     ?? SunstoneLens.DefaultDetectRadius;
             int   maxIcons  = Plugin.LensRingMaxIcons?.Value      ?? DefaultRingMaxIcons;
             bool  showEmpty = Plugin.LensRingShowEmpty?.Value     ?? DefaultShowEmptyRing;
-            float radMin    = Plugin.LensHaloRadiusMin?.Value     ?? SunstoneWorldRing.DefaultHaloRadiusMin;
-            float radMax    = Plugin.LensHaloRadiusMax?.Value     ?? SunstoneWorldRing.DefaultHaloRadiusMax;
+            float radius    = Plugin.LensHaloRadius?.Value        ?? SunstoneWorldRing.DefaultHaloRadius;
             float scaleMax  = Plugin.LensHaloScaleMax?.Value      ?? SunstoneWorldRing.DefaultHaloScaleMax;
-            float scaleMin  = Plugin.LensHaloScaleMin?.Value      ?? SunstoneWorldRing.DefaultHaloScaleMin;
             float eyeOffset = Plugin.LensHaloEyeOffsetY?.Value    ?? SunstoneWorldRing.DefaultHaloEyeOffsetY;
 
             // The halo anchor is the player's EYE-POINT (Character.GetEyePoint(), public :8655) — the
@@ -392,8 +390,9 @@ namespace SBPR.Trailborne.Features.Sunstone
 
             // Draw the world halo from the shared projection. Camera-relative by construction (each
             // trophy sits on the REAL blip.WorldPos - eye bearing — the thesis guard, no SignedAngle,
-            // no north frame). The world ring pools + caps + sorts nearest-N internally.
-            _worldRing.Render(eye, _blips, detectR, radMin, radMax, scaleMax, scaleMin, eyeOffset, maxIcons);
+            // no north frame). FIXED-distance ring (radius) + scale-only range cue (10m knee off
+            // scaleMax) per bug-fix t_10bacccf. The world ring pools + caps + sorts nearest-N internally.
+            _worldRing.Render(eye, _blips, detectR, radius, scaleMax, eyeOffset, maxIcons);
 
             int shown = Mathf.Min(maxIcons, CountBlips());
 

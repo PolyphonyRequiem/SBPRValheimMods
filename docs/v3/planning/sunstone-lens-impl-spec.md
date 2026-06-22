@@ -203,7 +203,8 @@ load-bearing here rather than redundant. (sic: the vanilla field is misspelled `
 > 🔴 **RENDER SUPERSEDED — now WORLD-SPACE (cards t_b8a19487 → t_68672b6b).** Daniel gave the real
 > detection render design and then reversed it to diegetic 3D: the standalone (no-minimap) surface
 > is a **world-space eidetic head-halo** of billboarded trophies floating around the player
-> (variable radius+scale ∝ distance, vanilla star pips, aggro tint, camera-relative bearing),
+> (a FIXED ring distance + scale-only range cue with a 10m knee — full ≤10m → 0.25 at the 50m edge,
+> bug-fix t_10bacccf 2026-06-22; vanilla star pips, aggro tint, camera-relative bearing),
 > NOT the text/arrow placeholder described in this section and NOT the earlier screen-space ring.
 > The **detection MECHANIC below is unchanged and correct** (the `GatherHostiles` sweep, the
 > hostility filter, the equip-gate, the constant-cost rule); only the **render** (the "Render
