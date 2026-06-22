@@ -219,13 +219,15 @@ sun and spend in the gloom*. It's a **sunstone** (the old Viking sun-finding cry
 set in an iron frame, worn in your trinket slot. Hold it to the open sky on a clear day
 and it drinks the light — you'll watch its durability bar fill like a battery. Carry that
 stored light into the Swamp and, while it lasts, it senses what moves in the dark. Threats
-appear as a **ring of trophies around you** — each nearby hostile shows up as its own creature
-trophy, sitting on a ring at the bearing it's actually in (turn your head and the ring turns with
-you). The **closer** something is, the **bigger** its trophy; star-level enemies wear the same
-little **stars** you'd see on their nameplate. And the trophies are **colour-coded by how angry
-they are**: **yellow** for something that's just lurking, **orange** when it's locked onto another
-player, and **red** when it's coming for *you*. When nothing's around you'll still see a faint
-solar ring — the lens quietly watching. (Run it dry and the ring goes dark until you recharge.)
+appear as **floating trophies in the air around you** — each nearby hostile shows up as its own
+creature trophy, hanging in the world at the real direction it's in (turn your head and they stay
+where the monsters actually are, like little ghosts orbiting you). The **closer** something is, the
+**bigger** its trophy and the **nearer** it floats to your face; far-off threats hang further out
+and shrink down small. Star-level enemies wear the same little **stars** you'd see on their
+nameplate. And the trophies are **colour-coded by how angry they are**: **yellow** for something
+that's just lurking, **orange** when it's locked onto another player, and **red** when it's coming
+for *you*. When nothing's around you'll still see a faint solar ring — the lens quietly watching.
+(Run it dry and it goes dark until you recharge.)
 
 The catch is the whole point. It **only charges in clear daylight, out in the open, when
 you're dry** — never in rain, never at night, never under a roof, and *never in the

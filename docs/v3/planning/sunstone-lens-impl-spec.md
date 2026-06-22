@@ -200,15 +200,17 @@ load-bearing here rather than redundant. (sic: the vanilla field is misspelled `
 
 ## 4. Detection — reproduce rune-of-detection from vanilla primitives (AC#3)
 
-> 🔴 **RENDER SUPERSEDED (card t_b8a19487, 2026-06-18).** Daniel gave the real detection render
-> design: a **trophy ring around the player** (each hostile's trophy on a fixed-radius
-> screen-space ring, size ∝ proximity, ★ pips for star-levels), NOT the text/arrow placeholder
-> described in this section. The **detection MECHANIC below is unchanged and correct** (the
-> `GatherHostiles` sweep, the hostility filter, the equip-gate, the constant-cost rule); only the
-> **render** (the "Render (v0.1)" bullet + §5) is replaced. See
+> 🔴 **RENDER SUPERSEDED — now WORLD-SPACE (cards t_b8a19487 → t_68672b6b).** Daniel gave the real
+> detection render design and then reversed it to diegetic 3D: the standalone (no-minimap) surface
+> is a **world-space eidetic head-halo** of billboarded trophies floating around the player
+> (variable radius+scale ∝ distance, vanilla star pips, aggro tint, camera-relative bearing),
+> NOT the text/arrow placeholder described in this section and NOT the earlier screen-space ring.
+> The **detection MECHANIC below is unchanged and correct** (the `GatherHostiles` sweep, the
+> hostility filter, the equip-gate, the constant-cost rule); only the **render** (the "Render
+> (v0.1)" bullet + §5) is replaced. See
 > [`docs/design/sunstone-lens-trophy-ring.md`](../../design/sunstone-lens-trophy-ring.md) for the
-> ring render spec + the AT-LENS-RING-* acceptance tests. The text overlay survives only as an
-> optional `Sunstone.DebugTextReadout` (default off).
+> world-space halo render spec + the AT-EIDETIC-* acceptance tests. The text overlay survives only
+> as an optional `Sunstone.DebugTextReadout` (default off).
 
 A client-only sweep, run on a throttle (every `DetectIntervalSec`, default ~0.5s) from the HUD
 overlay's `Update` (so it costs nothing on the dedicated server, which has no Hud):
@@ -252,13 +254,17 @@ the HUD overlay's "is the Lens worn?" visibility gate.
 
 ## 5. Render surface under NoMap (resolves the design note's #1 coupling)
 
-> 🔴 **The specific render is SUPERSEDED by the trophy ring (card t_b8a19487) — but the
-> NoMap-safe HUD-overlay DOCTRINE below is still correct and load-bearing.** The trophy ring is
-> *also* a `Hud.m_rootObject` overlay (not minimap pins), for exactly the reasons this section
-> gives. What changes is the overlay's *content* (a camera-relative ring of trophies, not a text
-> line). Read this section for *why a HUD overlay* (NoMap), and
-> [`docs/design/sunstone-lens-trophy-ring.md`](../../design/sunstone-lens-trophy-ring.md) for
-> *what the overlay draws*.
+> 🔴 **The specific render is SUPERSEDED by the world-space eidetic halo (cards t_b8a19487 →
+> t_68672b6b) — but the NoMap-safe surface DOCTRINE below is still correct and load-bearing.** The
+> standalone detection surface is now a **world-space head-halo of billboarded trophies** floating
+> around the player (the eidetic ring), rendered only when no minimap is bound. What changes is the
+> overlay's *content and space* (world-space billboarded trophies, not a screen text line or screen
+> ring). Read this section for *why a NoMap-safe surface* (the SB server runs NoMap), and
+> [`docs/design/sunstone-lens-trophy-ring.md`](../../design/sunstone-lens-trophy-ring.md) for *what
+> the surface draws*. NOTE: the world halo's slot objects live in **world space** (not under
+> `Hud.m_rootObject`); the host MonoBehaviour still mounts via the `Hud.Awake` postfix and the #209
+> Update-pump-alive discipline still applies (the host stays active so the sweep keeps feeding the
+> minimap surfaces too).
 
 > 🟢 **CARVE-OUT — superseded again, partially, by the minimap handoff (card t_91e86951,
 > ACCEPTED design PR #214 / impl-spec
@@ -329,10 +335,11 @@ note moved together when it was removed.
 - **AT-LENS-NOCHARGE-SWAMP:** inside the Swamp, the bar never climbs even at midday (always-wet
   + overcast) (AC#2).
 - **AT-LENS-DETECT:** worn with charge remaining, a Draugr/Blob/Leech within `DetectRadius` is
-  surfaced on the HUD overlay; a tamed boar and a wild deer are NOT (AC#3). *(🔴 RENDER SUPERSEDED
-  by card t_b8a19487 — the surface is now the trophy ring, not the text line; the detect-filter
-  half of this AT is unchanged. The ring's observable accepts are AT-LENS-RING-1..5 +
-  AT-LENS-RING-CAMREL in `docs/design/sunstone-lens-trophy-ring.md` §3.)*
+  surfaced on the detection surface; a tamed boar and a wild deer are NOT (AC#3). *(🔴 RENDER
+  SUPERSEDED → WORLD-SPACE by cards t_b8a19487 → t_68672b6b — the standalone surface is now the
+  world-space eidetic head-halo, not the text line or the screen ring; the detect-filter half of
+  this AT is unchanged. The halo's observable accepts are AT-EIDETIC-1..5 + AT-EIDETIC-AGGRO/CAMREL/
+  OCCLUDE/PERF/MINIMAP-UNAFFECTED in `docs/design/sunstone-lens-trophy-ring.md` §3.)*
 - **AT-LENS-DRAIN-CONST:** the bar falls at the same rate whether 0 or 10 hostiles are nearby
   (AC#4).
 - **AT-LENS-ZERO-INERT:** drain the bar to 0 → detection stops, but the Lens stays equipped and
