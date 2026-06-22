@@ -2090,6 +2090,57 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
 > **Still gated on Daniel's in-game accept** (AT-CURSOR-NOSNAP-MAP / -SIGN / -TABLE, AT-CURSOR-RESTORE)
 > — logs-green ≠ playable, the headless box can't render a cursor.
 
+> **⚠️ 2026-06-22 — §2L.14 SUPERSEDING CORRECTION (card t_cad2c6f3, THIRD re-report
+> "ticket-cursor-lock-map-sign").** The §2L.12 narrative above is **incomplete, and that
+> incompleteness is why the fix did not stick for Daniel.** §2L.12 names "Steam Input presenting a
+> virtual gamepad" as **THE** trigger. That is only **one of two** cases. The §2L.12 mechanism —
+> postfix `ZInput.IsMouseActive()` → `true` so vanilla's OWN `UpdateCursor` recomputes `lockState=None`
+> — is load-bearing **only if `UpdateCursor` actually runs while the modal is open.** Both
+> `UpdateCursor` sites (`Menu.UpdateCursor` body `assembly_valheim:45815`, write `:45817`;
+> `FejdStartup.UpdateCursor` body `:83089`, write `:83091`) are **event-driven** — subscribed to
+> `ZInput.OnInputLayoutChanged` (`Menu` subscribes at `:81810`, unsubscribes `:45811`) — so they fire
+> **only when the active input SOURCE flips**, never per frame. On a Steam-Input rig the drifting
+> virtual pad flips the source every frame → `UpdateCursor` fires every frame → the forced
+> `IsMouseActive` is read every frame → cursor freed. **§2L.12 rides that churn and works there.** On
+> Daniel's box there is **no gamepad at all** (verified on RequiemPrime 2026-06-22: no `/dev/input/js*`,
+> no controller in `/proc/bus/input/devices`, Steam Input off, only SBPR + ServerDevcommands installed,
+> only `SBPR.Trailborne.dll` touches the cursor) → the source **never flips** while a modal is open →
+> `UpdateCursor` **never runs** → the forced `IsMouseActive` is **never read** → the cursor is **never
+> recomputed to free.** §2L.12 is **parasitic on input-source churn that is absent on a pure KB+M rig;
+> Daniel is the exact case it does not cover.** The §2L `CursorPumpPatch` (postfix on the live
+> `GameCamera.LateUpdate`) *is* source-independent, but it writes `None` in the **LateUpdate** phase,
+> after Unity's InputSystem `InputSystemUIInputModule.ProcessPointer` has already read a stale `Locked`
+> and center-snapped the pointer earlier in the same frame's **Update** phase — it races the snap and
+> loses. (Decomp note: vanilla has exactly the two `UpdateCursor` gameplay writers above plus
+> `TestSceneCharacter.HandleInput` `:124307`/`:124311`, debug-only, never in play — so the failure is
+> **event-driven cursor management + frame-phase ordering**, not a rogue per-frame re-locker.)
+>
+> **The real fix (`ModalCursorDriver`, source-independent — depends on NO input source or churn):** a
+> client-only `MonoBehaviour` bootstrapped onto the `Hud` (`Hud.Awake` postfix → `ModalCursorDriverBootstrapPatch`;
+> the `Hud` exists only on a client, so the whole driver is inherently server-safe) that asserts
+> `Cursor.lockState=None`+`visible=true` **every frame `AnyOpen` is true, in BOTH `Update()` AND
+> `LateUpdate()`.** The `Update()` assert runs early enough that `ProcessPointer` (also Update phase,
+> later in the order) reads `None` and does **not** snap — the belt the §2L.12 "belt-and-suspenders pump"
+> was meant to be, moved to the phase that actually beats the snap and decoupled from the gamepad-churn
+> assumption entirely. The `LateUpdate()` assert re-affirms after vanilla's camera pass. A one-shot
+> `_wasOpenLocal` edge-detector restores `Locked`+`visible=false` on the close edge. **Kept alongside
+> `MouseActiveForcePatch`** (still helps the virtual-pad rig) — together they cover both cases. Build:
+> 0 errors / 0 warnings. PR #247; branch `fix/cursor-lock-kbm-source-independent-t_cad2c6f3`.
+>
+> **Diagnostic (`SBPR_CursorDiag` config, `[Debug]` section, default ON in this build):**
+> `ModalCursorDriver.Update` logs, every ~30 frames while `AnyOpen`, the **INCOMING** `Cursor.lockState`
+> (the money read — `Locked`-at-entry every frame ⇒ a per-frame re-locker [H1/H2]; `None`-at-entry while
+> Daniel still reports a captive cursor ⇒ a snap that ignores `lockState` [H3]), the raw `IsMouseActive`,
+> and each contributor's open flag (`SignPaintPanel`/`MarkerSignPanel`/`CartographyViewer`). Flip this
+> `false` once the fix is confirmed in-game (pure logging gate — the cursor fix runs regardless).
+>
+> **Still gated on Daniel's in-game accept** (AT-CURSOR-KBM-MAP / -SIGN — cursor frees + clicks
+> swatches/pins on the gamepad-absent rig — plus AT-CURSOR-RESTORE on close). **logs-green ≠ playable:
+> the headless box has no cursor to render, and the diagnostic build, though deployed to RequiemPrime,
+> has not yet been launched** — so the mechanism is not yet observed. This is the cursor section's
+> spec-drift correction owed by card t_cad2c6f3 (shipping in the same PR as the code fix, per the
+> spec-first rule); the §2L.12 block above is retained as the historical one-case account it was.
+
 > **⚠️ 2026-06-21 — §2L.13 sibling fix (card t_a1cf35b0): Inventory hotkey leaked over SBPR modals.**
 > Daniel could open the inventory while a sign panel / the Local Map was up (*"something I should NOT
 > be allowed to do"*). The Inventory toggle is read inside `InventoryGui.Update`

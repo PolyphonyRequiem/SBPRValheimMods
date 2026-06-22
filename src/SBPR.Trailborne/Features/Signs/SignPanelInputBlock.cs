@@ -187,6 +187,14 @@ namespace SBPR.Trailborne.Features.Signs
         // CursorPumpPatch approach as the load-bearing mechanism (the pump is kept only as a
         // belt-and-suspenders visible-cursor assert; this patch is what actually stops the snap).
         //
+        // ⚠️ INCOMPLETE — read with §2L.14 below (card t_cad2c6f3). This narrative names Steam Input's
+        // virtual gamepad as THE cause; that is only ONE of two cases. This patch is load-bearing ONLY
+        // while vanilla's event-driven UpdateCursor actually fires (i.e. the input source is churning).
+        // On a gamepad-ABSENT keyboard+mouse rig the source never flips, UpdateCursor never runs, and
+        // this forced IsMouseActive is never read → cursor never freed. The source-independent
+        // ModalCursorDriver in §2L.14 is what fixes Daniel's rig; this patch is KEPT for the
+        // virtual-pad case. Treat the block below as the historical one-case account.
+        //
         // ROOT CAUSE (decompiled, verified — assembly_valheim + assembly_utils + Unity.InputSystem):
         // Valheim 0.221.x routes UI pointers through the new Unity Input System, whose
         // InputSystemUIInputModule.ProcessPointer FORCES every mouse pointer event to screen-centre
