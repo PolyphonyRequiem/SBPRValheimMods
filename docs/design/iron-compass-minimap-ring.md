@@ -236,6 +236,22 @@ the margin is now modest; worth an in-game eye that a max-range blip near the N 
 > bezel *radius*, not the bezel *parent*. Pin N to the fixed frame by mistake and you
 > get a dead, non-orbiting glyph. The iron skin and the N marker ride the same
 > *gate*, different *parents*.
+>
+> 🔴 **Z-order corollary (bug t_3f7f3a0f, fixed).** Parenting the N under
+> `_mapContainer` buys the orbit, but it has a second consequence: `_mapContainer`
+> is sibling 0 of `_frame` and the bezel is sibling 1, so by uGUI's depth-first
+> sibling paint order the whole `_mapContainer` subtree — the N included — paints
+> *beneath* the bezel, and the iron band occludes the N. The locked design wants the
+> N + ticks **in front of** the bezel, on the rim. The fix is **not** a sibling
+> reorder (the map image must stay below the bezel, which hard-alpha-clips the map
+> edge) and **not** a reparent (that kills the orbit): give `_northLayer` its own
+> nested `Canvas` with `overrideSorting = true` and `sortingOrder =
+> _cfg.SortingOrder + 1` (`MapSurface.cs`, `BuildNorthLayer`). The Canvas lifts only
+> the N + ticks above the bezel while the layer keeps riding `_mapContainer`'s
+> `+rotZ` (a Canvas does not decouple transform inheritance), so orbit + upright
+> counter-rotation are unchanged. The order is **surface-relative** (`+ 1`), never a
+> hardcoded global, so the disc's N (3001) still sorts below the modal surface
+> (5000).
 
 ### 3.4 The iron recolor — gated, reverts to bronze (Daniel ②) 🟢🔵
 
