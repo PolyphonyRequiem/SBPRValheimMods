@@ -386,16 +386,23 @@ cloning (ADR-0006-safe).
 🟢 **DECIDED (Daniel, 2026-06-19, carried into world-space):** empty halo → show a **faint solar
 ring** (not nothing); depleted lens → halo **off**.
 
-- **Zero hostiles:** all trophy slots `SetActive(false)`, but draw a **faint solar ring** so the
-  player can see the lens is live and watching. `Sunstone.ShowEmptyRing` config — **default ON**.
-  In world-space this is a thin warm/amber **horizontal halo ring** rendered around the eye-point
-  at `HaloRadiusMin` (a flat billboarded annulus, or a line-loop in the halo plane), low alpha
-  (~0.18) so it frames the view without clutter — the world-space analogue of the old screen
-  annulus. *(Engineer may instead keep a screen-space faint ring under `Hud.m_rootObject` for this
-  one affordance if a world annulus reads poorly — it's an empty-state cue, not a threat marker, so
-  either surface is acceptable; flagged as a minor sub-choice for Daniel's by-eye pass, not a
-  blocker.)* When ≥1 hostile is present the faint ring may stay (it's the substrate the trophies
-  orbit) — the trophies are what draw the eye.
+- **Zero hostiles:** all trophy slots `SetActive(false)`, but draw a **3D pulsing sun-corona disc**
+  so the player can see the lens is live and watching. `Sunstone.ShowEmptyRing` config — **default
+  ON**. ~~In world-space this is a thin warm/amber **horizontal halo ring** rendered around the
+  eye-point at `HaloRadiusMin` (a flat billboarded annulus, or a line-loop in the halo plane), low
+  alpha (~0.18) … *(Engineer may instead keep a screen-space faint ring under `Hud.m_rootObject` …
+  either surface is acceptable …)*~~ 🐛 **SUPERSEDED by the `/bug` report on card `t_2d500d45`
+  (Daniel, 2026-06-22): "the ring itself is just a screen space circle, not a 3d slowly pulsing 'sun
+  corona' disc like we discussed."** The empty-state affordance is now a **world-space, slowly-
+  pulsing filled sun-corona disc** — by DEFAULT a flat "sun on the floor" disc (`CoronaOrientation =
+  GroundPlane`, live-flippable to camera-facing) co-located with this trophy halo in the **same
+  world-content scene root**, breathing on a slow ~0.25 Hz alpha pulse (α ≈ 0.10↔0.28 around the
+  old 0.18 baseline). The escape-hatch "keep it screen-space" choice is **RESOLVED to world-space**
+  (the flat screen annulus was the literal bug). The corona **is** the substrate the trophies orbit
+  (Knob #4: replace, one coherent element). Full buildable detail:
+  [`../v3/planning/sunstone-lens-corona-impl-spec.md`](../v3/planning/sunstone-lens-corona-impl-spec.md).
+  When ≥1 hostile is present the corona stays (it's the substrate the trophies orbit) — the trophies
+  are what draw the eye.
 - **Depleted lens (charge < `MinChargeToDetect`):** halo **off entirely** (same as not worn) —
   `Sunstone.ShowDepletedHint` default **OFF** per Daniel. No sweep runs. The durability bar on the
   trinket already signals "dim." The old text "Sunstone Lens — dim" line is dropped.
@@ -557,9 +564,11 @@ the halo reads right — Daniel's eye on a GPU client in the next playtest build
   hostile shows the **generic 3D fallback glyph** — **never silently missing**. Plus: on world
   load, the **startup unmapped-creature dump** (`DumpUnmappedCreatures` default ON) logs the
   complete "no trophy / no remap" set as one reviewable block.
-- **AT-EIDETIC-5** — **zero** hostiles → the trophy slots are empty but a **faint solar ring** shows
-  (worn + charged; `ShowEmptyRing` default ON). A **depleted** lens → halo **off**. Unequip → halo
-  gone immediately. (The detection-feed pump keeps running regardless — #209 discipline preserved.)
+- **AT-EIDETIC-5** — **zero** hostiles → the trophy slots are empty but the **empty-state affordance**
+  shows (worn + charged; `ShowEmptyRing` default ON). 🐛 That affordance is now the **3D pulsing
+  sun-corona disc** (card `t_2d500d45`, §1.6), not the old flat ring. A **depleted** lens → halo
+  **off**. Unequip → halo gone immediately. (The detection-feed pump keeps running regardless — #209
+  discipline preserved.)
 - **AT-EIDETIC-AGGRO** — a hostile that is **idle/unalerted** renders its trophy **yellow**; once it
   **aggros another player** the trophy turns **orange**; once it **targets YOU** it turns **red**.
   State follows the creature's own `BaseAI` (IsAlerted / GetTargetCreature vs the local player) —
@@ -648,8 +657,9 @@ Daniel answered all four open knobs in the ticket thread, then said *"just imple
    look is a future follow-up.)*
 
 **Carried-over locked elements (unchanged from the screen-space design, still in force):** vanilla
-nameplate star pips (§1.5), aggro-state yellow/orange/red tint via `BaseAI` (§1.8), faint solar
-ring empty-state default ON / depleted off (§1.6), the camera-relative thesis guard, and the #209
+nameplate star pips (§1.5), aggro-state yellow/orange/red tint via `BaseAI` (§1.8), empty-state
+affordance default ON / depleted off (§1.6 — now the **3D pulsing sun-corona**, card `t_2d500d45`,
+not the flat ring), the camera-relative thesis guard, and the #209
 Update-pump-alive discipline (§1, §2.0).
 
 These knobs are pacing/feel/diegesis calls; the build is structurally the same whichever way each
