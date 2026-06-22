@@ -443,6 +443,19 @@ with the Table via the `CartographyViewer` seam).
 > carry/provider path — it supersedes the "hook inventory-changed; first carried map" wording in
 > the bullets below.
 
+> **🟢 CARRY PATH NOW RE-DERIVES + RENDERS A DISC ON LOAD (2026-06-22, local-map-provider-persist-impl-spec, card t_5fc02f00).**
+> §2A.4's "durable while carried" now holds **across a relog**, not just within a session. The
+> provider binding above was originally session-scoped (a fresh `LocalMapController` each
+> `Minimap.Start` started with `_provider` null), so a map carried-but-**unequipped** at logout lost
+> its disc until re-equipped — a violation of the locked **AT-MAP-DURABLE** (a relog does not remove
+> the item). `LocalMapController` now runs a **one-shot cold-start carry re-derivation latch**
+> (`_coldStartResolved`): on the first poll of each session it re-derives `_provider` from the
+> load-restored inventory — equipped map first, else the first carried **imprinted** Local Map in
+> inventory-slot order — so the disc **renders on load** without re-equipping. The latch fires once
+> per session, so an in-session drop→re-pickup still stays unbound (§3.4 intact). No new persisted
+> key, no `LocalMap.cs` change, no new Harmony patch (SpecCheck +0). Read
+> local-map-provider-persist-impl-spec §3 before touching the cold-start/provider path.
+
 > **⚠️ OPEN PATH SUPERSEDED (2026-06-11, issue 7 → §2F).** The §2 IMPL STATUS banner above
 > and the last bullet below originally said the Local Map's full view is ACTIVATED by the
 > vanilla **"Map" button** ("otherwise dead under nomap"). Daniel's v0.2.19-playtest proves

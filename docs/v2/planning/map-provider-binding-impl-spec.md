@@ -141,22 +141,18 @@ shares those; only the instance distinguishes "map A" from "map B". The instance
 stable while the item lives in the inventory (vanilla never reallocates `ItemData` for a carried
 item), which is exactly the provider's lifetime.
 
-> **Why not a ZDO / persisted id:** the provider is **client-only, session-scoped** presentation
-> state (which of *my* carried maps drives *my* minimap right now). It does not replicate and does
-> not survive a relog — on relog nothing is equipped, so the provider is simply null until the
-> player next equips a map (§3.4). This matches the controller's existing client-only design
-> (`SystemInfo.graphicsDeviceType == Null` early-out, `:78`) and adds zero server cost.
-
-> **⚠️ PENDING REVERSAL (BUG card t_5fc02f00, 2026-06-22).** The "does not survive a relog … null
-> until the player next equips a map" carve-out above is **being reversed** — it contradicts the
-> **locked** requirement **AT-MAP-DURABLE** (`requirements.md` §6: binding persists while the item
-> sits in inventory; a relog does not remove the item). Daniel's playtest confirmed the disc wrongly
-> vanishes on relog while the map is still carried. The provider stays **client-only and
-> non-replicated**, but its **lifetime is the item's inventory residency, surviving a relog** — it
-> is re-derived from carried imprinted maps at cold-start via a one-shot latch.
-> See [`local-map-provider-persist-impl-spec.md`](local-map-provider-persist-impl-spec.md). The
-> content flip of THIS paragraph lands in the engineer's CODE PR (same-PR-as-code, spec-first); this
-> breadcrumb marks the plan only.
+> **Why not a ZDO / persisted id:** the provider is **client-only, non-replicated** presentation
+> state (which of *my* carried maps drives *my* minimap right now). It does not replicate and adds
+> **zero server cost** — but its **lifetime is the item's inventory residency, and it SURVIVES A
+> RELOG** while the map stays carried (per the locked requirement **AT-MAP-DURABLE** —
+> `requirements.md` §6: the binding persists while the item sits in inventory, and a relog does not
+> remove the item). On relog nothing is *equipped*, so a fresh controller starts with `_provider`
+> null and **re-derives it from the carried imprinted maps at cold-start** via a one-shot latch — the
+> disc returns without re-equipping. This matches the controller's existing client-only design
+> (`SystemInfo.graphicsDeviceType == Null` early-out, `:78`). See
+> [`local-map-provider-persist-impl-spec.md`](local-map-provider-persist-impl-spec.md) §3 for the
+> cold-start re-derivation mechanism; the latch runs once per session, so an in-session drop→re-pickup
+> still stays unbound (§3.4 preserved).
 
 ### 3.2 Bind — equip sets the provider (most-recent wins)
 
