@@ -1,12 +1,50 @@
 ---
-title: "Sunstone Lens detection — the trophy ring (render redesign, supersedes the text-HUD placeholder)"
+title: "Sunstone Lens detection — the eidetic trophy ring (world-space head-halo render, supersedes the screen-space radar)"
 status: current
-purpose: "Architect render-design for the Sunstone Lens' monster detection: a screen-space, camera-relative RING of creature TROPHIES around the player — angular position = bearing, icon size ∝ proximity, star pips for star-levels. Supersedes the shipped bottom-center text-HUD placeholder (SunstoneLensHudOverlay.cs, PR #163), which was always self-described as a placeholder. The detection MECHANIC (who/when — SunstoneLens.GatherHostiles, the energy model, the equip-gate) is UNCHANGED and correct; only the RENDER SURFACE is redesigned. Every vanilla hook line-cited against assembly_valheim. Card t_b8a19487; Daniel gates the merge."
+purpose: "Architect render-design for the Sunstone Lens' standalone (no-minimap) detection surface: a DIEGETIC, world-space head-halo of creature TROPHIES floating around the player — real world bearings (camera-relative, never north-up), variable radius+scale ∝ distance, vanilla nameplate star pips, aggro-state tint. As of 2026-06-21 this SUPERSEDES the earlier screen-space camera-relative radar (§Q2/§5, card t_b8a19487) on Daniel's eidetic request, modelled on Rune Magic's Rune of Alertness. The detection MECHANIC (who/when — SunstoneLens.GatherHostiles, the energy model, the equip-gate) and the SunstoneProjection→ThreatBlip derivation are UNCHANGED; only the standalone-ring RENDER SURFACE is redesigned. The minimap surfaces (SBPR carry-disc, vanilla corner map) are DECOUPLED and untouched. Every vanilla hook line-cited against assembly_valheim. Card t_68672b6b (this redesign) supersedes the §Q2/§5 lock in t_b8a19487; Daniel pre-approved the four knobs (\"just implement as directed\")."
 ---
 
-# Sunstone Lens detection — the trophy ring
+# Sunstone Lens detection — the eidetic trophy ring (world-space)
 
-Daniel's exact intent (2026-06-18), verbatim:
+> # 🔄 RENDER REVERSAL (2026-06-21, card t_68672b6b) — the standalone ring is now DIEGETIC (world-space 3D), not a flat HUD radar
+>
+> **This doc was a screen-space camera-relative radar.** Daniel reversed that top-level
+> choice (Discord #bugs, ticket-sunstone-eidetic-ring), verbatim:
+> > *"I'd like to make the standalone sunstone ring 'eidetic' in that I'd like it not to appear
+> > as a flat UI layer, but rather as a 3d model of a ring around the player similar to how
+> > 'Rune magic' mod does for the rune of alertness functionality."*
+>
+> The earlier doc explicitly deferred world-space (`§Q2`: *"if Daniel specifically wants
+> diegetic 3D later it's a separate card"*). **This is that separate card, and it is now
+> LOCKED the opposite way:** the standalone (no-minimap) ring is a real **world-space head-halo
+> of billboarded trophies** floating around the player at their true bearings. Sections **§Q2,
+> §1, §3 (the ATs, renamed AT-EIDETIC-\*), §4, §5** below are rewritten for that. The
+> **detection mechanic, the `SunstoneProjection`→`ThreatBlip` derivation, §Q1/§Q4/§Q3, and the
+> §2 wiring audit are UNCHANGED** and carried verbatim.
+>
+> **Scope guard — STANDALONE means the no-minimap FALLBACK surface ONLY.** When a minimap is
+> present (SBPR carry-disc nomap-ON, or vanilla corner map nomap-OFF) detection hands off to it
+> and the ring hides (`MinimapHandoffMode`, default `DiscWhenBound`). The minimap surfaces draw
+> flat icons via **separate code** (`SunstoneMinimapThreatLayer`, `MapSurface.SpawnThreatMarker`)
+> and are **untouched by this change** — only `RenderRing` + the slot scaffolding in
+> `SunstoneLensHudOverlay.cs` is rewritten. (The minimap *representation* is its own in-flight
+> card, `t_aab051ae`; same `SunstoneProjection` source of truth, no collision.)
+>
+> **The four open knobs are LOCKED** (Daniel answered them, then said *"just implement as
+> directed"* — doc-review gate WAIVED): (1) **occlusion** → head-halo placement (the "Rune Magic
+> dodge", rarely occluded, no through-terrain material); (2) **geometry** → head-centric halo,
+> **variable radius AND scale** both ∝ distance; (3) **trophy-less** → hybrid variant→sibling
+> remap table + generic fallback, with a **default-ON startup dump** of unmapped creatures for
+> review; (4) **trophy render** → **flat billboarded sprites** (the existing `m_icons[0]`), NOT
+> 3D `attach` meshes. See §Q2 and §5 for the locked rationale.
+>
+> The historical screen-space rationale is preserved inline (struck through / marked SUPERSEDED)
+> so the reversal is auditable, not erased.
+
+---
+
+Daniel's original intent (2026-06-18), verbatim — the trophy/size/bearing/stars core that
+SURVIVES the reversal (only the *surface* — screen-space → world-space — changed):
 
 > "the sunstone lens is supposed to display a monster's **trophy** facing the camera with
 > its **size proportional to its closeness** to the player at a **fixed distance in a ring
@@ -43,18 +81,24 @@ follow-up."* Daniel has now given the real design; this is that follow-up.
 > grepped live this pass — re-confirm if the decomp drifts. The trophy-ring render is net-new
 > SBPR fiction reproduced from vanilla primitives only; no third-party mod code was read.
 
-> **ADR-0006 (load-bearing):** the ring overlay is built **additively** — `new GameObject()` +
-> `AddComponent<Image>()`/`RectTransform` parented under the existing `Hud.m_rootObject`,
-> reusing the trophy items' own `m_icons[0]` sprites (reading a sprite is not cloning). No
-> vanilla prefab is `Instantiate`d as a mutable base.
+> **ADR-0006 (load-bearing):** the standalone ring is built **additively** — `new GameObject()`
+> + `AddComponent<MeshRenderer>()`/billboarded quad for each world-space slot (a client-local
+> cosmetic with **no** `ZNetView`/`Piece`/networked skeleton), reusing the trophy items' own
+> `m_icons[0]` sprites on the quad's material (reading a sprite is not cloning). This is exactly
+> the "visuals are constructed GameObjects carrying only MeshFilter/MeshRenderer" pattern ADR-0006
+> blesses (`0006-additive-prefab-construction.md:60-63`) — **NOT** a clone-and-strip of a vanilla
+> prefab. The minimap surfaces keep their own additive `Image` scaffolding unchanged.
 
 ---
 
-## 0. The four grounding questions — RESOLVED against the decomp
+## 0. The four grounding questions — RESOLVED against the decomp (+ the world-space reversal)
 
-The card posed four questions to resolve before impl. All four are answered here against real
-decomp; **Q2 carries an architect recommendation Daniel should confirm** (the diegetic-3D vs
-screen-space radar fork), the other three are decomp facts with no open choice.
+The card posed four questions to resolve before impl. **§Q1 (trophy mapping), §Q3 (doc
+reconciliation), §Q4 (star read) are decomp facts and are UNCHANGED by the world-space
+reversal — they carry verbatim below.** **§Q2 was the diegetic-3D vs screen-space fork; it is
+now LOCKED to world-space** (Daniel's eidetic request, t_68672b6b) and rewritten below. The
+four *render* knobs that the world-space port opens (occlusion, geometry, trophy-less, mesh-vs-
+sprite) are LOCKED in §Q2 and detailed in §5.
 
 ### Q1 — creature → trophy mapping + the trophy-less fallback
 
@@ -74,15 +118,37 @@ The trophy's billboard sprite is that prefab's `ItemDrop.m_itemData.m_shared.m_i
   `m_shared.m_itemType == Trophy` then takes `item.m_dropPrefab.name` as the identity. We use
   the same identity surface from the other direction (creature → its trophy drop).
 
-**Fallback for trophy-less hostiles (Q1's open sub-question — ANSWERED):** not every hostile
-has a trophy (e.g. summoned/spawned minions, some boss adds). When the cache resolves `null`,
-render a **generic threat glyph** in the trophy's place on the ring — a simple skull/danger
-sprite shipped in the bundle (`assets/icons/items/threat_fallback_v0.1.png`, flat-packed +
-loaded by bare filename like the other v0.1 icons), tinted by the same
-proximity-scale and star-pip rules. The fallback is a *defined slot*, not a skip: a trophy-less
-hostile still appears on the ring at the correct bearing/size — it just wears the generic glyph
-instead of a species trophy. (Bundle a placeholder per the icon doctrine; "you can tell it's a
-threat" is the bar, not ship-art.)
+**Fallback for trophy-less hostiles (Q1's open sub-question — now LOCKED to a HYBRID, Daniel
+2026-06-21).** Not every hostile has a trophy (Greyling — drops Resin only, no Trophy entry,
+wiki `Greyling.md`; summoned/spawned minions; some boss adds). Daniel locked a **hybrid** of
+three layers, modelled on (but reproduced independently of) Rune Magic's approach (§"Behavioral
+reference" below):
+
+1. **Variant→sibling REMAP table (new).** A hardcoded `Dictionary<string,string>` maps a
+   trophy-less variant onto a sibling species that *does* carry a Trophy drop, so the variant
+   wears the sibling's trophy. **Greyling → Greydwarf** is the canonical first entry (a Greyling
+   shows a Greydwarf trophy). Seed it with the obvious Swamp/early-game variants
+   (Greyling→Greydwarf, Boar_piggy→Boar, DraugrRanged→Draugr, Wolf_cub→Wolf, Lox_Calf→Lox, and
+   similar); the table is data, growable by Daniel from the startup dump (layer 3).
+2. **Generic 3D fallback (keep SBPR's "never skip" intent).** Anything still unmapped after the
+   remap renders the bundled **generic threat glyph** (`threat_fallback_v0.1.png`) as a
+   billboarded quad in the trophy's place — same head-halo placement, distance-scale, aggro-tint,
+   star pips. The fallback is a *defined slot, never a skip*: a trophy-less hostile still appears
+   at its correct world bearing/size, just wearing the generic glyph. **This is where SBPR
+   deliberately diverges from Rune Magic** (which *omits* unmapped trophy-less creatures) — we
+   never drop a threat.
+3. **Default-ON startup unmapped-creature DUMP (new sub-knob, Daniel 2026-06-21).** A config
+   `DumpUnmappedCreatures` (**default ON**): at `ZNetScene`-ready, enumerate **all** registered
+   Character prefabs (`ZNetScene.instance.m_prefabs`, public `:69091`), resolve each to
+   (trophy | remap-sibling | none), and log the **"none" set as one reviewable block** so Daniel
+   can grow the remap table over time. This is a **full-catalog scan at startup**, NOT a lazy
+   log-on-first-sighting trickle (Rune Magic resolves lazily) — "on startup … for review" means
+   the complete list in one place. (Filter the enumeration to prefabs carrying a `Character`
+   component; skip non-creature prefabs.)
+
+The per-creature trophy resolution + cache (`ResolveTrophySprite`, the `CharacterDrop`→
+`ItemType.Trophy`→`m_icons[0]` walk) is UNCHANGED; the remap table is consulted *before* caching
+a null (remap key → resolve the sibling's sprite → cache under the original key).
 
 ### Q4 — star detection read
 
@@ -96,40 +162,68 @@ level 1 → 0 stars, level 2 → ★, level 3 → ★★. This is exactly vanill
 many ★ pips above the trophy. Cap the rendered pips at the value `GetLevel()` returns (don't
 assume a max of 2 — modded/event creatures can exceed 2 stars; render N pips for N stars).
 
-### Q2 — diegetic world-space ring vs screen-space HUD radar (ARCHITECT RECOMMENDATION)
+### Q2 — diegetic world-space ring vs screen-space HUD radar — 🔄 LOCKED: WORLD-SPACE (Daniel 2026-06-21)
 
-Daniel said "a ring around the player." That phrase has two readable implementations, and this
-is the one genuine design fork in the card. **Architect recommendation: screen-space HUD radar
-ring, camera-relative, with billboarded trophy sprites.** Reasoning, grounded:
+Daniel said "a ring around the player." That phrase had two readable implementations, and this
+was the one genuine design fork in the card. **It is now LOCKED to the diegetic world-space
+reading** (card t_68672b6b, Daniel's "eidetic" request modelled on Rune Magic's Rune of
+Alertness). The standalone (no-minimap) ring is a **head-centric halo of billboarded trophy
+sprites floating in the 3D world** around the player, at the enemies' real bearings.
 
-- **Screen-space (RECOMMENDED).** A `RectTransform` ring centered on the screen under
-  `Hud.m_rootObject`; each trophy is a UGUI `Image` placed on the ring's circumference at the
-  angle = bearing-to-enemy. This is the **same render doctrine the shipped Iron Compass and the
-  current lens overlay already use** (`Hud.Awake` postfix → overlay under `m_rootObject`,
-  `iron-compass-impl-spec.md` §4) — NoMap-safe, no world objects, no ZNetView, no per-creature
-  GameObject lifecycle to manage, invisible to other players and to vanilla/other-modded
-  clients. It reuses the existing `HudBootstrap` mount that's *already woven* (Plugin.cs:564).
-- **World-space (NOT recommended for v0.1).** Floating quads in the 3D world on a physical ring
-  around the player would need: per-frame billboard math against the camera, occlusion/ZTest
-  handling so trophies don't hide behind terrain, a pool of world GameObjects created/destroyed
-  as hostiles enter/leave range, and a depth-sorting story. That's the Twisted Portal
-  through-terrain-overlay tier of work (`nomap.md` risk-rank #9), for marginal benefit over a
-  clean screen radar. Defer it; if Daniel specifically wants diegetic 3D later it's a separate
-  card.
-- **"Facing the camera" is satisfied by both** — a screen-space `Image` is trivially
-  camera-facing (it's 2D UGUI); a world quad would need explicit billboarding. Another point for
-  screen-space.
+> **SUPERSEDED — the earlier screen-space recommendation (card t_b8a19487, kept for audit).**
+> The prior architect recommended *screen-space HUD radar* and rejected world-space for v0.1 on
+> four costs (billboard math, occlusion/ZTest, a GameObject pool, depth-sorting), calling it
+> "Twisted Portal through-terrain-overlay tier" work for marginal benefit. Daniel chose the
+> opposite. The four costs re-assess as cheap against grounding (next), and the head-halo
+> placement dissolves the occlusion cost entirely, so the original objection no longer holds.
 
-> 🔴 **The thesis guard Daniel must not lose (architect flag).** The ring is **camera-relative,
-> NOT north-up.** "Up" on the ring = *the direction the player is looking* (camera forward), and
-> a trophy's angle = the enemy's bearing **relative to camera forward** — exactly what the
-> existing `BearingGlyph` already computes (`Vector3.SignedAngle(camForward, toEnemy, up)`,
-> `SunstoneLensHudOverlay.cs:243`). **It must NOT be a north-up compass radar.** A north-up
-> radar would hand the player cardinal orientation — which is the *entire* withheld-payoff the
-> Iron Compass exists to grant (`iron-compass-impl-spec.md` "the withheld orientation IS the
-> design"). A north-up lens radar would delete the Compass's reason to exist and reverse a
-> Daniel-locked no-north difficulty choice. The lens answers *"where is the threat relative to
-> where I'm facing,"* never *"where is north."* Keep the bearing camera-relative.
+**Why world-space is cheaply buildable now (the four old costs, re-graded):**
+
+| Old-doc cost | Grounded verdict |
+|---|---|
+| per-frame billboard math | **SOLVED** — vanilla `Billboard : MonoBehaviour` (decomp `:99987-100021`): `LateUpdate` does `transform.LookAt(Utils.GetMainCamera())`, `m_vertical=true` by default (yaws to camera, stays upright). Base-game, fair to read+adapt (ADR-0001). `AddComponent<Billboard>()` or reproduce its ~6-line LookAt. |
+| occlusion / ZTest (hide behind terrain) | **DISSOLVED by the locked head-halo (Knob #1).** Trophies float in a tight halo around the player's eye-point, rarely occluded — **no through-terrain material needed.** Honest depth is fine because the halo sits close to the camera. |
+| pool of world GameObjects | **MITIGATED** — reuse the shipped `_slots` pool pattern; never create/destroy per frame (the same discipline the screen-space `_slots` already used). |
+| depth-sorting | **DISSOLVED** in true 3D — the GPU depth-sorts world geometry natively; it was a screen-overlay problem only. |
+
+**The four render knobs the world-space port opened are LOCKED (Daniel 2026-06-21, then "just
+implement as directed"):**
+
+1. **Occlusion → head-halo "Rune Magic dodge".** Trophies float in a tight halo around the
+   player's eye-point (`Character.GetEyePoint()`, public `:8655`), rarely occluded; no special
+   material. (Collapses the occlusion fork into the placement choice — Knob #1 and #2 are one
+   decision.)
+2. **Geometry → head-centric halo with VARIABLE radius AND scale**, both ∝ distance — the Rune
+   Magic model: `pos = eyePoint + dirToEnemy * Lerp(radiusMin, radiusMax, dist/maxDist)`,
+   `scale = Lerp(scaleMax, scaleMin, dist/maxDist)`. Near enemies sit at the **inner** radius
+   (close to your face) and **big**; far enemies push out to the **outer** radius and shrink
+   toward nothing. **This SUPERSEDES the original SBPR lock of "fixed ring radius, size-only ∝
+   closeness"** (§1.2/§1.3 below are rewritten accordingly).
+3. **Trophy-less → hybrid** (variant→sibling remap table + generic 3D fallback + default-ON
+   startup dump) — see the §Q1 rewrite above.
+4. **Trophy render → FLAT billboarded sprites for ALL trophies** (the existing `m_icons[0]` on a
+   world-space billboarded quad), **NOT** the 3D `attach` mesh. This is the lower-risk,
+   higher-reuse choice: it sidesteps the entire per-creature mesh-tuning burden (Rune Magic carries
+   a big per-species scale/rotation/offset override table precisely because raw trophy meshes don't
+   billboard cleanly), and it maximizes reuse — the existing star-pip + trophy-tint rendering is
+   already sprite-based, so the change is "reparent the existing sprite from a screen-space
+   `RectTransform` to a world-space billboarded quad + swap fixed-radius placement for the
+   head-halo," NOT a mesh-harvest pipeline. Net result: trophy *cards* orbiting the head rather
+   than sculptural 3D props — still fully diegetic (world-space, distance-scaled, real bearings),
+   and flat trophy icons are legible silhouettes (good for Daniel's by-eye/colorblind validation).
+   (A sculptural 3D-mesh look is a future follow-up if Daniel wants it; flat-for-v1 is coherent
+   and far cheaper.)
+
+> 🔴 **The thesis guard — UNCHANGED and now NATURALLY satisfied.** The ring is **camera-relative,
+> NOT north-up.** In world-space this falls out for free: the trophies ARE at the enemies' real
+> world bearings around you, so turning the camera sweeps them exactly as a camera-relative ring
+> should. **The architect/engineer must NOT "improve" this into a north-locked halo** — that would
+> hand the player cardinal orientation, the Iron Compass's *exclusive* withheld payoff
+> (`iron-compass-impl-spec.md` "the withheld orientation IS the design"). A north-up lens halo
+> would delete the Compass's reason to exist and reverse a Daniel-locked no-north difficulty. The
+> lens answers *"where is the threat relative to me,"* never *"where is north."* (The world
+> bearing is intrinsically relative-to-you, not relative-to-north — so as long as we place by the
+> real `dirToEnemy` and never inject a cardinal frame, the guard holds by construction.)
 
 ### Q3 — reconcile with the existing design + impl docs
 
@@ -139,75 +233,125 @@ ring, camera-relative, with billboarded trophy sprites.** Reasoning, grounded:
   needed** beyond this doc superseding its render-open-question.
 - **`docs/v3/planning/sunstone-lens-impl-spec.md`** is the buildable spec. Its §4 ("Render
   v0.1") and §5 ("Render surface under NoMap") describe the *text/arrow placeholder*. **Those
-  two sections are superseded by this doc** — they are edited (in this same PR) to point here
-  for the render, while keeping their detection-mechanic + NoMap-doctrine content (which is
-  still correct). The §8 acceptance tests gain the new AT-LENS-RING-* rows (below). This is
-  **net-new render design**, not a duplicate — the impl spec described detection; this describes
-  how detection is drawn.
-- **Dataset (`PIECES_AND_CRAFTABLES.md`)** Lens row "Patch surface" / "Visual notes" are updated
-  to name the trophy-ring render (in this PR).
-- **`PLAYER_GUIDE.md`** lens paragraph currently says "a HUD readout warns you how many hostiles
-  are near, how far the closest one is, and roughly which way it's lurking" — reworded (this PR)
-  to describe the trophy ring without over-promising art polish.
+  two sections' render cross-ref banners are re-pointed by this PR** to name the world-space
+  head-halo (they already delegate the render to this doc; the banners are updated from
+  "screen-space trophy ring" to "world-space eidetic head-halo"), while keeping their
+  detection-mechanic + NoMap-doctrine content (still correct). The §8 acceptance tests' render
+  half re-points to the new AT-EIDETIC-* rows (below). This is **net-new render design**, not a
+  duplicate — the impl spec described detection; this describes how detection is drawn.
+- **Dataset (`PIECES_AND_CRAFTABLES.md`)** Lens row "Render" / "Visual notes" / "Config" /
+  "Patch surface" / "Status" are updated to name the world-space head-halo render (in this PR).
+- **`PLAYER_GUIDE.md`** lens paragraph (currently "Threats appear as a **ring of trophies around
+  you** … on a ring at the bearing it's actually in") is reworded (this PR) to describe the
+  trophies floating **in the world** around you (the eidetic halo) without over-promising art
+  polish.
 
 ---
 
-## 1. Render architecture — the trophy ring overlay
+## 1. Render architecture — the world-space eidetic halo
 
-The ring **replaces the body of `SunstoneLensHudOverlay`**, not its scaffolding. Keep:
-`EnsureBuilt`, the `HudBootstrap` `Hud.Awake` postfix (already woven, Plugin.cs:564), the
-`Update` visibility/charge gate (worn? charged? depleted?), and the throttled
-`GatherHostiles` sweep. Replace: the two `Text` children and `RenderThreats` with a ring of
-trophy `Image` slots. The class stays a client-only `MonoBehaviour` under `Hud.m_rootObject`.
+The world halo **replaces the render body of `SunstoneLensHudOverlay`** (`RenderRing` + the
+screen-space `Slot`/`Image`/`RectTransform` scaffolding, `SunstoneLensHudOverlay.cs:364-568`),
+**not** the host MonoBehaviour or the sweep. **KEEP, unchanged:**
+- the `HudBootstrap` `Hud.Awake` postfix mount (already woven, `Plugin.cs:564`),
+- the `Update` visibility/charge gate (worn? charged? depleted?) and the throttled
+  `SunstoneLens.GatherHostiles` sweep,
+- the `SunstoneProjection.Project → List<ThreatBlip>` derivation (tint/trophy/stars + caches),
+- the `MinimapHandoffMode` gate (the halo only renders when no minimap is bound).
 
-### 1.1 The ring container
+> 🔴 **Load-bearing invariant — the #209 dead-Update-pump fix MUST survive (see §2.0).**
+> `SetVisible` toggles a `_content` CHILD, **never** the host GameObject. Unity stops calling
+> `Update()` on a component whose GameObject is inactive, and `Update()` is the only thing that
+> pumps the sweep + feeds the minimap surfaces. **In the world-space rebuild the same discipline
+> holds:** the host `MonoBehaviour` stays active and keeps pumping; what `SetVisible` toggles is
+> now a **world-space content root** (`_worldContent`, a plain `GameObject` parented in the scene,
+> NOT under `Hud.m_rootObject`) carrying the billboarded slot pool. The host can even keep its old
+> `RectTransform`-under-Hud for the empty/depleted affordance if §1.6 wants a screen element — but
+> the detection-feed pump is independent of which surface draws, exactly as today.
 
-A single `RectTransform` (`_ringRoot`) centered on screen, anchored center
-(`anchorMin = anchorMax = pivot = (0.5, 0.5)`), under `Hud.m_rootObject`. The ring **radius is
-a fixed screen-space constant** (config `Sunstone.RingRadiusPx`, default ~180px) — radius is
-fixed (Daniel: "fixed distance in a ring"); only trophy *size* encodes range (§1.3). Center the
-ring on screen center (or slightly above, config `Sunstone.RingCenterOffsetY`) so it frames the
-player's view without covering the crosshair.
+> **NOTE on the class's home.** The screen-space ring lived entirely under `Hud.m_rootObject`. The
+> world halo's slot objects are **scene objects, not UI** — they live under a `_worldContent`
+> GameObject in world space, not under the Hud canvas. The host `MonoBehaviour` may stay attached
+> where it is (it's just a pump + lifecycle owner); only the *visuals* move from canvas-space to
+> world-space. A new `SunstoneWorldRing.cs` carrying the world-slot pool + billboard + placement
+> is a reasonable home so `SunstoneLensHudOverlay` doesn't bloat — engineer's call.
 
-### 1.2 Per-hostile slot — a pooled `Image` on the circumference
+### 1.1 The halo anchor — the player's eye-point
 
-Pool a small list of slot objects (`_slots`), each a `GameObject` with an `Image` (the trophy
-or fallback glyph) plus up to N child `Image` star-pips. **Pool, don't create/destroy per
-frame** — reuse `Mathf.Max(_slots.Count, hostiles.Count)` slots, `SetActive(false)` the unused
-tail. Cap the live count at config `Sunstone.RingMaxIcons` (default ~12) so a horde doesn't
-spawn 80 images; if more hostiles than the cap, show the nearest N (sort by distance, the sweep
-already has positions).
+There is **no screen-space ring container** any more. The halo is anchored to the player's
+**eye-point** each frame: `eye = player.GetEyePoint()` (`Character.GetEyePoint()`, public
+`:8655`, returns `m_eye.position`). Every slot is placed relative to `eye` (§1.2). A small
+config vertical offset (`Sunstone.HaloEyeOffsetY`, default ~0) lifts the halo plane slightly so
+trophies don't clip the crosshair. Recompute `eye` every frame (the player moves/turns); the
+billboard component keeps each trophy facing the camera regardless.
 
-**Angular placement (camera-relative — the Q2 thesis guard):** reuse the existing bearing math.
-For each hostile, compute `signed = Vector3.SignedAngle(camForward_flat, toEnemy_flat, up)` (the
-exact formula at `SunstoneLensHudOverlay.cs:243`, `Utils.GetMainCamera()` `assembly_utils:6705`).
-Map `signed` (degrees, 0 = dead ahead, +90 = hard right) onto the ring: place the slot at
-`anchoredPosition = (sin(signed) * R, cos(signed) * R)` so 0° sits at the top of the ring
-(straight ahead), +90° at the right, ±180° at the bottom (behind you). Camera-null safe — hide
-the ring if `GetMainCamera()` is null.
+### 1.2 Per-hostile slot — a pooled billboarded quad at a real world bearing
 
-### 1.3 Trophy size ∝ proximity (fixed ring radius)
+Pool a small list of slot objects (`_slots`), each a `GameObject` carrying a **billboarded quad**
+(a `MeshFilter` + `MeshRenderer` with a quad mesh and an unlit transparent material showing the
+trophy/glyph sprite as its texture — OR the equivalent world-space-canvas `Image`; engineer's
+call, the sprite is the same `m_icons[0]`), plus a `Billboard` component (vanilla
+`AddComponent<Billboard>()`, `m_vertical=true` — yaws to camera, stays upright — or a reproduced
+~6-line `LookAt(Utils.GetMainCamera())`), plus up to N child star-pip quads. **Pool, don't
+create/destroy per frame** — reuse `Mathf.Max(_slots.Count, hostiles.Count)` slots,
+`SetActive(false)` the unused tail. Cap the live count at config `Sunstone.RingMaxIcons`
+(default ~12) so a horde doesn't spawn 80 objects; if more hostiles than the cap, show the
+nearest N (the sweep already has world positions; sort by distance).
 
-Daniel: "size proportional to its closeness… distance maps to scale, NOT to ring radius." So:
-
+**World placement (camera-relative by construction — the thesis guard).** For each hostile:
 ```
-t = 1 - Clamp01(distance / DetectRadius)     // 1 at the player, 0 at the edge of range
-scale = Lerp(RingIconMinPx, RingIconMaxPx, t)  // far = small, near = big
+dir   = (blip.WorldPos - eye)           // real world vector to the enemy
+dist  = dir.magnitude                    // for radius + scale lerp (§1.3)
+dirN  = dir.normalized
+pos   = eye + dirN * radius(dist)        // head-halo: trophy sits along the true bearing
+slot.transform.position = pos
+// Billboard component handles facing — no manual angle math, no SignedAngle.
 ```
+Because `pos` is placed along the **real** `dir` to the enemy, the trophy is automatically at the
+enemy's true world bearing around you — turn the camera and the halo sweeps correctly, with **no
+north frame injected** (thesis guard holds by construction; do NOT recompute a `SignedAngle`
+against camera-forward and re-project — that was the screen-space hack, unnecessary and risky in
+world space). Eye-point/camera-null safe — hide the halo if `player` or `GetMainCamera()` is null.
 
-`DetectRadius` is the existing `Plugin.LensDetectRadius` (default 50m). `RingIconMinPx` /
-`RingIconMaxPx` are config (defaults ~28px / ~64px). A creature right on top of you renders at
-max size; one at the detection edge renders at min size. Set the slot `Image`'s
-`rectTransform.sizeDelta = (scale, scale)`. (Optional polish, config-flagged: a slight alpha
-fade as `t → 0` so distant threats are fainter — defer if it complicates v0.1.)
+> **SUPERSEDED — the old screen-space angular placement.** The screen ring computed
+> `signed = Vector3.SignedAngle(camForward_flat, toEnemy_flat, up)` and placed a `RectTransform`
+> at `(sin·R, cos·R)` on a fixed-radius circle (`SunstoneLensHudOverlay.cs:398-401`). That math is
+> **deleted** — world-space placement along the real `dir` subsumes it and is strictly simpler.
 
-### 1.4 Trophy sprite + the fallback glyph
+### 1.3 Variable radius AND scale ∝ distance (the head-halo, Knob #2 LOCKED)
 
-`slot.Image.sprite = ResolveTrophySprite(creature)` (the cached `CharacterDrop` walk, §Q1) —
-or the bundled `threat_fallback` sprite when that returns null. `preserveAspect = true` so
-non-square trophy icons don't stretch. The sprite is read from the trophy item's own
-`m_icons[0]` — no new art needed for creatures that have trophies (most do); only the single
-generic fallback glyph is a new asset.
+🔄 **SUPERSEDES the original "fixed ring radius, size-only ∝ closeness."** Daniel locked the Rune
+Magic head-halo: **both** the halo radius and the trophy scale vary with distance.
+```
+u      = Clamp01(dist / DetectRadius)               // 0 at the player, 1 at the edge of range
+radius = Lerp(HaloRadiusMin, HaloRadiusMax, u)      // near = inner (close to your face), far = outer
+scale  = Lerp(HaloScaleMax, HaloScaleMin, u)        // near = big, far → shrinks toward nothing
+```
+- **Near enemies** sit at the **inner** radius (close to your eye-point) and render **big**.
+- **Far enemies** push out to the **outer** radius and shrink toward `HaloScaleMin` (≈0 at the
+  detection edge so a just-detected threat fades in rather than popping).
+- `DetectRadius` is the existing `Plugin.LensDetectRadius` (default 50m). `HaloRadiusMin/Max`
+  (world metres, defaults ~1.2m / ~3.0m — a tight halo just beyond arm's reach), `HaloScaleMin/Max`
+  (world units, tune live) are config. All **live-tunable** so Daniel converges feel in one joined
+  session (the banner-windsock pattern). Set the slot transform's `localScale` to `scale` (uniform).
+
+> The world radii are small on purpose — this is a **halo around your head**, not a ground ring at
+> detection distance. A 50m Draugr is represented by a small trophy ~3m out on its bearing, not a
+> trophy literally 50m away (which would be invisible/occluded). That is exactly the Rune Magic
+> dodge: the representation lives near the camera, so terrain rarely occludes it and no
+> through-terrain material is needed (Knob #1).
+
+### 1.4 Trophy sprite + the hybrid fallback (Knob #3 LOCKED)
+
+The quad's texture/sprite is `blip.Trophy ?? SunstoneProjection.ThreatGlyph()` — the **same
+shared derivation** the disc + vanilla minimap consume (AT-EIDETIC-MINIMAP-UNAFFECTED holds: one
+source, divergent surfaces). With the **hybrid trophy-less policy** (§Q1): the projection's trophy
+resolution consults the **variant→sibling remap table** first (Greyling→Greydwarf etc.), so most
+"trophy-less" hostiles wear a sensible sibling trophy; only the genuinely-unmapped fall through to
+the generic `threat_fallback` glyph (never a skip). `preserveAspect`/correct UVs so non-square
+trophy icons don't stretch. The sprite is **flat** (Knob #4 — `m_icons[0]`, NOT the 3D `attach`
+mesh): a billboarded trophy *card*, not a sculptural prop. No new per-creature art — trophies
+reuse vanilla `m_icons[0]`; only the single generic glyph + the remap-table *data* are new.
 
 ### 1.5 Star pips above the trophy — REUSE the real vanilla nameplate star art (Daniel, 2026-06-19)
 
@@ -215,9 +359,12 @@ generic fallback glyph is a new asset.
 nameplates"* — NOT a Unicode ★ and NOT a new authored sprite. Pull the exact star sprite vanilla
 draws on enemy nameplates.
 
-`stars = creature.GetLevel() - 1` (§Q4). Render that many star `Image`s parented to the slot,
-laid out in a row centered **above** the trophy (`anchoredPosition.y = +scale/2 + pipPad`).
-0 stars → no pips. Pool the pips per slot and `SetActive` only as many as `stars`.
+`stars = creature.GetLevel() - 1` (§Q4). Render that many star pips parented to the slot, laid out
+in a row centered **above** the trophy quad (offset up by `+scale/2 + pipPad` in the slot's local
+space, so the row billboards along with the trophy). 0 stars → no pips. Pool the pips per slot and
+`SetActive` only as many as `stars`. **(World-space change is parenting only:** the pips are child
+quads/world-canvas elements of the billboarded slot instead of `RectTransform` children of a
+screen `Image` — the star-sprite *harvest* is identical.)
 
 **Where the vanilla star sprite lives (grounded):** vanilla `EnemyHud` (decomp `:38343`) holds a
 public `m_baseHud` GameObject (`:38382`) — the nameplate template. Its children **`level_2`** and
@@ -234,29 +381,37 @@ cloning (ADR-0006-safe).
 > (EnemyHud not yet built, or the child has no Image), fall back to a Unicode ★ `Text` pip so the
 > star count is never lost — the look degrades, the information doesn't.
 
-### 1.6 Empty + depleted states (AT-LENS-RING-5)
+### 1.6 Empty + depleted states (AT-EIDETIC-5)
 
-🟢 **DECIDED (Daniel, 2026-06-19):** empty ring → show a **faint solar ring** (not nothing);
-depleted lens → ring **off**.
+🟢 **DECIDED (Daniel, 2026-06-19, carried into world-space):** empty halo → show a **faint solar
+ring** (not nothing); depleted lens → halo **off**.
 
-- **Zero hostiles:** all trophy slots `SetActive(false)`, but draw a **faint solar ring outline**
-  (a thin warm/amber circle at the ring radius) so the player can see the lens is live and watching.
-  `Sunstone.ShowEmptyRing` config — **default ON** (flipped from the original draft's OFF per
-  Daniel's call). The ring tone is the sunstone's warm amber (thematic: the stored daylight glowing
-  faintly), low alpha (~0.18) so it frames the view without clutter. When ≥1 hostile is present the
-  faint ring may stay (it's the substrate the trophies sit on) — the trophies are what draw the eye.
-- **Depleted lens (charge < `MinChargeToDetect`):** ring **off entirely** (same as not worn) —
+- **Zero hostiles:** all trophy slots `SetActive(false)`, but draw a **faint solar ring** so the
+  player can see the lens is live and watching. `Sunstone.ShowEmptyRing` config — **default ON**.
+  In world-space this is a thin warm/amber **horizontal halo ring** rendered around the eye-point
+  at `HaloRadiusMin` (a flat billboarded annulus, or a line-loop in the halo plane), low alpha
+  (~0.18) so it frames the view without clutter — the world-space analogue of the old screen
+  annulus. *(Engineer may instead keep a screen-space faint ring under `Hud.m_rootObject` for this
+  one affordance if a world annulus reads poorly — it's an empty-state cue, not a threat marker, so
+  either surface is acceptable; flagged as a minor sub-choice for Daniel's by-eye pass, not a
+  blocker.)* When ≥1 hostile is present the faint ring may stay (it's the substrate the trophies
+  orbit) — the trophies are what draw the eye.
+- **Depleted lens (charge < `MinChargeToDetect`):** halo **off entirely** (same as not worn) —
   `Sunstone.ShowDepletedHint` default **OFF** per Daniel. No sweep runs. The durability bar on the
   trinket already signals "dim." The old text "Sunstone Lens — dim" line is dropped.
-- **Not worn:** ring hidden, `Update` early-returns (unchanged from current behavior).
+- **Not worn:** halo hidden, `Update` early-returns (unchanged from current behavior). **The host
+  MonoBehaviour stays active** (the #209 discipline) — only `_worldContent` is toggled.
 
 ### 1.7 Optional debug fallback (keep the text, hidden)
 
 Retain the old text readout behind a config flag `Sunstone.DebugTextReadout` (default **OFF**).
-When on, draw the legacy "⚠ N hostiles · nearest Xm" line *in addition to* the ring — useful for
-diagnosing "is detection finding anything?" without reading the ring. Default off so players only
-see the ring. This makes the redesign non-destructive: the working text path becomes a debug aid,
-not dead code.
+When on, draw the legacy "⚠ N hostiles · nearest Xm" line under `Hud.m_rootObject` *in addition
+to* the world halo — useful for diagnosing "is detection finding anything?" without reading the
+halo (and for headless/GPU-less sanity since it's a plain `Text`). Default off so players only see
+the halo. This makes the redesign non-destructive: the working text path becomes a debug aid, not
+dead code. (The `DebugMount` diagnostic from the #209 fix is likewise retained — log the halo
+mount + visibility transitions + first-show world placement so a fresh client `LogOutput.log`
+splits a mount/pump failure from an in-world-but-unseen halo.)
 
 ### 1.8 Aggro-state colour coding — the "Rune of Awareness" element (Daniel, 2026-06-19)
 
@@ -270,10 +425,10 @@ public description (clean-room: read the PUBLIC store description for behaviour,
 > their heads, which turns **orange if they aggro another player, and red if they're aggroed on
 > you**."*
 
-Our trophy ring already matches the core (per-creature marker around the player, size = distance,
-angle = bearing). The **one new element** is the **threat-state colour tint**. Fold it in: tint each
-trophy slot (the trophy `Image.color`, and its star pips) by the creature's aggro state toward the
-local player:
+Our eidetic halo already matches the core (per-creature trophy floating around the player, scale =
+distance, position = real bearing). The **one carried-over element** is the **threat-state colour
+tint**. Fold it in: tint each trophy slot (the quad's material `color`, and its star pips) by the
+creature's aggro state toward the local player:
 
 | State | Colour | Meaning |
 |---|---|---|
@@ -292,13 +447,26 @@ nameplate logic, no Rune Magic code read or needed):**
   - target != null && target != local player (another player/character) → **orange**;
   - no target (or not alerted) → **yellow**.
 - All public accessors, all base-game. Access via `creature.GetBaseAI()` (the same path EnemyHud
-  uses, `:38538`). Null-safe: a hostile with no BaseAI (rare) defaults to yellow.
+  uses, `:38538`). Null-safe: a hostile with no BaseAI (rare) defaults to yellow. **This is the
+  UNCHANGED `SunstoneProjection.AggroTint` already in the shared derivation** — the halo consumes
+  `blip.Tint`, no new tint code.
 
 **Why this is the right "very similar":** Rune of Alertness floats *phantom heads*; we float
 *creature trophies* (Daniel's locked choice — more legible, real art) — same mechanic, better read.
 The yellow→orange→red escalation is the load-bearing "awareness" feel he's pointing at, and it's a
 genuinely useful threat-priority cue in a Swamp horde (which of the six blobs is actually on me?).
 Tint multiplies onto the trophy sprite so the species is still recognisable through the colour.
+
+> ⚠️ **Colorblind note carried forward (not re-opened here).** Daniel is colour-blind, and a prior
+> GPU-confirmed failure (`Signs.cs` red→maroon, `requirements.md §A2.6`) means the yellow/orange/red
+> hue triplet may not fully distinguish for him on ANY surface (this same `AggroTint` feeds the
+> minimap surfaces too — see the in-flight card `t_aab051ae`, item ④). The eidetic halo does **not**
+> change the tint encoding (it consumes the shared `blip.Tint` unchanged), so if a non-hue state
+> encoding (shape/lightness/blink/outline) is later locked, it lands once in `SunstoneProjection`
+> and every surface inherits it — including this halo. **Out of scope for this card** (which is the
+> world-space port, not the colour language); flagged so it isn't lost. The flat trophy silhouettes
+> at least keep the *species* legible independent of the tint, which is a colorblind-friendly
+> property of the Knob-#4 flat-sprite choice.
 
 ---
 
@@ -363,84 +531,204 @@ no wiring bug found; the cause is purely cause-(a) (wrong surface).** Evidence:
 **One thing to verify in-game when building (cheap, name it in the AT):** confirm a freshly
 *looted/crafted* lens (not a `spawn`-ed debug one) reads as worn — `spawn`-ed items can have a
 clone-suffix or null `m_dropPrefab` edge the strip handles, but Daniel's accept is a real
-crafted lens. AT-LENS-RING-1 covers this (worn + charged → trophy appears).
+crafted lens. AT-EIDETIC-1 covers this (worn + charged → trophy appears in the world halo).
 
 ---
 
-## 3. Named acceptance tests (logs-green ≠ playable — Daniel's in-game look is the accept)
+## 3. Named acceptance tests — AT-EIDETIC-* (logs-green ≠ playable — Daniel's in-game eye is the accept)
 
-Replaces the placeholder `AT-LENS-DETECT` render half; the detection-mechanic ATs
-(`AT-LENS-CHARGE`, `-DRAIN-CONST`, `-ZERO-INERT`, etc. in the impl spec §8) are unchanged.
+Replaces the screen-space `AT-LENS-RING-*` rows (superseded with the screen ring); the
+detection-mechanic ATs (`AT-LENS-CHARGE`, `-DRAIN-CONST`, `-ZERO-INERT`, etc. in the impl spec §8)
+are unchanged. This is a **visual** feature: logs-green proves the sweep + projection run, NOT that
+the halo reads right — Daniel's eye on a GPU client in the next playtest build is the final accept.
 
-- **AT-LENS-RING-1** — worn + charged, a hostile within `DetectRadius` → its **trophy** appears
-  on the ring at the correct **bearing relative to where the player is facing** (turn so the
-  enemy is on your right → its trophy sits on the right of the ring; face it → top).
-- **AT-LENS-RING-2** — as a hostile **approaches**, its trophy **grows**; as it recedes, it
-  shrinks. The ring **radius stays fixed** — only icon size changes with distance.
-- **AT-LENS-RING-3** — a **1-star** enemy shows the **vanilla nameplate star** above its trophy; a
-  **2-star** shows **two**. A 0-star enemy shows no pips. (Count = `GetLevel()-1`; the pip sprite is
-  harvested from vanilla `EnemyHud.m_baseHud` level_2/level_3, NOT a Unicode ★ — Daniel 2026-06-19.)
-- **AT-LENS-RING-4** — a **trophy-less** hostile (e.g. a summoned minion) appears on the ring at
-  the right bearing/size wearing the **generic fallback glyph**, not missing entirely.
-- **AT-LENS-RING-5** — **zero** hostiles → the trophy slots are empty but a **faint solar ring**
-  outline shows (worn + charged; `ShowEmptyRing` default ON). A **depleted** lens → ring **off**.
-  Removing the lens → ring gone immediately.
-- **AT-LENS-RING-AGGRO** (the Rune-of-Awareness element, Daniel 2026-06-19) — a hostile that is
-  **idle/unalerted** renders its trophy **yellow**; once it **aggros another player** the trophy
-  turns **orange**; once it **targets YOU** it turns **red**. State follows the creature's own
-  `BaseAI` (IsAlerted / GetTargetCreature vs the local player) — the same surface vanilla's nameplate
-  uses.
-- **AT-LENS-RING-CAMREL** (🔴 thesis guard — **re-scoped to NoMap worlds only**, see
-  [`sunstone-lens-minimap-handoff.md`](sunstone-lens-minimap-handoff.md) §6) — the ring is
-  **camera-relative, never north-up**. Standing still and rotating the camera sweeps every
-  trophy around the ring; the ring grants **no cardinal orientation** (that stays the Iron
-  Compass's exclusive payoff). No north arrow, no N/E/S/W letters. **Scope:** this guard
-  protects the ring + the SBPR carry-disc in NoMap worlds. The vanilla-minimap path in
-  nomap-OFF is EXEMPT (it is deliberately north-up — the player already has free cardinal
-  orientation there, so detection on it leaks no Iron-Compass payoff).
-- **AT-LENS-RING-PERF** — a Swamp horde (10+ hostiles) does not tank framerate: icons are pooled
-  and capped at `RingMaxIcons`; the trophy-sprite + star-pip caches resolve each species/sprite once.
+- **AT-EIDETIC-1** — worn + charged, a hostile within `DetectRadius` → its **3D-floating trophy**
+  (a billboarded trophy card) appears **in the world** at the correct **bearing relative to where
+  the player is facing** (turn so the enemy is on your right → its trophy floats on your right;
+  face it → straight ahead). Uses a real crafted/looted lens (not a `spawn`-ed one).
+- **AT-EIDETIC-2** — as a hostile **approaches**, its trophy **grows AND moves inward** toward the
+  inner halo radius (close to your face); as it recedes, it **shrinks AND pushes out** toward the
+  outer radius (variable radius + scale, Knob #2).
+- **AT-EIDETIC-3** — a **1-star** enemy shows the **vanilla nameplate star** above its trophy; a
+  **2-star** shows **two**; a **0-star** shows none. (Count = `GetLevel()-1`; the pip sprite is
+  harvested from vanilla `EnemyHud.m_baseHud` level_2/level_3, NOT a Unicode ★.)
+- **AT-EIDETIC-4** — a **trophy-less** hostile appears per the locked **hybrid** Knob #3:
+  a **Greyling** shows a **Greydwarf** trophy (remap table); a genuinely-unmapped trophy-less
+  hostile shows the **generic 3D fallback glyph** — **never silently missing**. Plus: on world
+  load, the **startup unmapped-creature dump** (`DumpUnmappedCreatures` default ON) logs the
+  complete "no trophy / no remap" set as one reviewable block.
+- **AT-EIDETIC-5** — **zero** hostiles → the trophy slots are empty but a **faint solar ring** shows
+  (worn + charged; `ShowEmptyRing` default ON). A **depleted** lens → halo **off**. Unequip → halo
+  gone immediately. (The detection-feed pump keeps running regardless — #209 discipline preserved.)
+- **AT-EIDETIC-AGGRO** — a hostile that is **idle/unalerted** renders its trophy **yellow**; once it
+  **aggros another player** the trophy turns **orange**; once it **targets YOU** it turns **red**.
+  State follows the creature's own `BaseAI` (IsAlerted / GetTargetCreature vs the local player) —
+  the same `SunstoneProjection.AggroTint` every surface uses.
+- **AT-EIDETIC-CAMREL** (🔴 thesis guard) — the halo is **camera-relative, never north-up**.
+  Standing still and rotating the camera sweeps every trophy around you; the halo grants **no
+  cardinal orientation** (that stays the Iron Compass's exclusive payoff). No north arrow, no
+  N/E/S/W. (In world-space this holds by construction — trophies sit on the real `dirToEnemy`.)
+- **AT-EIDETIC-OCCLUDE** — behaves per the locked Knob #1: the head-halo placement keeps trophies
+  in a tight halo near the eye-point so terrain **rarely** occludes them; there is **no**
+  through-terrain ZTest-Always material (honest depth). A trophy may briefly clip behind very close
+  geometry — that's the accepted honest-depth tradeoff, not a bug.
+- **AT-EIDETIC-PERF** — a Swamp horde (10+) does not tank FPS: pooled **world** objects capped at
+  `RingMaxIcons`, billboards reuse the pool (never create/destroy per frame), and the
+  trophy-sprite + star-pip + remap caches resolve each species once.
+- **AT-EIDETIC-MINIMAP-UNAFFECTED** — with a minimap present (SBPR carry-disc nomap-ON or vanilla
+  corner map nomap-OFF), detection still hands off to the minimap (flat icons) exactly as before;
+  the world halo renders **only** in the no-minimap fallback (`MinimapHandoffMode` honored). The
+  minimap surfaces' flat-icon look is unchanged by this card.
 
 ---
 
 ## 4. Config + assets impact
 
-**New config (Plugin `Sunstone` section, all live-tunable so Daniel converges feel in one
-joined session — the banner-windsock pattern):** `RingRadiusPx` (~180), `RingCenterOffsetY`
-(0), `RingIconMinPx` (~28), `RingIconMaxPx` (~64), `RingMaxIcons` (~12), `ShowEmptyRing`
-(**true** — Daniel 2026-06-19, faint solar ring), `ShowDepletedHint` (**false** — ring off when
-depleted), `DebugTextReadout` (false). Defaults baked as `SunstoneLensHudOverlay` consts (single
-source of truth, the existing `Default*` pattern). The existing detection knobs
-(`DetectRadius`, `DetectIntervalSeconds`, charge economy) are unchanged.
+**Config (Plugin `Sunstone` section, all live-tunable so Daniel converges feel in one joined
+session — the banner-windsock pattern).** The screen-space knobs are replaced by world-space ones:
 
-**New asset (one):** `assets/icons/items/threat_fallback_v0.1.png` — the generic glyph for
-trophy-less hostiles. Placeholder-grade (skull/danger) per the icon doctrine. **Star pips reuse the
-real vanilla nameplate star** harvested from `EnemyHud.m_baseHud` (Daniel 2026-06-19) — NOT a new
-asset and NOT Unicode ★ (the ★ survives only as a last-ditch fallback if the harvest fails).
-**No per-creature art** — trophies reuse vanilla `m_icons[0]`.
+| Knob | Default | Role |
+|---|---|---|
+| `HaloRadiusMin` (m) | ~1.2 | inner halo radius (near enemies, close to your face) — Knob #2 |
+| `HaloRadiusMax` (m) | ~3.0 | outer halo radius (far enemies push out) — Knob #2 |
+| `HaloScaleMax` | tune | trophy world-scale for the nearest enemy (big) — Knob #2 |
+| `HaloScaleMin` | tune (~0) | trophy world-scale at the detection edge (shrinks toward nothing) — Knob #2 |
+| `HaloEyeOffsetY` (m) | ~0 | lift the halo plane off the eye-point so trophies clear the crosshair |
+| `RingMaxIcons` | ~12 | pooled-slot cap (nearest N shown in a horde) — carried over |
+| `ShowEmptyRing` | **true** | faint solar ring when nothing's near (§1.6) — carried over |
+| `ShowDepletedHint` | **false** | halo off when depleted (§1.6) — carried over |
+| `DumpUnmappedCreatures` | **true** | startup full-catalog dump of trophy-less/unmapped creatures (Knob #3) — **NEW** |
+| `DebugTextReadout` | false | legacy text line as a debug aid (§1.7) — carried over |
+| `DebugMount` | true (this cut) | log halo mount/visibility/first-show world placement (#209 diagnostic) — carried over |
 
-**Files the impl card touches:** `SunstoneLensHudOverlay.cs` (the render rewrite),
-`Plugin.cs` (the new config binds), this doc + `sunstone-lens-impl-spec.md` §4/§5/§8 (render
-sections superseded) + `PIECES_AND_CRAFTABLES.md` (Lens visual/patch-surface rows) +
-`PLAYER_GUIDE.md` (lens paragraph). **SpecCheck manifest: no change** (no recipe/piece change —
-this is render-only). Spec-and-code move together per AGENTS.md.
+Defaults baked as consts (single source of truth, the existing `Default*` pattern). The
+**screen-space knobs `RingRadiusPx` / `RingCenterOffsetY` / `RingIconMinPx` / `RingIconMaxPx` are
+removed** (no screen ring). The detection knobs (`DetectRadius`, `DetectIntervalSeconds`, charge
+economy) are unchanged.
+
+**Assets:** **NO new asset required** beyond what already shipped. The generic glyph
+`threat_fallback_v0.1.png` already exists; star pips reuse the harvested vanilla nameplate star;
+trophies reuse vanilla `m_icons[0]`. The **variant→sibling remap table is code/data**, not art.
+(The world-space quad uses an unlit transparent material constructed at runtime from the existing
+sprites — no shipped shader/material asset.)
+
+**Files the impl card touches:** `SunstoneLensHudOverlay.cs` (`RenderRing` + slot scaffolding →
+world-space pool; possibly extracted into a new `SunstoneWorldRing.cs`), `SunstoneProjection.cs`
+(the variant→sibling remap table + the startup dump scan — these belong in the shared projection
+so the trophy resolution stays one copy), `Plugin.cs` (the new config binds + the
+ZNetScene-ready dump hook), this doc + `sunstone-lens-impl-spec.md` §4/§5/§8 render banners +
+`PIECES_AND_CRAFTABLES.md` (Lens Render/Visual/Config/Patch/Status rows) + `PLAYER_GUIDE.md`
+(lens paragraph). **SpecCheck manifest: no change** (no recipe/piece change — render-only).
+Spec-and-code move together per AGENTS.md.
 
 ---
 
-## 5. Open questions for Daniel — ✅ ALL RESOLVED (2026-06-19)
+## 5. The four design knobs — ✅ ALL LOCKED (Daniel, 2026-06-21, "just implement as directed")
 
-1. **Q2 confirmation:** ✅ **screen-space camera-relative radar** (Daniel: "not relevant I think" =
-   not asking for diegetic 3D). Build the recommended option.
-2. **Ring center + radius feel:** defaults stand (screen-center, ~180px) — config-tunable, converge
-   live. Not blocking.
-3. **Empty-ring affordance:** ✅ **faint solar ring** (Daniel: "faint effect of some sort, like a
-   very faint solar ring") → `ShowEmptyRing` default **ON**.
-4. **Depleted hint:** ✅ **off** (Daniel) → `ShowDepletedHint` default **OFF**.
-5. **Star pips:** ✅ **use the vanilla nameplate stars** (Daniel) — harvested from `EnemyHud`, §1.5.
+Daniel answered all four open knobs in the ticket thread, then said *"just implement as directed"*
+— the doc-review gate is **WAIVED** and these are **final decisions**, not directional input.
 
-**Plus a new locked element (Daniel 2026-06-19):** aggro-state colour coding (§1.8) — yellow/orange/
-red threat tint, modelled on Rune Magic's Rune of Alertness, reproduced from vanilla `BaseAI`
-primitives.
+1. **Occlusion policy → 🔒 head-halo "Rune Magic dodge".** (Daniel: *"use the rune magic dodge."*)
+   Trophies float in a tight halo around the eye-point, rarely occluded; **no through-terrain
+   material.** Honest depth. Collapses with Knob #2. (§Q2 #1, §1.3.)
+2. **Ring geometry → 🔒 head-centric halo, variable radius AND scale ∝ distance.** (Daniel: *"More
+   like rune magic's."*) `pos = eye + dir·Lerp(radiusMin,radiusMax,u)`, `scale =
+   Lerp(scaleMax,scaleMin,u)`. **SUPERSEDES** the old "fixed ring radius, size-only ∝ closeness."
+   Bearing stays camera-relative (thesis guard). (§Q2 #2, §1.2–§1.3.)
+3. **Trophy-less fallback → 🔒 hybrid (remap table + generic fallback + default-ON startup dump).**
+   (Daniel: *"Hybrid with a setting default on to dump unmapped creatures on startup for review."*)
+   Greyling→Greydwarf-style variant→sibling remap, generic 3D fallback for the rest (never omit),
+   and `DumpUnmappedCreatures` default ON doing a full-catalog scan at ZNetScene-ready. (§Q1, §Q2 #3.)
+4. **Trophy render → 🔒 flat billboarded sprites for ALL trophies** (the existing `m_icons[0]`), NOT
+   the 3D `attach` mesh. (Daniel: *"Makes sense to me to use the flat images?"*) Lower-risk,
+   higher-reuse; sidesteps Rune Magic's per-species mesh-tuning table; reuses the existing
+   sprite + star + tint rendering. (§Q2 #4, §1.4.) *(Mild tension noted: "flat images" pulls
+   slightly away from Rune Magic's literal-3D-heads look that "more like rune magic's" pulls toward
+   — net is trophy cards orbiting the head, not sculptural props. Still fully diegetic; a sculptural
+   look is a future follow-up.)*
 
-These were pacing/UX/art-scope calls; the build is structurally identical whichever way each
-lands (each changes an isolated config default or one asset).
+**Carried-over locked elements (unchanged from the screen-space design, still in force):** vanilla
+nameplate star pips (§1.5), aggro-state yellow/orange/red tint via `BaseAI` (§1.8), faint solar
+ring empty-state default ON / depleted off (§1.6), the camera-relative thesis guard, and the #209
+Update-pump-alive discipline (§1, §2.0).
+
+These knobs are pacing/feel/diegesis calls; the build is structurally the same whichever way each
+lands (each is an isolated placement/material/asset/data decision), and they are now locked.
+
+---
+
+## 6. 🔴 Behavioral reference — how Rune Magic's Rune of Alertness works (clean-room description, NOT code to copy)
+
+Daniel pointed at **Rune Magic** (`hyleanlegend/Rune_Magic` v1.4.0) as the model and asked
+specifically how it handles floating trophies for enemies without trophies (greylings). A
+`reviewer-cleanroom` read the decompiled `SE_Alertness` to answer that **behaviorally**. 🔴 **The
+engineer implements SBPR's halo from vanilla primitives + SBPR's own design above — NOT from Rune
+Magic's code. Do NOT commit Rune Magic's binary or decompiled source anywhere in this MIT repo.**
+This section is a behavioral north-star only; SBPR's locked design (§Q1–§5) wins wherever they
+differ.
+
+**The trophy-less answer (the thing Daniel asked).** Rune Magic does **NOT** simply omit
+greylings. It hedges in three layers, and only truly-unmappable creatures are skipped:
+
+1. **Variant→sibling remap table.** A hardcoded map remaps a trophy-less variant onto a sibling
+   that *does* have a trophy. **Greyling → Greydwarf is the very first entry** (a greyling wears a
+   Greydwarf trophy). Other entries: Boar_piggy→Boar, DraugrRanged→Draugr, Wolf_cub→Wolf,
+   GoblinArcher→Goblin, GoblinShaman_Hildir→GoblinShaman, Lox_Calf→Lox, all Dverger mages→Dverger,
+   Charred variants→base Charred, Asksvin_hatchling→Asksvin, Morgen_NonSleeping→Morgen.
+2. **Bundled custom-trophy meshes** for creatures vanilla gives no trophy at all (Ghost, Hare,
+   Dverger, SeekerBrood — its own `vfx_Trophy*` assets).
+3. **Special-case mesh harvest** for BlobLava / BlobFrost — pulls the blob's visual
+   `SkinnedMeshRenderer.sharedMesh` directly into a fresh `MeshFilter`.
+
+Only after all three miss does it return null → and **then it omits the creature entirely**
+(`isTrackable()` false → never drawn). **There is NO generic fallback glyph in Rune Magic** —
+unmapped trophy-less hostiles are invisible to the rune.
+
+**The rest of the Alertness behavior (parity reference):**
+- Sweeps `Character.GetAllCharacters()` within a max distance; tracks each trackable creature once
+  (dictionary keyed by `Character`).
+- Each trophy is the trophy prefab's **`attach` 3D mesh**, all non-mesh components stripped,
+  parented to a holder, scaled to a target on-screen height via a vertex-bounds raycast.
+- **Placement:** `trophyPos = playerEyePoint + dirToEnemy * Lerp(hoverRadiusMin, hoverRadiusMax,
+  dist/maxDist)` — a **head-centric halo**: near enemies at the *inner* radius (close to your face),
+  far at the *outer*. **Scale** = `Lerp(trophyMaxScale, 0, dist/maxDist)` — near big, far → shrinks
+  to nothing. Trophy rotated to face the player (`LookRotation(-dir)`).
+- **Aggro colour** is a *separate* glowing indicator object floating above the trophy
+  (`vfx_AlertnessIndicator`), colored via `MaterialPropertyBlock` `_EmissionColor`: green = idle
+  (indicator HIDDEN — only the trophy shows), yellow = alerted/no target, orange = targeting another
+  player, red = targeting the local player. Trophies removed on death/despawn; all cleared on stop.
+
+**Where SBPR DIVERGES from Rune Magic (reconciled in the locked design above):**
+- **Placement/geometry:** SBPR adopts Rune Magic's head-halo + variable radius+scale **wholesale**
+  (Knob #1+#2 LOCKED) — this *supersedes* SBPR's earlier "fixed ring radius" lock.
+- **Trophy art:** SBPR uses **flat billboarded `m_icons[0]` sprites** (Knob #4), NOT the 3D `attach`
+  mesh — sidesteps Rune Magic's whole per-species mesh-tuning override table
+  (`AlertnessScaleOverride-X`/`RotationOverride-X`/`OffsetOverride-X`/`TrophyPosOverride-X` exist
+  precisely because raw trophy meshes don't billboard cleanly). Net: trophy *cards*, not sculptural
+  heads.
+- **Aggro surface:** SBPR tints the **trophy itself** (yellow/orange/red via `BaseAI`) + keeps
+  vanilla nameplate **star pips** — Rune Magic tints a *separate glow object* and has no stars. The
+  aggro primitives (`BaseAI.IsAlerted`/`GetTargetCreature`) are vanilla either way.
+- **Trophy-less:** SBPR keeps a **hybrid** — adopt the greyling→greydwarf-style remap for common
+  variants **AND** a generic 3D fallback for the rest (Knob #3), so SBPR **never omits** a threat
+  (Rune Magic omits the unmapped). Plus the default-ON startup dump to grow the remap table.
+
+---
+
+## 7. Clean-side / ADR notes
+
+- Every vanilla hook cited (`Billboard`, `Character.GetEyePoint`, `ZNetScene.m_prefabs`,
+  `CharacterDrop`/`ItemType.Trophy`, `EnemyHud.m_baseHud`, `BaseAI.IsAlerted`/`GetTargetCreature`,
+  `Character.GetLevel`) is base-game `assembly_valheim` decomp — **fair to read+adapt** (ADR-0001,
+  repo AGENTS.md + 2026-06-09 clarification). Line numbers from
+  `/home/polyphonyrequiem/valheim/worldgen-spike/decomp/assembly_valheim.decompiled.cs`, grepped
+  live this pass — re-confirm if the decomp drifts.
+- The world halo is built **additively** (ADR-0006): `new GameObject()` + `AddComponent` of only
+  `MeshFilter`/`MeshRenderer` (or a world-canvas `Image`) + `Billboard`, carrying **no**
+  `ZNetView`/`Piece`/networked skeleton — purely cosmetic, client-local. **NOT** a clone-and-strip
+  of a vanilla prefab. Trophy/star sprites are **read** as blueprint (reading an asset is not
+  cloning).
+- **Rune Magic is a BEHAVIORAL reference only** (§6 clean-room description). Do NOT copy its code;
+  do NOT commit its binary/decompiled source into this MIT repo. Reproduce from vanilla primitives +
+  SBPR's locked design.
+- **SpecCheck manifest: no change** (render-only; no recipe/piece/station change).
