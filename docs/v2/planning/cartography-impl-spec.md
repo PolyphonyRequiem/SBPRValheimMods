@@ -2056,6 +2056,49 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
 > warnings. Closes on Daniel's in-game check of AT-TABLE-FIELD-CURSOR / AT-TABLE-CURSOR-FREE /
 > AT-TABLE-PIN-REMOVE / AT-TABLE-RESTORE / AT-SIGN-CURSOR-REGRESSION (logs-green ≠ playable).
 
+> **⚠️ 2026-06-21 — §2L.12 SUPERSEDING CORRECTION (card t_f7a5ad53, re-report
+> "ticket-cursor-captive-modals").** The `CursorPumpPatch` above was **necessary but not
+> sufficient** — Daniel re-hit the capture/snap on the live build (v0.2.33-playtest) on all three
+> modals. **Root cause, fully decompiled this round (assembly_valheim + assembly_utils +
+> Unity.InputSystem):** the new Unity Input System's `InputSystemUIInputModule.ProcessPointer`
+> (`Unity.InputSystem` ~:47456) forces every mouse pointer event to screen-centre and discards the
+> real delta **whenever `Cursor.lockState == Locked`** — that IS the snap. The Input System never
+> *writes* `lockState`; the only managed writers during play are `Menu.UpdateCursor`
+> (`assembly_valheim:45817`) and `FejdStartup.UpdateCursor` (`:83091`), both computing
+> `lockState = !ZInput.IsMouseActive() ? Locked : None`, both firing **event-driven** on
+> `ZInput.OnInputLayoutChanged` (input-source switch), never per-frame. So the cursor is re-Locked
+> exactly when `IsMouseActive()` is false — i.e. when the active input source is **not**
+> KeyboardMouse (`Internal_IsMouseActive`, `assembly_utils:10847`). On Daniel's **keyboard+mouse**
+> rig the trigger is **Steam Input presenting a virtual gamepad**: its drifting stick keeps flipping
+> `m_inputSource → Gamepad` → `OnInputLayoutChanged` → `UpdateCursor` recomputes `Locked` every
+> frame → snap. (The earlier "gamepad" framing is confirmed; it just arrives via Steam's *virtual*
+> pad, not a physical one. Daniel 2026-06-21: *"It might be steam input but I'm not using gamepads…
+> if that's a steam input artifact then fine"* → fix mod-side, no gamepad-usability requirement.)
+> The per-frame `CursorPumpPatch` sets `None` in `GameCamera.LateUpdate` but the event-driven
+> `UpdateCursor` sets `Locked` back in its own phase, so the pump **races and loses, constantly.**
+>
+> **The real fix (`MouseActiveForcePatch`):** postfix `ZInput.IsMouseActive()` → force `true` while
+> `AnyOpen`. Then vanilla's OWN `UpdateCursor` computes `None`+`visible` (no snap), and the very
+> drifting-pad churn that caused the bug now *drives* the fix every frame — working **with** the
+> engine instead of racing it. Mirrors the existing `TakeInputPatch` idiom (postfix a vanilla
+> predicate → force a constant while a modal is open). Blast radius contained: of `IsMouseActive()`'s
+> 9 readers, only the two `UpdateCursor` sites can fire while an SBPR modal owns the screen (the
+> gamepad item-drag gate `:41647` and large-map raycast `:48730` are inert because `Player`/
+> `PlayerController.TakeInput` are already forced false by `AnyOpen`). `CursorPumpPatch` is **kept**
+> as a belt-and-suspenders `visible=true` assert + the deterministic `_wasOpen` restore-on-close, but
+> `MouseActiveForcePatch` is now the load-bearing anti-snap mechanism. Build 0/0; 226/226 tests.
+> **Still gated on Daniel's in-game accept** (AT-CURSOR-NOSNAP-MAP / -SIGN / -TABLE, AT-CURSOR-RESTORE)
+> — logs-green ≠ playable, the headless box can't render a cursor.
+
+> **⚠️ 2026-06-21 — §2L.13 sibling fix (card t_a1cf35b0): Inventory hotkey leaked over SBPR modals.**
+> Daniel could open the inventory while a sign panel / the Local Map was up (*"something I should NOT
+> be allowed to do"*). The Inventory toggle is read inside `InventoryGui.Update`
+> (`assembly_valheim:41458` → `Show(null)`), **not** through `Player.TakeInput`, so the §2L
+> `TakeInputPatch` block never gated it. Fix (`InventoryOpenSuppressPatch`): a skip-original prefix on
+> `InventoryGui.Show(Container, int)` gated on `AnyOpen`, mirroring `MenuOpenSuppressPatch` (which
+> already suppresses the pause menu the same way). Self-clearing (inventory opens normally the moment
+> the modal closes) and server-safe. ATs: AT-INV-BLOCK-{SIGN,MAP,TABLE} + AT-INV-RESTORE.
+
 > **Build seen:** v0.2.26-dev (Daniel, 2026-06-17 in-game playtest). Daniel: *"issue 7, at the
 > map table, my mouse is not free to move and click on pins to remove."*
 >
