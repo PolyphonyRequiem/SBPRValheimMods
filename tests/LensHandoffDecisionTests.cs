@@ -148,5 +148,68 @@ namespace SBPR.Trailborne.Tests
             Assert.True(plan.FeedMinimap);
             Assert.Equal(LensSurface.SbprDisc, plan.MinimapTarget);
         }
+
+        // ── Corona persistence (card t_7416e5b9): the "lens is live" cue is DECOUPLED from the threat
+        //    trophies. The corona shows whenever the ring's content shows, OR — when a minimap owns the
+        //    threat feed and the ring is hidden — whenever the persist knob is ON (default). This is the
+        //    re-homed survivor of the flat-ring pulsing-aura idea (t_acaa0190): the lens reads "live"
+        //    regardless of which surface draws threats, instead of going dark on the minimap path. ──────
+
+        [Fact]
+        public void Corona_shows_on_the_no_minimap_ring_fallback_every_mode_and_either_persist_setting()
+        {
+            // The ring fallback always carries the corona (same RenderWorldHalo path) — persistence knob irrelevant.
+            foreach (var mode in new[] { MinimapHandoffMode.RingOnly, MinimapHandoffMode.DiscWhenBound, MinimapHandoffMode.Both })
+            foreach (var persist in new[] { true, false })
+                Assert.True(LensHandoffDecision.Resolve(LensSurface.Ring, mode, persist).CoronaContentVisible);
+        }
+
+        [Theory]
+        [InlineData(LensSurface.SbprDisc)]
+        [InlineData(LensSurface.VanillaMinimap)]
+        public void Corona_persists_on_the_minimap_handoff_when_the_knob_is_on(LensSurface surface)
+        {
+            // DiscWhenBound hides the ring's trophies, but the corona stays lit (knob ON = default).
+            var plan = LensHandoffDecision.Resolve(surface, MinimapHandoffMode.DiscWhenBound, coronaPersistsOnMinimap: true);
+            Assert.False(plan.RingContentVisible);     // threats handed to the minimap
+            Assert.True(plan.CoronaContentVisible);    // but the lens-live cue persists
+        }
+
+        [Theory]
+        [InlineData(LensSurface.SbprDisc)]
+        [InlineData(LensSurface.VanillaMinimap)]
+        public void Corona_goes_dark_on_the_minimap_handoff_when_the_knob_is_off(LensSurface surface)
+        {
+            // Knob OFF restores the pre-card behaviour: corona dark whenever a minimap owns detection.
+            var plan = LensHandoffDecision.Resolve(surface, MinimapHandoffMode.DiscWhenBound, coronaPersistsOnMinimap: false);
+            Assert.False(plan.RingContentVisible);
+            Assert.False(plan.CoronaContentVisible);   // dark with the trophies
+        }
+
+        [Theory]
+        [InlineData(MinimapHandoffMode.RingOnly)]
+        [InlineData(MinimapHandoffMode.Both)]
+        public void Corona_shows_whenever_the_ring_content_shows_regardless_of_persist_knob(MinimapHandoffMode mode)
+        {
+            // RingOnly + Both both keep the ring visible on a minimap surface; the corona rides it whether
+            // or not the persist knob is on (corona = ringContentVisible || persist).
+            foreach (var surface in new[] { LensSurface.SbprDisc, LensSurface.VanillaMinimap })
+            foreach (var persist in new[] { true, false })
+            {
+                var plan = LensHandoffDecision.Resolve(surface, mode, persist);
+                Assert.True(plan.RingContentVisible);
+                Assert.True(plan.CoronaContentVisible);
+            }
+        }
+
+        [Fact]
+        public void Corona_default_overload_persists_on_the_minimap_handoff()
+        {
+            // The convenience overload defaults coronaPersistsOnMinimap to true (the shipped default).
+            var plan = LensHandoffDecision.Resolve(sbprDiscBound: true, vanillaMinimapShowing: false,
+                                                   mode: MinimapHandoffMode.DiscWhenBound);
+            Assert.False(plan.RingContentVisible);
+            Assert.True(plan.CoronaContentVisible);
+        }
     }
 }

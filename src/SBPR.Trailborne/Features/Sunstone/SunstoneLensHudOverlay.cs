@@ -72,6 +72,12 @@ namespace SBPR.Trailborne.Features.Sunstone
         public const bool  DefaultShowEmptyRing    = true;  // repurposed (card t_9d7c3dfe): master on/off for the sun-corona when worn+charged-but-clear (Daniel)
         public const bool  DefaultShowDepletedHint = false; // halo + corona fully off when depleted (Daniel)
         public const bool  DefaultDebugTextReadout = false; // legacy text line, debug aid only
+        // card t_7416e5b9: keep the corona (lens-live cue) breathing even when a minimap owns the threat
+        // feed (the ring's trophies are hidden). ON (default) = the lens always reads "live" while worn +
+        // charged regardless of which surface draws threats — the re-homed survivor of the flat-ring pulsing
+        // aura idea (t_acaa0190), which the world-space corona (t_9d7c3dfe) superseded. OFF = the pre-card
+        // behaviour (corona dark whenever a minimap takes over). Live-flippable (the banner-windsock pattern).
+        public const bool  DefaultCoronaPersistsOnMinimap = true;
 
         public const bool  DefaultDebugMount = true;  // diagnostic cut (t_d5949685): emit mount/wear LogInfo. Bake to false once the halo is confirmed rendering in-game.
 
@@ -282,6 +288,7 @@ namespace SBPR.Trailborne.Features.Sunstone
 
             var mode = Plugin.LensMinimapHandoffMode?.Value ?? MinimapHandoffMode.DiscWhenBound;
             _blipStyleNow = Plugin.LensMinimapBlipStyle?.Value ?? BlipStyle.Dots;
+            bool coronaPersists = Plugin.LensCoronaPersistsOnMinimap?.Value ?? DefaultCoronaPersistsOnMinimap;
 
             // The two live world facts the pure decision consumes. SBPR disc bound = nomap-ON + a local
             // map bound + imprinted (CartographyViewer.IsMinimapBound). Vanilla corner map showing =
@@ -290,7 +297,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             var mm = Minimap.instance;
             bool vanillaMinimapShowing = mm != null && mm.m_mode == Minimap.MapMode.Small;
 
-            LensRenderPlan plan = LensHandoffDecision.Resolve(sbprDiscBound, vanillaMinimapShowing, mode);
+            LensRenderPlan plan = LensHandoffDecision.Resolve(sbprDiscBound, vanillaMinimapShowing, mode, coronaPersists);
 
             // ── Throttled detection sweep (the expensive Character scan stays at the configured cadence). ──
             float interval = Plugin.LensDetectInterval?.Value ?? SunstoneLens.DefaultDetectInterval;
@@ -323,11 +330,28 @@ namespace SBPR.Trailborne.Features.Sunstone
             }
             else
             {
-                // Halo suppressed (a minimap owns detection). Park the world halo + the screen content;
-                // the host + pump stay alive (the load-bearing #209 line). _content hidden = no solar
-                // ring/text; the world halo's own root is hidden too = no trophies in the world.
-                _worldRing.Hide();
+                // A minimap owns the threat feed, so the ring's THREAT trophies are suppressed. But the
+                // corona (the "lens is live" cue) is decoupled from the threats (card t_7416e5b9): keep it
+                // breathing on the minimap path when CoronaContentVisible, so a worn+charged lens with a
+                // minimap up and nothing near still reads "live" instead of going fully dark (the gap the
+                // old flat-ring pulsing-aura idea t_acaa0190 was meant to fill, re-homed onto the corona
+                // that superseded that ring). The screen _content (legacy solar ring / debug text) stays
+                // hidden either way; the host + pump stay alive (the load-bearing #209 line).
                 _content?.gameObject.SetActive(false);
+                if (plan.CoronaContentVisible)
+                {
+                    // Show the shared world-content root with NO trophies (the threats are on the minimap),
+                    // then breathe the corona into it — the same depleted-hint mechanism (ShowRootWithoutTrophies
+                    // + RenderCorona), but at FULL live envelope, not the dimmed steady hint.
+                    _worldRing.ShowRootWithoutTrophies();
+                    RenderCorona(player, depletedDim: false);
+                }
+                else
+                {
+                    // Corona persistence off (Daniel flipped the knob) → the old behaviour: world halo + corona
+                    // both dark on the minimap path. One coherent hide of the shared root.
+                    _worldRing.Hide();
+                }
             }
 
             // ── Feed the active minimap surface (if the mode hands off). The SBPR disc pulls _blips on

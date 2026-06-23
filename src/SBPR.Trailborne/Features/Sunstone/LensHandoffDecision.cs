@@ -97,12 +97,27 @@ namespace SBPR.Trailborne.Features.Sunstone
         public readonly bool FeedMinimap;
         /// <summary>Which minimap surface is the feed target when <see cref="FeedMinimap"/> is true.</summary>
         public readonly LensSurface MinimapTarget;
+        /// <summary>
+        /// Whether the world-space sun-corona disc (the empty-state "lens is live" affordance,
+        /// <see cref="SunstoneCoronaDisc"/>, card t_9d7c3dfe) should keep breathing this tick — INDEPENDENT
+        /// of <see cref="RingContentVisible"/>. The corona is the SUBSTRATE the trophy halo orbits; the
+        /// trophies are the THREAT display. Pre-card-t_7416e5b9 the two were coupled — when a minimap won
+        /// detection the ring hid AND the corona went dark with it, so a worn+charged lens with a minimap up
+        /// and nothing near showed NO cue at all (the gap the flat-ring "pulsing aura" idea t_acaa0190 was
+        /// meant to fill, re-homed onto the corona that superseded that flat ring). With
+        /// <c>CoronaPersistsOnMinimap</c> ON (default) the corona stays lit while a minimap owns the threat
+        /// feed, so the lens always reads "live" regardless of which surface draws threats. The cue is a
+        /// luminance breath (alpha pulse), legible independent of hue.
+        /// </summary>
+        public readonly bool CoronaContentVisible;
 
-        public LensRenderPlan(bool ringContentVisible, bool feedMinimap, LensSurface minimapTarget)
+        public LensRenderPlan(bool ringContentVisible, bool feedMinimap, LensSurface minimapTarget,
+                              bool coronaContentVisible)
         {
             RingContentVisible = ringContentVisible;
             FeedMinimap = feedMinimap;
             MinimapTarget = minimapTarget;
+            CoronaContentVisible = coronaContentVisible;
         }
     }
 
@@ -144,35 +159,55 @@ namespace SBPR.Trailborne.Features.Sunstone
         /// the two independent outputs the overlay acts on. This is the single highest-value invariant
         /// of the card; it is asserted exhaustively in tests/LensHandoffDecisionTests.cs.
         /// </summary>
-        public static LensRenderPlan Resolve(LensSurface surface, MinimapHandoffMode mode)
+        public static LensRenderPlan Resolve(LensSurface surface, MinimapHandoffMode mode,
+                                             bool coronaPersistsOnMinimap = true)
         {
-            // No minimap anywhere → the ring is the only surface, every mode (the fallback).
+            // No minimap anywhere → the ring is the only surface, every mode (the fallback). The corona
+            // rides the ring here (it's drawn by the same RenderWorldHalo path), so it's always visible.
             if (surface == LensSurface.Ring)
-                return new LensRenderPlan(ringContentVisible: true, feedMinimap: false, minimapTarget: LensSurface.Ring);
+                return new LensRenderPlan(ringContentVisible: true, feedMinimap: false,
+                    minimapTarget: LensSurface.Ring, coronaContentVisible: true);
 
-            // A minimap is present (SBPR disc OR vanilla). The mode decides the split.
+            // A minimap is present (SBPR disc OR vanilla). The mode decides the ring/feed split.
+            bool ringContentVisible;
+            bool feedMinimap;
             switch (mode)
             {
                 case MinimapHandoffMode.RingOnly:
                     // Escape hatch: ignore the minimap, keep the ring. Minimap NOT fed.
-                    return new LensRenderPlan(ringContentVisible: true, feedMinimap: false, minimapTarget: surface);
+                    ringContentVisible = true;
+                    feedMinimap = false;
+                    break;
 
                 case MinimapHandoffMode.Both:
                     // Supplement: ring stays AND the minimap is fed.
-                    return new LensRenderPlan(ringContentVisible: true, feedMinimap: true, minimapTarget: surface);
+                    ringContentVisible = true;
+                    feedMinimap = true;
+                    break;
 
                 case MinimapHandoffMode.DiscWhenBound:
                 default:
                     // Default (Daniel): hand off — ring hides, the minimap surface shows threats.
-                    return new LensRenderPlan(ringContentVisible: false, feedMinimap: true, minimapTarget: surface);
+                    ringContentVisible = false;
+                    feedMinimap = true;
+                    break;
             }
+
+            // The corona (lens-live cue) shows whenever the ring's content shows (it rides the same world
+            // halo path), OR — when a minimap has taken over the threat feed and the ring is hidden — when
+            // the persist knob is ON (default). This is the t_7416e5b9 change: decouple the corona from the
+            // ring so the lens still reads "live" on the minimap path instead of going fully dark.
+            bool coronaContentVisible = ringContentVisible || coronaPersistsOnMinimap;
+            return new LensRenderPlan(ringContentVisible, feedMinimap, surface, coronaContentVisible);
         }
 
         /// <summary>
         /// One-shot convenience: resolve the surface from the two world facts AND apply the mode.
-        /// Equivalent to <c>Resolve(ResolveSurface(...), mode)</c>; the overlay calls this each tick.
+        /// Equivalent to <c>Resolve(ResolveSurface(...), mode, coronaPersistsOnMinimap)</c>; the overlay
+        /// calls this each tick.
         /// </summary>
-        public static LensRenderPlan Resolve(bool sbprDiscBound, bool vanillaMinimapShowing, MinimapHandoffMode mode)
-            => Resolve(ResolveSurface(sbprDiscBound, vanillaMinimapShowing), mode);
+        public static LensRenderPlan Resolve(bool sbprDiscBound, bool vanillaMinimapShowing,
+                                             MinimapHandoffMode mode, bool coronaPersistsOnMinimap = true)
+            => Resolve(ResolveSurface(sbprDiscBound, vanillaMinimapShowing), mode, coronaPersistsOnMinimap);
     }
 }

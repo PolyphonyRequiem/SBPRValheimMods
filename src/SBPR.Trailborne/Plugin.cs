@@ -111,6 +111,7 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float>? LensHaloEyeOffsetY    = null;  // lift the halo plane off the eye-point (clear the crosshair)
         internal static ConfigEntry<int>?   LensRingMaxIcons       = null;  // cap on simultaneous trophies (horde guard, pooled nearest-N)
         internal static ConfigEntry<bool>?  LensRingShowEmpty      = null;  // REPURPOSED (card t_9d7c3dfe): master on/off for the world-space sun-corona disc (was the flat ring)
+        internal static ConfigEntry<bool>?  LensCoronaPersistsOnMinimap = null; // corona stays lit when a minimap owns the threat feed (card t_7416e5b9)
         internal static ConfigEntry<bool>?  LensRingShowDepletedHint = null; // faint ring when depleted (default off)
         internal static ConfigEntry<bool>?  LensRingDebugText      = null;  // legacy text readout as a debug aid
 
@@ -457,6 +458,17 @@ namespace SBPR.Trailborne
                 + "space circle'). ON (default): when worn + charged but nothing's near, a glowing corona "
                 + "breathes on the ground around you so you can see the lens is live. The .cfg KEY is kept "
                 + "('ShowEmptyRing') to avoid churning a value Daniel may already have set. Live-tunable.");
+            LensCoronaPersistsOnMinimap = Config.Bind(
+                "SunstoneLens", "CoronaPersistsOnMinimap",
+                SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultCoronaPersistsOnMinimap,
+                "When a minimap (the SBPR carry-disc or the vanilla corner map) takes over showing the Lens's "
+                + "detected threats, keep the world-space sun-corona breathing on the ground around you anyway. "
+                + "ON (default): the lens always reads 'live' while worn + charged — the corona is your "
+                + "ambient 'the lens is watching' cue, separate from WHERE the threats are drawn (it's a slow "
+                + "brightness pulse, readable regardless of colour). This is the re-homed survivor of the old "
+                + "'pulsing golden aura when equipped' idea, now carried by the corona that replaced the flat "
+                + "ring it was going to animate. OFF: the corona goes dark whenever a minimap owns detection "
+                + "(the pre-card behaviour). Live-tunable, no rebuild.");
 
             // v3 Swamp — Sunstone Lens empty-state → world-space pulsing sun-corona disc (card t_9d7c3dfe).
             // Every corona knob is LIVE (the banner-windsock pattern; a client visual can't be verified
