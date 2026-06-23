@@ -181,7 +181,7 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<bool>? CompassAutoNorthUp = null;
 
         // §2L.14 (ticket-cursor-lock-map-sign, card t_cad2c6f3): diagnostic toggle for the modal
-        // cursor-free path. When true, ModalCursorDriver.Update logs the INCOMING Cursor.lockState +
+        // cursor-free path. When true, §2L.18's CursorPumpPatch logs what VANILLA computes for the
         // raw IsMouseActive + per-contributor open flags every ~30 frames while a modal is open — the
         // ground-truth probe that localizes WHY the cursor re-locks on a KB+M box (this bug has
         // shipped-dead twice on seam guesses; this flag makes the next client repro decisive). Default
@@ -205,12 +205,12 @@ namespace SBPR.Trailborne
             CursorDiag = Config.Bind(
                 "Debug",
                 "SBPR_CursorDiag",
-                true,
-                "When true, logs the modal cursor-free diagnostic (§2L.14, ticket-cursor-lock-map-sign): every " +
-                "~30 frames while an SBPR map/sign modal is open, the INCOMING Cursor.lockState + raw IsMouseActive " +
-                "+ per-contributor open flags are written to the BepInEx log. Localizes WHY the cursor re-locks on " +
-                "a keyboard+mouse box. Default ON in this diagnostic build; flip false once the fix is confirmed " +
-                "in-game (it's a pure logging gate — the cursor FIX runs regardless of this flag).");
+                false,
+                "When true, logs the modal cursor diagnostic (§2L.18, card t_94cc9713): every ~30 frames " +
+                "while an SBPR map/sign modal is open, what VANILLA computes for the cursor (lockState/visible) " +
+                "while the masquerade signals a GUI is open, plus the input-source flags, are written to the " +
+                "BepInEx log. Default OFF (the §2L.18 masquerade fix is confirmed in-game 2026-06-23). Flip true " +
+                "only to re-diagnose — it's a pure logging gate; the cursor fix runs regardless of this flag.");
 
             CairnDecayHpPerDay = Config.Bind(
                 "Cairns",
@@ -703,31 +703,18 @@ namespace SBPR.Trailborne
             // ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch
             // lesson). Self-clearing + server-safe (AnyOpen false → pass-through).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MenuOpenSuppressPatch));
-            // §2L.12 (card t_f7a5ad53, re-report ticket-cursor-captive-modals): the REAL cursor fix —
-            // postfix ZInput.IsMouseActive() → true while AnyOpen so vanilla's own event-driven
-            // UpdateCursor computes lockState=None (no Input-System center-snap) even when Steam Input
-            // presents a virtual gamepad that keeps grabbing the input source. Works WITH the engine
-            // instead of racing it like the per-frame CursorPumpPatch. §2L.13 (card t_a1cf35b0): a
-            // skip-original prefix on InventoryGui.Show(Container,int) gated on AnyOpen, so the
-            // Inventory hotkey can't pop the inventory over an SBPR modal (the toggle is read in
-            // InventoryGui.Update, not Player.TakeInput, so the TakeInput block never gated it). Two
-            // more nested SignPanelInputBlock containers — MUST be registered here or they ship dead
-            // and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
-            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MouseActiveForcePatch));
-            // §2L.14 (ticket-cursor-lock-map-sign, card t_cad2c6f3): source-independent cursor assert +
-            // diagnostic. Bootstraps ModalCursorDriver onto the Hud (Hud.Awake postfix) — a client-only
-            // every-frame Update+LateUpdate cursor-free assert that does NOT depend on input-source churn,
-            // fixing the KB+M case §2L.12 (gamepad-churn-parasitic) misses. MUST be registered here or it
-            // ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson). Never
-            // fires on the dedicated server (no Hud there).
-            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.ModalCursorDriverBootstrapPatch));
-            // §2L.15 (ticket-cursor-lock-map-sign, card t_cad2c6f3): the DIRECT inlining-immune cursor
-            // fix. Postfix on Menu.UpdateCursor (the method that actually writes lockState) forces the
-            // cursor free while a modal is open — immune to whether the §2L.12 IsMouseActive force was
-            // inlined away (which the §2L.14 diag build proved it was: cursor still flipped Locked ~1/3
-            // of frames). MUST be registered here or it ships dead and PatchCheck ERRORs at boot (the
-            // t_564f695a unregistered-patch lesson). Never fires on the dedicated server (no Menu).
-            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.MenuUpdateCursorForcePatch));
+            // §2L.18 (card t_94cc9713, Daniel's call 2026-06-23): the MASQUERADE cursor approach —
+            // supersedes the seven lockState-writing builds (§2L.7-R … §2L.17) which all failed for
+            // Daniel's Linux rig (capture is below managed Cursor.lockState; proven by lockState=None +
+            // still-captive in his v0.2.35 logs). Instead of writing lockState we make the game think a
+            // GUI is open and let vanilla free the cursor: CursorPumpPatch (above) edge-drives the
+            // vanilla mouse-capture block on GameCamera.LateUpdate, and TextInputMasqueradePatch postfixes
+            // TextInput.IsVisible()→true while AnyOpen so every vanilla cursor-free gate fires for our
+            // modal. §2L.13 (card t_a1cf35b0): a skip-original prefix on InventoryGui.Show(Container,int)
+            // gated on AnyOpen, so the Inventory hotkey can't pop the inventory over an SBPR modal. Both
+            // nested SignPanelInputBlock containers — MUST be registered here or they ship dead and
+            // PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.TextInputMasqueradePatch));
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Signs.SignPanelInputBlock.InventoryOpenSuppressPatch));
             // Client-facing refresh layer: Player.OnSpawned recipe reload +
             // PieceTable.UpdateAvailable array repair. Makes registered content

@@ -2191,6 +2191,53 @@ fix; do not *also* try to consume the key via `Input`/`ZInput` reset — one cle
 > already suppresses the pause menu the same way). Self-clearing (inventory opens normally the moment
 > the modal closes) and server-safe. ATs: AT-INV-BLOCK-{SIGN,MAP,TABLE} + AT-INV-RESTORE.
 
+> **✅ 2026-06-23 — §2L.18 SUPERSEDING CORRECTION + FIX CONFIRMED IN-GAME (card t_94cc9713, FOURTH
+> re-report "ticket-cursor-lock-custom-ui"). This is the resolution; everything from §2L.4 through
+> §2L.17 is superseded.** Daniel re-hit the capture on v0.2.35-playtest (which already shipped §2L.12
+> + the §2L.14–17 follow-ups) with one decisive new observation: **the cursor is captive ONLY on our
+> custom UI, never on built-in Valheim GUIs, on the same machine.** A live `SBPR_CursorDiag` capture
+> from his current session (map AND sign open) settled it: **`incomingLockState=None` on ~96% of
+> frames, `gamepadActive=False`, `updateCursorFires=0`**, and the §2L.17 debounce build measured
+> **`suppressedBlips=0`.** Conclusions forced by that data:
+>   1. **The §2L.12 Steam-Input/virtual-gamepad theory is DEAD on this rig** — `gamepadActive=False`,
+>      `updateCursorFires=0`, no input-source churn at all. The drifting-pad mechanism is simply not
+>      present.
+>   2. **Every managed `Cursor.lockState` write is futile** — `lockState` read `None` ~96% of frames
+>      yet the cursor stayed captive. The capture is happening **BELOW managed `Cursor.lockState`**:
+>      the native Linux player holds the pointer via SDL relative-mouse-mode, where no C# `lockState`
+>      write can reach it. Seven builds (§2L.4 `CursorPumpPatch`, §2L.12 `MouseActiveForcePatch`,
+>      §2L.14 `ModalCursorDriver`, §2L.15 `MenuUpdateCursorForcePatch`, §2L.16 EOF assert, §2L.17
+>      debounce) all WROTE `lockState` and all failed for exactly this reason. The `ProcessPointer`
+>      center-snap narrative (§2L.12) describes a real engine behavior but it is **not** Daniel's
+>      mechanism — his `lockState` was already `None`.
+>
+> **THE FIX (`§2L.18` — masquerade as a vanilla GUI; do NOT write `Cursor.lockState`).** Reproduce
+> what a vanilla GUI-open does — the path that empirically frees Daniel's cursor (opening the vanilla
+> inventory over a modal frees it) and that mature mods use (Jotunn `GUIManager.BlockInput`) — and let
+> vanilla's OWN systems release the pointer. Two base-game levers (ADR-0001 clean; reproduces Jotunn's
+> *behaviour*, no mod code copied):
+>   1. **Mouse-capture block** — on the `AnyOpen` false→true edge (driven from the live
+>      `GameCamera.LateUpdate` seam, `CursorPumpPatch` retained as the host so `PatchCheck` still guards
+>      it), set `GameCamera.m_mouseCapture = false` + call `GameCamera.UpdateMouseCapture()` (via
+>      HarmonyLib `Traverse`, since we don't publicize `assembly_valheim`); restore both on the close
+>      edge. Mirrors `Jotunn.GUIManager.Enable/ResetInputBlock`.
+>   2. **`TextInput.IsVisible()` masquerade** (`TextInputMasqueradePatch`) — postfix → `true` while
+>      `AnyOpen`, so every vanilla gate that frees the cursor / suppresses world input for an open text
+>      dialog fires for our modal exactly as for a real one. NRE-safe: a full decomp scan confirms no
+>      caller dereferences `TextInput.instance` after checking `IsVisible()` (and `IsVisible` itself
+>      null-guards `m_instance`).
+>
+> **ALL `Cursor.lockState` writes are removed from `SignPanelInputBlock.cs`.** `MouseActiveForcePatch`,
+> `ModalCursorDriver` + its bootstrap, `MenuUpdateCursorForcePatch`, and the §2L.17 debounce driver are
+> deleted. The `SBPR_CursorDiag` probe now logs what **vanilla** computes (we write nothing), making the
+> in-game test decisive. **CONFIRMED FIXED in-game by Daniel 2026-06-23** ("fixed it 🙂"); the
+> confirming capture shows `vanillaLockState=None vanillaVisible=True textInputMasqueraded=True
+> mouseCaptureCleared=True` on BOTH `paint=True` (sign) and `viewer=True` (map) frames — i.e. vanilla
+> freed the cursor because we signalled a GUI was open, with zero `lockState` writes from us.
+> `SBPR_CursorDiag` default flipped ON→`false` (don't ship per-frame cursor logging to playtesters; the
+> fix runs regardless of the flag). The §2L.4–§2L.17 blocks below are retained as the historical
+> diagnostic trail that led here (the spec-first rule: keep the superseded account, mark it superseded).
+
 > **Build seen:** v0.2.26-dev (Daniel, 2026-06-17 in-game playtest). Daniel: *"issue 7, at the
 > map table, my mouse is not free to move and click on pins to remove."*
 >
