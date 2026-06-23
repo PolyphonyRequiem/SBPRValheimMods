@@ -119,29 +119,23 @@ namespace SBPR.Trailborne.Features.Signs
         //
         // Server-safe: GameCamera does not exist on the dedicated server, so LateUpdate never fires
         // there; AnyOpen is also always false (no local Player). Pure pass-through either way.
-        private static bool _wasOpen;
-
         [HarmonyPatch(typeof(GameCamera), "LateUpdate")]
         public static class CursorPumpPatch
         {
             [HarmonyPostfix]
             private static void Postfix()
             {
-                bool open = AnyOpen;
-
-                if (open)
+                // §2L.17 (card t_94cc9713): defer to the SINGLE debounced cursor authority
+                // (ModalCursorDriver). Assert a free cursor in this LateUpdate phase while the authority
+                // says free, but NEVER re-lock here. The old close-edge in this method was ONE OF THREE
+                // competing re-lockers; on a 1-frame AnyOpen blip (MapSurface._root.activeSelf flickers
+                // false during a uGUI rebuild) they each slammed lockState=Locked → SDL relative-mode
+                // re-arm → cursor warps to centre, 2-3x/sec, even though lockState reads None ~96% of
+                // frames. The lone re-lock authority is now ModalCursorDriver's DEBOUNCED close-edge.
+                if (ModalCursorDriver.FreeThisFrame)
                 {
-                    // Per-frame pump: re-assert a free, visible cursor every frame the modal is up.
                     Cursor.lockState = CursorLockMode.None;
                     Cursor.visible = true;
-                    _wasOpen = true;
-                }
-                else if (_wasOpen)
-                {
-                    // Close edge (true→false): hand the cursor back to gameplay exactly once.
-                    Cursor.lockState = CursorLockMode.Locked;
-                    Cursor.visible = false;
-                    _wasOpen = false;
                 }
             }
         }
@@ -314,55 +308,54 @@ namespace SBPR.Trailborne.Features.Signs
         /// </summary>
         public sealed class ModalCursorDriver : MonoBehaviour
         {
-            private bool _wasOpenLocal;
+            // ── §2L.17 SINGLE DEBOUNCED CURSOR AUTHORITY (card t_94cc9713) ──────────────────────
+            // THE ROOT CAUSE the prior six builds missed (proven by Daniel's v0.2.35 live logs +
+            // codebase grep): the cursor read lockState=None on ~96% of frames yet stayed captive,
+            // ONLY on our custom UI, with gamepadActive=False and updateCursorFires=0. The one
+            // anomalous log frame was `Locked visible=False` — a signature that NO vanilla writer
+            // produces (Menu.UpdateCursor writes visible=true) and that ONLY our own close-edge wrote.
+            // AnyOpen → CartographyViewer.IsViewerOpen → MapViewer.IsOpen → MapSurface.IsActive
+            // (=> _root.activeSelf, MapSurface.cs:237) is a live hierarchy read that a uGUI layout
+            // rebuild blips FALSE for a single frame. On that blip our close-edge slammed
+            // lockState=Locked → Unity's Linux player re-armed SDL relative-mode → XWarpPointer warped
+            // the cursor to screen-centre → next frame AnyOpen=true and we set None back. lockState=None
+            // 96% of frames (the log), a centre-warp 2-3x/sec (Daniel's eyes). And there were THREE
+            // asserters (this driver's Update + LateUpdate + EOF, plus CursorPumpPatch, plus
+            // MenuUpdateCursorForcePatch) each with its OWN edge-detector — on Linux EVERY Locked↔None
+            // toggle is an XWarpPointer, so "assert None harder" six times ADDED warpers. That is why
+            // it got worse, not better, and why it's our-UI-only and needs no gamepad.
+            //
+            // THE FIX: ONE authority, DEBOUNCED. Free the cursor while open. On close, require AnyOpen
+            // to stay false for CloseDebounceSeconds before re-locking ONCE — so a 1-frame activeSelf
+            // blip can no longer re-lock/warp. CursorPumpPatch + MenuUpdateCursorForcePatch now DEFER to
+            // FreeThisFrame instead of writing their own edges (no competing re-lockers). The diagnostic
+            // now counts SUPPRESSED blips: a non-zero SuppressedBlips with a free, usable cursor in-game
+            // is positive proof this was the mechanism.
+
+            /// <summary>True while the debounced authority says the cursor should be free this frame.
+            /// CursorPumpPatch / MenuUpdateCursorForcePatch read this instead of asserting their own
+            /// edges, so there is exactly ONE re-lock decision in the system.</summary>
+            internal static bool FreeThisFrame { get; private set; }
+
+            /// <summary>How long AnyOpen must remain continuously false before we re-lock. One frame at
+            /// 60fps ≈ 16ms; 120ms swallows multi-frame rebuild blips with margin while staying
+            /// imperceptible on a real close.</summary>
+            private const float CloseDebounceSeconds = 0.12f;
+
+            /// <summary>Diagnostic: how many 1-frame "close" blips the debounce SWALLOWED this open
+            /// session. Non-zero in-game with a working cursor = the §2L.17 diagnosis confirmed.</summary>
+            internal static int SuppressedBlips;
+
+            private bool _cursorFreed;
+            private float _closingSince = -1f;
             private int _frame;
             private int _diagLinesEmitted;
-            private Coroutine? _eofLoop;
 
             private void OnEnable()
             {
-                // §2L.16: start the end-of-frame assert loop. WaitForEndOfFrame fires AFTER all
-                // Update/LateUpdate/coroutine phases AND after the Input System's pointer processing
-                // for the frame — the latest managed point we can write before the next frame's input
-                // is sampled. This catches a re-lock/warp that lands LATER in the frame than our
-                // LateUpdate assert (the §2L.15 build still snapped-to-centre on Daniel's client while
-                // lockState read None at our Update sample — the signature of a late-frame writer our
-                // earlier phases didn't cover).
-                _eofLoop = StartCoroutine(EndOfFrameAssert());
-            }
-
-            private void OnDisable()
-            {
-                if (_eofLoop != null) { StopCoroutine(_eofLoop); _eofLoop = null; }
-            }
-
-            private System.Collections.IEnumerator EndOfFrameAssert()
-            {
-                var eof = new WaitForEndOfFrame();
-                while (true)
-                {
-                    yield return eof;
-                    if (!AnyOpen) continue;
-
-                    // DIAGNOSTIC (per-frame while open, capped): if lockState reads Locked HERE — at
-                    // end-of-frame, after the Input System ran — that's the snap window the earlier
-                    // asserts miss. Capped at 40 lines/open-session so the log stays readable.
-                    if ((Plugin.CursorDiag?.Value ?? false)
-                        && Cursor.lockState != CursorLockMode.None
-                        && _diagLinesEmitted < 40)
-                    {
-                        _diagLinesEmitted++;
-                        Plugin.Log.LogWarning(
-                            "[Trailborne/CursorDiag] EOF re-lock caught! lockState=" + Cursor.lockState
-                            + " visible=" + Cursor.visible
-                            + " gamepadActive=" + ZInput.GamepadActive
-                            + " | this is the late-frame writer the Update/LateUpdate asserts miss.");
-                    }
-
-                    // Assert free at the latest possible managed point in the frame.
-                    Cursor.lockState = CursorLockMode.None;
-                    Cursor.visible = true;
-                }
+                FreeThisFrame = false;
+                _cursorFreed = false;
+                _closingSince = -1f;
             }
 
             private void Update()
@@ -371,50 +364,69 @@ namespace SBPR.Trailborne.Features.Signs
 
                 if (open)
                 {
-                    // DIAGNOSTIC: capture the INCOMING lockState BEFORE we overwrite it — this is the
-                    // decisive read. Locked-at-entry ⇒ something re-locked since last frame; None-at-entry
-                    // ⇒ our asserts are holding. The updateCursorFires count + gamepadActive disambiguate
-                    // WHICH re-locker. Throttled to ~every 30 frames to keep the log readable.
-                    if ((Plugin.CursorDiag?.Value ?? false) && (_frame++ % 30 == 0))
+                    // Cancel any pending close — we're (still) open.
+                    if (_closingSince >= 0f)
                     {
+                        // We were within the debounce window and AnyOpen came back true → that was a
+                        // transient blip, NOT a real close. Count it; this is the bug's fingerprint.
+                        SuppressedBlips++;
+                        _closingSince = -1f;
+                    }
+
+                    FreeThisFrame = true;
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                    _cursorFreed = true;
+
+                    if ((Plugin.CursorDiag?.Value ?? false) && (_frame++ % 30 == 0) && _diagLinesEmitted < 60)
+                    {
+                        _diagLinesEmitted++;
                         Plugin.Log.LogInfo(
-                            "[Trailborne/CursorDiag] AnyOpen=true incomingLockState=" + Cursor.lockState
+                            "[Trailborne/CursorDiag] §2L.17 AnyOpen=true incomingLockState=" + Cursor.lockState
                             + " incomingVisible=" + Cursor.visible
                             + " rawIsMouseActive=" + ZInput.IsMouseActive()
                             + " gamepadActive=" + ZInput.GamepadActive
                             + " updateCursorFires=" + MenuUpdateCursorForcePatch.FireCount
+                            + " suppressedBlips=" + SuppressedBlips
                             + " | paint=" + SignPaintPanel.IsOpen
                             + " marker=" + MarkerSignPanel.IsOpen
                             + " viewer=" + SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen);
                         MenuUpdateCursorForcePatch.FireCount = 0;
                     }
-
-                    // The fix: assert a free cursor in the UPDATE phase so ProcessPointer (also Update
-                    // phase, runs after this) reads None and does NOT center-snap. Source-independent —
-                    // no dependency on input-source churn or the event-driven UpdateCursor firing.
-                    Cursor.lockState = CursorLockMode.None;
-                    Cursor.visible = true;
-                    _wasOpenLocal = true;
                 }
-                else if (_wasOpenLocal)
+                else if (_cursorFreed)
                 {
-                    // Close edge (true→false): hand the cursor back to gameplay exactly once.
-                    Cursor.lockState = CursorLockMode.Locked;
-                    Cursor.visible = false;
-                    _wasOpenLocal = false;
-                    _frame = 0;
-                    _diagLinesEmitted = 0;
-                }
-            }
+                    // AnyOpen is false — but DON'T re-lock yet. Start (or continue) the debounce timer.
+                    // Only after AnyOpen has stayed false for CloseDebounceSeconds do we treat it as a
+                    // real close and hand the cursor back exactly once. This is what makes a 1-frame
+                    // activeSelf blip a no-op instead of a centre-warp.
+                    if (_closingSince < 0f) _closingSince = Time.unscaledTime;
 
-            private void LateUpdate()
-            {
-                // Re-affirm after vanilla's camera/UI pass — cheap insurance the Update-phase write
-                // wasn't clobbered later in the frame. No diagnostic here (Update owns the logging).
-                if (AnyOpen)
-                {
-                    Cursor.lockState = CursorLockMode.None;
-                    Cursor.visible = true;
+                    if (Time.unscaledTime - _closingSince >= CloseDebounceSeconds)
+                    {
+                        FreeThisFrame = false;
+                        Cursor.lockState = CursorLockMode.Locked;
+                        Cursor.visible = false;
+                        _cursorFreed = false;
+                        _closingSince = -1f;
+                        _frame = 0;
+                        _diagLinesEmitted = 0;
+
+                        if (Plugin.CursorDiag?.Value ?? false)
+                        {
+                            Plugin.Log.LogInfo(
+                                "[Trailborne/CursorDiag] §2L.17 real close — cursor relocked after debounce. "
+                                + "suppressedBlips this session=" + SuppressedBlips);
+                            SuppressedBlips = 0;
+                        }
+                    }
+                    else
+                    {
+                        // Inside the debounce window: keep the cursor FREE (don't flicker it).
+                        FreeThisFrame = true;
+                        Cursor.lockState = CursorLockMode.None;
+                        Cursor.visible = true;
+                    }
                 }
             }
         }
@@ -455,10 +467,15 @@ namespace SBPR.Trailborne.Features.Signs
             {
                 if (!AnyOpen) return;
                 FireCount++;
-                // Overwrite whatever UpdateCursor just computed — free, visible cursor while a modal
-                // owns the screen, regardless of the (possibly inlined) IsMouseActive it read.
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
+                // §2L.17: defer to the single debounced authority. While the driver says free (which it
+                // does for the entire open + the close-debounce window), overwrite whatever UpdateCursor
+                // computed. We no longer assert our OWN edge — the driver owns the one re-lock decision,
+                // so a 1-frame AnyOpen blip can't make THIS patch warp the cursor either.
+                if (ModalCursorDriver.FreeThisFrame)
+                {
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
             }
         }
 
