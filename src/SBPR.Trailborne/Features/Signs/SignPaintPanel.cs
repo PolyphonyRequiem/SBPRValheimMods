@@ -390,15 +390,30 @@ namespace SBPR.Trailborne.Features.Signs
         {
             if (_tag == null) { Hide(); return; }
             var player = Player.m_localPlayer;
-            var result = SignPaintBackend.CommitPaint(_tag, player, _selText, _selBoard, _selBorder);
+            // PER-CHANGED-SLOT (§A2.6, card t_6df12ca8): CommitPaint hands back the delta map
+            // it ACTUALLY consumed, so the confirmation renders the real delta — never a
+            // post-write re-read (which would delta to 0 now that the ZDO holds the new colors).
+            var result = SignPaintBackend.CommitPaint(_tag, player, _selText, _selBoard, _selBorder, out var consumed);
             switch (result)
             {
                 case SignPaintBackend.PaintResult.Success:
-                    var cost = SignPaintBackend.ComputeCost(_selText, _selBoard, _selBorder);
-                    MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center,
-                        $"{Loc("$sbpr_sign_painted", "Painted sign")} ({DescribeCost(cost)}).");
+                    // Render the consumed delta. A pure clear consumes nothing → empty map →
+                    // DescribeCost yields "" → "Painted sign." with no pigment tail (correct:
+                    // a free clear cost no pigment).
+                    string desc = DescribeCost(consumed);
+                    string body = string.IsNullOrEmpty(desc)
+                        ? $"{Loc("$sbpr_sign_painted", "Painted sign")}."
+                        : $"{Loc("$sbpr_sign_painted", "Painted sign")} ({desc}).";
+                    MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center, body);
+                    break;
+                case SignPaintBackend.PaintResult.NothingChanged:
+                    // Silent no-op (Daniel-locked: "1) disabled"). The button is already
+                    // disabled on this path (RefreshDynamic gates on HasAnyChange), so this is
+                    // defensive — show NO message, do not fall through to NoColorChosen.
                     break;
                 case SignPaintBackend.PaintResult.NoColorChosen:
+                    // Genuinely-blank case only (unreachable via the disabled button). NOT the
+                    // no-op path — that is NothingChanged above.
                     MessageHud.instance?.ShowMessage(MessageHud.MessageType.Center,
                         Loc("$sbpr_sign_need_color", "Choose at least one color."));
                     break;
@@ -434,13 +449,22 @@ namespace SBPR.Trailborne.Features.Signs
         private void RefreshDynamic()
         {
             var player = Player.m_localPlayer;
-            var cost = SignPaintBackend.ComputeCost(_selText, _selBoard, _selBorder);
+            // PER-CHANGED-SLOT (§A2.6, card t_6df12ca8): the cost rows show the PROSPECTIVE
+            // delta — only slots whose color differs from the sign's current ZDO are billed.
+            // Read live from _tag, so the rows update on every swatch click via this method.
+            var cost = SignPaintBackend.ComputeChangedCost(_tag, _selText, _selBoard, _selBorder);
 
             // Crafting-style cost rows (Issue 5).
             BuildCostRows(cost, player);
 
-            // Paint button: enabled only with ≥1 color AND enough pigment held.
-            bool canPaint = cost.Count > 0 && player != null && SignPaintBackend.HasPigments(player, cost);
+            // Paint button: enabled iff ≥1 slot CHANGED (the changed-set gate, INCLUDING a
+            // pure clear) AND the player holds the delta cost. Gating on HasAnyChange (NOT
+            // cost.Count) is load-bearing: a pure clear is a change with an EMPTY delta, so
+            // HasAnyChange=true + HasPigments(player, {})=true → canPaint=true (committable
+            // free). A no-op is HasAnyChange=false → disabled silently (Daniel: "1) disabled").
+            bool canPaint = player != null
+                && SignPaintBackend.HasAnyChange(_tag, _selText, _selBoard, _selBorder)
+                && SignPaintBackend.HasPigments(player, cost);
             SetButtonEnabled(_paintBtn, _paintBtnLabel, canPaint);
 
             // Text field + Update Text locked until a color is chosen.

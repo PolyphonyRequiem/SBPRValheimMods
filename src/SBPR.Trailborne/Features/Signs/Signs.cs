@@ -19,7 +19,8 @@ namespace SBPR.Trailborne.Features.Signs
     /// opens the custom combined Paint+Text uGUI panel (§A2.6, re-lock 2026-06-05),
     /// which replaces the vanilla text dialog. The panel paints the sign TWO-TONE —
     /// a board/text color AND a separate border color — charging one pigment per
-    /// filled color slot, and edits the text label (free). Both colors persist +
+    /// CHANGED color slot (delta vs the sign's current ZDO color, §A2.6 per-changed),
+    /// and edits the text label (free). Both colors persist +
     /// sync via per-instance ZDO string fields (<see cref="ZdoTextColor"/> +
     /// <see cref="ZdoBorderColor"/>; empty = unset). The board mesh carries no
     /// separable frame, so a thin border element is kitbashed in at register time
@@ -68,7 +69,8 @@ namespace SBPR.Trailborne.Features.Signs
         // flush at y=0) is the SignGeometry.BoardTopInset (0.1 m) behaviour, unchanged.
 
         // Build cost (unpainted). Pigment is NOT a build ingredient — it is
-        // consumed at paint time, one pigment per filled color slot, on the PLACED sign.
+        // consumed at paint time, one pigment per CHANGED color slot (delta vs the
+        // sign's current ZDO color, §A2.6 per-changed), on the PLACED sign.
         public const int WoodCost = 2;
 
         // ── Thin-frame border geometry (§A2.6 Option A, ratified Daniel 2026-06-09) ──
