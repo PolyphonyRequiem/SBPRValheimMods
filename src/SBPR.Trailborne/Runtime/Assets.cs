@@ -166,6 +166,166 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
+        /// Author a FRESH procedural "field map" sheet <see cref="Mesh"/> from scratch —
+        /// a flat, lightly-folded blank-leather sheet (a few vertical fold panels) built
+        /// vertex-by-vertex with explicit verts/triangles/uv + <see cref="Mesh.RecalculateNormals"/>
+        /// / <see cref="Mesh.RecalculateBounds"/>. This is the repo's FIRST <c>new Mesh()</c>
+        /// (ADR-0006 additive: a NEW mesh, NOT a donor deform — distinct from
+        /// <see cref="GraftMeshFromBlueprint"/>, which references a vanilla shared mesh, and
+        /// from any donor-vertex rewrite). Pure UnityEngine mesh API — no game/mod source,
+        /// clean-room safe.
+        ///
+        /// Authored in METRES in the sheet's own local frame: X = width (left↔right),
+        /// Y = height (up↔down), Z = depth (the small fold offset / thickness). The sheet is
+        /// DOUBLE-SIDED — front + back facets with reversed winding on DUPLICATED vertices,
+        /// so each side keeps its own outward normal and the sheet never renders see-through
+        /// from the back (held, dropped, or rotated) without needing a two-sided shader. Folds
+        /// are gentle valleys at the odd seam lines, so the silhouette reads as a folded-open
+        /// field map rather than a flat card — and unmistakably NOT a long-handled tool.
+        ///
+        /// The size/fold defaults are a deliberate FIRST FORM for the in-game art test (the
+        /// silhouette is what carries the read; exact dimensions are a polish knob). Returns a
+        /// ready-to-assign mesh (caller sets it on a <see cref="MeshFilter.sharedMesh"/>).
+        /// </summary>
+        public static Mesh BuildFieldMapMesh(
+            float width = 0.45f, float height = 0.32f, int panels = 4, float foldDepth = 0.012f)
+        {
+            if (panels < 1)    panels = 1;
+            if (width  <= 0f)  width  = 0.45f;
+            if (height <= 0f)  height = 0.32f;
+
+            int seams   = panels + 1;     // vertical seam lines across the width
+            int perSide = seams * 2;      // a top + a bottom vertex per seam
+            int vCount  = perSide * 2;    // front side + back side (duplicated positions)
+            int iCount  = panels * 6 * 2; // 2 tris/panel * 3 indices * 2 sides
+
+            var verts = new Vector3[vCount];
+            var uvs   = new Vector2[vCount];
+            var tris  = new int[iCount];
+
+            float halfW = width * 0.5f, halfH = height * 0.5f;
+
+            // Vertices: both sides share identical positions; only the winding differs below.
+            for (int side = 0; side < 2; side++)
+            {
+                int vBase = side * perSide;
+                for (int i = 0; i < seams; i++)
+                {
+                    float t = (float)i / panels;             // 0..1 across the width
+                    float x = -halfW + t * width;
+                    float z = (i % 2 == 1) ? -foldDepth : 0f; // gentle valley at odd seams
+                    int top = vBase + i * 2;
+                    int bot = top + 1;
+                    verts[top] = new Vector3(x, +halfH, z);
+                    verts[bot] = new Vector3(x, -halfH, z);
+                    uvs[top]   = new Vector2(t, 1f);
+                    uvs[bot]   = new Vector2(t, 0f);
+                }
+            }
+
+            // Triangles: front side (0) one winding, back side (1) reversed → opposite normals.
+            int w = 0;
+            for (int side = 0; side < 2; side++)
+            {
+                int vBase  = side * perSide;
+                bool front = side == 0;
+                for (int p = 0; p < panels; p++)
+                {
+                    int tl = vBase + p * 2;
+                    int bl = tl + 1;
+                    int tr = vBase + (p + 1) * 2;
+                    int br = tr + 1;
+                    if (front)
+                    {
+                        tris[w++] = tl; tris[w++] = tr; tris[w++] = br;
+                        tris[w++] = tl; tris[w++] = br; tris[w++] = bl;
+                    }
+                    else
+                    {
+                        tris[w++] = tl; tris[w++] = br; tris[w++] = tr;
+                        tris[w++] = tl; tris[w++] = bl; tris[w++] = br;
+                    }
+                }
+            }
+
+            var mesh = new Mesh { name = "SBPR_FieldMapSheet" };
+            mesh.vertices  = verts;
+            mesh.uv        = uvs;
+            mesh.triangles = tris;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>
+        /// Read the vanilla blank-leather <see cref="Material"/> reference off the
+        /// <c>LeatherScraps</c> blueprint (its mesh child's <c>MeshRenderer.sharedMaterial</c>,
+        /// material <c>leatherscraps</c>) for skinning a constructed mesh as a field map. Reading
+        /// a SHARED-material reference off a vanilla prefab is the same ADR-0006-safe
+        /// "reference, not clone" idiom <see cref="GraftMeshFromBlueprint"/> uses for shared
+        /// meshes — we never <c>Instantiate</c> the donor. Disambiguation of the held map vs a
+        /// tool is by SHAPE/VALUE (flat sheet vs handle+blade), never hue (design pillar 2 +
+        /// Daniel is colorblind), so this material is the leather VALUE/grain, not a color cue.
+        ///
+        /// Returns <see langword="true"/> with <paramref name="mat"/> set on success;
+        /// <see langword="false"/> (mat null) if there's no ZNetScene, no <c>LeatherScraps</c>
+        /// prefab, or it carries no renderer/material — the caller logs and falls back, the shape
+        /// fix still lands.
+        /// </summary>
+        public static bool TryReadLeatherMaterial([NotNullWhen(true)] out Material? mat)
+        {
+            mat = null;
+            var zns = ZNetScene.instance;
+            if (zns == null) return false;
+            var donor = zns.GetPrefab("LeatherScraps");
+            if (donor == null) return false;
+            foreach (var r in donor.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                if (r != null && r.sharedMaterial != null) { mat = r.sharedMaterial; return true; }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Assemble a procedural blank-leather field-map VISUAL as a fresh child of
+        /// <paramref name="parent"/>: a <see cref="GameObject"/> carrying ONLY a
+        /// <see cref="MeshFilter"/> (the <see cref="BuildFieldMapMesh"/> sheet) +
+        /// <see cref="MeshRenderer"/> (the vanilla <c>leatherscraps</c> material via
+        /// <see cref="TryReadLeatherMaterial"/>). No collider, no ZNetView, no script — a pure
+        /// cosmetic mesh, the same shape <see cref="GraftMeshFromBlueprint"/> produces but from a
+        /// fresh authored mesh instead of a donor reference.
+        ///
+        /// The shape fix is primary: if the leather material can't be read the sheet is still
+        /// built (rendering with a default material) and a LOUD warning is logged — the silhouette
+        /// (flat folded sheet, not a tool) is what carries the read. Returns the assembled child,
+        /// or <see langword="null"/> only if <paramref name="parent"/> is null.
+        /// </summary>
+        public static GameObject? BuildFieldMapVisual(string name, GameObject parent)
+        {
+            if (parent == null) return null;
+
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, worldPositionStays: false);
+
+            var mf = go.AddComponent<MeshFilter>();
+            mf.sharedMesh = BuildFieldMapMesh();
+
+            var mr = go.AddComponent<MeshRenderer>();
+            if (TryReadLeatherMaterial(out var leather))
+            {
+                mr.sharedMaterial = leather;   // reference, not a copy — clean-room safe
+            }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    "[Trailborne] BuildFieldMapVisual: vanilla leather material (LeatherScraps) " +
+                    "could not be read; the field-map sheet renders with a default material this build. " +
+                    "The shape/silhouette fix still applies (disambiguation is shape, not hue).");
+            }
+            return go;
+        }
+
+        /// <summary>
         /// Try to clone a registered prefab from ZNetScene under a new name. Returns
         /// <see langword="true"/> with <paramref name="clone"/> set on success;
         /// <see langword="false"/> (and <paramref name="clone"/> null) if there is no

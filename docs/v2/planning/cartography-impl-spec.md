@@ -395,6 +395,34 @@ with the Table via the `CartographyViewer` seam).
   `RecipeHelpers.FindStation(Trailhead.ExplorersBenchName)` — the existing pattern in
   `Pigments.cs:143`, `Cairns.cs:268`). NOT crafted at the Surveyor's Table.
 
+##### 2A.1a Held model — procedural blank-leather field-map mesh (issue: "just appears to be a hoe", card t_64dff55f, 2026-06-22)
+- **The item is still built by the clone-and-reshape idiom with `Hoe` as the donor**, BUT
+  the Hoe is now kept **only for its scaffold** — the `attach`-transform / ItemDrop / equip
+  rigging that the equip + minimap-binding machinery (incl. the relog-binding sibling fix
+  t_85f45dd7) relies on. The Hoe's **visible held MESH is NO LONGER used.** Daniel's in-game
+  report: the craftable rendered as the vanilla **Hoe in-hand mesh** (a gardening tool) for
+  "a field map you carry." Decision **Option C (LOCKED, executed — design `cartography-v2.md`
+  §4.1a):** replace it with a procedural mesh.
+- **Construction (ADR-0006 additive):** `RegisterPrefabs` calls
+  `LocalMap.InstallFieldMapHeldVisual(clone)` after the shared-data reshape: it finds the
+  Hoe clone's `attach > visual` node, `DestroyImmediate`s the Hoe's mesh children there
+  (`blade` `stone` + `handle` `wood`), and authors a fresh **blank-leather field-map sheet**
+  via `Assets.BuildFieldMapVisual` → `Assets.BuildFieldMapMesh` (`new Mesh()` —
+  verts/triangles/uv + `RecalculateNormals`/`RecalculateBounds`; a few lightly-folded,
+  double-sided quads). Skinned with the vanilla **`leatherscraps`** material read as a
+  blueprint (`Assets.TryReadLeatherMaterial` off the `LeatherScraps` prefab — reading a
+  shared material reference is clean-room-safe, ADR-0006). The held subtree
+  `Humanoid.AttachItem` (decomp :29194) instantiates onto the hand joint is exactly this
+  `attach` child, so the swap fixes both the **in-hand** and **world-drop** silhouette.
+- **This is the repo's first procedural world-mesh** (`new Mesh()` was 0 hits in `src/`).
+  Disambiguation from a tool is **silhouette/value (flat sheet vs handle+blade), NOT hue**
+  (Pillar 2 + Daniel is colorblind).
+- **Scope fence:** held **visual mesh + material only**; the full ADR-0006 de-clone of the
+  ItemDrop is **out of scope** (high blast radius on equip/binding rigging for a cosmetic
+  fix). **No recipe/cost/station change → SpecCheck +0.** **In-game AT pending** — the held
+  silhouette is an in-hand F-key check on a GPU client (Daniel's eye is the gate);
+  implementation verified to **build 0/0 + clean registration** only (logs-green ≠ playable).
+
 #### 2A.2 `ItemType` = `TwoHandedWeapon` (the decisive lock — decomp-grounded)
 - Set `m_shared.m_itemType = ItemType.TwoHandedWeapon` (= 14). **Do NOT invent a custom
   enum value, do NOT use `Utility`.**

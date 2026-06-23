@@ -46,8 +46,11 @@ namespace SBPR.Trailborne.Features.Cartography
 
         // Clone donor: the Hoe (a two-handed tool with a valid in-hand mesh) — the SAME
         // donor the Trailblazer's Spade uses (Trailblazing.cs). We reshape it to a
-        // TwoHandedWeapon, null its build PieceTable, and empty its attacks below, so none
-        // of the Hoe's tool behaviour survives — only its renderable held model.
+        // TwoHandedWeapon, null its build PieceTable, and empty its attacks below. We ALSO
+        // replace the Hoe's visible held MESH (the gardening-tool silhouette Daniel flagged)
+        // with a procedural blank-leather field-map sheet (see InstallFieldMapHeldVisual),
+        // so NONE of the Hoe survives the player can see — only its attach-transform / equip
+        // rigging scaffold (which the equip + minimap-binding patches rely on) remains.
         private const string SourceHeldTool = "Hoe";
 
         // Recipe — LOCKED (impl spec §0 row 2 / §2A.1). DeerHide x2 + FineWood x4, amount 1,
@@ -149,13 +152,75 @@ namespace SBPR.Trailborne.Features.Cartography
                 if (sprite != null) shared.m_icons = new[] { sprite };
             }
 
+            // ── THE DEFECT FIX (card t_64dff55f) ──────────────────────────────────────
+            // Replace the Hoe donor's visible held MESH with a procedural blank-leather
+            // field-map sheet. The Hoe's in-hand mesh lives under `attach > visual` (blade
+            // `stone` + handle `wood`) — a long-handled gardening-tool silhouette for a
+            // "field map you carry." We strip that visual subtree and author a fresh leather
+            // sheet in its place, so the in-hand AND world-drop silhouette read as a map.
+            // The `attach` transform (the equip anchor AttachItem instantiates onto the hand
+            // joint — decomp Humanoid.AttachItem) is KEPT, so equip + minimap-binding rigging
+            // is untouched (card scope: swap the visual, keep the scaffold).
+            InstallFieldMapHeldVisual(clone);
+
             // Tag the prefab so the equip/binding patches can identify our item cheaply
             // (a component check is faster + rename-proof vs a string compare every equip).
             if (clone.GetComponent<LocalMapItemTag>() == null)
                 clone.AddComponent<LocalMapItemTag>();
 
             Assets.RegisterPrefabInZNetScene(clone);
-            Plugin.Log.LogInfo($"[Trailborne/Cartography] Registered Local Map item: {LocalMapName} (TwoHandedWeapon, blank-until-imprinted).");
+            Plugin.Log.LogInfo($"[Trailborne/Cartography] Registered Local Map item: {LocalMapName} (TwoHandedWeapon, blank-until-imprinted, procedural leather held mesh).");
+        }
+
+        /// <summary>
+        /// Swap the Hoe donor's visible held MESH for a procedural blank-leather field-map
+        /// sheet (§4.1 "blank leather … a field map"). The donor's in-hand model sits on the
+        /// <c>attach &gt; visual</c> subtree (the same subtree <c>Humanoid.AttachItem</c>
+        /// instantiates onto the hand joint when the item is equipped, and that ItemDrop's
+        /// world-drop renders). We:
+        ///   1. find the <c>attach</c> child (the equip anchor — KEEP it; the equip + minimap
+        ///      binding rigging depends on its transform), then its <c>visual</c> child;
+        ///   2. DestroyImmediate every existing mesh child under <c>visual</c> (the Hoe's
+        ///      <c>blade</c> + <c>handle</c>) — the only Hoe-authored renderables;
+        ///   3. author a fresh leather sheet under <c>visual</c> via
+        ///      <see cref="Assets.BuildFieldMapVisual"/>.
+        ///
+        /// DestroyImmediate is correct here (mirrors <see cref="Assets.StripToDecorative"/>):
+        /// the clone lives parented under the inactive prefab holder, so no Awake has run and
+        /// the meshes are inert assets. If the donor structure is ever missing the expected
+        /// <c>attach</c>/<c>visual</c> nodes (a game patch changed the Hoe) we attach the sheet
+        /// to the clone root as a graceful fallback and warn — the item still registers and the
+        /// shape fix still lands. Pure UnityEngine API — clean-room safe.
+        /// </summary>
+        private static void InstallFieldMapHeldVisual(GameObject clone)
+        {
+            if (clone == null) return;
+
+            // The equip anchor: AttachItem looks up the prefab child literally named "attach"
+            // (decomp Humanoid.AttachItem) and instantiates it onto the hand joint. Keep it;
+            // re-parent the new sheet UNDER its "visual" child so equip transforms still apply.
+            var attach = clone.transform.Find("attach");
+            var visual = attach != null ? attach.Find("visual") : null;
+
+            if (visual != null)
+            {
+                // Strip the Hoe's authored renderables (blade `stone` + handle `wood`) — every
+                // existing child of `visual`. We rebuild the held look from scratch beneath it.
+                for (int i = visual.childCount - 1; i >= 0; i--)
+                    UnityEngine.Object.DestroyImmediate(visual.GetChild(i).gameObject);
+
+                Assets.BuildFieldMapVisual("SBPR_LocalMapHeldVisual", visual.gameObject);
+            }
+            else
+            {
+                // Donor structure changed — don't lose the fix. Anchor the sheet on the root so
+                // the world-drop at least shows a map; warn so a Hoe-structure change is visible.
+                Plugin.Log.LogWarning(
+                    "[Trailborne/Cartography] Local Map: Hoe donor has no 'attach/visual' subtree " +
+                    "(vanilla structure changed?); attaching the procedural field-map sheet to the " +
+                    "clone root as a fallback. Equip-hand placement may be off — verify in-game.");
+                Assets.BuildFieldMapVisual("SBPR_LocalMapHeldVisual", clone);
+            }
         }
 
         // ───────────────────────────────────────────────

@@ -150,6 +150,45 @@ Station's fog+pins blob and can be carried, read in the field, and **handed to
 another player** (the social-cartography payoff — you give a friend a map instead of
 spamming a shared table).
 
+### 4.1a Held model — procedural blank-leather field-map mesh (🟢 RESOLVED + EXECUTED, 2026-06-22, card t_64dff55f)
+§4.1 specs the **blank-leather behavior**; it never specified the **held mesh**. The
+first implementation cloned the **Hoe** as a donor purely for a valid two-handed
+in-hand model and reshaped its *type/attacks/PieceTable* — but left the Hoe's visible
+**mesh** in hand, so the craftable rendered as a **gardening tool** (long handle +
+stone blade) for "a field map you carry." Daniel flagged it in-game and picked
+**Option C — a procedural map-appropriate held mesh** ("go").
+
+- **Decision (LOCKED, executed not re-gated):** author a **fresh procedural mesh**
+  (`new Mesh()` — verts/triangles/uv + `RecalculateNormals`/`RecalculateBounds`) for a
+  flat / lightly-folded **blank-leather field-map sheet** (a few double-sided fold
+  panels), and use it as the held visual **instead of** the Hoe's mesh. Falsified
+  alternatives (parent card t_2fb48391): Option A "graft the cartography-table
+  parchment" — `maptable` is a phantom name and the real `piece_cartographytable` is one
+  welded 4.24 m furniture mesh with no separable parchment; Option B "reuse a vanilla
+  held map/scroll" — vanilla ships none.
+- **Scope (cosmetic, small blast radius):** swap the held **visual mesh + material
+  only**. The Hoe clone scaffold stays for its `attach`-transform / ItemDrop / equip
+  rigging (equip + minimap-binding, incl. the relog-binding sibling fix t_85f45dd7,
+  ride on it). A full ADR-0006 de-clone of the item is **explicitly out of scope** (high
+  blast radius for a cosmetic fix); file a separate card if ever warranted. **No recipe
+  / cost / station change → SpecCheck manifest unmoved (+0).**
+- **Construction (ADR-0006 additive):** `Assets.BuildFieldMapMesh` authors the sheet;
+  `Assets.BuildFieldMapVisual` assembles a `MeshFilter`+`MeshRenderer` child and skins
+  it with the vanilla **`leatherscraps`** material read as a *blueprint*
+  (`Assets.TryReadLeatherMaterial` off the `LeatherScraps` prefab — reading a shared
+  material reference is clean-room-safe, ADR-0006). `LocalMap.InstallFieldMapHeldVisual`
+  strips the Hoe's `attach > visual` mesh children and installs the sheet beneath the
+  kept `visual` node. **This is the repo's first procedural world-mesh** (`new Mesh()`
+  was 0 hits in `src/` before this card).
+- **Material reads by SHAPE/VALUE, not hue** (Pillar 2 + Daniel is colorblind):
+  disambiguation from a tool is the **flat-sheet silhouette vs handle+blade**, never
+  color. The leather material is grain/value, not a color cue.
+- **AT (the real gate):** the held silhouette is an **in-hand F-key check on a GPU
+  client** — Daniel's eye is the final visual gate. Implementation verified only to
+  **build 0/0 + clean registration**; *logs-green ≠ playable*. Build path:
+  `LocalMap.cs` (`InstallFieldMapHeldVisual`) + `Runtime/Assets.cs`
+  (`BuildFieldMapMesh` / `BuildFieldMapVisual` / `TryReadLeatherMaterial`).
+
 ### 4.2 Data storage (🟡PROPOSED — implementation surface to verify)
 - Store the version-3 blob on the **item instance**, not a placed ZDO. Recent
   Valheim `ItemDrop.ItemData` carries `m_customData` (a `Dictionary<string,string>`)
