@@ -205,12 +205,12 @@ namespace SBPR.Trailborne
             CursorDiag = Config.Bind(
                 "Debug",
                 "SBPR_CursorDiag",
-                true,
-                "When true, logs the modal cursor-free diagnostic (§2L.14, ticket-cursor-lock-map-sign): every " +
-                "~30 frames while an SBPR map/sign modal is open, the INCOMING Cursor.lockState + raw IsMouseActive " +
-                "+ per-contributor open flags are written to the BepInEx log. Localizes WHY the cursor re-locks on " +
-                "a keyboard+mouse box. Default ON in this diagnostic build; flip false once the fix is confirmed " +
-                "in-game (it's a pure logging gate — the cursor FIX runs regardless of this flag).");
+                false,
+                "When true, logs the modal cursor diagnostic (§2L.18, card t_94cc9713): every ~30 frames " +
+                "while an SBPR map/sign modal is open, what VANILLA computes for the cursor (lockState/visible) " +
+                "while the masquerade signals a GUI is open, plus the input-source flags, are written to the " +
+                "BepInEx log. Default OFF (the §2L.18 masquerade fix is confirmed in-game 2026-06-23). Flip true " +
+                "only to re-diagnose — it's a pure logging gate; the cursor fix runs regardless of this flag.");
 
             CairnDecayHpPerDay = Config.Bind(
                 "Cairns",
