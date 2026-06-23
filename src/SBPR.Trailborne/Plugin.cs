@@ -110,9 +110,28 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float>? LensHaloScaleMax      = null;  // trophy world-scale at FULL scale (enemy ≤10m → "1.0"); edge scale is derived (0.25×, the 10m knee)
         internal static ConfigEntry<float>? LensHaloEyeOffsetY    = null;  // lift the halo plane off the eye-point (clear the crosshair)
         internal static ConfigEntry<int>?   LensRingMaxIcons       = null;  // cap on simultaneous trophies (horde guard, pooled nearest-N)
-        internal static ConfigEntry<bool>?  LensRingShowEmpty      = null;  // faint solar ring when worn+charged-but-clear
+        internal static ConfigEntry<bool>?  LensRingShowEmpty      = null;  // REPURPOSED (card t_9d7c3dfe): master on/off for the world-space sun-corona disc (was the flat ring)
         internal static ConfigEntry<bool>?  LensRingShowDepletedHint = null; // faint ring when depleted (default off)
         internal static ConfigEntry<bool>?  LensRingDebugText      = null;  // legacy text readout as a debug aid
+
+        // ── v3 Swamp: Sunstone Lens empty-state → WORLD-SPACE pulsing sun-corona disc (card t_9d7c3dfe) ──
+        // The empty-state affordance graduated from a flat screen-space ring to a glowing world-space
+        // sun-corona disc that breathes on a slow alpha pulse — the substrate the trophy halo orbits.
+        // Every visual knob is LIVE config so Daniel converges the look on a joined client without a
+        // rebuild (the banner-windsock pattern; a client visual can't be verified headless). Nullable +
+        // ?.Value-accessed from SunstoneLensHudOverlay/SunstoneCoronaDisc so a no-Plugin unit context
+        // falls back to SunstoneCoronaDisc.Default* consts (single source of truth). Bound in Awake.
+        // CoronaOrientation is a LIVE enum (GroundPlane "sun on the floor" default ↔ CameraFacing
+        // billboard) — the LensMinimapHandoffMode live-enum idiom. The pulse ENVELOPE shape is gated by
+        // the engine-free SunstoneCoronaPulse (AT-CORONA-PULSE-MATH); these knobs feed it the rate/depth.
+        internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.CoronaOrientation>? LensCoronaOrientation = null;
+        internal static ConfigEntry<float>? LensCoronaPulseHz      = null;  // breaths/sec (0 = steady glow)
+        internal static ConfigEntry<float>? LensCoronaAlphaTrough  = null;  // alpha at the breath trough
+        internal static ConfigEntry<float>? LensCoronaAlphaPeak    = null;  // alpha at the breath peak
+        internal static ConfigEntry<float>? LensCoronaInnerFill    = null;  // 0 = thin hoop ↔ 1 = filled sun-disc
+        internal static ConfigEntry<float>? LensCoronaThickness    = null;  // soft radiant-edge falloff width
+        internal static ConfigEntry<float>? LensCoronaRadius       = null;  // world-m rim radius (default-tracks HaloRadius)
+        internal static ConfigEntry<float>? LensCoronaPlaneOffsetY = null;  // vertical lift off the anchor (nudge to feet)
         // Default-ON startup dump (card t_d17d9b58 Knob #3c): at ZNetScene-ready, enumerate all Character
         // prefabs, resolve each → (own trophy | remap-sibling | none), and log the "none" set as ONE
         // reviewable block so Daniel can grow SunstoneProjection._trophyRemap over time.
@@ -432,7 +451,83 @@ namespace SBPR.Trailborne
                 "Max trophies drawn at once (a Swamp horde shows the nearest N; pooled + capped so it never tanks framerate).");
             LensRingShowEmpty = Config.Bind(
                 "SunstoneLens", "ShowEmptyRing", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultShowEmptyRing,
-                "When worn + charged but nothing's near, show a faint solar ring outline so you can see the lens is live (Daniel: 'a very faint solar ring').");
+                "Master on/off for the empty-state affordance. REPURPOSED (card t_9d7c3dfe): this used to "
+                + "gate a flat screen-space solar ring; it now gates the WORLD-SPACE pulsing sun-corona "
+                + "disc that replaced it (Daniel /bug: 'a 3d slowly pulsing sun corona disc, not a screen "
+                + "space circle'). ON (default): when worn + charged but nothing's near, a glowing corona "
+                + "breathes on the ground around you so you can see the lens is live. The .cfg KEY is kept "
+                + "('ShowEmptyRing') to avoid churning a value Daniel may already have set. Live-tunable.");
+
+            // v3 Swamp — Sunstone Lens empty-state → world-space pulsing sun-corona disc (card t_9d7c3dfe).
+            // Every corona knob is LIVE (the banner-windsock pattern; a client visual can't be verified
+            // headless — Daniel converges the look on a joined GPU client, then we bake the chosen values
+            // into the SunstoneCoronaDisc.Default* consts). Range-clamped so a fat-finger in the .cfg
+            // can't blow the disc up. Defaults mirror those consts (single source of truth). The pulse
+            // ENVELOPE shape is gated by the engine-free SunstoneCoronaPulse (AT-CORONA-PULSE-MATH).
+            LensCoronaOrientation = Config.Bind(
+                "SunstoneLens", "CoronaOrientation",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultOrientation,
+                "Orientation of the world-space sun-corona disc. GroundPlane (default): a flat 'sun on the "
+                + "floor' disc lying in the ground plane around your feet, the surface the detected-creature "
+                + "trophies orbit. CameraFacing: an upright disc on your eye-line that yaws to face the "
+                + "camera (the trophy billboard idiom). Live-flippable, no rebuild.");
+            LensCoronaPulseHz = Config.Bind(
+                "SunstoneLens", "CoronaPulseHz",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultPulseHz,
+                new ConfigDescription(
+                    "How fast the sun-corona breathes, in breaths per second. 0.25 (default) = one slow "
+                    + "breath every 4 seconds. 0 = a steady glow with no pulse. Higher = faster breathing. "
+                    + "Drives the engine-free SunstoneCoronaPulse envelope on one shared clock so it never "
+                    + "drifts.",
+                    new AcceptableValueRange<float>(0f, 2f)));
+            LensCoronaAlphaTrough = Config.Bind(
+                "SunstoneLens", "CoronaAlphaTrough",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultAlphaTrough,
+                new ConfigDescription(
+                    "The corona's alpha (opacity) at the FAINTEST point of its breath. Default 0.10 (very "
+                    + "faint). Lower = the corona nearly vanishes at the trough; higher = it stays more "
+                    + "present. If you set this above CoronaAlphaPeak the two are swapped automatically.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            LensCoronaAlphaPeak = Config.Bind(
+                "SunstoneLens", "CoronaAlphaPeak",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultAlphaPeak,
+                new ConfigDescription(
+                    "The corona's alpha (opacity) at the BRIGHTEST point of its breath. Default 0.28 (a "
+                    + "soft glow around the old 0.18 static baseline). Higher = a stronger pulse peak.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            LensCoronaInnerFill = Config.Bind(
+                "SunstoneLens", "CoronaInnerFill",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultInnerFill,
+                new ConfigDescription(
+                    "Shape of the corona from centre out. 0 = a thin hoop (just the rim glows, like the old "
+                    + "ring); 1 = a fully filled sun-disc bright to the centre. Default 0.35 (between a hoop "
+                    + "and a filled sun — a glowing ring with a soft lit interior).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            LensCoronaThickness = Config.Bind(
+                "SunstoneLens", "CoronaThickness",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultThickness,
+                new ConfigDescription(
+                    "Width of the soft radiant edge that fades the corona out to transparent at its rim. "
+                    + "Default 0.45 (a soft sun corona). Lower = a harder, crisper edge; higher = a wider, "
+                    + "hazier falloff.",
+                    new AcceptableValueRange<float>(0f, 1f)));
+            LensCoronaRadius = Config.Bind(
+                "SunstoneLens", "CoronaRadius",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultRadius,
+                new ConfigDescription(
+                    "The corona's rim radius in world metres. Defaults to the trophy HaloRadius (~2.0 m) so "
+                    + "the corona's edge sits where the detected-creature trophies orbit — the disc is the "
+                    + "substrate they float around. Grow it for a wider floor-sun; it's independent of the "
+                    + "trophy ring once you change it.",
+                    new AcceptableValueRange<float>(0.5f, 8f)));
+            LensCoronaPlaneOffsetY = Config.Bind(
+                "SunstoneLens", "CoronaPlaneOffsetY",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultPlaneOffsetY,
+                new ConfigDescription(
+                    "Vertical lift (world metres, +up) of the corona disc off its anchor. 0 = on the anchor "
+                    + "(feet for GroundPlane, eye-line for CameraFacing). Nudge it to drop a ground-plane "
+                    + "disc exactly to the floor or lift a camera-facing one off the crosshair.",
+                    new AcceptableValueRange<float>(-2f, 2f)));
             LensRingShowDepletedHint = Config.Bind(
                 "SunstoneLens", "ShowDepletedHint", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultShowDepletedHint,
                 "When the lens runs out of charge, show a dim ring outline as an 'inert, recharge me' cue. Default OFF (ring fully off when depleted).");

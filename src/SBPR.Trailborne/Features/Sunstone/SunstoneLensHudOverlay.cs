@@ -13,16 +13,25 @@
 //  floating in the 3D world at their real bearings (variable radius+scale ∝ distance, vanilla star
 //  pips, aggro tint). The earlier screen-space camera-relative radar is SUPERSEDED (card t_68672b6b).
 //
+//  EMPTY-STATE AFFORDANCE → WORLD-SPACE PULSING SUN-CORONA DISC (card t_9d7c3dfe, Daniel /bug
+//  t_2d500d45: "the ring itself is just a screen space circle, not a 3d slowly pulsing 'sun corona'
+//  disc like we discussed"). The old flat SCREEN-space solar ring (the `_emptyRing` Image + its
+//  `RingSprite()` annulus + `SolarRingRadiusPx`) is REMOVED; the empty-state cue is now a glowing
+//  sun-corona disc drawn in WORLD space (SunstoneCoronaDisc), co-located with the trophy halo in the
+//  SAME scene root (SBPR_SunstoneWorldHalo) and breathing on a slow alpha pulse (engine-free,
+//  CI-gated SunstoneCoronaPulse). The corona is the world-space SUBSTRATE the fixed-distance trophy
+//  halo orbits — a sun on the floor with creature trophies floating around it. One Hide()/Dispose()
+//  lifecycle for both (the corona shares the halo's root). `CSolarRing` (the gold) is KEPT.
+//
 //  What this file still draws directly (screen-space, under Hud.m_rootObject):
-//    • the faint SOLAR RING empty-state affordance (design §1.6 — "either surface is acceptable"
-//      for the empty cue; kept screen-space as the lower-risk choice),
 //    • the optional legacy debug text readout (Sunstone.DebugTextReadout, default off).
-//  The threat TROPHIES are delegated to SunstoneWorldRing (world space, its own scene root).
+//  The threat TROPHIES and the empty-state sun-corona are BOTH delegated to world space
+//  (SunstoneWorldRing + SunstoneCoronaDisc, their own shared scene root).
 //
 //  🔴 #209 invariant (t_d5949685 / PR #208): SetVisible toggles a _content CHILD, NEVER the host
 //  GameObject — the host carries THIS Update pump, and the minimap surfaces' detection feed depends
-//  on it staying alive. The world halo's slot objects live in WORLD space (NOT under Hud.m_rootObject);
-//  only the visuals move, the pump stays.
+//  on it staying alive. The world halo + corona's objects live in WORLD space (NOT under
+//  Hud.m_rootObject); only the visuals move, the pump stays.
 //
 //  Client-only by construction: Hud.Awake never fires on the dedicated server (no Hud), and
 //  Character.GetAllCharacters / Player.m_localPlayer / EnemyHud.instance are client concerns.
@@ -31,8 +40,8 @@
 //  Clean-side (ADR-0001): reads base-game Hud/Player/Character/CharacterDrop/BaseAI/EnemyHud/
 //  GameCamera/Billboard only; the uGUI surface is our own. No vanilla UI cloned, no third-party mod
 //  code read — the Rune-of-Awareness behaviour is reproduced from vanilla primitives only. ADR-0006:
-//  every world slot + the solar ring are built additively (new GameObject + AddComponent); reusing
-//  the trophy/star SPRITES is reading an asset, not cloning.
+//  every world slot + the sun-corona disc are built additively (new GameObject + AddComponent);
+//  reusing the trophy/star SPRITES is reading an asset, not cloning; the corona sprite is procedural.
 //
 //  logs-green ≠ playable — Daniel verifies AT-EIDETIC-* in-game on a GPU client.
 // ============================================================================
@@ -52,29 +61,24 @@ namespace SBPR.Trailborne.Features.Sunstone
     /// </summary>
     public class SunstoneLensHudOverlay : MonoBehaviour
     {
-        // ── Empty-state solar-ring + readout tuning (single source of truth; Plugin binds ConfigEntry
-        //    mirrors so Daniel converges feel on a joined client without a rebuild — the banner-windsock
-        //    pattern). The screen-space ring-geometry knobs (RingRadiusPx/CenterOffsetY/IconMin/Max) are
-        //    REMOVED with the screen radar — the trophy halo is now world-space (SunstoneWorldRing, the
-        //    Halo* knobs). The faint solar ring stays a screen-space empty-state affordance (design §1.6
-        //    engineer's escape hatch: "an empty-state cue, not a threat marker, so either surface is
-        //    acceptable") at a fixed size — no live knob, it's a minor affordance. ──
+        // ── Empty-state + readout tuning (single source of truth; Plugin binds ConfigEntry mirrors so
+        //    Daniel converges feel on a joined client without a rebuild — the banner-windsock pattern).
+        //    The screen-space ring-geometry knobs (RingRadiusPx/CenterOffsetY/IconMin/Max) were REMOVED
+        //    with the screen radar; the faint flat solar RING is now REMOVED too (card t_9d7c3dfe) — the
+        //    empty-state affordance graduated to the WORLD-SPACE pulsing sun-corona disc (the corona's
+        //    own Corona* knobs live on SunstoneCoronaDisc). What remains here: the trophy-cap + the
+        //    empty/depleted/debug toggles. ──
         public const int   DefaultRingMaxIcons     = 12;    // cap so a horde doesn't spawn 80 slots (carried)
-        public const bool  DefaultShowEmptyRing    = true;  // faint solar ring when worn+charged-but-clear (Daniel)
-        public const bool  DefaultShowDepletedHint = false; // halo + ring fully off when depleted (Daniel)
+        public const bool  DefaultShowEmptyRing    = true;  // repurposed (card t_9d7c3dfe): master on/off for the sun-corona when worn+charged-but-clear (Daniel)
+        public const bool  DefaultShowDepletedHint = false; // halo + corona fully off when depleted (Daniel)
         public const bool  DefaultDebugTextReadout = false; // legacy text line, debug aid only
 
         public const bool  DefaultDebugMount = true;  // diagnostic cut (t_d5949685): emit mount/wear LogInfo. Bake to false once the halo is confirmed rendering in-game.
-
-        // Fixed screen-space radius (px) of the faint solar empty-state ring (replaces the removed
-        // live RingRadiusPx — the ring is an ambient "lens is live" cue, not a tunable threat surface).
-        private const float SolarRingRadiusPx = 140f;
 
         private static SunstoneLensHudOverlay? _instance;
 
         private RectTransform? _root;       // the host — ALWAYS ACTIVE (carries this MonoBehaviour's Update pump)
         private RectTransform? _content;    // the visibility child — toggled by SetVisible (NEVER the host; see SetVisible)
-        private Image? _emptyRing;          // the faint solar ring outline (empty / substrate) — SCREEN-space affordance
         private Text?  _debugText;          // optional legacy "⚠ N · nearest Xm · charge Y%" readout
         private bool   _loggedFirstShow;    // diagnostic: log once on the first visible frame
 
@@ -83,6 +87,12 @@ namespace SBPR.Trailborne.Features.Sunstone
         //    their real bearings. Owned here (this MonoBehaviour is the single Update pump, #209), but
         //    its slot objects live in WORLD space (its own scene root), NOT under Hud.m_rootObject. ──
         private readonly SunstoneWorldRing _worldRing = new SunstoneWorldRing();
+
+        // ── The WORLD-SPACE pulsing sun-corona disc (card t_9d7c3dfe — the empty-state affordance,
+        //    graduated from the removed flat screen-space ring). Shares the trophy halo's scene root
+        //    (one Hide()/Dispose() lifecycle); breathes on the engine-free CI-gated SunstoneCoronaPulse.
+        //    The substrate the fixed-distance trophy halo orbits — "a sun on the floor." ──
+        private readonly SunstoneCoronaDisc _corona;
 
         // Diagnostic-logging gate (t_d5949685). Reads the live Plugin config when present (so Daniel can
         // flip it in a joined session), else the Default* const — the no-Plugin-context fallback idiom.
@@ -107,12 +117,18 @@ namespace SBPR.Trailborne.Features.Sunstone
         private BlipStyle _blipStyleNow = BlipStyle.Dots;  // dots vs trophy on the minimap surfaces
 
         // ── Aggro-state tint (the Rune-of-Awareness colour code, §1.8). Single source of truth now
-        //    lives in SunstoneProjection; the empty-ring uses its own faint solar colour below. ──
-        // Faint solar ring — the sunstone's stored daylight glowing faintly.
+        //    lives in SunstoneProjection; the sun-corona uses its own faint solar colour below. ──
+        // Faint solar gold — the sunstone's stored daylight glowing faintly. KEPT (card t_9d7c3dfe):
+        // it's the corona's gold tint now (the per-frame breathing alpha comes from SunstoneCoronaPulse,
+        // so only the RGB here is load-bearing; the literal 0.18 alpha is the static baseline the pulse
+        // envelope breathes around, 0.10↔0.28).
         private static readonly Color CSolarRing = new Color(0.98f, 0.78f, 0.36f, 0.18f);
 
-        // ── Static caches (resolved once, reused). ──
-        private static Sprite? _ringSprite;        // procedurally generated annulus (the faint solar ring)
+        /// <summary>Wire the sun-corona to the trophy halo so it shares the halo's scene root + lifecycle.</summary>
+        public SunstoneLensHudOverlay()
+        {
+            _corona = new SunstoneCoronaDisc(_worldRing);
+        }
 
         /// <summary>Idempotently build the overlay under the given Hud root.</summary>
         public static void EnsureBuilt(GameObject hudRoot)
@@ -129,8 +145,9 @@ namespace SBPR.Trailborne.Features.Sunstone
         private void Build()
         {
             _root = gameObject.AddComponent<RectTransform>();
-            // Centre on screen — the host carries the faint solar empty-state ring + optional debug text.
-            // (The threat trophies now live in WORLD space, in SunstoneWorldRing, NOT on this canvas.)
+            // Centre on screen — the host carries only the optional debug text now. (The threat trophies
+            // AND the empty-state sun-corona both live in WORLD space — SunstoneWorldRing + the corona's
+            // shared scene root — NOT on this canvas, card t_9d7c3dfe.)
             _root.anchorMin = new Vector2(0.5f, 0.5f);
             _root.anchorMax = new Vector2(0.5f, 0.5f);
             _root.pivot     = new Vector2(0.5f, 0.5f);
@@ -141,7 +158,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             //    MonoBehaviour, so it MUST stay active or Unity stops calling Update() — and Update()
             //    is the only thing that ever un-hides the overlay. So visibility toggles a CHILD
             //    (_content), never the host. _content is a centred pivot coincident with _root, so the
-            //    absolute anchoredPositions of every child (solar ring/text) are unchanged. (Before this
+            //    absolute anchoredPositions of every child (debug text) are unchanged. (Before this
             //    fix, SetVisible(false) at the end of Build() deactivated the host, freezing the Update
             //    pump dead → the overlay rendered NOTHING forever, worn/charged or not — the exact
             //    self-deactivating-host bug the Iron Compass had, PR #208.)
@@ -152,25 +169,15 @@ namespace SBPR.Trailborne.Features.Sunstone
             _content.anchoredPosition = Vector2.zero;
             _content.sizeDelta = new Vector2(2f, 2f);
 
-            // The faint solar ring outline (empty state + substrate) — a SCREEN-space affordance at a
-            // fixed radius (design §1.6: the empty-state cue may stay screen-space — "either surface is
-            // acceptable"). The world halo draws the actual threats; this is just the "lens is live" glow.
-            var ringGo = new GameObject("solar_ring", typeof(RectTransform));
-            ringGo.transform.SetParent(_content, worldPositionStays: false);
-            var ringRt = ringGo.GetComponent<RectTransform>();
-            ringRt.anchorMin = ringRt.anchorMax = ringRt.pivot = new Vector2(0.5f, 0.5f);
-            ringRt.anchoredPosition = Vector2.zero;
-            ringRt.sizeDelta = new Vector2(SolarRingRadiusPx * 2f, SolarRingRadiusPx * 2f);
-            _emptyRing = ringGo.AddComponent<Image>();
-            _emptyRing.sprite = RingSprite();
-            _emptyRing.color = CSolarRing;
-            _emptyRing.raycastTarget = false;
-            _emptyRing.gameObject.SetActive(false);
+            // The empty-state affordance (the faint "lens is live" glow) is NO LONGER a screen-space ring
+            // built here (card t_9d7c3dfe) — it's the world-space pulsing sun-corona disc, built lazily by
+            // SunstoneCoronaDisc into the trophy halo's shared scene root on its first Render(). Nothing
+            // to construct on this canvas for it.
 
-            // Optional legacy debug text, just below the ring.
+            // Optional legacy debug text, centred below the screen pivot.
             var font = SBPR.Trailborne.Features.Signs.VanillaUISkin.Font
                        ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
-            _debugText = MakeText("debug", font, 14, FontStyle.Normal, new Vector2(0f, -(SolarRingRadiusPx + 22f)));
+            _debugText = MakeText("debug", font, 14, FontStyle.Normal, new Vector2(0f, -162f));
             _debugText.gameObject.SetActive(false);
 
             SetVisible(false);
@@ -204,12 +211,13 @@ namespace SBPR.Trailborne.Features.Sunstone
 
         private void SetVisible(bool on)
         {
-            // The world halo must never linger when the overlay is being hidden (unequip / depleted /
-            // no-player / minimap-owns-detection): hide it here so every inert path drops it immediately
-            // (AT-EIDETIC-5 "unequip → halo gone immediately"). When turning visible the caller decides
-            // whether to actually draw the halo (RenderWorldHalo) vs only the empty/depleted affordance —
-            // we don't show it here, we only guarantee the OFF case. Safe before the ring is built (no-op).
-            if (!on) _worldRing.Hide();
+            // The world halo + sun-corona must never linger when the overlay is being hidden (unequip /
+            // depleted / no-player / minimap-owns-detection): hide them here so every inert path drops
+            // them immediately (AT-EIDETIC-5 / AT-CORONA-GATED). When turning visible the caller decides
+            // whether to actually draw the halo + corona (RenderWorldHalo) vs only the empty/depleted
+            // affordance — we don't show them here, we only guarantee the OFF case. Safe before either is
+            // built (no-op). Both share one scene root, so this is one coherent hide.
+            if (!on) { _worldRing.Hide(); _corona.Hide(); }
 
             // Toggle the CONTENT child, NEVER the host (_root): the host carries this MonoBehaviour's
             // Update pump, so deactivating it would freeze the overlay un-recoverably (t_d5949685 — the
@@ -245,7 +253,7 @@ namespace SBPR.Trailborne.Features.Sunstone
                 return;
             }
 
-            // Depleted (inert) state — worn but not enough charge to detect (AC#5). Ring OFF
+            // Depleted (inert) state — worn but not enough charge to detect (AC#5). Corona OFF
             // (Daniel: depleted hint default off). The durability bar already signals "dim".
             if (lens.m_durability < SunstoneLens.MinChargeToDetect)
             {
@@ -256,14 +264,13 @@ namespace SBPR.Trailborne.Features.Sunstone
                     SetVisible(false);
                     return;
                 }
-                // Optional faint hint: show ONLY the solar ring, dimmer, no trophies. The world halo is off.
+                // Optional faint hint: show ONLY the sun-corona, DIMMER + STEADY (no pulse), no trophies.
+                // The world halo's slot trophies are parked but its shared scene root stays active so the
+                // corona (which lives under it) can render (spec §2.6 — the depleted parity for the old
+                // half-alpha flat ring). #209: this toggles world-content children, never the host pump.
                 SetVisible(true);
-                _worldRing.Hide();
-                if (_emptyRing != null)
-                {
-                    _emptyRing.gameObject.SetActive(true);
-                    _emptyRing.color = new Color(CSolarRing.r, CSolarRing.g, CSolarRing.b, CSolarRing.a * 0.5f);
-                }
+                _worldRing.ShowRootWithoutTrophies();
+                RenderCorona(player, depletedDim: true);
                 if (_debugText != null) _debugText.gameObject.SetActive(false);
                 return;
             }
@@ -371,15 +378,15 @@ namespace SBPR.Trailborne.Features.Sunstone
 
         /// <summary>
         /// Render the standalone (no-minimap) detection surface: the WORLD-SPACE eidetic trophy halo
-        /// (delegated to <see cref="SunstoneWorldRing"/>) plus the screen-space faint solar ring + the
-        /// optional debug readout. Consumes the shared <see cref="_blips"/> derivation (same tint/trophy/
-        /// stars the disc + vanilla minimap read — AT-EIDETIC-MINIMAP-UNAFFECTED holds: one source).
+        /// (delegated to <see cref="SunstoneWorldRing"/>) plus the world-space pulsing sun-corona disc
+        /// (<see cref="SunstoneCoronaDisc"/>, the empty-state substrate) + the optional debug readout.
+        /// Consumes the shared <see cref="_blips"/> derivation (same tint/trophy/stars the disc + vanilla
+        /// minimap read — AT-EIDETIC-MINIMAP-UNAFFECTED holds: one source).
         /// </summary>
         private void RenderWorldHalo(Player player, float chargePct)
         {
             float detectR   = Plugin.LensDetectRadius?.Value     ?? SunstoneLens.DefaultDetectRadius;
             int   maxIcons  = Plugin.LensRingMaxIcons?.Value      ?? DefaultRingMaxIcons;
-            bool  showEmpty = Plugin.LensRingShowEmpty?.Value     ?? DefaultShowEmptyRing;
             float radius    = Plugin.LensHaloRadius?.Value        ?? SunstoneWorldRing.DefaultHaloRadius;
             float scaleMax  = Plugin.LensHaloScaleMax?.Value      ?? SunstoneWorldRing.DefaultHaloScaleMax;
             float eyeOffset = Plugin.LensHaloEyeOffsetY?.Value    ?? SunstoneWorldRing.DefaultHaloEyeOffsetY;
@@ -396,12 +403,10 @@ namespace SBPR.Trailborne.Features.Sunstone
 
             int shown = Mathf.Min(maxIcons, CountBlips());
 
-            // Faint solar ring (screen-space empty-state affordance): shown whenever worn+charged.
-            if (_emptyRing != null)
-            {
-                _emptyRing.gameObject.SetActive(showEmpty);
-                _emptyRing.color = CSolarRing;
-            }
+            // The world-space pulsing sun-corona disc (the empty-state affordance, card t_9d7c3dfe):
+            // shown whenever worn+charged (gated by the repurposed ShowEmptyRing), breathing on the slow
+            // pulse. It's the substrate the trophy halo orbits — drawn into the SAME shared scene root.
+            RenderCorona(player, depletedDim: false);
 
             // Optional legacy debug readout (default off).
             bool debug = Plugin.LensRingDebugText?.Value ?? DefaultDebugTextReadout;
@@ -427,6 +432,50 @@ namespace SBPR.Trailborne.Features.Sunstone
             }
         }
 
+        /// <summary>
+        /// Drive the world-space sun-corona disc (card t_9d7c3dfe) from the live Corona* config (the
+        /// banner-windsock pattern — every knob live-tunable on a joined client, no rebuild). Gated by
+        /// the repurposed <c>ShowEmptyRing</c> master toggle: OFF → the corona hides. The orientation
+        /// picks the anchor — GroundPlane on the player's feet (character-root), CameraFacing on the
+        /// eye-point. <paramref name="depletedDim"/> renders the corona dimmer + STEADY (no pulse) for
+        /// the optional depleted hint (parity with the old half-alpha flat ring), else it breathes on
+        /// the engine-free <see cref="SunstoneCoronaPulse"/>.
+        /// </summary>
+        private void RenderCorona(Player player, bool depletedDim)
+        {
+            bool showCorona = Plugin.LensRingShowEmpty?.Value ?? DefaultShowEmptyRing;
+            if (!showCorona) { _corona.Hide(); return; }
+
+            var orientation = Plugin.LensCoronaOrientation?.Value ?? SunstoneCoronaDisc.DefaultOrientation;
+            float radius    = Plugin.LensCoronaRadius?.Value      ?? SunstoneCoronaDisc.DefaultRadius;
+            float offsetY   = Plugin.LensCoronaPlaneOffsetY?.Value ?? SunstoneCoronaDisc.DefaultPlaneOffsetY;
+            float innerFill = Plugin.LensCoronaInnerFill?.Value    ?? SunstoneCoronaDisc.DefaultInnerFill;
+            float thickness = Plugin.LensCoronaThickness?.Value    ?? SunstoneCoronaDisc.DefaultThickness;
+            float hz        = Plugin.LensCoronaPulseHz?.Value       ?? SunstoneCoronaDisc.DefaultPulseHz;
+            float trough    = Plugin.LensCoronaAlphaTrough?.Value   ?? SunstoneCoronaDisc.DefaultAlphaTrough;
+            float peak      = Plugin.LensCoronaAlphaPeak?.Value     ?? SunstoneCoronaDisc.DefaultAlphaPeak;
+
+            // GroundPlane anchors on the player's feet (the character-root transform position ≈ ground);
+            // CameraFacing anchors on the eye-point. Both passed so the disc picks per its orientation.
+            Vector3 groundAnchor = player.transform.position;
+            Vector3 eyeAnchor    = player.GetEyePoint();
+
+            if (depletedDim)
+            {
+                // Depleted hint: a dim, STEADY glow (no breath) — pass hz=0 so SunstoneCoronaPulse holds
+                // the mid-value, and halve the envelope so it reads fainter than the live corona (parity
+                // with the old CSolarRing.a * 0.5f flat-ring hint).
+                _corona.Render(groundAnchor, eyeAnchor, orientation, radius, offsetY, innerFill, thickness,
+                    CSolarRing, time: 0.0, hz: 0f, trough: trough * 0.5f, peak: peak * 0.5f);
+                return;
+            }
+
+            // Live corona: breathe on the shared Time.time phase (one phase → no drift across an
+            // orientation flip or vs the trophy tint — AT-CORONA-PULSE).
+            _corona.Render(groundAnchor, eyeAnchor, orientation, radius, offsetY, innerFill, thickness,
+                CSolarRing, Time.time, hz, trough, peak);
+        }
+
         /// <summary>Count of non-null blips this tick (for the debug readout's "N hostiles").</summary>
         private int CountBlips()
         {
@@ -436,58 +485,14 @@ namespace SBPR.Trailborne.Features.Sunstone
             return n;
         }
 
-        /// <summary>Tear the world halo down with the overlay (logout / Hud teardown). #209: only the
-        /// visuals are destroyed; the host pump's own lifecycle is Unity's to manage.</summary>
+        /// <summary>Tear the world halo + sun-corona down with the overlay (logout / Hud teardown). #209:
+        /// only the visuals are destroyed; the host pump's own lifecycle is Unity's to manage. The corona
+        /// shares the halo's scene root, so disposing the halo culls the corona's parent too — but the
+        /// corona disposes its own child explicitly so a stale Image can't linger.</summary>
         private void OnDestroy()
         {
+            _corona.Dispose();
             _worldRing.Dispose();
-        }
-
-        // ───────────────────────────────────────────────
-        // SOLAR-RING SPRITE (the only procedural asset still owned here; trophy/star/glyph/tint
-        // derivation moved to SunstoneProjection so all three surfaces share one copy — card t_91e86951)
-        // ───────────────────────────────────────────────
-
-        /// <summary>
-        /// A procedurally-generated thin annulus sprite for the faint solar ring (no disk asset —
-        /// the guarantee holds even if the modpack ships zero PNGs). White ring, tinted by Image.color.
-        /// </summary>
-        private static Sprite RingSprite()
-        {
-            if (_ringSprite != null) return _ringSprite;
-            const int size = 256;
-            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-            var px = new Color[size * size];
-            var clear = new Color(1f, 1f, 1f, 0f);
-            for (int i = 0; i < px.Length; i++) px[i] = clear;
-
-            float cx = size / 2f, cy = size / 2f;
-            float outer = size / 2f - 2f;
-            float thickness = 3f;
-            float inner = outer - thickness;
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    float dx = x - cx, dy = y - cy;
-                    float d = Mathf.Sqrt(dx * dx + dy * dy);
-                    if (d <= outer && d >= inner)
-                    {
-                        // 1px anti-alias at both edges so the ring isn't aliased.
-                        float aOuter = Mathf.Clamp01(outer - d);
-                        float aInner = Mathf.Clamp01(d - inner);
-                        float a = Mathf.Min(1f, Mathf.Min(aOuter + 0.0f, aInner + 0.0f) + 0.4f);
-                        px[y * size + x] = new Color(1f, 1f, 1f, a);
-                    }
-                }
-            }
-            tex.SetPixels(px);
-            tex.Apply();
-            tex.wrapMode = TextureWrapMode.Clamp;
-            tex.filterMode = FilterMode.Bilinear;
-            _ringSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
-            _ringSprite.name = "SBPR_SolarRing";
-            return _ringSprite;
         }
 
         // ───────────────────────────────────────────────
