@@ -10,15 +10,19 @@
 //  a head-centric halo of billboarded creature TROPHIES floating in the 3D world around
 //  the player at their REAL bearings. Supersedes the screen-space camera-relative radar.
 //
-//  The four LOCKED knobs (design §5, Daniel "just implement as directed"):
+//  The LOCKED knobs (design §5; geometry re-locked by bug-fix t_10bacccf, Daniel 2026-06-22):
 //    1. Occlusion → head-halo "Rune Magic dodge": trophies float in a tight halo around the
 //       eye-point, rarely occluded; NO through-terrain material (honest depth).
-//    2. Geometry → head-centric halo, variable radius AND scale ∝ distance:
-//         u      = Clamp01(dist / DetectRadius)
-//         radius = Lerp(HaloRadiusMin, HaloRadiusMax, u)   // near = inner (by your face), far = outer
-//         scale  = Lerp(HaloScaleMax,  HaloScaleMin,  u)   // near = big, far → shrinks toward nothing
+//    2. Geometry → FIXED-distance ring + scale-only range cue with a 10 m knee. REVERSES the
+//       t_d17d9b58/PR #242 "variable radius AND scale" design that pushed far enemies to the
+//       OUTER radius (away from your face) AND shrank them to ~nothing — far + tiny = invisible.
+//       Now every trophy sits at the SAME fixed HaloRadius; SCALE carries all the distance info:
+//         scale = SunstoneHaloGeometry.ScaleAt(dist, DetectRadius, HaloScaleMax)
+//                 // ≤10 m → full (HaloScaleMax); 50 m edge → 0.25·HaloScaleMax; linear between
+//         pos   = eye + dirN * HaloRadius                  // FIXED distance — no range-dependent push
 //       Placed on the REAL dir = blip.WorldPos - eye → camera-relative by construction (thesis
-//       guard holds; NO SignedAngle, NO north frame injected).
+//       guard holds; NO SignedAngle, NO north frame injected). The fixed-distance + knee math is
+//       the engine-free SunstoneHaloGeometry (CI-gated, AT-HALO-FIXED-DIST / AT-HALO-SCALE-KNEE).
 //    3. Trophy-less → hybrid (remap table + generic fallback + startup dump) — all in
 //       SunstoneProjection (the shared derivation); this surface just reads blip.Trophy ?? glyph.
 //    4. Trophy render → FLAT billboarded sprites (the existing m_icons[0]) on a world-space quad,
@@ -64,11 +68,10 @@ namespace SBPR.Trailborne.Features.Sunstone
     {
         // ── World-space halo tuning (single source of truth; Plugin binds ConfigEntry mirrors so
         //    Daniel converges feel on a joined client without a rebuild — the banner-windsock pattern).
-        //    Defaults per design §4. Radii in world metres; scales in world units (trophy quad size). ──
-        public const float DefaultHaloRadiusMin = 1.2f;   // inner radius — near enemies, close to your face
-        public const float DefaultHaloRadiusMax = 3.0f;   // outer radius — far enemies push out
-        public const float DefaultHaloScaleMax  = 0.6f;   // trophy world-size for the nearest enemy (big)
-        public const float DefaultHaloScaleMin  = 0.12f;  // trophy world-size at the detection edge (shrinks)
+        //    Defaults per design §4 (re-locked by bug-fix t_10bacccf). HaloRadius in world metres;
+        //    HaloScaleMax in world units (the trophy quad size that "1.0" maps to). ──
+        public const float DefaultHaloRadius    = 2.0f;   // FIXED ring distance — every trophy is equidistant from the eye (Daniel directional start ~2.0m, AT-gated)
+        public const float DefaultHaloScaleMax  = 0.6f;   // trophy world-size at FULL scale (enemy ≤10m → "1.0"); the AT-gated eyeball tunable
         public const float DefaultHaloEyeOffsetY = 0f;    // lift the halo plane off the eye-point (clear the crosshair)
 
         // The world-space Canvas is authored at this reference pixel size, then scaled to world units
@@ -124,8 +127,8 @@ namespace SBPR.Trailborne.Features.Sunstone
             Vector3 eye,
             IReadOnlyList<ThreatBlip> blips,
             float detectRadius,
-            float haloRadiusMin, float haloRadiusMax,
-            float haloScaleMax,  float haloScaleMin,
+            float haloRadius,
+            float haloScaleMax,
             float eyeOffsetY,
             int maxIcons)
         {
@@ -168,17 +171,20 @@ namespace SBPR.Trailborne.Features.Sunstone
                 if (dist < 0.0001f) continue;                 // on top of the eye-point — skip (no stable bearing)
                 Vector3 dirN = dir / dist;
 
-                float u      = Mathf.Clamp01(dist / dr);       // 0 at the player, 1 at the detection edge
-                float radius = Mathf.Lerp(haloRadiusMin, haloRadiusMax, u);
-                float scale  = Mathf.Lerp(haloScaleMax,  haloScaleMin,  u);
+                // FIXED-distance ring + scale-only range cue (Knob #2, re-locked by t_10bacccf). The
+                // placement distance is the SAME for every trophy (haloRadius) so far enemies are NOT
+                // pushed away from your face; SCALE carries all the range info via the 10m knee (full
+                // ≤10m, 0.25·scaleNear at the detection edge). Pure math in the engine-free, CI-gated
+                // SunstoneHaloGeometry (AT-HALO-FIXED-DIST / AT-HALO-SCALE-KNEE) so it can't regress.
+                HaloPlacement place = SunstoneHaloGeometry.Resolve(dist, dr, haloRadius, haloScaleMax);
 
-                // Head-halo placement: along the REAL bearing, at the head-centric radius. The Billboard
+                // Head-halo placement: along the REAL bearing, at the FIXED ring distance. The Billboard
                 // component handles facing — no manual angle math, no SignedAngle, no north frame.
-                Vector3 pos = anchor + dirN * radius;
+                Vector3 pos = anchor + dirN * place.Distance;
 
                 var slot = EnsureSlot(shown);
                 slot.Go.transform.position = pos;
-                slot.Go.transform.localScale = Vector3.one * (scale / ReferencePx);
+                slot.Go.transform.localScale = Vector3.one * (place.Scale / ReferencePx);
                 ApplySlot(slot, blip);
                 slot.Go.SetActive(true);
                 shown++;

@@ -395,6 +395,34 @@ with the Table via the `CartographyViewer` seam).
   `RecipeHelpers.FindStation(Trailhead.ExplorersBenchName)` — the existing pattern in
   `Pigments.cs:143`, `Cairns.cs:268`). NOT crafted at the Surveyor's Table.
 
+##### 2A.1a Held model — procedural blank-leather field-map mesh (issue: "just appears to be a hoe", card t_64dff55f, 2026-06-22)
+- **The item is still built by the clone-and-reshape idiom with `Hoe` as the donor**, BUT
+  the Hoe is now kept **only for its scaffold** — the `attach`-transform / ItemDrop / equip
+  rigging that the equip + minimap-binding machinery (incl. the relog-binding sibling fix
+  t_85f45dd7) relies on. The Hoe's **visible held MESH is NO LONGER used.** Daniel's in-game
+  report: the craftable rendered as the vanilla **Hoe in-hand mesh** (a gardening tool) for
+  "a field map you carry." Decision **Option C (LOCKED, executed — design `cartography-v2.md`
+  §4.1a):** replace it with a procedural mesh.
+- **Construction (ADR-0006 additive):** `RegisterPrefabs` calls
+  `LocalMap.InstallFieldMapHeldVisual(clone)` after the shared-data reshape: it finds the
+  Hoe clone's `attach > visual` node, `DestroyImmediate`s the Hoe's mesh children there
+  (`blade` `stone` + `handle` `wood`), and authors a fresh **blank-leather field-map sheet**
+  via `Assets.BuildFieldMapVisual` → `Assets.BuildFieldMapMesh` (`new Mesh()` —
+  verts/triangles/uv + `RecalculateNormals`/`RecalculateBounds`; a few lightly-folded,
+  double-sided quads). Skinned with the vanilla **`leatherscraps`** material read as a
+  blueprint (`Assets.TryReadLeatherMaterial` off the `LeatherScraps` prefab — reading a
+  shared material reference is clean-room-safe, ADR-0006). The held subtree
+  `Humanoid.AttachItem` (decomp :29194) instantiates onto the hand joint is exactly this
+  `attach` child, so the swap fixes both the **in-hand** and **world-drop** silhouette.
+- **This is the repo's first procedural world-mesh** (`new Mesh()` was 0 hits in `src/`).
+  Disambiguation from a tool is **silhouette/value (flat sheet vs handle+blade), NOT hue**
+  (Pillar 2 + Daniel is colorblind).
+- **Scope fence:** held **visual mesh + material only**; the full ADR-0006 de-clone of the
+  ItemDrop is **out of scope** (high blast radius on equip/binding rigging for a cosmetic
+  fix). **No recipe/cost/station change → SpecCheck +0.** **In-game AT pending** — the held
+  silhouette is an in-hand F-key check on a GPU client (Daniel's eye is the gate);
+  implementation verified to **build 0/0 + clean registration** only (logs-green ≠ playable).
+
 #### 2A.2 `ItemType` = `TwoHandedWeapon` (the decisive lock — decomp-grounded)
 - Set `m_shared.m_itemType = ItemType.TwoHandedWeapon` (= 14). **Do NOT invent a custom
   enum value, do NOT use `Utility`.**
@@ -442,6 +470,19 @@ with the Table via the `CartographyViewer` seam).
 > "first carried" probe is **retired**. Read map-provider-binding-impl-spec before touching the
 > carry/provider path — it supersedes the "hook inventory-changed; first carried map" wording in
 > the bullets below.
+
+> **🟢 CARRY PATH NOW RE-DERIVES + RENDERS A DISC ON LOAD (2026-06-22, local-map-provider-persist-impl-spec, card t_5fc02f00).**
+> §2A.4's "durable while carried" now holds **across a relog**, not just within a session. The
+> provider binding above was originally session-scoped (a fresh `LocalMapController` each
+> `Minimap.Start` started with `_provider` null), so a map carried-but-**unequipped** at logout lost
+> its disc until re-equipped — a violation of the locked **AT-MAP-DURABLE** (a relog does not remove
+> the item). `LocalMapController` now runs a **one-shot cold-start carry re-derivation latch**
+> (`_coldStartResolved`): on the first poll of each session it re-derives `_provider` from the
+> load-restored inventory — equipped map first, else the first carried **imprinted** Local Map in
+> inventory-slot order — so the disc **renders on load** without re-equipping. The latch fires once
+> per session, so an in-session drop→re-pickup still stays unbound (§3.4 intact). No new persisted
+> key, no `LocalMap.cs` change, no new Harmony patch (SpecCheck +0). Read
+> local-map-provider-persist-impl-spec §3 before touching the cold-start/provider path.
 
 > **⚠️ OPEN PATH SUPERSEDED (2026-06-11, issue 7 → §2F).** The §2 IMPL STATUS banner above
 > and the last bullet below originally said the Local Map's full view is ACTIVATED by the

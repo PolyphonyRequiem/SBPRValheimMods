@@ -215,14 +215,47 @@ This is a **temporary comparison harness, NOT a final ship state.** All four ban
 > THREE independent color slots, each tinting exactly one surface:
 > **Text Color → the written letters; Board Color → the board plank; Border Color →
 > the frame bars.** All three are independent — e.g. white board, red frame, blue
-> letters. The panel grows from two swatch rows to three; cost is still ONE pigment
-> per FILLED slot (so a full three-color sign = 3 pigments; same color in N slots =
-> N of that pigment); every slot is individually optional; ≥1 required. ZDO gains a
+> letters. The panel grows from two swatch rows to three; cost is ONE pigment
+> per CHANGED slot vs the sign's current ZDO color (§A2.6 per-changed block below;
+> a full first paint of an unpainted sign = 3 changes = 3 pigments; same color in N
+> changed slots = N of that pigment; unchanged slots free; clears free); every slot
+> is individually optional; ≥1 changed slot required to commit. ZDO gains a
 > third field `SBPR_SignBoardColor`. Legacy single-color saves (`SBPR_SignColor`)
 > migrate to the BOARD slot (that color tinted the plank). Table cells below are
 > annotated `[6/21-3slot]` where this applies. **Design rationale:** a frame that
 > shares the board's tone is invisible as a frame (no edge contrast) — independent
 > slots let the frame differ from the board (ideally by lightness, not hue alone).
+
+> **§A2.6 — Consume cost basis: PER-CHANGED-SLOT (supersedes the `[6/21-3slot]`
+> per-FILLED rule; LOCKED Daniel 2026-06-21, card t_e59a4fd6 / impl t_6df12ca8).**
+> `{Paint this and consume}` charges pigment **only for slots whose color actually
+> CHANGED** vs the sign's current stored ZDO color — not for every filled slot.
+> Re-applying the same colors costs **nothing**; changing one slot costs exactly that
+> slot's pigment; unchanged slots are free.
+> - **Changed vs charged:** a slot is *changed* when `new != old` (ordinal). A changed
+>   slot is *billable* only when its new color is non-empty — so **clearing a slot
+>   (→ ∅ None) is a change but costs 0** (clears stay free). Delta cost = 1 pigment per
+>   billable changed slot; same color across M billable changed slots = M; unchanged = 0.
+> - **First paint unchanged:** a fully-unpainted sign is all `""→color` = all changes →
+>   full cost, exactly as before. Only RE-painting an already-painted sign is affected.
+> - **Commit gate = "any slot changed", not "cost non-empty":** the button enables iff
+>   ≥1 slot changed (including a pure clear) AND the player holds the delta cost. **A
+>   no-op (nothing changed) silently DISABLES the button — no message** (Daniel-locked:
+>   "1) disabled"; the old "Choose at least one color" notice must NOT fire on this
+>   path). Committing a pure clear writes the ZDO (reverts that surface to bare wood)
+>   and consumes nothing.
+> - **Displayed == consumed:** the cost requirement rows and the post-paint message show
+>   the delta actually consumed (the message renders the map `CommitPaint` returns, never
+>   a post-write re-read).
+> - **Two predicates (impl):** a *changed-set* (`new != old`, incl. clears) drives the
+>   commit gate / no-op detection; a *billable delta cost* (changed AND non-empty) drives
+>   the charge. They diverge exactly on a pure clear (non-empty changed-set, empty cost) —
+>   gating the button on the cost count instead of the changed-set would make a clear
+>   un-committable. The pure logic is `SignPaintDelta` (engine-free, CI-gated by
+>   `tests/SignPaintDeltaTests.cs`); `SignPaintBackend` supplies the LIVE "old" colors.
+> - **Supersedes** the per-FILLED wording at the §A2.6 Cost / `{Paint this and consume}`
+>   cells and the running-list restatements below; reconciles with `v0.1.0-PLAYTEST.md`
+>   ("painting *different* colors re-consumes the *corresponding* pigments").
 
 A single panel handles **both** painting and text, opened by interacting with a
 placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
@@ -247,8 +280,8 @@ placed sign (replaces the vanilla text dialog). Layout (from Daniel's mockup):
 | **Set Text Color** | Swatch row — an explicit **`∅ None`** tile (clears the slot) followed by one swatch per **DISCOVERED** pigment (discovery = *ever-discovered material OR known recipe OR owned*; primary signal `IsKnownMaterial`, persistent so swatches don't flicker on last-unit spend). Undiscovered pigments are **NOT rendered** (no dead/unclickable reserved boxes). **[6/21-3slot]** Sets the **text** tint — colours **ONLY the written letters** (`Sign.m_textWidget`). |
 | **Board Color** | **[6/21-3slot]** Second swatch row, same `∅ None` + discovered-only swatches. Sets the **board plank** mesh tint, **independent** of letters and frame. `None` reverts the plank to plain wood. |
 | **Border Color** | Third swatch row, same `∅ None` + discovered-only swatches. **[6/21-3slot]** Sets the **border frame** bars' tint, **independent** of board and letters. `None` reverts the frame to plain wood. |
-| **Cost** | **Crafting-style requirement rows** (replicates `InventoryGui`'s recipe-requirement idiom): per pigment an **icon + pigment name + `have/need` count**, the count flashing **red while short**. **[6/21-3slot]** One pigment per FILLED color slot across all three (text Red + board White + border White → 1 Red + 2 White). Same color in N slots = **N of that pigment**. Every slot is **individually optional**; **at least one** color required |
-| **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed pigments from inventory, **[6/21-3slot]** tints **letters = text color** + **board plank = board color** + **border frame = border color** (three independent slots), writes all three to ZDO. **Disabled** unless the player holds the required pigments. **Re-painting later re-consumes** |
+| **Cost** | **Crafting-style requirement rows** (replicates `InventoryGui`'s recipe-requirement idiom): per pigment an **icon + pigment name + `have/need` count**, the count flashing **red while short**. **[6/21-3slot · per-changed §A2.6]** One pigment per **CHANGED** color slot vs the sign's current ZDO color — only slots whose color actually differs are billed (text Red→Blue with board/border unchanged → 1 Blue). Same color across N **changed** slots = **N of that pigment**. **Unchanged slots are free; clearing a slot (→ ∅) is free.** A first paint of an unpainted sign is all-changes → full cost (1 Red + 2 White for Red/White/White), as before. Every slot is **individually optional**; **≥1 slot must change** to commit. Rows show the **prospective delta** (update live as you edit) |
+| **`{ Paint this and consume }`** | Commits painting: removes exactly the displayed **delta** pigments from inventory, **[6/21-3slot]** tints **letters = text color** + **board plank = board color** + **border frame = border color** (three independent slots), writes all three to ZDO. **[per-changed §A2.6]** **Enabled iff ≥1 slot changed** (incl. a pure clear) **AND** the player holds the delta cost — a **no-op (nothing changed) silently DISABLES** the button (no message). **Re-painting re-consumes only the CHANGED slots** (re-applying identical colors costs nothing); a pure clear commits for free (reverts that surface to bare wood). The post-paint message shows the **delta actually consumed** |
 | **`{ Update Text }`** | Commits the text. **Free** (no pigment cost — Cost applies to PAINTING only). Text field is **locked until ≥1 paint color is chosen** |
 | **Camera** | While the panel is open, **mouse-look is frozen** and the cursor is released, matching every vanilla full-screen GUI. Achieved by routing through vanilla's own suppression gate (`PlayerController.TakeInput` → false while open — the same gate the vanilla sign dialog used, which our panel bypasses by replacing that dialog), NOT by overriding `GameCamera.UpdateCamera` |
 | **Color persistence** | Per-instance ZDO: `SBPR_SignTextColor`, `SBPR_SignBoardColor`, `SBPR_SignBorderColor` (`""` = unset) + vanilla text. Persists across reloads, syncs to clients, all three tints (text widget + board + border) re-applied on spawn (mirrors `CairnTag`). Legacy `SBPR_SignColor` (pre-three-slot single color) migrates one-way into `SBPR_SignBoardColor` on spawn |
@@ -565,7 +598,7 @@ Planned scans:
 2. **Cairns** — 5-tier comfort floor 3/4/5/6/7, build cost **3 Stone + 1 Resin + 1 Cairn Marker**, upgrade cost flat **3 Stone + 1 Resin** per tier, repair cost flat **3 Stone + 1 Resin**, mandatory decay, ≥75% pristine (resin glows) / <75% fizzled / <25% downgrade / 0% collapse, pigment+banner persist, auto-re-ignite glow on repair-to-pristine
 3. **Cairn Marker** (pre-crafted consumable, recipe = **2 Leather Scraps + 1 Finewood + 1 Pigment** of player's color, crafted at Explorer's Bench, pigment color binds cairn color at craft-time)
 4. **Pigments** — R/W/B/Blue, 2/craft, stack 20, weight 0.1, recipes: R=raspberry, W=bone fragment, B=coal, Blue=blueberry (1:2 each)
-5. **Painted Signs** — ONE buildable sign (`piece_sbpr_sign`, 2 Wood), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), UNPAINTED. Interacting with a placed sign opens a **custom combined Paint+Text uGUI panel** (replaces the vanilla text dialog): set a **text/board color** AND an optional **border color** (two-tone), pay one pigment per filled slot via `{Paint this and consume}` (border optional; same color in both slots = 2 of that pigment; ≥1 required; re-paint re-consumes), edit the label via `{Update Text}` (free, locked until a color is chosen). Both tones + text persist via ZDO (`SBPR_SignTextColor` + `SBPR_SignBorderColor`). **Free-standing on a kitbashed 2m wood pole** (`wood_pole2`), board at readable height (Daniel 2026-06-05); two-tone via a kitbashed `SBPR_SignBorder` element. Pin path (Shift+E) deferred/unregistered (combined Paint+Text panel, two-tone, Daniel 2026-06-05; supersedes the 6/04 apply-ink model)
+5. **Painted Signs** — ONE buildable sign (`piece_sbpr_sign`, 2 Wood), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), UNPAINTED. Interacting with a placed sign opens a **custom combined Paint+Text uGUI panel** (replaces the vanilla text dialog): set a **text/board color** AND an optional **border color** (two-tone), pay **one pigment per CHANGED slot** vs the sign's current color via `{Paint this and consume}` (border optional; same color in N changed slots = N of that pigment; ≥1 changed slot required; unchanged slots + clears free; re-painting re-consumes only CHANGED slots — see §A2.6 per-changed), edit the label via `{Update Text}` (free, locked until a color is chosen). Both tones + text persist via ZDO (`SBPR_SignTextColor` + `SBPR_SignBorderColor`). **Free-standing on a kitbashed 2m wood pole** (`wood_pole2`), board at readable height (Daniel 2026-06-05); two-tone via a kitbashed `SBPR_SignBorder` element. Pin path (Shift+E) deferred/unregistered (combined Paint+Text panel, two-tone, Daniel 2026-06-05; supersedes the 6/04 apply-ink model)
 6. **Trailblazer's Spade** — single tool item, hoe/hammer-tier, 1.5/3/5m path widths, **Replant Grass in 3 widths (1.5/3/5m)** mirroring the path widths (each restores grass over the stated footprint, still mirrors the Cultivator's "Grass" mode — NOT cultivate, NO terrain raise/level at any width; 3 widths per Daniel's 2026-06-05 playtest, scaling only the grass/paint radius), Clear Vegetation wide-radius (deferred to v0.2.0), recipe **5 Wood + 2 Flint + 2 Leather Hides**, crafted at Explorer's Bench
 7. **Path Lamps** — **3 Wood + 2 Resin** (Meadows-tier, Daniel 2026-06-04), placed via the **Trailblazer's Spade build menu** ('Trail' tab, NOT the Hammer; no station-proximity to place), dimmer than torch, longer fuel, manual ignition (no chain ignition). **Scaled 3× vertically** (foot-anchored — base on the ground, flame at the new top; Daniel 2026-06-05)
 8. **Map disable in v1** — Cartography Table disabled (no build, no functionality on existing); nomap=ON → no map; nomap=OFF → minimap only (no M-key, no north indicator)
@@ -752,7 +785,7 @@ After spec finalization, the following doc updates are needed to keep repo consi
 ### ⏳ Remaining doc-PR work
 1. **Trailblazer's Spade recipe** — `PLAYER_GUIDE.md` line 67 says "wood, tin, flint". Today-locked: 5 Wood + 2 Flint + 2 Leather Hides. No tin.
 2. **v1 Cartography Table behavior** — `PLAYER_GUIDE.md` §"Cartography Table (vanilla) — but rebalanced" describes the v2 cartography shape (now the Surveyor's Table). v1 is DISABLED, not "rebalanced." The v2 design is specced in `docs/design/cartography-v2.md` + `docs/v2/planning/`; the PLAYER_GUIDE section is annotated inline as v2-future.
-3. **Painted Sign interaction model** — line 253 says "default keybind _TBD_" for the pin trigger. **Re-locked 2026-06-05 (Daniel, from UI mockup):** ONE buildable sign, placed UNPAINTED (2 Wood). Interacting with a placed sign opens a **custom combined Paint+Text panel** — set a **text color AND a border color** (two-tone), pay one pigment per filled slot via `{Paint this and consume}` (border optional, re-paint re-consumes), and edit the label via `{Update Text}` (free, locked until a color is chosen). This **supersedes** the 6/04 apply-ink/single-color/no-UI lock. Pin trigger (text color, no-op if nomap=ON) deferred + currently unregistered. PLAYER_GUIDE needs the build-unpainted-then-open-panel loop surfaced (and the "color baked at craft time" line corrected).
+3. **Painted Sign interaction model** — line 253 says "default keybind _TBD_" for the pin trigger. **Re-locked 2026-06-05 (Daniel, from UI mockup):** ONE buildable sign, placed UNPAINTED (2 Wood). Interacting with a placed sign opens a **custom combined Paint+Text panel** — set a **text color AND a border color** (two-tone), pay **one pigment per CHANGED slot** via `{Paint this and consume}` (border optional; re-painting re-consumes only CHANGED slots; unchanged + clears free — see §A2.6 per-changed, LOCKED 2026-06-21), and edit the label via `{Update Text}` (free, locked until a color is chosen). This **supersedes** the 6/04 apply-ink/single-color/no-UI lock. Pin trigger (text color, no-op if nomap=ON) deferred + currently unregistered. PLAYER_GUIDE needs the build-unpainted-then-open-panel loop surfaced (and the "color baked at craft time" line corrected).
 4. **Cairn lifecycle prose** — PLAYER_GUIDE references "the way Cairns are maintained" in Guardian Stones forward-pointer (lines 351-353). Cairn lifecycle now fully specified (3 Stone + 1 Resin + 1 Cairn Marker initial, flat 3+1 upgrade/repair, 5-tier comfort floor, 75% pristine threshold, 25% downgrade, 0% collapse). PLAYER_GUIDE should get a brief Cairn lifecycle section in §Meadows.
 5. **Cairn Marker (new item)** — not yet in PLAYER_GUIDE. Add to crafted-at-Explorer's-Bench item list with recipe: 2 Leather Scraps + 1 Finewood + 1 Pigment.
 6. **Remove Ember Lamps / Beacons from v1 scope language** — PLAYER_GUIDE includes them in the Black Forest section. They're not in v1. Either move them to a "Roadmap" section or clearly label them v1.1+.

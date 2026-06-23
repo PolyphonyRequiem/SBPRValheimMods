@@ -51,9 +51,20 @@ namespace SBPR.Trailborne.Features.Cartography
         // §3 (map-provider-binding-impl-spec): the PROVIDER — the active provider Local Map
         // instance, or null. Identity is the ItemData INSTANCE reference (not prefab/display name —
         // every SBPR_LocalMap shares those). The instance is stable while the item lives in the
-        // inventory, which is exactly the provider's lifetime. Client-only, session-scoped (null on
-        // relog until the player next equips a map — §3.1). Survives unequip while still carried.
+        // inventory, which is exactly the provider's lifetime. Client-only, non-replicated, zero
+        // server cost. Its lifetime is the item's inventory residency and SURVIVES A RELOG: a fresh
+        // controller is attached each session (Minimap.Start) with _provider null, then the one-shot
+        // cold-start latch (below) re-derives it from carried imprinted maps so the disc returns
+        // without re-equipping (AT-MAP-DURABLE — local-map-provider-persist-impl-spec §3). Survives
+        // unequip while still carried.
         private ItemDrop.ItemData? _provider;
+
+        // §3.1 (local-map-provider-persist-impl-spec): one-shot latch — have we run the cold-start
+        // carry re-derivation yet this controller life? The controller is attached fresh on every
+        // Minimap.Start (LocalMapBootstrapPatch), and Minimap.Start runs once per world-load / relog
+        // / character-switch — so the controller's lifetime IS the session, and this resets to false
+        // on every relog by construction (no explicit reset needed).
+        private bool _coldStartResolved;
 
         // §4.3/§4.4: disc bind transition tracker, so we log bind/unbind once (not every poll) and
         // can tear down on the unbind edge. Mirrors the old _hadMapCarried transition style.
@@ -111,6 +122,21 @@ namespace SBPR.Trailborne.Features.Cartography
             float now = Time.realtimeSinceStartup;
             if (now < _nextPoll) return;
             _nextPoll = now + PollSeconds;
+
+            // ── §3 (persist) COLD-START CARRY RE-DERIVATION — one-shot per session ───────────
+            // local-map-provider-persist-impl-spec §3.2: the controller is attached fresh each
+            // session with _provider == null, so a map carried-but-UNEQUIPPED across a relog would
+            // otherwise show no disc until re-equipped (the bug — AT-PERSIST-CARRY). Run ONCE, before
+            // the equip-edge machine, re-deriving the provider from load-restored inventory state.
+            // The latch (not a "_provider == null" re-test) is what preserves §3.4: after it fires, an
+            // in-session drop→re-pickup STILL stays unbound (AT-PERSIST-UNBIND-INTACT) — do NOT relax
+            // this into "re-derive whenever _provider == null".
+            if (!_coldStartResolved)
+            {
+                _coldStartResolved = true;            // one-shot regardless of outcome
+                if (_provider == null)
+                    _provider = ResolveColdStartProvider(player);   // may stay null (nothing carried)
+            }
 
             var equippedMap = GetEquippedLocalMap(player);
             _equippedMap = equippedMap;
@@ -363,11 +389,45 @@ namespace SBPR.Trailborne.Features.Cartography
             return null;
         }
 
-        // NOTE (§8): GetCarriedLocalMap was RETIRED in the provider-binding rework. Its "first
-        // carried map in inventory" selection is wrong for the provider model — the provider is the
-        // most-recently-EQUIPPED still-carried map (§3.3), tracked as an instance reference in
-        // _provider, not re-derived by scanning the inventory each poll. Carry-presence is now tested
-        // via Inventory.ContainsItem(_provider) (§3.4), so no "find any carried map" probe is needed.
+        /// <summary>
+        /// §3.2 (local-map-provider-persist-impl-spec): re-derive the most plausible provider from
+        /// LOAD-RESTORED inventory state, ONCE at cold-start (driven by the _coldStartResolved latch).
+        /// This is what lets a carried-but-unequipped imprinted map keep its disc across a relog
+        /// (AT-PERSIST-CARRY), since a fresh controller starts with _provider == null each session.
+        ///   (a) equipped local map, if any — belt-and-suspenders with vanilla's EquipInventoryItems
+        ///       self-heal (§3.4): binds it turn 1 instead of waiting a poll for the re-equip.
+        ///   (b) else the FIRST carried IMPRINTED local map in inventory-slot order — deterministic
+        ///       (AT-PERSIST-MULTI); imprinted-filtered because a blank provider renders no disc, so
+        ///       binding one would look like the bug isn't fixed (§3.2 note). Self-corrects to exact
+        ///       most-recent on the next equip via the §3.2 edge bind.
+        ///   (c) else null — nothing imprinted carried ⇒ no provider ⇒ no disc (correct).
+        /// m_customData (hence IsImprinted/ReadSurvey) and m_dropPrefab (hence IsLocalMap) are both
+        /// restored on load before this runs (spec §3.2). Clean-side: all reads are base-game.
+        /// </summary>
+        private static ItemDrop.ItemData? ResolveColdStartProvider(Player player)
+        {
+            // (a) equipped wins — matches the in-session §3.2 bind and the vanilla equip self-heal.
+            var equipped = GetEquippedLocalMap(player);
+            if (equipped != null) return equipped;
+
+            // (b) first carried IMPRINTED local map, deterministic inventory-slot order.
+            var inv = player.GetInventory();
+            if (inv == null) return null;
+            foreach (var it in inv.GetAllItems())
+                if (IsLocalMap(it) && LocalMap.IsImprinted(it!)) return it;
+
+            // (c) nothing to restore.
+            return null;
+        }
+
+        // NOTE (§8 / local-map-provider-persist-impl-spec §3.2): GetCarriedLocalMap's old per-poll
+        // "first carried map in inventory" selection was RETIRED in the provider-binding rework — it
+        // is wrong for the live provider model, where carry-presence is tested via
+        // Inventory.ContainsItem(_provider) (§3.4) and the provider is the most-recently-EQUIPPED
+        // still-carried map (§3.3), not re-derived each poll. A SCOPED, IMPRINTED-FILTERED version of
+        // that scan is resurrected ONLY inside ResolveColdStartProvider above, gated by the one-shot
+        // _coldStartResolved latch so it runs exactly once per session — re-deriving the binding a
+        // relog dropped WITHOUT reintroducing the per-poll re-bind that would violate §3.4.
 
         private static bool IsLocalMap(ItemDrop.ItemData? item)
         {

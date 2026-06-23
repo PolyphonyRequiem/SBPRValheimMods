@@ -166,6 +166,16 @@ potentially shareable map object.
 Daniel: *"the map data should probably not be embedded in a zdo on the local map for perf
 reasons … Instead it is fetched when equipped or read from the surveyor's table."*
 
+> **Storage note — binding survives a relog while carried (BUG card t_5fc02f00, 2026-06-22).** The
+> imprinted **survey blob** persists in the item's `m_customData` and rides the player profile save
+> (finding 1 below), so it is intact on load. The **provider binding** (which carried map drives the
+> minimap, §3.2) is *not* itself persisted — it is **client-only and non-replicated** — but because
+> the blob survives and the item is still carried, the binding is **re-derived from the carried
+> imprinted maps at cold-start** and therefore **survives a logout/login** (the locked
+> **AT-MAP-DURABLE**; lifetime = the item's inventory residency). No new persisted key is added for
+> the binding; the cold-start re-derivation latch reuses the already-persisted blob. See §3.2 and
+> [`../v2/planning/local-map-provider-persist-impl-spec.md`](../v2/planning/local-map-provider-persist-impl-spec.md) §3.
+
 🔵 **GROUNDED — the perf question Daniel raised, ANSWERED (this is the load-bearing finding):**
 
 **Does a carried local map's data blob get auto-serialized / broadcast to other players? NO,
@@ -218,6 +228,13 @@ one):**
 - A local map becomes the **active provider** when **equipped**.
 - It **stays** the provider until: (a) another local map is equipped (new provider), OR (b) the
   active local map **leaves the inventory** — dropped, traded, OR **death**.
+- **A relog is none of (a)/(b)** — the item is still carried — so the binding **survives a
+  logout/login while the map stays in inventory** (the locked **AT-MAP-DURABLE**, `requirements.md`
+  §6). The provider is **client-only and non-replicated**, but its **lifetime is the item's
+  inventory residency, surviving the session boundary**: a fresh controller starts each session with
+  no provider and **re-derives it from the carried imprinted maps at cold-start** (a one-shot latch),
+  so the disc returns without re-equipping. (Buildable mechanism:
+  [`../v2/planning/local-map-provider-persist-impl-spec.md`](../v2/planning/local-map-provider-persist-impl-spec.md) §3.)
 - While bound, the **minimap binds + displays** (§2), and **M opens it** even after unequip (§1).
 - 🔵 GROUNDED: equip detection already exists — `LocalMapEquipPatch` reads `Humanoid.m_leftItem`
   via reflection (AccessTools). The "leaves inventory incl. death" unbind needs an inventory-

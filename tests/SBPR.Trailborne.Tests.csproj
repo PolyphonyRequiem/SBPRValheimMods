@@ -58,11 +58,13 @@
          compiles under net8.0. This list is the de-facto manifest of the mod's pure
          logic; as the gated Core extraction lands, entries migrate to a ProjectReference. -->
     <Compile Include="../src/SBPR.Trailborne/Features/Signs/SignHoverHintText.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Signs/SignPaintDelta.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/BoundedMapMath.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/MapCaptionText.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/DiscRingGeometry.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/CompassNorthGate.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/LensHandoffDecision.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneHaloGeometry.cs" />
   </ItemGroup>
 
 </Project>

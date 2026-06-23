@@ -13,10 +13,16 @@ namespace SBPR.Trailborne.Features.Signs
     /// This is the reused guts of the retired apply-pigment seam (SignPaintPatch):
     /// inventory-consume + owner-write ZDO, generalised from one color to two and
     /// from "apply an item" to "the panel committed N pigments". The cost rule
-    /// (§A2.6): ONE pigment per FILLED color slot — text Red + border White = 1 Red
-    /// + 1 White; same color in both slots = 2 of that pigment; border optional
-    /// (text-only = 1); at least one color required. Insufficient pigments → no
-    /// paint at all (checked before any removal, so no partial paint / negative
+    /// (§A2.6, PER-CHANGED-SLOT — LOCKED Daniel 2026-06-21, card t_6df12ca8): ONE
+    /// pigment per slot whose color actually CHANGED vs the sign's current stored ZDO
+    /// color — text Red→Blue on an otherwise-unchanged sign = 1 Blue; unchanged slots
+    /// are free; re-applying the same colors costs nothing. A changed slot is BILLABLE
+    /// only when its new color is non-empty, so clearing a slot (color→∅) is a change
+    /// that costs 0. A fully-unpainted sign is all ""→color = all changes → full cost,
+    /// exactly the prior per-filled behaviour. The two-predicate split (changed-set gate
+    /// vs billable delta cost) is the pure <see cref="SignPaintDelta"/>; this backend
+    /// supplies the LIVE "old" colors from <see cref="SignTag"/>. Insufficient pigments →
+    /// no paint at all (checked before any removal, so no partial paint / negative
     /// inventory — accept-test 9).
     /// </summary>
     public static class SignPaintBackend
@@ -24,16 +30,29 @@ namespace SBPR.Trailborne.Features.Signs
         public enum PaintResult
         {
             Success,
-            NoColorChosen,     // neither slot filled — ≥1 required
+            NothingChanged,    // no slot changed vs current ZDO — silent no-op (button is disabled)
+            NoColorChosen,     // neither slot filled — ≥1 required (defensive; the changed-set gate
+                               // now precedes this, so CommitPaint no longer returns it — retained so
+                               // the genuinely-blank message branch stays defined, never fires on no-op)
             InsufficientItems, // player doesn't hold the required pigments
             ZdoNotReady,       // sign ZDO uninitialised — nothing consumed
             NoPlayer,          // no local player to charge
         }
 
         /// <summary>
-        /// Crafting-style cost for a (text, board, border) choice: a map of COLOR id →
-        /// count of that pigment required. One per filled slot; the same color in N slots →
-        /// N. Empty/"" slots contribute nothing. Caller treats an empty map as "no color".
+        /// Crafting-style PER-FILLED cost for a (text, board, border) choice: a map of COLOR
+        /// id → count of that pigment, one per filled slot; the same color in N slots → N.
+        /// Empty/"" slots contribute nothing.
+        ///
+        /// NOTE (card t_6df12ca8): this is the underlying per-FILLED primitive. The live
+        /// consume/display path now charges PER-CHANGED-SLOT (§A2.6) via
+        /// <see cref="ComputeChangedCost"/> + <see cref="SignPaintDelta"/> — a first paint of
+        /// a fully-unset sign reduces to this exact per-filled cost (all ""→color are
+        /// changes), so this is kept as the shared filled-slot accounting primitive and the
+        /// "first paint" baseline. It has no direct caller after the per-changed rewire;
+        /// retained intentionally (architect's design note) as the documented primitive — do
+        /// NOT route the consume/gate/display through it (that reintroduces the per-filled
+        /// over-charge bug). Prefer <see cref="ComputeChangedCost"/> for anything user-facing.
         /// </summary>
         public static Dictionary<string, int> ComputeCost(string textColor, string boardColor, string borderColor)
         {
@@ -48,6 +67,45 @@ namespace SBPR.Trailborne.Features.Signs
             Add(boardColor);
             Add(borderColor);
             return cost;
+        }
+
+        /// <summary>
+        /// PER-CHANGED-SLOT cost (§A2.6, card t_6df12ca8): the prospective delta — a map of
+        /// COLOR id → count — for repainting <paramref name="tag"/> to the (text, board,
+        /// border) selection, charging ONE pigment per BILLABLE changed slot (changed vs the
+        /// tag's CURRENT stored color AND new color non-empty). Unchanged slots and clears
+        /// cost 0. The "old" colors are read LIVE from the tag here (not snapshotted at
+        /// panel-open) so a second paint in the same session deltas against the just-written
+        /// ZDO. Pure decision delegated to <see cref="SignPaintDelta.ComputeChangedCost"/>.
+        /// A null tag (headless / no sign) falls back to a first-paint cost (old = all unset).
+        /// </summary>
+        public static Dictionary<string, int> ComputeChangedCost(SignTag? tag, string textColor, string boardColor, string borderColor)
+        {
+            string oldText = tag != null ? tag.ReadTextColor() : "";
+            string oldBoard = tag != null ? tag.ReadBoardColor() : "";
+            string oldBorder = tag != null ? tag.ReadBorderColor() : "";
+            return SignPaintDelta.ComputeChangedCost(
+                oldText, oldBoard, oldBorder,
+                textColor ?? "", boardColor ?? "", borderColor ?? "");
+        }
+
+        /// <summary>
+        /// CHANGED-SET predicate (§A2.6, card t_6df12ca8): true if ANY slot's new color
+        /// differs (ordinal) from the tag's CURRENT stored color — INCLUDING a clear
+        /// (color→∅). This is the commit gate / no-op detector the panel enables the Paint
+        /// button on — NOT <c>ComputeChangedCost(...).Count != 0</c>, because a pure clear is
+        /// a change with an EMPTY delta cost and must stay committable (Daniel-locked free
+        /// clear). A no-op (nothing changed) returns false → the button silently disables.
+        /// Delegated to <see cref="SignPaintDelta.HasAnyChange"/>; null tag = first paint.
+        /// </summary>
+        public static bool HasAnyChange(SignTag? tag, string textColor, string boardColor, string borderColor)
+        {
+            string oldText = tag != null ? tag.ReadTextColor() : "";
+            string oldBoard = tag != null ? tag.ReadBoardColor() : "";
+            string oldBorder = tag != null ? tag.ReadBorderColor() : "";
+            return SignPaintDelta.HasAnyChange(
+                oldText, oldBoard, oldBorder,
+                textColor ?? "", boardColor ?? "", borderColor ?? "");
         }
 
         /// <summary>
@@ -140,19 +198,35 @@ namespace SBPR.Trailborne.Features.Signs
         }
 
         /// <summary>
-        /// Validate, charge, and paint in one atomic step:
-        ///   1. ≥1 color required (else NoColorChosen).
+        /// Validate, charge, and paint in one atomic step, on the PER-CHANGED-SLOT basis
+        /// (§A2.6, card t_6df12ca8):
+        ///   1. ≥1 slot must CHANGE vs the sign's current ZDO color (else NothingChanged —
+        ///      a SILENT no-op; the panel keeps the button disabled so this is unreachable
+        ///      via the UI, but defended here too). This is the changed-set gate, NOT a
+        ///      cost-count check — a pure clear (color→∅) is a change with an EMPTY delta
+        ///      and stays committable for free.
         ///   2. local player must exist (else NoPlayer).
-        ///   3. player must hold the full cost (else InsufficientItems — nothing removed).
+        ///   3. player must hold the full DELTA cost (else InsufficientItems — nothing removed).
         ///   4. sign ZDO must be ready (else ZdoNotReady — nothing removed).
-        ///   5. write both tones, THEN remove exactly the pigments.
-        /// The held-check (3) happens before any removal, so an under-stocked player
-        /// never loses pigments and the sign is never half-painted (accept-test 9).
+        ///   5. write all three tones, THEN remove exactly the delta pigments.
+        /// The delta is computed from the sign's CURRENT colors read LIVE BEFORE the write
+        /// (step 5 overwrites them). <paramref name="consumed"/> returns the map actually
+        /// consumed so the caller renders the confirmation message from it WITHOUT a
+        /// post-write re-read (which would delta to 0 — the :397 post-write trap). On every
+        /// non-Success path <paramref name="consumed"/> is an empty map (nothing consumed).
+        /// The held-check (3) happens before any removal, so an under-stocked player never
+        /// loses pigments and the sign is never half-painted (accept-test 9).
         /// </summary>
-        public static PaintResult CommitPaint(SignTag tag, Player player, string textColor, string boardColor, string borderColor)
+        public static PaintResult CommitPaint(SignTag tag, Player player, string textColor, string boardColor, string borderColor, out Dictionary<string, int> consumed)
         {
-            var cost = ComputeCost(textColor, boardColor, borderColor);
-            if (cost.Count == 0) return PaintResult.NoColorChosen;
+            consumed = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            // Two-predicate gate: the changed-set (incl. clears) gates the commit; the
+            // billable delta is the charge. Both read the CURRENT colors LIVE, pre-write.
+            if (!HasAnyChange(tag, textColor, boardColor, borderColor))
+                return PaintResult.NothingChanged; // silent no-op (button is disabled)
+
+            var cost = ComputeChangedCost(tag, textColor, boardColor, borderColor);
             if (player == null)  return PaintResult.NoPlayer;
             if (!HasPigments(player, cost)) return PaintResult.InsufficientItems;
 
@@ -160,10 +234,13 @@ namespace SBPR.Trailborne.Features.Signs
             if (tag == null || !tag.WriteColors(textColor ?? "", boardColor ?? "", borderColor ?? ""))
                 return PaintResult.ZdoNotReady;
 
-            // Consume exactly the cost. We already proved sufficiency above.
+            // Consume exactly the delta. We already proved sufficiency above. A pure clear
+            // has an empty delta → this loop is a no-op (clears stay free).
             foreach (var kv in cost)
                 RemovePigment(player, kv.Key, kv.Value);
 
+            // Hand back what was actually consumed so the message renders the real delta.
+            consumed = cost;
             return PaintResult.Success;
         }
 

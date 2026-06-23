@@ -1,10 +1,40 @@
 ---
 title: "Sunstone Lens detection — the eidetic trophy ring (world-space head-halo render, supersedes the screen-space radar)"
 status: current
-purpose: "Architect render-design for the Sunstone Lens' standalone (no-minimap) detection surface: a DIEGETIC, world-space head-halo of creature TROPHIES floating around the player — real world bearings (camera-relative, never north-up), variable radius+scale ∝ distance, vanilla nameplate star pips, aggro-state tint. As of 2026-06-21 this SUPERSEDES the earlier screen-space camera-relative radar (§Q2/§5, card t_b8a19487) on Daniel's eidetic request, modelled on Rune Magic's Rune of Alertness. The detection MECHANIC (who/when — SunstoneLens.GatherHostiles, the energy model, the equip-gate) and the SunstoneProjection→ThreatBlip derivation are UNCHANGED; only the standalone-ring RENDER SURFACE is redesigned. The minimap surfaces (SBPR carry-disc, vanilla corner map) are DECOUPLED and untouched. Every vanilla hook line-cited against assembly_valheim. Card t_68672b6b (this redesign) supersedes the §Q2/§5 lock in t_b8a19487; Daniel pre-approved the four knobs (\"just implement as directed\")."
+purpose: "Architect render-design for the Sunstone Lens' standalone (no-minimap) detection surface: a DIEGETIC, world-space head-halo of creature TROPHIES floating around the player — real world bearings (camera-relative, never north-up), a FIXED ring distance with scale-only range cue (full ≤10m to 0.25 at the detection edge, the 10m knee; bug-fix t_10bacccf 2026-06-22 supersedes the earlier variable-radius+scale lock), vanilla nameplate star pips, aggro-state tint. As of 2026-06-21 this SUPERSEDES the earlier screen-space camera-relative radar (§Q2/§5, card t_b8a19487) on Daniel's eidetic request, modelled on Rune Magic's Rune of Alertness. The detection MECHANIC (who/when — SunstoneLens.GatherHostiles, the energy model, the equip-gate) and the SunstoneProjection→ThreatBlip derivation are UNCHANGED; only the standalone-ring RENDER SURFACE is redesigned. The minimap surfaces (SBPR carry-disc, vanilla corner map) are DECOUPLED and untouched. Every vanilla hook line-cited against assembly_valheim. Card t_68672b6b (this redesign) supersedes the §Q2/§5 lock in t_b8a19487; Daniel pre-approved the four knobs (\"just implement as directed\")."
 ---
 
 # Sunstone Lens detection — the eidetic trophy ring (world-space)
+
+> # 🐛 GEOMETRY RE-LOCK (2026-06-22, bug-fix card t_10bacccf) — Knob #2 is now a FIXED-distance ring + scale-only range cue (10m knee), NOT variable radius+scale
+>
+> **The shipped world-halo (PR #242, card t_d17d9b58) used a VARIABLE radius AND scale, both ∝
+> distance** (Knob #2 as originally locked below). In play that pushed a far enemy to the **outer**
+> radius (away from your face) **and** shrank it toward ~0.12 world-units — far + tiny = effectively
+> invisible. Daniel reported it (Discord `ticket-diegetic-halo-render`, 2026-06-22), verbatim:
+> > *"creatures should be at a fixed distance from the player but grow in scale from .25 at the far
+> > edges to 1.0 when within 10m. Right now they're seemingly too far from the player to be clearly
+> > visible."*
+>
+> **Knob #2 is re-locked (Daniel is the design authority on this report):**
+> - **Placement is at a FIXED distance.** Every trophy renders equidistant from the eye-point — a
+>   true fixed-radius ring. The old `HaloRadiusMin`/`HaloRadiusMax` collapse to a single
+>   **`HaloRadius`** (directional start ~2.0m, AT-gated — Daniel eyeballs the metres on a GPU client).
+>   **No outward push for far enemies.**
+> - **SCALE carries ALL the distance info**, with a **10m knee**: enemy **≤10m → full scale** (the
+>   locked **"1.0"**); enemy at the **50m detection edge → 25% scale** (the locked **"0.25"**); linear
+>   between. `scaleNear` (the absolute world-size "1.0" maps to) stays the AT-gated tunable
+>   (`HaloScaleMax` ≈ 0.6, kept); the old `HaloScaleMin` is **derived** (`0.25 × scaleNear`), not an
+>   independent knob. The **10m knee + 0.25 floor + 1.0 ceiling are LOCKED**.
+>
+> **What this re-lock does NOT change:** placement is still along the **real `dirToEnemy` bearing**
+> (camera-relative, the thesis guard — §Q2 #1, AT-EIDETIC-CAMREL); still **flat billboarded trophies**
+> (Knob #4); still the **hybrid trophy-less** policy (Knob #3); still the **aggro tint** + **star
+> pips**. Only the radius (variable → fixed) and the scale curve (linear-over-0..50m →
+> 10m-knee) change. **§Q2 Knob #2, §1.2, §1.3 below are rewritten for this**; the historical
+> variable-radius prose is struck through / marked SUPERSEDED so the reversal is auditable. The pure
+> fixed-distance + knee math lives in the engine-free, **CI-gated** `SunstoneHaloGeometry`
+> (AT-HALO-FIXED-DIST / AT-HALO-SCALE-KNEE) so it cannot silently regress again.
 
 > # 🔄 RENDER REVERSAL (2026-06-21, card t_68672b6b) — the standalone ring is now DIEGETIC (world-space 3D), not a flat HUD radar
 >
@@ -32,8 +62,10 @@ purpose: "Architect render-design for the Sunstone Lens' standalone (no-minimap)
 >
 > **The four open knobs are LOCKED** (Daniel answered them, then said *"just implement as
 > directed"* — doc-review gate WAIVED): (1) **occlusion** → head-halo placement (the "Rune Magic
-> dodge", rarely occluded, no through-terrain material); (2) **geometry** → head-centric halo,
-> **variable radius AND scale** both ∝ distance; (3) **trophy-less** → hybrid variant→sibling
+> dodge", rarely occluded, no through-terrain material); (2) **geometry** → 🐛 **re-locked by
+> t_10bacccf (2026-06-22): a FIXED-distance ring + scale-only range cue with a 10m knee** (the
+> original t_68672b6b lock was variable radius AND scale ∝ distance, which hid far enemies — see the
+> GEOMETRY RE-LOCK banner above); (3) **trophy-less** → hybrid variant→sibling
 > remap table + generic fallback, with a **default-ON startup dump** of unmapped creatures for
 > review; (4) **trophy render** → **flat billboarded sprites** (the existing `m_icons[0]`), NOT
 > 3D `attach` meshes. See §Q2 and §5 for the locked rationale.
@@ -193,12 +225,26 @@ implement as directed"):**
    player's eye-point (`Character.GetEyePoint()`, public `:8655`), rarely occluded; no special
    material. (Collapses the occlusion fork into the placement choice — Knob #1 and #2 are one
    decision.)
-2. **Geometry → head-centric halo with VARIABLE radius AND scale**, both ∝ distance — the Rune
-   Magic model: `pos = eyePoint + dirToEnemy * Lerp(radiusMin, radiusMax, dist/maxDist)`,
-   `scale = Lerp(scaleMax, scaleMin, dist/maxDist)`. Near enemies sit at the **inner** radius
-   (close to your face) and **big**; far enemies push out to the **outer** radius and shrink
-   toward nothing. **This SUPERSEDES the original SBPR lock of "fixed ring radius, size-only ∝
-   closeness"** (§1.2/§1.3 below are rewritten accordingly).
+2. **Geometry → FIXED-distance ring + scale-only range cue (10m knee).** 🐛 **Re-locked by
+   bug-fix t_10bacccf (2026-06-22)** — supersedes the original t_68672b6b lock of *"head-centric
+   halo with VARIABLE radius AND scale, both ∝ distance"* (struck through below), which pushed far
+   enemies to the **outer** radius (away from your face) **and** shrank them toward ~nothing, so a
+   30–50m hostile read as far + tiny = invisible (exactly Daniel's report). The model is now:
+   `pos = eyePoint + dirToEnemy * HaloRadius` (a **single fixed** distance for every trophy — no
+   range-dependent push), and `scale` carries all the range info through a **10m knee**:
+   `k = 1 - Clamp01((dist - 10) / (detectRadius - 10)); scale = Lerp(scaleNear·0.25, scaleNear, k)`
+   — enemy **≤10m → full** (the "1.0" → `scaleNear`), enemy at the **50m edge → 0.25·scaleNear**
+   (the "0.25"), linear between. The **10m knee + 0.25 floor + 1.0 ceiling are LOCKED** (Daniel's
+   numbers). `scaleNear` (= config `HaloScaleMax` ≈ 0.6) is the AT-gated eyeball tunable; the old
+   `HaloScaleMin` is **derived** (`0.25·scaleNear`), not an independent knob; `HaloRadiusMin/Max`
+   collapse to one `HaloRadius`. (§1.2/§1.3 below are rewritten accordingly; the pure math is the
+   CI-gated `SunstoneHaloGeometry` — AT-HALO-FIXED-DIST / AT-HALO-SCALE-KNEE.)
+
+   > ~~**SUPERSEDED (original t_68672b6b lock):** head-centric halo with VARIABLE radius AND scale,
+   > both ∝ distance — `pos = eyePoint + dirToEnemy * Lerp(radiusMin, radiusMax, dist/maxDist)`,
+   > `scale = Lerp(scaleMax, scaleMin, dist/maxDist)`; near enemies at the inner radius and big, far
+   > enemies pushed to the outer radius and shrunk toward nothing.~~ This is the design Daniel
+   > reversed in t_10bacccf because the outward push + shrink made far enemies invisible.
 3. **Trophy-less → hybrid** (variant→sibling remap table + generic 3D fallback + default-ON
    startup dump) — see the §Q1 rewrite above.
 4. **Trophy render → FLAT billboarded sprites for ALL trophies** (the existing `m_icons[0]` on a
@@ -301,9 +347,9 @@ nearest N (the sweep already has world positions; sort by distance).
 **World placement (camera-relative by construction — the thesis guard).** For each hostile:
 ```
 dir   = (blip.WorldPos - eye)           // real world vector to the enemy
-dist  = dir.magnitude                    // for radius + scale lerp (§1.3)
+dist  = dir.magnitude                    // for the SCALE knee only (§1.3) — NOT for placement distance
 dirN  = dir.normalized
-pos   = eye + dirN * radius(dist)        // head-halo: trophy sits along the true bearing
+pos   = eye + dirN * HaloRadius          // FIXED-distance ring: every trophy sits at the SAME radius on its true bearing
 slot.transform.position = pos
 // Billboard component handles facing — no manual angle math, no SignedAngle.
 ```
@@ -311,35 +357,58 @@ Because `pos` is placed along the **real** `dir` to the enemy, the trophy is aut
 enemy's true world bearing around you — turn the camera and the halo sweeps correctly, with **no
 north frame injected** (thesis guard holds by construction; do NOT recompute a `SignedAngle`
 against camera-forward and re-project — that was the screen-space hack, unnecessary and risky in
-world space). Eye-point/camera-null safe — hide the halo if `player` or `GetMainCamera()` is null.
+world space). The placement **distance** is the single fixed `HaloRadius` for **every** enemy
+(near or far — no range-dependent push, the t_10bacccf fix); `dist` feeds only the SCALE knee
+(§1.3). Eye-point/camera-null safe — hide the halo if `player` or `GetMainCamera()` is null.
 
 > **SUPERSEDED — the old screen-space angular placement.** The screen ring computed
 > `signed = Vector3.SignedAngle(camForward_flat, toEnemy_flat, up)` and placed a `RectTransform`
 > at `(sin·R, cos·R)` on a fixed-radius circle (`SunstoneLensHudOverlay.cs:398-401`). That math is
 > **deleted** — world-space placement along the real `dir` subsumes it and is strictly simpler.
 
-### 1.3 Variable radius AND scale ∝ distance (the head-halo, Knob #2 LOCKED)
+### 1.3 FIXED-distance ring + scale-only range cue (the 10m knee, Knob #2 re-locked by t_10bacccf)
 
-🔄 **SUPERSEDES the original "fixed ring radius, size-only ∝ closeness."** Daniel locked the Rune
-Magic head-halo: **both** the halo radius and the trophy scale vary with distance.
+🐛 **RE-LOCKED (bug-fix t_10bacccf, Daniel 2026-06-22) — supersedes the variable-radius+scale model
+below.** The shipped variable-radius design pushed far enemies to the **outer** radius (away from
+your face) **and** shrank them toward nothing, so a 30–50m hostile was far + tiny = invisible.
+Daniel's correction: **placement is at a FIXED distance; SCALE alone carries range, with a 10m
+knee.**
 ```
-u      = Clamp01(dist / DetectRadius)               // 0 at the player, 1 at the edge of range
-radius = Lerp(HaloRadiusMin, HaloRadiusMax, u)      // near = inner (close to your face), far = outer
-scale  = Lerp(HaloScaleMax, HaloScaleMin, u)        // near = big, far → shrinks toward nothing
-```
-- **Near enemies** sit at the **inner** radius (close to your eye-point) and render **big**.
-- **Far enemies** push out to the **outer** radius and shrink toward `HaloScaleMin` (≈0 at the
-  detection edge so a just-detected threat fades in rather than popping).
-- `DetectRadius` is the existing `Plugin.LensDetectRadius` (default 50m). `HaloRadiusMin/Max`
-  (world metres, defaults ~1.2m / ~3.0m — a tight halo just beyond arm's reach), `HaloScaleMin/Max`
-  (world units, tune live) are config. All **live-tunable** so Daniel converges feel in one joined
-  session (the banner-windsock pattern). Set the slot transform's `localScale` to `scale` (uniform).
+// PLACEMENT — fixed distance for every trophy (no range dependence):
+pos   = eye + dirN * HaloRadius                              // single HaloRadius, all enemies
 
-> The world radii are small on purpose — this is a **halo around your head**, not a ground ring at
-> detection distance. A 50m Draugr is represented by a small trophy ~3m out on its bearing, not a
-> trophy literally 50m away (which would be invisible/occluded). That is exactly the Rune Magic
-> dodge: the representation lives near the camera, so terrain rarely occludes it and no
-> through-terrain material is needed (Knob #1).
+// SCALE — the 10m knee (all the distance information lives here):
+k     = 1 - Clamp01((dist - 10) / (DetectRadius - 10))       // 1 at ≤10m, 0 at the detection edge
+scale = Lerp(scaleNear * 0.25, scaleNear, k)                 // full ≤10m, 0.25·scaleNear at the edge
+```
+- **Placement is range-independent.** Every trophy sits at the same `HaloRadius` from the eye-point
+  on its real bearing. A near enemy and a far enemy are at the **same distance from your face** —
+  only their **size** differs. (This is the whole reversal: no more outward push.)
+- **Scale ≤10m is FULL** (`scaleNear`, the locked "1.0"). Closer than 10m does **not** render
+  bigger — it's clamped at full so a point-blank enemy doesn't balloon.
+- **Scale at the 50m edge is `0.25·scaleNear`** (the locked "0.25" floor) — a readable quarter-size,
+  **not** shrunk toward nothing. Linear between the knee and the edge.
+- **The 10m knee + 0.25 floor + 1.0 ceiling are LOCKED** (Daniel's numbers). `DetectRadius` is the
+  existing `Plugin.LensDetectRadius` (default 50m). `HaloRadius` (world metres, default ~2.0m — a
+  tight head-halo, AT-gated) and `scaleNear` (= config `HaloScaleMax` ≈ 0.6, the full-size world
+  units) are config. `HaloScaleMin` is **gone** — the edge scale is derived (`0.25·scaleNear`).
+  All **live-tunable** so Daniel converges feel in one joined session (the banner-windsock pattern).
+  Set the slot transform's `localScale` to `scale` (uniform). The pure curve is the engine-free,
+  CI-gated `SunstoneHaloGeometry` (AT-HALO-FIXED-DIST / AT-HALO-SCALE-KNEE).
+
+> The `HaloRadius` is small on purpose — this is a **halo around your head**, not a ground ring at
+> detection distance. A 50m Draugr is represented by a small (0.25-scale) trophy ~2m out on its
+> bearing, not a trophy literally 50m away (which would be invisible/occluded). That is exactly the
+> Rune Magic dodge: the representation lives near the camera, so terrain rarely occludes it and no
+> through-terrain material is needed (Knob #1). The **size**, not the distance, tells you how close
+> the threat actually is.
+
+> ~~**SUPERSEDED — the original t_68672b6b variable-radius+scale lock:**~~
+> ~~`u = Clamp01(dist / DetectRadius); radius = Lerp(HaloRadiusMin, HaloRadiusMax, u); scale =
+> Lerp(HaloScaleMax, HaloScaleMin, u)` — near enemies at the inner radius and big, far enemies pushed
+> to the outer radius and shrunk toward `HaloScaleMin` (≈0 at the edge).~~ Reversed by t_10bacccf
+> because the outward-push + shrink-to-nothing made far enemies unreadable. The `HaloRadiusMin/Max`
+> and `HaloScaleMin` config knobs are removed (→ single `HaloRadius`; edge scale derived).
 
 ### 1.4 Trophy sprite + the hybrid fallback (Knob #3 LOCKED)
 
@@ -389,7 +458,7 @@ ring** (not nothing); depleted lens → halo **off**.
 - **Zero hostiles:** all trophy slots `SetActive(false)`, but draw a **3D pulsing sun-corona disc**
   so the player can see the lens is live and watching. `Sunstone.ShowEmptyRing` config — **default
   ON**. ~~In world-space this is a thin warm/amber **horizontal halo ring** rendered around the
-  eye-point at `HaloRadiusMin` (a flat billboarded annulus, or a line-loop in the halo plane), low
+  eye-point at `HaloRadius` (a flat billboarded annulus, or a line-loop in the halo plane), low
   alpha (~0.18) … *(Engineer may instead keep a screen-space faint ring under `Hud.m_rootObject` …
   either surface is acceptable …)*~~ 🐛 **SUPERSEDED by the `/bug` report on card `t_2d500d45`
   (Daniel, 2026-06-22): "the ring itself is just a screen space circle, not a 3d slowly pulsing 'sun
@@ -553,9 +622,18 @@ the halo reads right — Daniel's eye on a GPU client in the next playtest build
   (a billboarded trophy card) appears **in the world** at the correct **bearing relative to where
   the player is facing** (turn so the enemy is on your right → its trophy floats on your right;
   face it → straight ahead). Uses a real crafted/looted lens (not a `spawn`-ed one).
-- **AT-EIDETIC-2** — as a hostile **approaches**, its trophy **grows AND moves inward** toward the
-  inner halo radius (close to your face); as it recedes, it **shrinks AND pushes out** toward the
-  outer radius (variable radius + scale, Knob #2).
+- **AT-EIDETIC-2 / AT-HALO-SCALE-KNEE** — as a hostile **approaches**, its trophy **grows** (scale
+  rises toward full at 10m) while staying at the **same fixed ring distance** from your face; as it
+  recedes, it **shrinks** toward the 0.25 floor at the 50m edge — but **never moves closer to or
+  farther from your face** (fixed-distance ring; only SCALE varies, the 10m knee, Knob #2 re-locked
+  by t_10bacccf).
+- **AT-HALO-FIXED-DIST** — every trophy renders at the **same fixed distance** from the eye-point
+  regardless of enemy range; a near enemy and a 50m enemy sit at the same `HaloRadius`, differing
+  only in size. **No outward push** for far enemies (the bug that hid them).
+- **AT-HALO-SCALE-KNEE** — enemy **≤10m → full scale** (the "1.0"); enemy at the **50m detection
+  edge → 25% scale** (the "0.25"); linear between; the edge trophy is still clearly readable, never
+  shrunk toward nothing. (Pinned headlessly in `SunstoneHaloGeometryTests.cs`; the in-game read is
+  Daniel's GPU-client accept.)
 - **AT-EIDETIC-3** — a **1-star** enemy shows the **vanilla nameplate star** above its trophy; a
   **2-star** shows **two**; a **0-star** shows none. (Count = `GetLevel()-1`; the pip sprite is
   harvested from vanilla `EnemyHud.m_baseHud` level_2/level_3, NOT a Unicode ★.)
@@ -598,10 +676,9 @@ session — the banner-windsock pattern).** The screen-space knobs are replaced 
 
 | Knob | Default | Role |
 |---|---|---|
-| `HaloRadiusMin` (m) | ~1.2 | inner halo radius (near enemies, close to your face) — Knob #2 |
-| `HaloRadiusMax` (m) | ~3.0 | outer halo radius (far enemies push out) — Knob #2 |
-| `HaloScaleMax` | tune | trophy world-scale for the nearest enemy (big) — Knob #2 |
-| `HaloScaleMin` | tune (~0) | trophy world-scale at the detection edge (shrinks toward nothing) — Knob #2 |
+| `HaloRadius` (m) | ~2.0 | **FIXED** ring distance — EVERY trophy is equidistant from the eye (no range-dependent push) — Knob #2 (t_10bacccf) |
+| `HaloScaleMax` | ~0.6 | trophy world-scale at FULL size (enemy ≤10m → the "1.0") — Knob #2; the AT-gated eyeball tunable (`scaleNear`) |
+| _(derived)_ edge scale | `0.25 × HaloScaleMax` | trophy scale at the 50m detection edge (the locked "0.25" floor) — **derived, not a knob** (old `HaloScaleMin` removed) |
 | `HaloEyeOffsetY` (m) | ~0 | lift the halo plane off the eye-point so trophies clear the crosshair |
 | `RingMaxIcons` | ~12 | pooled-slot cap (nearest N shown in a horde) — carried over |
 | `ShowEmptyRing` | **true** | faint solar ring when nothing's near (§1.6) — carried over |
@@ -640,10 +717,14 @@ Daniel answered all four open knobs in the ticket thread, then said *"just imple
 1. **Occlusion policy → 🔒 head-halo "Rune Magic dodge".** (Daniel: *"use the rune magic dodge."*)
    Trophies float in a tight halo around the eye-point, rarely occluded; **no through-terrain
    material.** Honest depth. Collapses with Knob #2. (§Q2 #1, §1.3.)
-2. **Ring geometry → 🔒 head-centric halo, variable radius AND scale ∝ distance.** (Daniel: *"More
-   like rune magic's."*) `pos = eye + dir·Lerp(radiusMin,radiusMax,u)`, `scale =
-   Lerp(scaleMax,scaleMin,u)`. **SUPERSEDES** the old "fixed ring radius, size-only ∝ closeness."
-   Bearing stays camera-relative (thesis guard). (§Q2 #2, §1.2–§1.3.)
+2. **Ring geometry → 🔒 FIXED-distance ring + scale-only range cue (10m knee).** 🐛 **Re-locked by
+   bug-fix t_10bacccf (Daniel 2026-06-22, verbatim: "creatures should be at a fixed distance from
+   the player but grow in scale from .25 at the far edges to 1.0 when within 10m").** `pos = eye +
+   dirN·HaloRadius` (single fixed distance), `scale = Lerp(scaleNear·0.25, scaleNear, 1 -
+   Clamp01((dist-10)/(detectRadius-10)))` (full ≤10m → 0.25 at the 50m edge). **SUPERSEDES** the
+   original t_68672b6b lock of variable radius AND scale ∝ distance (which pushed far enemies out
+   and shrank them to invisibility). 10m knee + 0.25 floor + 1.0 ceiling LOCKED; `scaleNear`
+   (=HaloScaleMax) AT-gated. Bearing stays camera-relative (thesis guard). (§Q2 #2, §1.2–§1.3.)
 3. **Trophy-less fallback → 🔒 hybrid (remap table + generic fallback + default-ON startup dump).**
    (Daniel: *"Hybrid with a setting default on to dump unmapped creatures on startup for review."*)
    Greyling→Greydwarf-style variant→sibling remap, generic 3D fallback for the rest (never omit),
@@ -709,8 +790,11 @@ unmapped trophy-less hostiles are invisible to the rune.
   player, red = targeting the local player. Trophies removed on death/despawn; all cleared on stop.
 
 **Where SBPR DIVERGES from Rune Magic (reconciled in the locked design above):**
-- **Placement/geometry:** SBPR adopts Rune Magic's head-halo + variable radius+scale **wholesale**
-  (Knob #1+#2 LOCKED) — this *supersedes* SBPR's earlier "fixed ring radius" lock.
+- **Placement/geometry:** SBPR adopts Rune Magic's **head-halo placement near the eye-point** (Knob
+  #1) but **diverges on the distance cue** (Knob #2, re-locked by t_10bacccf): where Rune Magic
+  varies BOTH radius and scale with distance, SBPR uses a **FIXED ring distance** and lets **scale
+  alone** carry range (the 10m knee: full ≤10m → 0.25 at the edge). Daniel reversed the earlier
+  "adopt Rune Magic's variable radius wholesale" lock because the outward push hid far enemies.
 - **Trophy art:** SBPR uses **flat billboarded `m_icons[0]` sprites** (Knob #4), NOT the 3D `attach`
   mesh — sidesteps Rune Magic's whole per-species mesh-tuning override table
   (`AlertnessScaleOverride-X`/`RotationOverride-X`/`OffsetOverride-X`/`TrophyPosOverride-X` exist
