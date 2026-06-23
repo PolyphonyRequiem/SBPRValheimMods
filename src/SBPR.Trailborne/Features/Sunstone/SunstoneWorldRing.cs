@@ -201,6 +201,40 @@ namespace SBPR.Trailborne.Features.Sunstone
         /// <summary>Hide the whole halo (the content root toggles off; the host pump is untouched).</summary>
         public void Hide() => SetVisible(false);
 
+        /// <summary>
+        /// Build (idempotently) the shared world-content scene root and return its transform so a
+        /// sibling cosmetic — the Sunstone <see cref="SunstoneCoronaDisc"/> (card t_9d7c3dfe) — can
+        /// parent UNDER it, sharing this halo's SINGLE visibility/dispose lifecycle. The corona is the
+        /// world-space SUBSTRATE the fixed-distance trophy halo orbits (spec §2.1); co-locating them in
+        /// one root makes them read as one coherent element and gives "hide lens → corona + trophies
+        /// hide together" for free (AT-CORONA-SUBSTRATE). Returns null only once disposed. The root is
+        /// NEVER under Hud.m_rootObject (#209 — only the visuals toggle; the host pump stays alive).
+        /// </summary>
+        internal Transform? EnsureContentRoot()
+        {
+            if (_disposed) return null;
+            EnsureBuilt();
+            return _worldContent != null ? _worldContent.transform : null;
+        }
+
+        /// <summary>
+        /// Make the shared world-content root VISIBLE but show NO trophies (every pooled slot parked).
+        /// The corona shares this root, so the depleted-hint path (<c>ShowDepletedHint</c> ON — default
+        /// OFF) needs the root active for the corona to render a dim "inert, recharge me" glow while the
+        /// trophy halo stays empty. The host pump is untouched (#209). No-op + hidden when there's no
+        /// main camera (the same guard <see cref="Render"/> uses).
+        /// </summary>
+        internal void ShowRootWithoutTrophies()
+        {
+            if (_disposed) return;
+            EnsureBuilt();
+            if (_worldContent == null) return;
+            if (Utils.GetMainCamera() == null) { SetVisible(false); return; }
+            SetVisible(true);
+            for (int i = 0; i < _slots.Count; i++)
+                if (_slots[i].Go.activeSelf) _slots[i].Go.SetActive(false);
+        }
+
         private void SetVisible(bool on)
         {
             if (_worldContent == null) return;

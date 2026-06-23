@@ -65,6 +65,7 @@
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/CompassNorthGate.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/LensHandoffDecision.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneHaloGeometry.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneCoronaPulse.cs" />
   </ItemGroup>
 
 </Project>
