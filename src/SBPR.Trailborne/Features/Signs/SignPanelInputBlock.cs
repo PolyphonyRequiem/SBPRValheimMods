@@ -187,6 +187,14 @@ namespace SBPR.Trailborne.Features.Signs
         // CursorPumpPatch approach as the load-bearing mechanism (the pump is kept only as a
         // belt-and-suspenders visible-cursor assert; this patch is what actually stops the snap).
         //
+        // ⚠️ INCOMPLETE — read with §2L.14 below (card t_cad2c6f3). This narrative names Steam Input's
+        // virtual gamepad as THE cause; that is only ONE of two cases. This patch is load-bearing ONLY
+        // while vanilla's event-driven UpdateCursor actually fires (i.e. the input source is churning).
+        // On a gamepad-ABSENT keyboard+mouse rig the source never flips, UpdateCursor never runs, and
+        // this forced IsMouseActive is never read → cursor never freed. The source-independent
+        // ModalCursorDriver in §2L.14 is what fixes Daniel's rig; this patch is KEPT for the
+        // virtual-pad case. Treat the block below as the historical one-case account.
+        //
         // ROOT CAUSE (decompiled, verified — assembly_valheim + assembly_utils + Unity.InputSystem):
         // Valheim 0.221.x routes UI pointers through the new Unity Input System, whose
         // InputSystemUIInputModule.ProcessPointer FORCES every mouse pointer event to screen-centre
@@ -231,6 +239,226 @@ namespace SBPR.Trailborne.Features.Signs
                 // vanilla's event-driven UpdateCursor computes lockState=None (cursor free, no
                 // Input-System center-snap) even when Steam Input's virtual pad owns the source.
                 if (AnyOpen) __result = true;
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════════════════════════════
+        // §2L.14 (ticket-cursor-lock-map-sign, card t_cad2c6f3): the SOURCE-INDEPENDENT cursor
+        // assert + a diagnostic probe. THE THIRD report of this family — and the forensic reason
+        // the §2L.12 fix above did NOT stick for Daniel.
+        //
+        // WHY §2L.12 MISSES DANIEL'S RIG (decompile-grounded, RequiemPrime logs 2026-06-22):
+        // MouseActiveForcePatch makes vanilla's OWN UpdateCursor compute lockState=None — but both
+        // UpdateCursor sites (Menu :45815, FejdStartup :83089) are EVENT-DRIVEN on
+        // ZInput.OnInputLayoutChanged; they fire ONLY when the active input SOURCE flips. On a box
+        // with Steam-Input's drifting VIRTUAL gamepad the source flips every frame → UpdateCursor
+        // fires every frame → the fix rides that churn (works). On Daniel's KB+M box there is NO
+        // gamepad at all (verified: no /dev/input/js*, no controller, Steam Input off) → the source
+        // NEVER flips while the modal is open → UpdateCursor never runs → the forced IsMouseActive
+        // is never read → the cursor is never recomputed to free. §2L.12 is parasitic on churn that
+        // is ABSENT here; he is the exact case it does not cover.
+        //
+        // WHY THE OLD PUMP (CursorPumpPatch on GameCamera.LateUpdate) ALSO LOSES: Unity's
+        // InputSystemUIInputModule.ProcessPointer center-snaps the pointer whenever it reads
+        // lockState==Locked, and it runs in the UPDATE phase — BEFORE GameCamera.LateUpdate. So the
+        // LateUpdate pump writes None one frame too late: the snap has already read Locked this frame.
+        //
+        // THE FIX (source-independent — does not depend on ANY input source or churn): a dedicated
+        // MonoBehaviour that asserts lockState=None + visible=true in BOTH Update() AND LateUpdate()
+        // every frame AnyOpen is true. The Update() assert runs early enough that ProcessPointer reads
+        // None (no snap); the LateUpdate() assert re-affirms after vanilla's camera pass. This is the
+        // belt the §2L.12 patch's "belt-and-suspenders pump" was supposed to be, moved to the phase
+        // that actually beats the snap, and decoupled from the gamepad-churn assumption entirely.
+        // Kept ALONGSIDE MouseActiveForcePatch (which still helps the virtual-pad case) — together they
+        // cover both rigs. Server-safe: Hud.Awake only runs on a client (no Hud on the dedicated
+        // server), and AnyOpen is always false there regardless.
+        //
+        // §2L.15 UPDATE: the §2L.14 diag build's first client test (RequiemPrime 2026-06-22) showed
+        // this per-frame MonoBehaviour assert wins ~2/3 of frames but a re-locker still beats it ~1/3.
+        // The decisive fix is MenuUpdateCursorForcePatch below (a direct postfix on the method that
+        // writes lockState). This driver is KEPT as the belt-and-suspenders layer + the diag host.
+        //
+        // THE DIAGNOSTIC (gated on the SBPR_CursorDiag config flag, default ON in this build): every
+        // ~30 frames while AnyOpen, log the INCOMING lockState, the raw IsMouseActive (NOTE: contaminated
+        // by MouseActiveForcePatch — reads true while open), the UNCONTAMINATED gamepadActive source
+        // signal, the count of Menu.UpdateCursor fires since the last line (high ⇒ event-driven re-lock
+        // churn; zero ⇒ the Locked frames come from a native/non-managed seam), and each contributor's
+        // open flag. This turns the next client repro into ground-truth instead of a guess.
+        // ════════════════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Bootstraps <see cref="ModalCursorDriver"/> onto the Hud the moment it awakes on a client.
+        /// Hud.Awake is a clean every-client-start seam (never runs on the dedicated server → the
+        /// whole driver is client-only, no server guard needed). Registered in Plugin.Awake; if you
+        /// forget, PatchCheck ERRORs at boot (the t_564f695a lesson).
+        /// </summary>
+        [HarmonyPatch(typeof(Hud), "Awake")]
+        public static class ModalCursorDriverBootstrapPatch
+        {
+            [HarmonyPostfix]
+            private static void Postfix(Hud __instance)
+            {
+                if (__instance == null) return;
+                // One driver for the whole session. Attached to the Hud GameObject so it lives and
+                // dies with the in-world HUD (gone on the main menu, back on world load).
+                if (__instance.gameObject.GetComponent<ModalCursorDriver>() == null)
+                    __instance.gameObject.AddComponent<ModalCursorDriver>();
+            }
+        }
+
+        /// <summary>
+        /// The source-independent per-frame cursor assert + the §2L.14 diagnostic probe. Asserts a
+        /// free, visible cursor in BOTH Update (early enough to beat ProcessPointer's center-snap)
+        /// and LateUpdate (re-affirm after the camera pass) every frame any SBPR modal is open, and
+        /// restores the gameplay lock exactly once on the close edge. Pure client component.
+        /// </summary>
+        public sealed class ModalCursorDriver : MonoBehaviour
+        {
+            private bool _wasOpenLocal;
+            private int _frame;
+            private int _diagLinesEmitted;
+            private Coroutine? _eofLoop;
+
+            private void OnEnable()
+            {
+                // §2L.16: start the end-of-frame assert loop. WaitForEndOfFrame fires AFTER all
+                // Update/LateUpdate/coroutine phases AND after the Input System's pointer processing
+                // for the frame — the latest managed point we can write before the next frame's input
+                // is sampled. This catches a re-lock/warp that lands LATER in the frame than our
+                // LateUpdate assert (the §2L.15 build still snapped-to-centre on Daniel's client while
+                // lockState read None at our Update sample — the signature of a late-frame writer our
+                // earlier phases didn't cover).
+                _eofLoop = StartCoroutine(EndOfFrameAssert());
+            }
+
+            private void OnDisable()
+            {
+                if (_eofLoop != null) { StopCoroutine(_eofLoop); _eofLoop = null; }
+            }
+
+            private System.Collections.IEnumerator EndOfFrameAssert()
+            {
+                var eof = new WaitForEndOfFrame();
+                while (true)
+                {
+                    yield return eof;
+                    if (!AnyOpen) continue;
+
+                    // DIAGNOSTIC (per-frame while open, capped): if lockState reads Locked HERE — at
+                    // end-of-frame, after the Input System ran — that's the snap window the earlier
+                    // asserts miss. Capped at 40 lines/open-session so the log stays readable.
+                    if ((Plugin.CursorDiag?.Value ?? false)
+                        && Cursor.lockState != CursorLockMode.None
+                        && _diagLinesEmitted < 40)
+                    {
+                        _diagLinesEmitted++;
+                        Plugin.Log.LogWarning(
+                            "[Trailborne/CursorDiag] EOF re-lock caught! lockState=" + Cursor.lockState
+                            + " visible=" + Cursor.visible
+                            + " gamepadActive=" + ZInput.GamepadActive
+                            + " | this is the late-frame writer the Update/LateUpdate asserts miss.");
+                    }
+
+                    // Assert free at the latest possible managed point in the frame.
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
+            }
+
+            private void Update()
+            {
+                bool open = AnyOpen;
+
+                if (open)
+                {
+                    // DIAGNOSTIC: capture the INCOMING lockState BEFORE we overwrite it — this is the
+                    // decisive read. Locked-at-entry ⇒ something re-locked since last frame; None-at-entry
+                    // ⇒ our asserts are holding. The updateCursorFires count + gamepadActive disambiguate
+                    // WHICH re-locker. Throttled to ~every 30 frames to keep the log readable.
+                    if ((Plugin.CursorDiag?.Value ?? false) && (_frame++ % 30 == 0))
+                    {
+                        Plugin.Log.LogInfo(
+                            "[Trailborne/CursorDiag] AnyOpen=true incomingLockState=" + Cursor.lockState
+                            + " incomingVisible=" + Cursor.visible
+                            + " rawIsMouseActive=" + ZInput.IsMouseActive()
+                            + " gamepadActive=" + ZInput.GamepadActive
+                            + " updateCursorFires=" + MenuUpdateCursorForcePatch.FireCount
+                            + " | paint=" + SignPaintPanel.IsOpen
+                            + " marker=" + MarkerSignPanel.IsOpen
+                            + " viewer=" + SBPR.Trailborne.Features.Cartography.CartographyViewer.IsViewerOpen);
+                        MenuUpdateCursorForcePatch.FireCount = 0;
+                    }
+
+                    // The fix: assert a free cursor in the UPDATE phase so ProcessPointer (also Update
+                    // phase, runs after this) reads None and does NOT center-snap. Source-independent —
+                    // no dependency on input-source churn or the event-driven UpdateCursor firing.
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                    _wasOpenLocal = true;
+                }
+                else if (_wasOpenLocal)
+                {
+                    // Close edge (true→false): hand the cursor back to gameplay exactly once.
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                    _wasOpenLocal = false;
+                    _frame = 0;
+                    _diagLinesEmitted = 0;
+                }
+            }
+
+            private void LateUpdate()
+            {
+                // Re-affirm after vanilla's camera/UI pass — cheap insurance the Update-phase write
+                // wasn't clobbered later in the frame. No diagnostic here (Update owns the logging).
+                if (AnyOpen)
+                {
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
+            }
+        }
+
+        // §2L.15 (ticket-cursor-lock-map-sign, card t_cad2c6f3 — FOLLOW-UP after the §2L.14 diag
+        // build's first client test): the DIRECT, inlining-immune fix for the re-lock that §2L.12's
+        // indirect IsMouseActive force could not stop.
+        //
+        // WHAT THE §2L.14 DIAG PROVED (RequiemPrime, 2026-06-22): with the per-frame ModalCursorDriver
+        // running, the cursor reads None on ~2/3 of frames but STILL flips to Locked on ~1/3 — every
+        // such Locked frame snaps the cursor to centre, so it still reads as "locked." A full scan of
+        // BOTH game assemblies (assembly_valheim + assembly_utils/ZInput) confirms the ONLY managed
+        // writers of lockState=Locked during play are Menu.UpdateCursor (:45815) and
+        // FejdStartup.UpdateCursor (:83089, start-screen only). §2L.12 forces ZInput.IsMouseActive()
+        // → true so UpdateCursor *should* compute None — yet Locked still gets through. The signature
+        // of that is INLINING: IsMouseActive (a tiny assembly_utils method) is inlined into
+        // UpdateCursor, so the Harmony detour on the standalone IsMouseActive never executes at that
+        // call site (the exact class of failure that killed the old UpdateMouseCapture seam, §2L).
+        //
+        // THE FIX: postfix Menu.UpdateCursor itself and force lockState=None + visible=true when a
+        // modal is open. This patches the METHOD THAT WRITES lockState, so it's immune to whether
+        // IsMouseActive was inlined — whatever UpdateCursor computed, we overwrite it. UpdateCursor is
+        // GUARANTEED non-inlined and patchable because vanilla references it as a delegate
+        // (`ZInput.OnInputLayoutChanged += UpdateCursor`, :81810) — you cannot take a delegate to an
+        // inlined body, so a real method body must exist. Server-safe: Menu only exists on a client,
+        // and AnyOpen is always false on the dedicated server regardless.
+        [HarmonyPatch(typeof(Menu), "UpdateCursor")]
+        public static class MenuUpdateCursorForcePatch
+        {
+            // Diagnostic counter: how many times UpdateCursor fired since the last CursorDiag line.
+            // A high count while a modal is open = vanilla's event-driven re-lock is the culprit
+            // (something is flickering OnInputLayoutChanged). Zero = the Locked frames come from
+            // elsewhere (native Input System) and need a different seam.
+            internal static int FireCount;
+
+            [HarmonyPostfix]
+            private static void Postfix()
+            {
+                if (!AnyOpen) return;
+                FireCount++;
+                // Overwrite whatever UpdateCursor just computed — free, visible cursor while a modal
+                // owns the screen, regardless of the (possibly inlined) IsMouseActive it read.
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
             }
         }
 
