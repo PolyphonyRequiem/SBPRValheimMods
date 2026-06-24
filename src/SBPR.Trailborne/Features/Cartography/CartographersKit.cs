@@ -282,6 +282,17 @@ namespace SBPR.Trailborne.Features.Cartography
         /// fails OPEN (return true → vanilla reveal) so a bug in our detection can never
         /// silently brick a player's map.
         ///
+        /// NOMAP-OFF BYPASS (live-update-cartography-impl-spec §6, design §6 item 3, card
+        /// t_9c54d492): the Kit-gate is meaningful ONLY in nomap-ON worlds (SBPR default via
+        /// NoMapEnforcer), where the Kit is the gate for the whole cartography tier. In a world
+        /// where the host deliberately lifts the NoMap key (<c>Game.m_noMap == false</c>) the Kit is
+        /// non-functional by design (§6 item 1) and "map revealing always works WITHOUT the
+        /// cartographer's tools, writing to the global map" (design §6 item 3) — so we BYPASS the
+        /// gate (return true → vanilla reveals as normal) when <c>!Game.m_noMap</c>. This 2-line
+        /// fix predates #266 (the gate never checked the flag) and is folded in here per §6's
+        /// recommendation; it makes AT-LIVE-GLOBAL honest in nomap-OFF (AT-LIVE-NOMAPOFF). The
+        /// nomap-ON Kit gate (AT-KIT-*) is unaffected — those worlds take the IsWearingKit path below.
+        ///
         /// CLEAN-SIDE (ADR-0001): patches the base-game Minimap only. Registered in Plugin.cs.
         /// </summary>
         [HarmonyPatch(typeof(Minimap), "UpdateExplore")]
@@ -295,6 +306,12 @@ namespace SBPR.Trailborne.Features.Cartography
                     // Only gate the local player's personal reveal.
                     if (player == null || player != Player.m_localPlayer)
                         return true;   // not our concern — let vanilla run
+
+                    // §6 nomap-OFF bypass: in a manually nomap-OFF world the global map reveals
+                    // WITHOUT the Kit (design §6 item 3) — the gate only governs the nomap-ON
+                    // cartography tier. Lets AT-LIVE-GLOBAL hold in nomap-off (AT-LIVE-NOMAPOFF).
+                    if (!Game.m_noMap)
+                        return true;
 
                     // Kit worn → reveal as normal. Kit absent → SKIP the fog write this tick.
                     return IsWearingKit(player);

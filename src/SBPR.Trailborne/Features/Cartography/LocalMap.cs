@@ -321,6 +321,33 @@ namespace SBPR.Trailborne.Features.Cartography
             => item != null && item.m_customData != null && item.m_customData.ContainsKey(MapBlobKey);
 
         /// <summary>
+        /// LIVE FIELD-WRITE (live-update-cartography-impl-spec §2.4): overwrite ONLY the survey
+        /// blob (<see cref="MapBlobKey"/>) with an updated <see cref="SurveyData"/>, leaving
+        /// <see cref="BoundKey"/> + <see cref="NameKey"/> (the region + name identity) intact.
+        /// This is literally <see cref="Imprint"/>'s blob line extracted — used by
+        /// <see cref="LiveFieldWrite"/> to GROW a carried imprinted map's stored artifact as the
+        /// Kit-wearer explores, WITHOUT re-stamping identity (so <see cref="TryGetBoundOrigin"/> /
+        /// <see cref="TryGetName"/> keep returning what the imprint set — AT-LIVE-IDENTITY).
+        /// Distinct from <see cref="Imprint"/>, which is a BIRTH gesture that (re)writes all three
+        /// keys. Returns true on success; the blob is the §2C windowed format, identical to what
+        /// Imprint and the Table persist, so the viewer reads one format. Never throws.
+        /// </summary>
+        public static bool WriteSurveyBlob(ItemDrop.ItemData item, SurveyData survey)
+        {
+            if (item == null || survey == null) return false;
+            try
+            {
+                item.m_customData[MapBlobKey] = Convert.ToBase64String(Utils.Compress(survey.Serialize()));
+                return true;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] LocalMap.WriteSurveyBlob failed: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Read the imprinted windowed survey snapshot off a Local Map instance, or null if
         /// the map is blank / the blob is malformed. The returned SurveyData is a fresh
         /// deserialization (a snapshot copy), never a live reference to a Table.

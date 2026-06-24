@@ -72,8 +72,8 @@ namespace SBPR.Trailborne.Features.Cartography
         private ZNetView nview = null!;   // Unity-injected in Awake via GetComponent
         private Piece piece = null!;      // Unity-injected in Awake via GetComponent
 
-        // Reflected once, lazily, from the live Minimap (private vanilla fields).
-        private static FieldInfo? _fiExplored;
+        // Reflected once, lazily, from the live Minimap (private vanilla pin field). The personal
+        // fog (m_explored) is read via the shared MinimapFog.ReadExplored helper instead (§2.1).
         private static FieldInfo? _fiPins;
 
         private void Awake()
@@ -166,6 +166,15 @@ namespace SBPR.Trailborne.Features.Cartography
             //    Surveying is NOT name-gated (§1.6.4.3) — an unnamed Table still accumulates
             //    the shared survey; only BINDING maps to the item is gated below.
             ContributeLocalSurvey(user);
+
+            // 1a) LOCAL→TABLE INGEST (live-update-cartography-impl-spec §5, design §4.0a): pull the
+            //     new field discoveries (+ pins) off every carried Local Map bound to THIS Table back
+            //     into the Table's shared survey, closing the local→table direction of the §4 sync.
+            //     Runs immediately after ContributeLocalSurvey (player-global→table) and before the
+            //     name-gate / viewer-open. A Table rebuilt at the same 64 m cell re-adopts its old
+            //     maps (grid-cell match, AT-INGEST-REBUILD); a map carrying fog this user never
+            //     personally explored (traded-in, or surveyed by another Kit-wearer) flows in too.
+            IngestBoundCarriedMaps(user);
 
             // 1b) NAME GATE (§1.6.4, issue 10): a Table MUST be named before it will bind/
             //     imprint maps. Using an UNNAMED Table launches the vanilla rename dialog
@@ -347,7 +356,7 @@ namespace SBPR.Trailborne.Features.Cartography
                 return;
             }
 
-            bool[]? explored = ReadExplored(mm);
+            bool[]? explored = MinimapFog.ReadExplored(mm);
             if (explored == null)
             {
                 Plugin.Log.LogWarning(
@@ -377,6 +386,62 @@ namespace SBPR.Trailborne.Features.Cartography
                 $"pins(in-disc)={contribution.Pins.Count} | merged pins={merged.Pins.Count}.");
 
             user.Message(MessageHud.MessageType.Center, "Survey recorded");
+        }
+
+        /// <summary>
+        /// LOCAL→TABLE INGEST (live-update-cartography-impl-spec §5, design §4.0a): pull every
+        /// carried Local Map bound to THIS Table's grid cell into the Table's shared survey, then
+        /// persist. This is the THIRD directed write that closes the §4 sync — (a) player-global→Table
+        /// is <see cref="ContributeLocalSurvey"/>, (b) Table→map is <see cref="LocalMap.Imprint"/> on
+        /// the hotbar gesture, and this is (c) map→Table. No phantom "global writeback" is needed: the
+        /// player's m_explored already IS the global map and (a) already captured it (§5 grounding).
+        ///
+        /// Bound-to-THIS-table match is GRID-CELL equality (BoundedMapMath.SameOriginCell), not float
+        /// equality — that is what absorbs sub-cell drift and makes a Table rebuilt at the same spot
+        /// re-adopt its old maps for free (AT-INGEST-REBUILD; BoundKey snaps to the 64 m grid, the same
+        /// grid ComputeWindow uses). A Table rebuilt in a DIFFERENT cell does not match → those maps
+        /// are orphaned (accepted per design §4.0a). Client act, like contribute: no Minimap (headless)
+        /// → return. Ingest does NOT imprint and does NOT require the pressed-slot gesture — it runs on
+        /// every named-Table Use over all bound carried maps (the imprint gesture stays as-is, §4.0a).
+        /// </summary>
+        private void IngestBoundCarriedMaps(Humanoid user)
+        {
+            var mm = Minimap.instance;
+            if (mm == null) return;   // headless/dedicated — ingest is a client act (like contribute)
+
+            int textureSize = mm.m_textureSize;   // public (:46692)
+            float pixelSize = mm.m_pixelSize;     // public (:46694)
+            Vector3 tpos = transform.position;
+
+            var inv = user?.GetInventory();
+            if (inv == null) return;
+
+            var merged = ReadSharedSurvey() ?? new SurveyData();
+            int ingested = 0;
+            foreach (var it in inv.GetAllItems())
+            {
+                if (!IsLocalMap(it) || !LocalMap.IsImprinted(it!)) continue;
+                if (!LocalMap.TryGetBoundOrigin(it!, out var o)) continue;
+
+                // Bound-to-THIS-table test: same native fog cell as the Table's position.
+                if (!BoundedMapMath.SameOriginCell(o.x, o.z, tpos.x, tpos.z, pixelSize, textureSize))
+                    continue;
+
+                var s = LocalMap.ReadSurvey(it!);
+                if (s == null) continue;
+                // OR-merge the map's fog + union its pins into the Table survey. The grid-match guard
+                // inside MergeFrom is satisfied: same cell ⇒ same ComputeWindow ⇒ same Size/origin-cell.
+                if (merged.MergeFrom(s, out bool changed) && changed) ingested++;
+            }
+
+            if (ingested > 0)
+            {
+                PersistSurvey(merged);
+                Plugin.Log.LogInfo(
+                    $"[Trailborne/Cartography] Local→table ingest @({tpos.x:F0},{tpos.z:F0}) | " +
+                    $"bound maps ingested={ingested} | merged pins={merged.Pins.Count}.");
+                user?.Message(MessageHud.MessageType.Center, "Maps synced to table");
+            }
         }
 
         /// <summary>
@@ -553,14 +618,10 @@ namespace SBPR.Trailborne.Features.Cartography
             nview.GetZDO().Set(ZDOVars.s_data, compressed);
         }
 
-        // ── Reflection helpers for the private vanilla Minimap fog/pin fields ──────────
-
-        private static bool[]? ReadExplored(Minimap mm)
-        {
-            if (_fiExplored == null)
-                _fiExplored = typeof(Minimap).GetField("m_explored", BindingFlags.Instance | BindingFlags.NonPublic);
-            return _fiExplored?.GetValue(mm) as bool[];
-        }
+        // ── Reflection helper for the private vanilla Minimap pin field ───────────────
+        // (m_explored is now read via the shared MinimapFog.ReadExplored — impl-spec §2.1 step 2:
+        //  one cached FieldInfo serves both the Table contribute/ingest paths and LiveFieldWrite,
+        //  so there is no second reflection path for the personal fog.)
 
         private static List<Minimap.PinData>? ReadPins(Minimap mm)
         {

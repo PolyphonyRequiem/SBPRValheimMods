@@ -1,6 +1,6 @@
 ---
 title: "Trailborne v2 (Black Forest) — Live-update cartography (field WRITE axis) buildable impl-spec"
-status: proposed
+status: built (impl card t_9c54d492 — review-required; see §12 as-built notes)
 purpose: "Buildable implementation spec for the locked live-update cartography model (map-provider-model.md §3.2a / §4.0a / §5 / §6, design PR #266, Daniel 2026-06-24). Turns the RENDER-vs-WRITE axis split into build-ready work: the field WRITE axis (Kit-worn reveal mutates every carried imprinted in-region Local Map's stored artifact, plus the vanilla global), the chosen perf model (direct-blob-mutation with a dirty-check — justified against the sub-KB blob), the Surveyor's Table local→ingest path, and named acceptance tests. Architect spec-pass, card t_d46b3398. SUPERSEDES the §2I render-overlay half of cartography-impl-spec.md (issue 5, PR #131): that approach was a render-time snapshot∪live overlay that explicitly NEVER mutated storage; #266 reverses it — the field write genuinely grows the held map's m_customData artifact. Implementers (engineer-ui) build from THIS doc; map-provider-model.md is the design lock."
 owner: Daniel (design authority, locked #266); Starbright (impl-spec capture + grounding)
 supersedes_partial:
@@ -311,9 +311,16 @@ IngestBoundCarriedMaps(user);    // NEW (§5): carried maps bound to THIS table 
      `ComputeWindow` uses the same `WorldToCellX/Y`). A Table rebuilt at a **different** cell does
      NOT match → orphans those maps (🟡 accepted per design §4.0a; identity-keying would need a new
      persisted Table-ID — flag only if Daniel wants it).
-   - `var s = LocalMap.ReadSurvey(it); if (s != null) merged.MergeFrom(s);` — OR-merge the map's
-     fog + union its pins into the Table survey (`SurveyData.cs:141`; the grid-match guard inside
+   - `var s = LocalMap.ReadSurvey(it); if (s != null) merged.MergeFrom(s, out _);` — OR-merge the
+     map's fog + union its pins into the Table survey (`SurveyData.cs`; the grid-match guard inside
      `MergeFrom` is satisfied because same-cell ⇒ same `ComputeWindow` ⇒ same `Size`/origin).
+     🔧 **BUILD DELTA (card t_9c54d492):** the shipped `MergeFrom` guard previously refused on a raw
+     **0.5 m** origin-proximity test (`Mathf.Abs(OriginX − other.OriginX) > 0.5f`), which would have
+     **refused** a Table rebuilt a few metres off even though it lands in the SAME 64 m cell — the
+     exact AT-INGEST-REBUILD case. The guard is now the grid-cell-equality test
+     `BoundedMapMath.SameOriginCell` (`BoundedMapMath.cs`), making the "same-cell ⇒ mergeable"
+     invariant this section relies on literally true. Behaviour-preserving for the contribute path
+     (it always re-captures at the exact same Table transform ⇒ bit-identical origins). See §12.
 4. If anything merged, `PersistSurvey(merged)` (owner-routed, `cs:525`) and a Center message
    (`user.Message(…, "Maps synced to table")`).
 
@@ -353,17 +360,17 @@ gates the disc on, `LocalMapController.cs:174`):
   Kit-gated. Still in-region-tested + `IsImprinted`-tested. Render axis is unchanged (the disc stays
   bound to the vanilla global in nomap-off — controller §5/§4.4).
 
-🟡 **OPEN OBSERVATION (pre-existing, surfaced — not introduced by this card).** The existing
-`UpdateExploreGate` Prefix (`CartographersKit.cs:287-309`) does **not** check `Game.m_noMap`, so in a
-**manually** nomap-OFF world it still gates the **global** `m_explored` write on wearing the Kit —
-which contradicts design §6 item 3 (*"Map revealing always works WITHOUT the Cartographer's tools,
-writing to the global map"*). This predates #266 and only bites a host who deliberately lifts the
-`NoMap` global key (SBPR servers are nomap-ON by default via `NoMapEnforcer`, so global reveal is
-Kit-gated **by design** there). For AT-LIVE-GLOBAL to hold in **nomap-OFF**, the gate Prefix would
-need a `return true` bypass when `!Game.m_noMap`. **Recommendation:** the engineer adds that one-line
-bypass in the SAME PR if trivial (`if (!Game.m_noMap) return true;` at the top of the Prefix, after
-the local-player guard); otherwise route to a follow-up card. Either way it's a **2-line** clarifying
-fix, not a redesign — flagged here so the nomap-off ATs are honest about it.
+✅ **RESOLVED — bypass TAKEN in this impl PR (card t_9c54d492).** The existing `UpdateExploreGate`
+Prefix (`CartographersKit.cs`) did **not** check `Game.m_noMap`, so in a **manually** nomap-OFF world
+it still gated the **global** `m_explored` write on wearing the Kit — contradicting design §6 item 3
+(*"Map revealing always works WITHOUT the Cartographer's tools, writing to the global map"*). This
+predated #266 and only bit a host who deliberately lifts the `NoMap` global key (SBPR servers are
+nomap-ON by default via `NoMapEnforcer`, so global reveal is Kit-gated **by design** there). As §6
+recommended, the **2-line bypass is folded into THIS PR**: `if (!Game.m_noMap) return true;` at the
+top of the Prefix, immediately after the local-player guard. So in nomap-OFF the global reveals
+without the Kit (AT-LIVE-NOMAPOFF / AT-LIVE-GLOBAL honest in nomap-off), while the nomap-ON Kit gate
+(AT-KIT-*) is untouched (those worlds take the `IsWearingKit` path). Clean-side: reads the base-game
+`Game.m_noMap` flag. See §9 (AT-LIVE-NOMAPOFF) and §12.
 
 ---
 
@@ -503,3 +510,58 @@ walk) is **delivered** here, correctly, by storage growth.
   `SurveyData.cs`, `BoundedMapMath.cs`, `SurveyorTableTag.cs`, `LocalMapController.cs`,
   `LocalMapBootstrapPatch.cs`, `SpecCheck.cs`) — file:line citations inline. Architect spec-pass,
   card **t_d46b3398**.
+
+---
+
+## 12. As-built notes (impl card t_9c54d492 — review-required)
+
+Built straight from §2–§9 on a branch off `main` @ `00b389b` (PR #267 merge). Build floor met:
+`dotnet build -c Release` → **0 warnings / 0 errors** (`<TreatWarningsAsErrors>` ON); test suite
+**314 passing** (303 baseline + 11 new). SpecCheck untouched (**+0**, §0). No `MapViewer.cs` /
+`MapSurface.cs` / `CartographyViewer.cs` change (§7 confirmed).
+
+**Files as built** (matches §8, with the conditional §6 row taken):
+- **NEW `Features/Cartography/LiveFieldWrite.cs`** — the write-set tick (§2): ~2 s sub-throttle,
+  §6 nomap branch (nomap-ON ⇒ Kit-gated plural set via `IsWearingKit`; nomap-OFF ⇒ equipped-only,
+  un-gated), in-region scan, per-map `CaptureWindow`→`MergeFrom(out changed)`→`WriteSurveyBlob`,
+  pins passed empty (§2.2).
+- **NEW `Features/Cartography/MinimapFog.cs`** — the shared cached-`FieldInfo` `ReadExplored(Minimap)`
+  (§2.1 step 2). `SurveyorTableTag`'s private `ReadExplored` + its `_fiExplored` field were **removed**
+  and re-pointed here, so there is exactly **one** reflection path for the personal fog.
+- **`LocalMap.cs`** — `WriteSurveyBlob` (§2.4): `Imprint`'s blob line extracted; Bound/Name keys
+  untouched (AT-LIVE-IDENTITY).
+- **`SurveyData.cs`** — `MergeFrom(other, out bool changed)` (§2.3) + 1-line `MergeFrom(other)`
+  overload; fog loop delegates to the new pure `BoundedMapMath.OrMergeFog` (so the shipped
+  dirty-check IS the headless-tested one).
+- **`BoundedMapMath.cs`** — three pure helpers added: `InRegionForLiveWrite` (§2.1 step 3),
+  `SameOriginCell` (§5), `OrMergeFog` (§2.3). All engine-free → unit-tested in
+  `tests/LiveFieldWriteMathTests.cs`.
+- **`LocalMapController.cs`** — one call `LiveFieldWrite.Tick(player)` in the throttled poll, after
+  the provider machine (§4 ordering).
+- **`SurveyorTableTag.cs`** — `IngestBoundCarriedMaps` (§5) in `Interact` after `ContributeLocalSurvey`;
+  contribute path re-pointed to `MinimapFog.ReadExplored`.
+- **`CartographersKit.cs`** — the §6 `if (!Game.m_noMap) return true;` bypass folded in (§6 RESOLVED).
+
+**Two build deltas from the spec's stated mechanism — both make a §-claim literally true (flagged
+for review):**
+1. **Merge guard → grid-cell equality (§5).** The shipped `SurveyData.MergeFrom` guard had refused on
+   a raw **0.5 m** origin-proximity test, which would have **blocked** AT-INGEST-REBUILD (a Table
+   rebuilt a few metres off but in the same 64 m cell). Replaced with `BoundedMapMath.SameOriginCell`,
+   making the spec's "same-cell ⇒ mergeable" invariant true. **Behaviour-preserving for the existing
+   contribute path** (it always re-captures at the exact same Table transform ⇒ bit-identical origins;
+   the 303 baseline tests + the live contribute path are unaffected). This widens which Table-rebuilds
+   re-adopt maps — a behaviour change confined to the ingest/rebuild case the spec explicitly wanted.
+2. **Pure `OrMergeFog` extraction (§2.3).** The flip-detecting OR was extracted into `BoundedMapMath`
+   (engine-free) so the §2.3 dirty-check is testable headless and the shipped path calls it — no
+   second copy. Pure refactor of the loop the spec inlined.
+
+**Pins-in-hot-path (§2.2) left OUT by default**, as specced — carried maps persist pins via the Table
+ingest, not the per-tick fog write. The 🟡 reversible knob (pass live `CollectShareablePins` into the
+per-tick `CaptureWindow`) is untaken; flag on in-game review if home-flow-only pin persistence feels
+wrong.
+
+**Verification honesty (AGENTS.md "logs-green ≠ playable"):** compiles clean + unit tests green +
+the write/ingest/gate logic is grounded against the decomp and the shipped APIs. **NOT yet verified
+in-game** — every AT-LIVE-* / AT-INGEST-* in §9 closes only on Daniel's in-game check. PR self-blocks
+`review-required`; Starbright merges + build-verifies under delegated authority and holds the in-game
+AT for Daniel.
