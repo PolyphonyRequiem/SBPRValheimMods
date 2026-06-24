@@ -3800,6 +3800,15 @@ both are mid-flight in `MapViewer.cs`. **SpecCheck impact: none.** Spec + code m
 ---
 ### 2K — Pin labels on the held Local Map (issue #11, 2026-06-12, card t_424f38be)
 
+> **⚠ RENDERER MOVED + SCOPE BROADENED (card t_5c3944cd, 2026-06-24).** The internal `MapViewer.cs:NNN`
+> cites in §2K.1–§2K.4 below predate the MapViewer→**MapSurface** split: the live local-map renderer
+> is now `Features/Cartography/MapSurface.cs` (one `SpawnPinMarker` at `:812`, one `ResolvePinSprite`
+> at `:857`, drawing both surfaces). §2K's original scope was *marker-sign* pin **labels**; it now also
+> governs **vanilla-PinType pins** (Boss, Hildir1–3) reaching the renderer via the `CollectShareablePins`
+> snapshot — their **icon** (new §2K.7), their **localized label** (§2K.2 amendment), and their
+> **non-deletability** (new §2K.8). Merchant/location pins (`PinType.None`, `save=false`, vanilla
+> `m_locationIcons`) are OUT of scope — separate ticket.
+
 > **Status: BUG — MISSING RENDER LEG.** Reported by Daniel 2026-06-12 (v0.2.22-playtest):
 > *"issue 11: markers pin labels don't appear on the local map."* Pinned marker signs show their
 > **icon** on the bounded viewer but not their **text label** — the name set via the namable-markers
@@ -3849,7 +3858,11 @@ if (!string.IsNullOrWhiteSpace(pin.Name))
     txt.horizontalOverflow = HorizontalWrapMode.Overflow;  // single line, no mid-word clip
     txt.verticalOverflow   = VerticalWrapMode.Overflow;
     txt.raycastTarget = false;                             // never eat the TableEdit left-click-remove ray
-    txt.text = pin.Name;
+    // §2K.2 amendment (card t_5c3944cd, Leg B): Localize so a snapshot pin carrying a vanilla token
+    // ($enemy_eikthyr, $location_*, a Hildir quest name) renders its human name, not the raw $token.
+    // No-op passthrough for plain marker-sign names. Same wrap as every other display string in the
+    // renderer (title, exit prompt, biome).
+    txt.text = Localization.instance != null ? Localization.instance.Localize(pin.Name) : pin.Name;
     var lrt = txt.rectTransform;
     lrt.anchorMin = lrt.anchorMax = new Vector2(0.5f, 0.5f);
     lrt.pivot = new Vector2(0.5f, 1f);                     // top-centre pivot → grows downward
@@ -3900,6 +3913,15 @@ because `ResolveLabel` already did the fallback upstream:
 > *type-label-only* labels (i.e. require a custom name) behind a config flag defaulting to show —
 > **flagged, not built.** Do not add label collision-avoidance / LOD for this fix.
 
+> **AMENDMENT (card t_5c3944cd, 2026-06-24).** §2K.1 anticipated *empty* snapshot names (render no
+> label) but NOT vanilla *token* names. Snapshot pins captured from vanilla saved pins (Boss, Hildir1–3
+> via `CollectShareablePins`) carry a localization **token** as their name — `$enemy_eikthyr`, a
+> `$location_*` token, a Hildir quest name. These are **non-blank**, so the `IsNullOrWhiteSpace` guard
+> passes and they render — but as the raw `$token` unless localized. Hence the §2K.2 label leg MUST be
+> `Localize`d. Doing it at **render** (not capture) is deliberate: localizing at capture would
+> locale-bake the string into the persisted survey blob and would not repair surveys saved before this
+> fix; localizing at render keeps the blob locale-neutral and repairs old saves on display (AT-VPIN-6).
+
 #### 2K.4 Files touched + clean/dirty
 
 - `src/SBPR.Trailborne/Features/Cartography/MapViewer.cs` — augment `SpawnPinMarker` (one block) +
@@ -3947,6 +3969,125 @@ because `ResolveLabel` already did the fallback upstream:
   (the label rides the counter-rotation `CounterRotatePins` provides). Folded into the combined
   viewer-cluster impl child as STEP 3 (render → orientation → labels).
 - **SpecCheck impact: none.** Spec + code move together in the PR.
+
+#### 2K.7 Vanilla-PinType ICONS (Leg A) — card t_5c3944cd
+
+A `PinType.Boss` (and Hildir1–3) pin reaches the renderer because vanilla `Minimap.DiscoverLocation`
+(decomp `Minimap.cs:1944-1971`) adds boss/Hildir pins `save: true`, so they pass the
+`m_save && type != Death` sweep in `CollectShareablePins`. `ResolvePinSprite` only matched SBPR
+MarkerSigns (all `Icon0`) → returned `null` for Boss → the renderer drew the `PinTint` fallback, a
+solid yellow-orange quad. Fix: add a branch to `ResolvePinSprite` **after** the existing MarkerSigns
+loop (the loop `return`s on a match, so the branch runs only for unmatched types — no Icon0 precedence
+change). It mirrors PRIVATE `Minimap.GetSprite` (decomp `Minimap.cs:2018-2025`) against the PUBLIC
+`m_icons` table:
+
+```
+// Vanilla-PinType pins (Boss, Hildir1-3): the icon Valheim shows on its OWN minimap.
+// Mirrors PRIVATE Minimap.GetSprite (decomp Minimap.cs:2018-2025) against the PUBLIC m_icons table.
+var mm = Minimap.instance;
+if (mm != null)
+{
+    var pt = (Minimap.PinType)pin.Type;
+    if (pt != Minimap.PinType.None)                 // vanilla GetSprite returns null for None
+    {
+        var sd = mm.m_icons.Find(x => x.m_name == pt);
+        if (sd.m_icon != null) return sd.m_icon;    // SpriteData is a struct → default m_icon==null → null-safe
+    }
+}
+// else fall through to the PinTint dot (a PinType with no registered icon keeps the tint fallback)
+```
+
+**ATLAS-SAFE assignment (load-bearing — OPEN, can't verify atlas-packing on a headless box).** The
+shared assign path does `img.texture = sprite.texture` on a `RawImage` — correct ONLY for full-texture
+sprites (the MarkerSign PNGs). Vanilla `m_icons` sprites MAY be atlas-packed; if so a bare `.texture`
+smears the whole atlas into the pin. Fix (chosen — **2a**): set the RawImage `uvRect` from the sprite's
+`textureRect` on the shared assignment:
+
+```
+img.texture = sprite.texture;
+var tr = sprite.textureRect;
+float tw = sprite.texture.width, th = sprite.texture.height;
+img.uvRect = new Rect(tr.x / tw, tr.y / th, tr.width / tw, tr.height / th);
+```
+
+Harmless for standalone sprites (rect == full texture → uvRect `(0,0,1,1)`); correct for atlased.
+Alternative (**2b**): mirror `SpawnThreatMarker` — render the vanilla-PinType icon as an `Image`
+(`.sprite` + `preserveAspect`, atlas-native) instead of a RawImage. 2a is the smaller diff and is what
+shipped; either satisfies the spec. **Residual risk closes on Daniel's GPU client** — if a *rotated* or
+tightly-trimmed atlas entry still mis-renders under the axis-aligned `uvRect`, fall back to 2b. The boss
+icon must be its own glyph, not an atlas smear (AT-VPIN-1).
+
+#### 2K.8 System pins NON-DELETABLE — card t_5c3944cd
+
+Daniel's lock: *"Do not allow these system pins to be deleted."* Guard `SurveyData.RemovePinNear` (the
+ONLY `Pins.RemoveAt` in the feature) so system PinTypes are skipped as deletion **CANDIDATES** (NOT
+bail-if-closest) — the eraser still removes the nearest *deletable* pin instead of being blocked by an
+adjacent system pin:
+
+```
+for (int i = 0; i < Pins.Count; i++)
+{
+    if (IsSystemPin(Pins[i].Type)) continue;        // NEW
+    float dx = Pins[i].Pos.x - worldPos.x, dz = Pins[i].Pos.z - worldPos.z;
+    float d2 = dx * dx + dz * dz;
+    if (d2 <= bestD2) { bestD2 = d2; best = i; }
+}
+```
+```
+// Group-1 system set = Boss + Hildir1-3. PinType is collision-free: vanilla pin-UI only places Icon0-4.
+private static bool IsSystemPin(int type)
+{
+    var pt = (Minimap.PinType)type;
+    return pt == Minimap.PinType.Boss
+        || pt == Minimap.PinType.Hildir1
+        || pt == Minimap.PinType.Hildir2
+        || pt == Minimap.PinType.Hildir3;
+}
+```
+
+`Minimap.PinType` is global-namespace (already used as `(int)pin.m_type` in
+`SurveyorTableTag.cs:490`) — no new `using`. Single chokepoint: guard `RemovePinNear` only, do not touch
+the caller.
+
+#### 2K.9 Files touched + clean/dirty (this amendment)
+
+- `src/SBPR.Trailborne/Features/Cartography/MapSurface.cs` — `ResolvePinSprite` vanilla-PinType branch
+  (§2K.7), atlas-safe `uvRect` crop on the shared icon assign (§2K.7-2a), and `Localize` the label at
+  `SpawnPinMarker` (§2K.2 amendment / Leg B).
+- `src/SBPR.Trailborne/Features/Cartography/SurveyData.cs` — `RemovePinNear` system-pin skip +
+  `IsSystemPin` helper (§2K.8).
+- `docs/v2/planning/cartography-impl-spec.md` — these §2K edits.
+- **CLEAN.** No wire-version bump (render + delete-time only; the persisted `SurveyPin.Type` already
+  carries the vanilla PinType int). **SpecCheck impact: none.**
+
+#### 2K.10 Acceptance tests (named, observable — close only on Daniel's in-game GPU check)
+
+- **AT-VPIN-1** — the Eikthyr pin shows the **vanilla boss icon** on BOTH surfaces (modal + carry disc),
+  not a square, and not an atlas smear (the §2K.7-2a assertion).
+- **AT-VPIN-2** — the modal label reads **"Eikthyr"**, not `$enemy_eikthyr`; any vanilla
+  `$enemy_*`/`$location_*`/Hildir token renders localized. (Carry disc = icon only, no label by design —
+  `ShowPrompts=false`.)
+- **AT-VPIN-3** — Hildir1–3 show the vanilla icon + localized name once a Hildir pin is registered.
+  (Eikthyr + a code-read of the shared path is acceptable interim evidence if no live Hildir pin exists;
+  flag for a later Hildir eyeball.)
+- **AT-VPIN-4** — the TableEdit eraser **cannot remove** a Boss/Hildir pin — it removes the nearest
+  *player* pin instead (or nothing), never the system pin. An adjacent player marker-sign pin still
+  deletes normally.
+- **AT-VPIN-5 (regression)** — SBPR MarkerSign pins still resolve icon + label (existing loop unchanged;
+  the new branch runs only for unmatched types; `uvRect` collapses to `(0,0,1,1)` for full-texture PNGs).
+- **AT-VPIN-6** — a survey saved BEFORE this fix renders the boss icon + localized label after (icon
+  resolved at render, label localized at render — no migration, no blob rewrite).
+- `dotnet build -c Release` = 0 warnings / 0 errors (`TreatWarningsAsErrors` ON).
+- **logs-green ≠ playable** — the visual fix (icon glyph, atlas question) and the final accept are
+  Daniel's eyeball on a GPU client; a headless box collapses shaders and cannot confirm them.
+
+#### 2K.11 Routing (this amendment)
+
+- **Clean-side → `engineer-ui`** (owns `MapSurface.cs` + the cartography viewer cluster). Render +
+  delete-time fix on top of §2K.1–§2K.6; spec + code move together in ONE PR (no standalone docs PR —
+  AGENTS.md spec/code co-movement). **Scope = Group 1 (Boss + Hildir1–3) ONLY.** Merchant/location pins
+  (`PinType.None`, `save=false`, `m_locationIcons`, regenerated by `UpdateLocationPins`) are a SEPARATE
+  ticket needing a new capture path + `SurveyPin` field + WireVersion bump — explicitly deferred.
 
 
 ## 3. Cartographer's Kit — Utility-slot accessory that gates auto-mapping

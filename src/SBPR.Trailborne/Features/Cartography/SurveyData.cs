@@ -217,6 +217,7 @@ namespace SBPR.Trailborne.Features.Cartography
             float bestD2 = radius * radius;
             for (int i = 0; i < Pins.Count; i++)
             {
+                if (IsSystemPin(Pins[i].Type)) continue;  // §2K.8: system pins (Boss/Hildir) are non-deletable
                 float dx = Pins[i].Pos.x - worldPos.x, dz = Pins[i].Pos.z - worldPos.z;
                 float d2 = dx * dx + dz * dz;
                 if (d2 <= bestD2) { bestD2 = d2; best = i; }
@@ -224,6 +225,22 @@ namespace SBPR.Trailborne.Features.Cartography
             if (best < 0) return false;
             Pins.RemoveAt(best);
             return true;
+        }
+
+        /// <summary>
+        /// Group-1 system pins (vanilla Boss + Hildir1-3) are pulled into the survey but must NOT be
+        /// player-deletable (Daniel, 2026-06-24 / card t_5c3944cd, §2K.8). They are skipped as deletion
+        /// CANDIDATES in <see cref="RemovePinNear"/> so the Table-edit eraser still removes the nearest
+        /// *player* pin instead of being blocked by an adjacent system pin. PinType is a collision-free
+        /// discriminator: vanilla pin-UI only ever places Icon0-4, so a Boss/Hildir type is unambiguous.
+        /// </summary>
+        private static bool IsSystemPin(int type)
+        {
+            var pt = (Minimap.PinType)type;
+            return pt == Minimap.PinType.Boss
+                || pt == Minimap.PinType.Hildir1
+                || pt == Minimap.PinType.Hildir2
+                || pt == Minimap.PinType.Hildir3;
         }
 
         // ── Serialization (ZPackage; compressed by the caller into the Table ZDO) ───
