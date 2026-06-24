@@ -499,12 +499,15 @@ namespace SBPR.Trailborne.Features.Sunstone
             float offsetY   = Plugin.LensCoronaPlaneOffsetY?.Value ?? SunstoneCoronaDisc.DefaultPlaneOffsetY;
             float innerFill = Plugin.LensCoronaInnerFill?.Value    ?? SunstoneCoronaDisc.DefaultInnerFill;
             float thickness = Plugin.LensCoronaThickness?.Value    ?? SunstoneCoronaDisc.DefaultThickness;
+            float height    = Plugin.LensCoronaHeight?.Value          ?? SunstoneCoronaDisc.DefaultHeight;
+            float fullWidthH = Plugin.LensCoronaFullWidthHeight?.Value ?? SunstoneCoronaDisc.DefaultFullWidthHeight;
+            float baseWidth = Plugin.LensCoronaBaseWidthFrac?.Value    ?? SunstoneCoronaDisc.DefaultBaseWidthFrac;
             float hz        = Plugin.LensCoronaPulseHz?.Value       ?? SunstoneCoronaDisc.DefaultPulseHz;
             float trough    = Plugin.LensCoronaAlphaTrough?.Value   ?? SunstoneCoronaDisc.DefaultAlphaTrough;
             float peak      = Plugin.LensCoronaAlphaPeak?.Value     ?? SunstoneCoronaDisc.DefaultAlphaPeak;
 
-            // GroundPlane anchors on the player's feet (the character-root transform position ≈ ground);
-            // CameraFacing anchors on the eye-point. Both passed so the disc picks per its orientation.
+            // FeetGlow + GroundPlane anchor on the player's feet (character-root transform position ≈
+            // ground); CameraFacing anchors on the eye-point. All passed so the disc picks per orientation.
             Vector3 groundAnchor = player.transform.position;
             Vector3 eyeAnchor    = player.GetEyePoint();
 
@@ -514,6 +517,7 @@ namespace SBPR.Trailborne.Features.Sunstone
                 // the mid-value, and halve the envelope so it reads fainter than the live corona (parity
                 // with the old CSolarRing.a * 0.5f flat-ring hint).
                 _corona.Render(groundAnchor, eyeAnchor, orientation, radius, offsetY, innerFill, thickness,
+                    height, fullWidthH, baseWidth,
                     CSolarRing, time: 0.0, hz: 0f, trough: trough * 0.5f, peak: peak * 0.5f);
                 return;
             }
@@ -521,6 +525,7 @@ namespace SBPR.Trailborne.Features.Sunstone
             // Live corona: breathe on the shared Time.time phase (one phase → no drift across an
             // orientation flip or vs the trophy tint — AT-CORONA-PULSE).
             _corona.Render(groundAnchor, eyeAnchor, orientation, radius, offsetY, innerFill, thickness,
+                height, fullWidthH, baseWidth,
                 CSolarRing, Time.time, hz, trough, peak);
         }
 

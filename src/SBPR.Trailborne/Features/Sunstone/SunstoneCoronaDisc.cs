@@ -62,16 +62,28 @@ namespace SBPR.Trailborne.Features.Sunstone
         //    converges the look on a joined client without a rebuild — the banner-windsock pattern, the
         //    SunstoneWorldRing.Default* precedent). DIRECTIONAL constants frozen from the architect's
         //    look-lock mock (spec §0/§4); Daniel's in-game eye on a GPU client is the final value. ──
-        public const CoronaOrientation DefaultOrientation = CoronaOrientation.GroundPlane; // "sun on the floor" (Knob #1)
+        public const CoronaOrientation DefaultOrientation = CoronaOrientation.FeetGlow; // upright rising feet-glow (Daniel /bug 2026-06-24: flat disc clipped terrain + read flat)
         public const float DefaultPulseHz     = 0.25f;  // breaths/sec — one breath / 4 s (Knob #3 rate); 0 = steady glow
         public const float DefaultAlphaTrough = 0.10f;  // alpha at the breath trough (Knob #3 depth)
         public const float DefaultAlphaPeak   = 0.28f;  // alpha at the breath peak (around the 0.18 static baseline)
-        public const float DefaultInnerFill   = 0.35f;  // 0 = thin hoop ↔ 1 = filled sun-disc (Knob #2)
-        public const float DefaultThickness   = 0.45f;  // soft radiant-edge falloff width (Knob #2)
-        public const float DefaultPlaneOffsetY = 0f;    // vertical lift off the anchor (drop to the feet for ground-plane)
+        public const float DefaultInnerFill   = 0.35f;  // [GroundPlane/CameraFacing radial sprite] 0 = thin hoop ↔ 1 = filled sun-disc (Knob #2)
+        public const float DefaultThickness   = 0.45f;  // soft radiant-edge falloff width (radial rim AND the FeetGlow horizontal edge)
+        public const float DefaultPlaneOffsetY = 0f;    // vertical lift off the anchor (ground/feet for GroundPlane+FeetGlow; eye for CameraFacing)
         // DefaultRadius mirrors the trophy HaloRadius so the corona's rim DEFAULT-tracks where the
         // trophies orbit (AT-CORONA-SUBSTRATE) — the disc IS the substrate. Independent live knob after.
         public const float DefaultRadius = SunstoneWorldRing.DefaultHaloRadius;
+
+        // ── FeetGlow (upright rising vertical glow) tuning — the new default orientation. ──────────────
+        // The vertical extent (height) the glow rises to off the feet, in world metres. The glow stands
+        // UP this tall; alpha fades to 0 at the top (a soft dome) and at the ground (a soft meet → no
+        // hard terrain-clip line). Directional; Daniel's eye on a GPU client is final (live-config).
+        public const float DefaultHeight = 1.2f;
+        // The height (world m) at which the rising glow reaches FULL width — Daniel's "full width around
+        // .5m from the ground." fullWidthFrac = Clamp(Height bounded / FullWidthHeight) is derived in Render.
+        public const float DefaultFullWidthHeight = 0.5f;
+        // How NARROW the glow is at the ground contact, as a fraction of full width (a bright feet core
+        // that blooms upward). 0.15 = a tight base flaring to full by FullWidthHeight.
+        public const float DefaultBaseWidthFrac = 0.15f;
 
         // The corona is authored at this reference pixel size, then scaled to world units via the disc
         // root's localScale (worldDiameter / ReferencePx). 256 matches the procedural sprite resolution
@@ -96,6 +108,13 @@ namespace SBPR.Trailborne.Features.Sunstone
         private static float _spriteInnerFill = -1f;
         private static float _spriteThickness = -1f;
 
+        // Separate cache for the FeetGlow vertical-profile sprite (a DIFFERENT shape — the engine-free
+        // SunstoneCoronaProfile rising glow, not the radial disc). Keyed on the three knobs that shape it.
+        private static Sprite? _feetGlowSprite;
+        private static float _feetFullWidthFrac = -1f;
+        private static float _feetBaseWidthFrac = -1f;
+        private static float _feetThickness = -1f;
+
         public SunstoneCoronaDisc(SunstoneWorldRing halo) { _halo = halo; }
 
         /// <summary>True once the disc object exists (built lazily on first <see cref="Render"/>).</summary>
@@ -117,6 +136,9 @@ namespace SBPR.Trailborne.Features.Sunstone
             float planeOffsetY,
             float innerFill,
             float thickness,
+            float height,
+            float fullWidthHeight,
+            float baseWidthFrac,
             Color gold,
             double time,
             float hz,
@@ -137,35 +159,63 @@ namespace SBPR.Trailborne.Features.Sunstone
             if (_disc.transform.parent != root)
                 _disc.transform.SetParent(root, worldPositionStays: false);
 
-            // ── Geometry: anchor + rotation per orientation (Knob #1). ──────────────────────────────
-            if (orientation == CoronaOrientation.GroundPlane)
+            // ── Geometry: anchor + rotation + size per orientation (Knob #1). ───────────────────────
+            if (orientation == CoronaOrientation.FeetGlow)
+            {
+                // DEFAULT. An upright, camera-facing VERTICAL glow standing UP out of the FEET. The
+                // canvas pivot drops to bottom-centre (0.5, 0) so the transform origin sits at the
+                // glow's GROUND-CONTACT point; the quad then rises upward from the feet anchor. The
+                // vanilla Billboard yaws it to the camera and keeps it vertical (m_vertical=true), so
+                // the base stays pinned at the feet while it always faces the player.
+                _rt.pivot = new Vector2(0.5f, 0f);
+                _disc.transform.position = groundAnchor + Vector3.up * planeOffsetY;
+                if (_billboard != null && !_billboard.enabled) _billboard.enabled = true;
+
+                // Non-uniform: WIDTH = 2·radius, HEIGHT = CoronaHeight. The canvas is authored square at
+                // ReferencePx, so each axis maps reference px → its own world metres (the vertical profile
+                // sprite is stretched into the W×H quad; v=0 = the soft ground meet, v=1 = the dome top).
+                float wWidth  = Mathf.Max(0.01f, radius * 2f);
+                float wHeight = Mathf.Max(0.01f, height);
+                _disc.transform.localScale = new Vector3(wWidth / ReferencePx, wHeight / ReferencePx, 1f);
+
+                // The vertical alpha profile (engine-free SunstoneCoronaProfile). fullWidthFrac = the
+                // height (as a fraction of the quad) at which the glow blooms to full width — Daniel's
+                // "full width around .5m" → fullWidthHeight / height. Shape-keyed; rebuilt only on change.
+                float fullWidthFrac = wHeight <= 0.0001f ? 1f : fullWidthHeight / wHeight;
+                _image.sprite = FeetGlowSprite(fullWidthFrac, baseWidthFrac, thickness);
+            }
+            else if (orientation == CoronaOrientation.GroundPlane)
             {
                 // A flat XZ disc on the player's feet. Euler(90,0,0) lays the canvas (authored in its
                 // local XY plane) flat into world XZ. No Billboard — it stays flat regardless of camera.
+                // (SUPERSEDED as default — z-fights / hard-clips along the terrain line; kept selectable.)
+                _rt.pivot = new Vector2(0.5f, 0.5f);
                 _disc.transform.position = groundAnchor + Vector3.up * planeOffsetY;
                 _disc.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
                 if (_billboard != null && _billboard.enabled) _billboard.enabled = false;
+
+                float worldDiameter = Mathf.Max(0.01f, radius * 2f);
+                _disc.transform.localScale = Vector3.one * (worldDiameter / ReferencePx);
+                _image.sprite = CoronaSprite(innerFill, thickness);
             }
             else
             {
-                // An upright disc on the eye anchor; the vanilla Billboard yaws it to the camera and
-                // keeps it vertical (m_vertical=true — the trophy-slot idiom). Its LateUpdate owns the
-                // rotation once enabled, so we only set position here.
+                // CameraFacing: an upright RADIAL disc on the eye anchor; the vanilla Billboard yaws it
+                // to the camera and keeps it vertical (m_vertical=true — the trophy-slot idiom). Its
+                // LateUpdate owns the rotation once enabled, so we only set position here.
+                _rt.pivot = new Vector2(0.5f, 0.5f);
                 _disc.transform.position = eyeAnchor + Vector3.up * planeOffsetY;
                 if (_billboard != null && !_billboard.enabled) _billboard.enabled = true;
+
+                float worldDiameter = Mathf.Max(0.01f, radius * 2f);
+                _disc.transform.localScale = Vector3.one * (worldDiameter / ReferencePx);
+                _image.sprite = CoronaSprite(innerFill, thickness);
             }
 
-            // World size: the disc DIAMETER is 2·radius metres; the canvas is authored at ReferencePx,
-            // so localScale maps reference pixels → world metres. Uniform on all axes (a flat disc).
-            float worldDiameter = Mathf.Max(0.01f, radius * 2f);
-            _disc.transform.localScale = Vector3.one * (worldDiameter / ReferencePx);
-
-            // ── Art: the radial-glow sprite (Knob #2) is shape-keyed on innerFill/thickness; rebuild
-            //    only when those change (cheap — the live .cfg knobs rarely move). ────────────────────
-            _image.sprite = CoronaSprite(innerFill, thickness);
-
             // ── Pulse: the gold tint with the breathing alpha on the shared Time.time phase (Knob #3,
-            //    engine-free SunstoneCoronaPulse — no drift, no jump on an orientation flip). ─────────
+            //    engine-free SunstoneCoronaPulse — no drift, no jump on an orientation flip). The pulse
+            //    is the OVERALL alpha multiplier; the per-pixel profile (radial or vertical) shapes WHERE
+            //    the glow is, the pulse shapes HOW BRIGHT the whole thing breathes. ────────────────────
             float alpha = SunstoneCoronaPulse.AlphaAt(time, hz, trough, peak);
             _image.color = new Color(gold.r, gold.g, gold.b, alpha);
 
@@ -311,6 +361,62 @@ namespace SBPR.Trailborne.Features.Sunstone
             _coronaSprite = sprite;
             _spriteInnerFill = fill;
             _spriteThickness = th;
+            return sprite;
+        }
+
+        // ───────────────────────────────────────────────
+        // PROCEDURAL FEET-GLOW SPRITE (the upright rising vertical glow — engine-free profile)
+        // ───────────────────────────────────────────────
+
+        /// <summary>
+        /// A procedurally-generated VERTICAL-profile glow sprite for the FeetGlow orientation (no asset).
+        /// The per-texel alpha is the engine-free <see cref="SunstoneCoronaProfile"/>: 0 at the ground
+        /// (v=0, a soft meet → no hard terrain clip), a narrow bright core at the feet that blooms to full
+        /// width by <paramref name="fullWidthFrac"/>, fading to a soft dome at the top (v=1) and to 0 at
+        /// the horizontal rims. White texture; tinted gold + alpha-pulsed at draw via Image.color. Cached
+        /// + rebuilt only when one of the three shape knobs changes (the live .cfg values rarely move).
+        /// </summary>
+        private static Sprite FeetGlowSprite(float fullWidthFrac, float baseWidthFrac, float thickness)
+        {
+            float fw = Clamp01(fullWidthFrac);
+            float bw = Clamp01(baseWidthFrac);
+            float th = Clamp01(thickness);
+            if (_feetGlowSprite != null
+                && Mathf.Approximately(_feetFullWidthFrac, fw)
+                && Mathf.Approximately(_feetBaseWidthFrac, bw)
+                && Mathf.Approximately(_feetThickness, th))
+                return _feetGlowSprite;
+
+            const int size = 256;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            var px = new Color[size * size];
+
+            // Texel → normalized quad coords. u ∈ [0,1] across (x); v ∈ [0,1] up (y), where y=0 is the
+            // BOTTOM row = the ground contact (the canvas pivot is bottom-centre at draw). The pure
+            // SunstoneCoronaProfile owns the shape so it is CI-gated headless (AT-CORONA-FEET-PROFILE).
+            float denom = size - 1;
+            for (int y = 0; y < size; y++)
+            {
+                float v = y / denom;            // 0 at the ground row → 1 at the top row
+                for (int x = 0; x < size; x++)
+                {
+                    float u = x / denom;        // 0 left rim → 1 right rim
+                    float a = SunstoneCoronaProfile.AlphaAt(u, v, fw, bw, th);
+                    px[y * size + x] = new Color(1f, 1f, 1f, a);
+                }
+            }
+
+            tex.SetPixels(px);
+            tex.Apply();
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+
+            var sprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+            sprite.name = "SBPR_SunstoneCoronaFeetGlow";
+            _feetGlowSprite = sprite;
+            _feetFullWidthFrac = fw;
+            _feetBaseWidthFrac = bw;
+            _feetThickness = th;
             return sprite;
         }
 

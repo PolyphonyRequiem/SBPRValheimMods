@@ -228,9 +228,10 @@ fixed distance** from you — a ring around your head — and **size** is how yo
 clear enough to spot). Star-level enemies wear the same little **stars** you'd see on their
 nameplate. And the trophies are **colour-coded by how angry they are**: **yellow** for something
 that's just lurking, **orange** when it's locked onto another player, and **red** when it's coming
-for *you*. When nothing's around you'll see a slow-pulsing **sun corona on the ground** around you —
-a soft golden disc the lens quietly breathes, the "sun on the floor" the trophies circle when threats
-appear. (Run it dry and it goes dark until you recharge.)
+for *you*. When nothing's around you'll see a slow-pulsing **sun-glow rising from your feet** —
+a soft golden light the lens quietly breathes, standing up out of the ground and fading to a soft
+dome, the "lens is awake" cue the trophies join when threats appear. (Run it dry and it goes dark
+until you recharge.)
 
 The catch is the whole point. It **only charges in clear daylight, out in the open, when
 you're dry** — never in rain, never at night, never under a roof, and *never in the

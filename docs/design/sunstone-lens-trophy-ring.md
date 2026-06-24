@@ -36,6 +36,22 @@ purpose: "Architect render-design for the Sunstone Lens' standalone (no-minimap)
 > fixed-distance + knee math lives in the engine-free, **CI-gated** `SunstoneHaloGeometry`
 > (AT-HALO-FIXED-DIST / AT-HALO-SCALE-KNEE) so it cannot silently regress again.
 
+> # 🐛 KNOB RE-TUNE (2026-06-24, Discord `ticket-diegetic-halo-render`) — `HaloRadius` 2.0 → **1.0 m**, `HaloScaleMax` 0.6 → **0.75**
+>
+> After seeing the fixed-distance ring in-game, Daniel pulled it **closer** and made the
+> trophies **bigger** (verbatim: *"bring the distance in to 1 meter"* and *"make the trophies
+> a bit bigger. 25% maybe?"*). The two `Default*` consts in `SunstoneWorldRing` move:
+> - **`DefaultHaloRadius` 2.0 → 1.0 m** — a tighter head-halo; every trophy is equidistant at
+>   1.0 m from the eye. Still AT-gated, still live-config (`AcceptableValueRange` 0.5–8 unchanged).
+> - **`DefaultHaloScaleMax` 0.6 → 0.75** (+25%) — lifts the *whole* 10 m-knee curve, so the
+>   0.25× edge floor (far enemies) grows proportionally too (the intent: bigger everywhere).
+>
+> Geometry (fixed distance + the 10 m knee, the locked 1.0/0.25 ceiling/floor) is **unchanged** —
+> these are just the two AT-gated eyeball tunables landing on Daniel's in-game numbers. The
+> `~2.0m` / `≈ 0.6` figures elsewhere in this doc are the prior directional starts; the live
+> defaults are now **1.0 m / 0.75** per this banner. (Shipped alongside the corona FeetGlow
+> re-lock — see `docs/v3/planning/sunstone-lens-corona-impl-spec.md` — in one PR.)
+
 > # 🔄 RENDER REVERSAL (2026-06-21, card t_68672b6b) — the standalone ring is now DIEGETIC (world-space 3D), not a flat HUD radar
 >
 > **This doc was a screen-space camera-relative radar.** Daniel reversed that top-level

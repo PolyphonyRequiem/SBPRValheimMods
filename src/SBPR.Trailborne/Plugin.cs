@@ -137,6 +137,10 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float>? LensCoronaThickness    = null;  // soft radiant-edge falloff width
         internal static ConfigEntry<float>? LensCoronaRadius       = null;  // world-m rim radius (default-tracks HaloRadius)
         internal static ConfigEntry<float>? LensCoronaPlaneOffsetY = null;  // vertical lift off the anchor (nudge to feet)
+        // FeetGlow (default orientation) shape knobs — the upright rising vertical glow (Daniel /bug 2026-06-24).
+        internal static ConfigEntry<float>? LensCoronaHeight          = null;  // world-m vertical extent the glow rises off the feet
+        internal static ConfigEntry<float>? LensCoronaFullWidthHeight = null;  // world-m height at which the glow reaches FULL width
+        internal static ConfigEntry<float>? LensCoronaBaseWidthFrac   = null;  // how narrow the base is vs full width (0..1)
         // Default-ON startup dump (card t_d17d9b58 Knob #3c): at ZNetScene-ready, enumerate all Character
         // prefabs, resolve each → (own trophy | remap-sibling | none), and log the "none" set as ONE
         // reviewable block so Daniel can grow SunstoneProjection._trophyRemap over time.
@@ -491,10 +495,13 @@ namespace SBPR.Trailborne
             LensCoronaOrientation = Config.Bind(
                 "SunstoneLens", "CoronaOrientation",
                 SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultOrientation,
-                "Orientation of the world-space sun-corona disc. GroundPlane (default): a flat 'sun on the "
-                + "floor' disc lying in the ground plane around your feet, the surface the detected-creature "
-                + "trophies orbit. CameraFacing: an upright disc on your eye-line that yaws to face the "
-                + "camera (the trophy billboard idiom). Live-flippable, no rebuild.");
+                "Orientation of the world-space sun-corona. FeetGlow (default): an upright glow that "
+                + "stands UP out of your feet and faces the camera — soft where it meets the ground (no "
+                + "hard clip into terrain), a narrow bright core that blooms to full width a little way up, "
+                + "doming over the top (shaped by CoronaHeight / CoronaFullWidthHeight / CoronaBaseWidthFrac). "
+                + "GroundPlane: the original flat 'sun on the floor' disc lying in the ground plane (z-fights "
+                + "uneven terrain — kept for reversibility). CameraFacing: a flat radial disc upright on your "
+                + "eye-line. Live-flippable, no rebuild.");
             LensCoronaPulseHz = Config.Bind(
                 "SunstoneLens", "CoronaPulseHz",
                 SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultPulseHz,
@@ -539,10 +546,10 @@ namespace SBPR.Trailborne
                 "SunstoneLens", "CoronaRadius",
                 SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultRadius,
                 new ConfigDescription(
-                    "The corona's rim radius in world metres. Defaults to the trophy HaloRadius (~2.0 m) so "
-                    + "the corona's edge sits where the detected-creature trophies orbit — the disc is the "
-                    + "substrate they float around. Grow it for a wider floor-sun; it's independent of the "
-                    + "trophy ring once you change it.",
+                    "The corona's rim radius in world metres — its half-width (FeetGlow) or disc radius "
+                    + "(GroundPlane/CameraFacing). Defaults to the trophy HaloRadius (~1.0 m) so the corona "
+                    + "tracks where the detected-creature trophies orbit. Grow it for a wider glow; it's "
+                    + "independent of the trophy ring once you change it.",
                     new AcceptableValueRange<float>(0.5f, 8f)));
             LensCoronaPlaneOffsetY = Config.Bind(
                 "SunstoneLens", "CoronaPlaneOffsetY",
@@ -552,6 +559,34 @@ namespace SBPR.Trailborne
                     + "(feet for GroundPlane, eye-line for CameraFacing). Nudge it to drop a ground-plane "
                     + "disc exactly to the floor or lift a camera-facing one off the crosshair.",
                     new AcceptableValueRange<float>(-2f, 2f)));
+            // ── FeetGlow shape knobs (the default orientation — the upright rising vertical glow that
+            //    replaced the flat floor-disc). Live-config; Daniel converges the look on a joined client. ──
+            LensCoronaHeight = Config.Bind(
+                "SunstoneLens", "CoronaHeight",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultHeight,
+                new ConfigDescription(
+                    "[FeetGlow only] How tall the rising sun-glow stands UP out of your feet, in world "
+                    + "metres. Default 1.2 (about knee-to-chest). The glow fades to nothing at the top (a "
+                    + "soft dome) and at the ground (a soft meet — no hard clip line into terrain). Bigger "
+                    + "= a taller pillar of light.",
+                    new AcceptableValueRange<float>(0.2f, 4f)));
+            LensCoronaFullWidthHeight = Config.Bind(
+                "SunstoneLens", "CoronaFullWidthHeight",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultFullWidthHeight,
+                new ConfigDescription(
+                    "[FeetGlow only] The height (world metres off the ground) at which the rising glow "
+                    + "reaches its FULL width. Default 0.5 — a narrow bright core at the feet that blooms "
+                    + "out to full width by about half a metre up, then domes over. Lower = blooms faster "
+                    + "near the feet; higher = a longer taper up before it's full-width.",
+                    new AcceptableValueRange<float>(0.05f, 2f)));
+            LensCoronaBaseWidthFrac = Config.Bind(
+                "SunstoneLens", "CoronaBaseWidthFrac",
+                SBPR.Trailborne.Features.Sunstone.SunstoneCoronaDisc.DefaultBaseWidthFrac,
+                new ConfigDescription(
+                    "[FeetGlow only] How narrow the glow is right at the ground, as a fraction of its full "
+                    + "width. Default 0.15 (a tight bright core at the feet flaring upward). 0 = a near-point "
+                    + "at the feet; 1 = full width straight off the ground (a column, not a flare).",
+                    new AcceptableValueRange<float>(0f, 1f)));
             LensRingShowDepletedHint = Config.Bind(
                 "SunstoneLens", "ShowDepletedHint", SBPR.Trailborne.Features.Sunstone.SunstoneLensHudOverlay.DefaultShowDepletedHint,
                 "When the lens runs out of charge, show a dim ring outline as an 'inert, recharge me' cue. Default OFF (ring fully off when depleted).");
