@@ -38,8 +38,9 @@ namespace SBPR.Trailborne.Features.Cartography
     /// </summary>
     public static class MinimapThreatMetrics
     {
-        /// <summary>Default on-minimap blip size (px). Was 14f; +75% per Daniel 2026-06-24.</summary>
-        public const float DefaultBlipPx = 24.5f;   // = 14f * 1.75f
+        /// <summary>Default on-minimap blip size (px). Was 14f; Daniel LOCKED 24f on 2026-06-24
+        /// ("both scaled to 24px") — his clean-number rounding of the "~75% larger" ask (24/14 ≈ +71%).</summary>
+        public const float DefaultBlipPx = 24f;   // Daniel-locked 2026-06-24 (≈+71%, his round-number for "~75%")
 
         /// <summary>Star-pip size as a fraction of the resolved blip px (was MinimapPipPx/BlipPx = 7/14).</summary>
         public const float PipToBlipRatio = 0.5f;

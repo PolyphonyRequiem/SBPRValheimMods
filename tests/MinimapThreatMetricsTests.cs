@@ -24,10 +24,11 @@ namespace SBPR.Trailborne.Tests
 {
     public sealed class MinimapThreatMetricsTests
     {
-        // AT-BLIP-SIZE: the new default is exactly 75% larger than the historical 14px blip.
+        // AT-BLIP-SIZE: the default is Daniel's locked 24px (2026-06-24, "both scaled to 24px") —
+        // his clean-number rounding of the "~75% larger" ask (24/14 ≈ +71%). ~1.7× the historical 14.
         [Fact]
-        public void BlipPx_is_75pct_larger_than_the_historical_14()
-            => Assert.Equal(14f * 1.75f, MinimapThreatMetrics.DefaultBlipPx, 3);
+        public void BlipPx_is_Daniel_locked_24()
+            => Assert.Equal(24f, MinimapThreatMetrics.DefaultBlipPx, 3);
 
         // AT-BLIP-PIP-BALANCE: the pip ratio reproduces the historical 7/14 so pips stay balanced
         // at any knob magnitude (pip = blipPx × this ratio on BOTH surfaces).

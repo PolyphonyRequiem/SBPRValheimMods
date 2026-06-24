@@ -37,9 +37,10 @@ implementation** so the doc and the code agree (repo AGENTS.md: spec and code mo
 > change to any gated decision above (representation is still dots+aggro-tint), so
 > `requirements.md` is untouched.
 >
-> - **Default blip size:** **24.5 px** (= the prior `14 × 1.75`), applied on BOTH minimap
+> - **Default blip size:** **24 px** (Daniel-locked 2026-06-24, "both scaled to 24px" — his
+>   clean-number rounding of the "~75% larger" ask; 24/14 ≈ +71%), applied on BOTH minimap
 >   surfaces (the SBPR carry-disc + the vanilla corner overlay).
-> - **Live knob:** `SunstoneLens / MinimapBlipPx`, range **[8, 48]**, default 24.5 — edit on
+> - **Live knob:** `SunstoneLens / MinimapBlipPx`, range **[8, 48]**, default 24 — edit on
 >   a joined client and the next detection sweep rescales; no rebuild. Both surfaces read the
 >   single resolved symbol `Plugin.ResolvedMinimapBlipPx`, so they **cannot desync** by
 >   construction (AT-BLIP-PARITY).
