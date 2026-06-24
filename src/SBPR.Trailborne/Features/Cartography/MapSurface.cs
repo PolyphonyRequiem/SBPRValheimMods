@@ -96,6 +96,12 @@ namespace SBPR.Trailborne.Features.Cartography
         private const float PinIconPx      = 22f;
         private const float PinLabelFontPx = 14f;
         private const float PlayerMarkerPx = 26f;
+        // Vanilla location/POI pin size (card t_b5e535b0). Vanilla draws location pins double-size
+        // (m_doubleSize=true at Minimap.UpdateLocationPins:1175), so this starts ABOVE the survey-pin
+        // PinIconPx (22) — ~1.4× ≈ 31 px as a sensible default. Single calibration knob: AT-LOC-* are
+        // visual checks the headless box can't make, so leave the exact px to Daniel's in-game GPU
+        // eyeball — this is the one line to tune.
+        private const float LocationPinPx  = 31f;
 
         // §3.4 disc-name-hint-impl-spec build-calibration knobs (Daniel's eyeball tunes — start here):
         //   • CaptionNameFontPx / CaptionHintFontPx: the two caption rows (name 18 / hint 16, §3.4).
@@ -219,6 +225,13 @@ namespace SBPR.Trailborne.Features.Cartography
         // radar, and the vanilla minimap (nomap-OFF) has its own overlay. Threat GameObjects are added
         // to _pinObjects so they counter-rotate upright + clear each rebuild for free (no new plumbing).
         private readonly List<DiscThreatMarker> _threatScratch = new List<DiscThreatMarker>();
+        // Vanilla location/POI markers (card t_b5e535b0). Live-derived from the server-global
+        // ZoneSystem.GetLocationIcons set each RebuildOverlay via LocationPins.Collect — the SAME
+        // pull idiom as the survey pins and threat markers. Unlike threats this draws on BOTH
+        // surfaces (the modal IS a navigation surface, and locations are nav landmarks, not a threat
+        // radar). Persists nothing (not SurveyPins) so SurveyData.WireVersion stays 1. Location
+        // GameObjects are added to _pinObjects so they counter-rotate upright + clear each rebuild.
+        private readonly List<LocationMarker> _locationScratch = new List<LocationMarker>();
         // Blip size + rim multiplier now live in the shared Cartography.MinimapThreatMetrics (card
         // t_bc017af4) so BOTH minimap surfaces (this disc + the vanilla corner overlay) read ONE symbol
         // and can't desync. Size resolves live via Plugin.ResolvedMinimapBlipPx (SunstoneLens/MinimapBlipPx
@@ -754,6 +767,51 @@ namespace SBPR.Trailborne.Features.Cartography
                 }
             }
 
+            // ── Vanilla location/POI layer (card t_b5e535b0): BOTH surfaces. Live-derive the
+            //    server-global ZoneSystem.GetLocationIcons set each rebuild (LocationPins.Collect —
+            //    the SAME per-rebuild pull the survey pins + threat markers use) and draw an ICON-ONLY
+            //    marker per location (Haldor, StartTemple, Hildir, BogWitch, discovered POIs, modded
+            //    flagged locations — whatever the server filters in). Unlike the threat layer this
+            //    runs on the MODAL too: locations are navigation landmarks, not a threat radar. Each
+            //    location is bound-clipped + projected through the SAME InDisc / WorldToSurfacePx(Snapped)
+            //    path as the survey pins above, so it reads at the identical spot a survey pin at that
+            //    world point would — and is scoped to THIS table's 1000 m window (parity with the survey
+            //    pins; §2M documents the post-merge unbounded question). These are NOT SurveyPins:
+            //    nothing serializes (SurveyData.WireVersion stays 1) and the spawn sets raycastTarget=false,
+            //    so a TableEdit eraser click cannot delete one. Added to _pinObjects → free counter-rotation
+            //    upright + per-rebuild cleanup. Guarded like the WorldPins live-collect so one bad rebuild
+            //    can't break the surface (the survey pins already rendered).
+            try
+            {
+                LocationPins.Collect(_locationScratch);
+                foreach (var loc in _locationScratch)
+                {
+                    if (!BoundedMapMath.InDisc(loc.WorldPos.x, loc.WorldPos.z, origin.x, origin.z, radius))
+                        continue; // beyond the table-anchored 1000 m bound never renders (AT-MAP-BOUND parity)
+
+                    Vector2 anchored;
+                    if (_cfg.PlayerCentred)
+                    {
+                        // Disc: continuous player-relative projection; clip to the visible circle so a
+                        // location near the bound edge but outside the small disc window doesn't draw
+                        // over the bezel (identical clip to the survey-pin disc path).
+                        anchored = WorldToSurfacePx(loc.WorldPos, survey);
+                        if (anchored.sqrMagnitude > discR * discR) continue;
+                    }
+                    else
+                    {
+                        // Modal: cell-snapped projection (byte-faithful to the table-centred view).
+                        if (!WorldToSurfacePxSnapped(loc.WorldPos, survey, out anchored)) continue;
+                    }
+
+                    SpawnLocationMarker(loc.Icon, anchored);
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] MapSurface: location-pin layer failed: {e.Message}");
+            }
+
             UpdatePlayerMarker(survey, origin, radius);
         }
 
@@ -898,6 +956,41 @@ namespace SBPR.Trailborne.Features.Cartography
             }
             catch { /* fall through to dot */ }
             return null;
+        }
+
+        // ── Vanilla location/POI marker (card t_b5e535b0) ────────────────────────────────────────
+        // Draw one icon-only vanilla location pin (Haldor's vendor, StartTemple, Hildir, BogWitch,
+        // discovered POIs, modded flagged locations). Structural sibling of SpawnThreatMarker:
+        //   • Image + sprite + preserveAspect → Unity-native atlas handling (no uvRect crop needed
+        //     like the RawImage survey-pin path; the §2K.7 atlas concern can't arise here).
+        //   • raycastTarget=false → a TableEdit eraser click passes straight through, so a location
+        //     pin is non-deletable BY CONSTRUCTION (AT-LOC-5) — it's also not a SurveyPin, so there
+        //     is nothing in SurveyData for the eraser to remove anyway.
+        //   • color=Color.white → location icons carry their own art; we do NOT tint them (unlike the
+        //     aggro-tinted threat blips).
+        //   • added to _pinObjects → rides the rotating container for POSITION and counter-rotates
+        //     upright with the pins (CounterRotatePins), cleared each rebuild by ClearPinObjects — no
+        //     separate lifecycle plumbing.
+        // NO label child: the icon-only policy (K-C) is enforced by this method simply having no text
+        // path. The LocationMarker carries only a sprite — the raw GetLocationIcons prefab name never
+        // reaches a renderer, so a raw "Vendor_BlackForest" token can never surface (AT-LOC-4).
+        private void SpawnLocationMarker(Sprite icon, Vector2 anchored)
+        {
+            if (_overlayLayer == null) return;
+            var go = new GameObject("location");
+            go.transform.SetParent(_overlayLayer.transform, false);
+            var img = go.AddComponent<Image>();
+            img.raycastTarget = false;       // non-deletable: the eraser click can't hit it (AT-LOC-5)
+            img.preserveAspect = true;       // atlas-native: no uvRect crop needed (AT atlas-safe)
+            img.sprite = icon;
+            img.color = Color.white;         // location art is self-coloured; do NOT tint
+
+            var rt = img.rectTransform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = new Vector2(LocationPinPx, LocationPinPx);
+            rt.anchoredPosition = anchored;
+            _pinObjects.Add(go);
         }
 
         // ── Sunstone threat marker (card t_91e86951; richened t_aab051ae) ─────────────────────────
