@@ -87,6 +87,12 @@ namespace SBPR.Trailborne.Features.Sunstone
         public const float DefaultChargePerSec = 1.0f;  // ↑ while in the sun (~1.7 min empty→full)
         public const float MinChargeToDetect   = 1f;    // below this the lens is inert (AC#5)
 
+        // Charge-diagnostic default (card t_charge-diag): ON while the "won't charge in daylight" bug is
+        // open so the NEXT playtest emits the recharge-gate breakdown with zero .cfg edits (the DebugMount
+        // precedent). The DrainGate prefix logs one throttled line/sec from the LOCAL lens tick naming the
+        // live value of every recharge sub-gate + the durability delta. Bake to false once charging is RC.
+        public const bool DefaultDebugCharge = true;
+
         // ── Detection tuning.
         public const float DefaultDetectRadius   = 70f;  // metres; hostiles within this are revealed (Daniel in-game accept 2026-06-24, t_4b9f8889; was 50, was 30)
         public const float DefaultDetectInterval = 0.5f; // seconds between detection sweeps (HUD-driven)
@@ -328,39 +334,64 @@ namespace SBPR.Trailborne.Features.Sunstone
         // ───────────────────────────────────────────────
 
         /// <summary>
-        /// True when the lens should RECHARGE this tick: clear weather AND daylight AND not wet
-        /// AND outdoors AND not in the Swamp (AC#2). All base-game reads:
-        ///   EnvMan.IsDaylight() (:81159), EnvMan.IsWet() (:81134),
-        ///   EnvMan.GetCurrentEnvironment().m_isWet (:80218), Player.InShelter() (:19375),
-        ///   Player.GetCurrentBiome() (:17190) vs Heightmap.Biome.Swamp (=2, :108730).
-        /// The Swamp is always-wet+overcast so notWet/clear already exclude it; the explicit
-        /// Swamp guard is a self-documenting belt-and-suspenders invariant the card names.
+        /// The six independent sub-gates of <see cref="CanRecharge"/>, captured together so a diagnostic
+        /// can report WHICH condition denied a recharge. The charge path is otherwise silent — a lens
+        /// that "won't charge in daylight" gives no signal about which gate is false — so the DrainGate
+        /// diagnostic logs this breakdown (card t_charge-diag). <see cref="All"/> is the recharge verdict.
         /// </summary>
-        public static bool CanRecharge(Player player)
+        internal readonly struct RechargeGate
         {
-            if (player == null) return false;
-            var env = EnvMan.instance;
-            if (env == null) return false;
+            public readonly bool Daylight;      // EnvMan.IsDaylight()              (:81159)
+            public readonly bool NotGlobalWet;  // !EnvMan.IsWet()                  (:81134, global s_isWet)
+            public readonly bool NotEnvWet;     // !GetCurrentEnvironment().m_isWet (:80218)
+            public readonly bool ClearName;     // IsClearWeatherName(env.m_name)   (config allowlist; empty ⇒ true)
+            public readonly bool Outdoors;      // !Player.InShelter()              (:19375)
+            public readonly bool NotSwamp;      // GetCurrentBiome() != Swamp       (:108730, Swamp=2)
+            public readonly string EnvName;     // the live weather env name (diagnostic context; never null)
 
-            // Daylight + globally-not-wet (rain/overcast set the global wet state).
-            if (!EnvMan.IsDaylight()) return false;
-            if (EnvMan.IsWet()) return false;
+            public RechargeGate(bool daylight, bool notGlobalWet, bool notEnvWet, bool clearName,
+                                bool outdoors, bool notSwamp, string envName)
+            {
+                Daylight = daylight; NotGlobalWet = notGlobalWet; NotEnvWet = notEnvWet;
+                ClearName = clearName; Outdoors = outdoors; NotSwamp = notSwamp; EnvName = envName;
+            }
 
-            // The current environment must itself be a non-wet (clear/sunny) weather. Optional
-            // clear-name allowlist (config) refines this; empty allowlist = pure isWet test.
-            var setup = env.GetCurrentEnvironment();
-            if (setup == null) return false;
-            if (setup.m_isWet) return false;
-            if (!IsClearWeatherName(setup.m_name)) return false;
-
-            // Outdoors (under open sky), not under a roof.
-            if (player.InShelter()) return false;
-
-            // Never in the Swamp (redundant with wet/clear above, kept explicit per the card).
-            if (player.GetCurrentBiome() == Heightmap.Biome.Swamp) return false;
-
-            return true;
+            /// <summary>True ⇔ EVERY sub-gate passes — i.e. the lens recharges this tick.</summary>
+            public bool All => Daylight && NotGlobalWet && NotEnvWet && ClearName && Outdoors && NotSwamp;
         }
+
+        /// <summary>
+        /// Read all six recharge sub-gates ONCE (the single source the verdict + the diagnostic share, so
+        /// they can never drift). Null env/setup ⇒ an all-false gate (matches the old early-return-false
+        /// behaviour). All base-game reads, line-cited on <see cref="RechargeGate"/>'s fields.
+        /// </summary>
+        internal static RechargeGate EvaluateRecharge(Player player)
+        {
+            var env = EnvMan.instance;
+            if (player == null || env == null)
+                return new RechargeGate(false, false, false, false, false, false, "<no env>");
+
+            var setup = env.GetCurrentEnvironment();
+            string envName = setup?.m_name ?? "<null env>";
+
+            bool daylight     = EnvMan.IsDaylight();
+            bool notGlobalWet = !EnvMan.IsWet();
+            bool notEnvWet    = setup != null && !setup.m_isWet;
+            bool clearName    = setup != null && IsClearWeatherName(setup.m_name);
+            bool outdoors     = !player.InShelter();
+            bool notSwamp     = player.GetCurrentBiome() != Heightmap.Biome.Swamp;
+
+            return new RechargeGate(daylight, notGlobalWet, notEnvWet, clearName, outdoors, notSwamp, envName);
+        }
+
+        /// <summary>
+        /// True when the lens should RECHARGE this tick: clear weather AND daylight AND not wet
+        /// AND outdoors AND not in the Swamp (AC#2). Delegates to <see cref="EvaluateRecharge"/> so the
+        /// verdict and the charge diagnostic read the SAME six gates (no drift). The Swamp is always-wet+
+        /// overcast so notWet/clear already exclude it; the explicit Swamp guard is a self-documenting
+        /// belt-and-suspenders invariant the card names.
+        /// </summary>
+        public static bool CanRecharge(Player player) => EvaluateRecharge(player).All;
 
         /// <summary>
         /// Whether <paramref name="envName"/> counts as "clear/sunny" weather. The env names are
@@ -448,9 +479,21 @@ namespace SBPR.Trailborne.Features.Sunstone
                     if (item == null || item.m_shared == null) return true;
                     if (item.m_shared.m_itemType != ItemDrop.ItemData.ItemType.Trinket) return true;
 
-                    // Only OUR lens.
+                    // Only OUR lens. A loaded-from-save lens re-resolves m_dropPrefab by NAME in
+                    // ItemDrop.Awake (:58696-58698) — if that name ever fails to resolve (orphaned
+                    // instance, the "older spawns broke" hypothesis), this guard bails to vanilla and
+                    // the lens silently never charges. The diagnostic below names exactly that case.
                     var dropPrefab = item.m_dropPrefab;
-                    if (dropPrefab == null || StripCloneSuffix(dropPrefab.name) != LensName) return true;
+                    if (dropPrefab == null)
+                    {
+                        // Trinket with m_useDurability but a NULL dropPrefab — can't be matched by name.
+                        // This is the prime suspect for "won't charge" on a save-loaded lens; surface it.
+                        DebugLog(() => $"DrainGate: a Trinket reached the gate with m_dropPrefab=NULL "
+                            + $"(name='{item.m_shared.m_name}', dur={item.m_durability:0.0}). Cannot identify as the "
+                            + $"Lens by prefab name → vanilla owns it → NO charge. (orphaned/ unresolved prefab?)");
+                        return true;
+                    }
+                    if (StripCloneSuffix(dropPrefab.name) != LensName) return true;
 
                     // Only the LOCAL player's lens (energy/recharge is a local-state concern; the
                     // server has no EnvMan-day/shelter context for a remote player here).
@@ -461,8 +504,25 @@ namespace SBPR.Trailborne.Features.Sunstone
                     float drainPerSec  = Plugin.LensDrainPerSec?.Value  ?? DefaultDrainPerSec;
                     float chargePerSec = Plugin.LensChargePerSec?.Value ?? DefaultChargePerSec;
 
-                    float delta = CanRecharge(player) ? (chargePerSec * dt) : (-drainPerSec * dt);
+                    // Read the six recharge sub-gates ONCE — the verdict (.All) drives charging; the same
+                    // struct feeds the diagnostic so the log can NEVER disagree with the behaviour.
+                    RechargeGate gate = EvaluateRecharge(player);
+
+                    float before = item.m_durability;
+                    float delta  = gate.All ? (chargePerSec * dt) : (-drainPerSec * dt);
                     item.m_durability = Mathf.Clamp(item.m_durability + delta, 0f, max);
+
+                    // ── Charge diagnostic (card t_charge-diag): the charge path was previously SILENT, so a
+                    //    "won't charge in daylight" report gave no way to see WHICH recharge gate denied it.
+                    //    Throttled to ~1 Hz, this names every sub-gate's live value, the env name, and the
+                    //    actual durability movement — so one playtest LogOutput.log pinpoints the false gate
+                    //    (or proves the durability IS climbing and the bug is the BAR/persistence instead).
+                    DebugLog(() =>
+                        $"DrainGate[LOCAL lens]: charging={gate.All} dur {before:0.0}→{item.m_durability:0.0}/{max:0} "
+                        + $"(Δ{delta:+0.000;-0.000}/tick, dt={dt:0.000}) | env='{gate.EnvName}' "
+                        + $"daylight={gate.Daylight} notGlobalWet={gate.NotGlobalWet} notEnvWet={gate.NotEnvWet} "
+                        + $"clearName={gate.ClearName} outdoors={gate.Outdoors} notSwamp={gate.NotSwamp}"
+                        + (gate.All ? "" : $"  ← FALSE gate(s): {FalseGates(gate)}"));
 
                     // We fully own this item's durability — skip vanilla (no break/unequip/destroy).
                     return false;
@@ -473,6 +533,38 @@ namespace SBPR.Trailborne.Features.Sunstone
                     Plugin.Log.LogWarning($"[Trailborne/Sunstone] DrainGate error (failing open to vanilla): {e.Message}");
                     return true;
                 }
+            }
+
+            // ── Diagnostic plumbing (card t_charge-diag) ─────────────────────────────────────────────
+            // 1 Hz throttle so the per-tick prefix doesn't flood LogOutput.log. Gated by the live
+            // Plugin.LensDebugCharge config (banner-windsock: flip on a joined client), else DefaultDebugCharge.
+            // The message is built lazily (Func) so OFF costs nothing — no string work on the hot path.
+            private static float _nextChargeLog;
+
+            internal static bool DebugChargeEnabled =>
+                Plugin.LensDebugCharge?.Value ?? DefaultDebugCharge;
+
+            private static void DebugLog(System.Func<string> message)
+            {
+                if (!DebugChargeEnabled) return;
+                float now = Time.realtimeSinceStartup;
+                if (now < _nextChargeLog) return;       // throttle: at most ~1 line/sec
+                _nextChargeLog = now + 1f;
+                Plugin.Log.LogInfo($"[Trailborne/Sunstone] {message()}");
+            }
+
+            /// <summary>Comma-list of the sub-gates that are FALSE (the deny reason), for the diagnostic.</summary>
+            private static string FalseGates(in RechargeGate g)
+            {
+                var sb = new System.Text.StringBuilder();
+                void add(bool ok, string name) { if (!ok) { if (sb.Length > 0) sb.Append(", "); sb.Append(name); } }
+                add(g.Daylight, "daylight");
+                add(g.NotGlobalWet, "globalWet");
+                add(g.NotEnvWet, "envWet");
+                add(g.ClearName, "clearName");
+                add(g.Outdoors, "inShelter");
+                add(g.NotSwamp, "inSwamp");
+                return sb.Length == 0 ? "(none)" : sb.ToString();
             }
         }
     }
