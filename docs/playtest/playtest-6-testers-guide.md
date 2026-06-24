@@ -2,18 +2,18 @@
 title: "SBPR Trailborne — Playtest #6 Testers Guide"
 status: current
 purpose: "Playtest #6 — generated from playtest-ledger.md + git ground truth. Do not hand-edit; regenerate."
-generated_from_tag: v0.2.34-playtest
+generated_from_tag: v0.2.35-playtest
 diff_ref: main
 ---
 
 # SBPR Trailborne — Playtest #6 Testers Guide
 
-**Build:** SBPR Trailborne 0.2.34 (current `main`, ahead of `v0.2.34-playtest`)
+**Build:** SBPR Trailborne 0.2.35 (current `main`, ahead of `v0.2.35-playtest`)
 **Test mode:** Local solo on a fresh client build (unless an item says otherwise).
-**Generated:** 2026-06-22 22:18 PDT
+**Generated:** 2026-06-24 10:21 PDT
 
 > This guide is produced by `scripts/gen-playtest-guide.py` from the living
-> **playtest ledger** and the actual code changes since `v0.2.34-playtest`. The
+> **playtest ledger** and the actual code changes since `v0.2.35-playtest`. The
 > **Playtest #6** number is the human-facing testing series — distinct from the
 > `vX.Y.Z-playtest` build tags.
 
@@ -42,7 +42,7 @@ Both verify the modpack SHA256 before installing and write a launcher
 this build's `BepInEx/plugins/SBPR.Trailborne/` from the release zip into your install.
 
 Either way, launch Valheim and confirm the BepInEx console logs
-`Loading [SBPR Trailborne 0.2.34]` and `Harmony patches applied.`
+`Loading [SBPR Trailborne 0.2.35]` and `Harmony patches applied.`
 
 ## 2. Acceptance checklist
 
@@ -50,9 +50,9 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
 
 ### Test items (from the ledger)
 
-> Build target: **`v0.2.35-playtest`** (SBPR Trailborne 0.2.35) — the **second** build carrying Playtest #6
-> (counter HELD; `v0.2.34-playtest` was the first #6 build). Test **local solo** on a fresh client build
-> unless an item says otherwise.
+> Build target: **`v0.2.36-playtest`** (SBPR Trailborne 0.2.36) — the **third** build carrying Playtest #6
+> (counter HELD; `v0.2.34-playtest` was the first #6 build, `v0.2.35-playtest` the second). Test **local solo**
+> on a fresh client build unless an item says otherwise.
 >
 > **Round 1 (items 1–6)** — Daniel-feedback fixes that merged to `main` and shipped in `v0.2.34-playtest`
 > (cut 2026-06-22 08:38 PDT) after Daniel's **Playtest #5** run on the `v0.2.33` client.
@@ -64,7 +64,16 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
 > and the Painted Sign re-charged for unchanged slots (#243). These ship in `v0.2.35-playtest`. Counter stays
 > at **#6** — these are round-2 refinements of the #6 surfaces, not a new testing series.
 >
-> _The Portal Seed row (now #13) is carried forward unverified — it shipped no code change, so it is **not**
+> **Round 3 (item 13)** — fix from Daniel's **Playtest #6 run on the `v0.2.35` client** (2026-06-23): the SBPR
+> custom-UI cursor STILL locked on his keyboard+mouse rig — **4th report** of the family — because every prior
+> build *wrote* `Cursor.lockState`, but the capture lives **below** managed lockState (SDL relative-mouse on the
+> native Linux player). The §2L.18 fix **stops writing lockState** and instead **masquerades as a vanilla GUI**
+> (mouse-capture block + `TextInput.IsVisible()`→true) so vanilla itself frees the pointer (#257). Ships in
+> `v0.2.36-playtest`. Counter stays at **#6** — round-3 refinement of the same #6 cursor surface (item 5 #237 →
+> item 9 #247 → this), not a new testing series. **Daniel confirmed it fixed in-game 2026-06-23** — this build
+> ships it to the rest of the testers.
+>
+> _The Portal Seed row (now #14) is carried forward unverified — it shipped no code change, so it is **not**
 > archived as a prior surface._
 
 ### 🆕 Round 1 — Daniel-feedback fixes from Playtest #5, shipped in `v0.2.34-playtest` (first Playtest #6 build)
@@ -89,16 +98,27 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
 | 11 | **Local Map provider binding persists across relog — cold-start carry re-derivation latch** | t_85f45dd7 / bug t_5fc02f00 (#251) | ✅ merged to `main` (`4d9c251`); ships in `v0.2.35`; awaiting Daniel | The SBPR minimap **disc vanished after logout/login** for a **carried-but-unequipped** imprinted Local Map (equipped-at-logout self-healed via vanilla re-equip; carried-unequipped could not — a fresh controller starts each session with no provider and nothing re-derived it on load). Violated the locked **AT-MAP-DURABLE**. Fix: a **one-shot per-session cold-start latch** (`_coldStartResolved`) — once per session, if no provider is bound, re-derive from (a) equipped local map, else (b) the **first carried imprinted** local map in slot order, else null. **The load-bearing invariant (§3.4):** the scan runs **once per session**, NOT "re-derive whenever provider is null" — so an in-session drop→re-pickup still stays unbound. Verify on a GPU client: **AT-PERSIST-CARRY** — imprint a map → unequip but **keep** it → log out and back in → **the disc is there without re-equipping**; **AT-PERSIST-UNBIND-INTACT** (regression) — after relog: drop → disc gone → re-pickup WITHOUT equip → **no disc** → re-equip → disc returns; **AT-PERSIST-MULTI** — two carried imprinted maps → one deterministic disc (slot order), never blank/random; **AT-PERSIST-BLANK** — blank carried map → no disc, no error. No `LocalMap.cs` change, no new customData key, no new Harmony patch, SpecCheck +0. logs-green ≠ playable — closes t_85f45dd7 (bug t_5fc02f00). |
 | 12 | **Painted Sign — consume cost per CHANGED slot, not per filled slot** | t_6df12ca8 / bug t_e59a4fd6 (#243) | ✅ merged to `main` (`3c865f4`); ships in `v0.2.35`; awaiting Daniel | Bug: `{Paint this and consume}` charged **1 pigment per FILLED slot**, so opening an already-painted sign, changing **one** slot, and committing re-charged you for the two **unchanged** slots; re-applying identical colours charged for every filled slot. Fix charges only for slots whose new colour **differs** from the stored ZDO colour (Daniel-locked: *"1) disabled. 2) free"*). Verify at a Painted Sign: **AT-1** paint a fresh sign → full cost (1 per non-empty slot); **AT-3 (no-op)** re-open, change nothing, the **Paint button is silently DISABLED** (no message); **AT-6** re-apply the **same** colours → free; change **one** slot → charged for **exactly that one** slot, unchanged slots free; **AT-5 (pure clear)** set a painted slot back to `∅ None` → button **enabled**, commits, reverts that surface to bare wood, **consumes nothing**; **AT-7 (displayed==consumed)** the post-paint message shows exactly what was consumed (the old post-write recompute-reads-0 trap is fixed). The #228 three-slot model + #224 per-renderer MPB tint are untouched. **AT-1..AT-9** (20 xUnit cases green; engine-bound consumption/UX is Daniel's in-game accept). logs-green ≠ playable — closes t_6df12ca8 (bug t_e59a4fd6). |
 
+### 🆕 Round 3 — fix from Daniel's Playtest #6 run on the `v0.2.35` client, ships in `v0.2.36-playtest`
+
+| # | Feature | Card | Status | What to verify in-game |
+|---|---------|------|--------|------------------------|
+| 13 | **SBPR modal cursor-capture — §2L.18 masquerade-as-vanilla-GUI (4th report; the fix that finally landed)** | t_94cc9713 (#257) | ✅ merged to `main` (`116021a`); ships in `v0.2.36`; **Daniel-confirmed in-game 2026-06-23** | **4th and final report of the cursor-lock family** (issue-7 → t_f7a5ad53 #237 → t_cad2c6f3 #247 → t_94cc9713 #257). The prior **seven** builds (§2L.4…§2L.17) all *wrote* `Cursor.lockState` and all failed on Daniel's Linux rig: his v0.2.35 diagnostic showed `lockState=None` on ~96% of frames with the cursor **still captive** — the capture is **below** managed `Cursor.lockState` (SDL relative-mouse on the native Linux player), unreachable by any C# lockState write. **§2L.18 stops writing lockState entirely** and instead reproduces what a vanilla GUI-open does (the path that empirically frees the pointer): (1) an edge-driven **mouse-capture block** on `GameCamera.LateUpdate` (`m_mouseCapture=false`+`UpdateMouseCapture()` via Traverse, restored on close — mirrors Jotunn's `GUIManager.BlockInput` *behaviour*, no mod code copied, ADR-0001 clean); (2) **`TextInput.IsVisible()` masquerades `true`** while any SBPR modal is open, so every vanilla cursor-free/input-suppress gate fires for our modal as for a real text dialog (NRE-safe, decomp-verified). Open each SBPR modal — **Local Map full view (M)**, **Surveyor's Table**, **sign paint panel** — on a **plain keyboard+mouse rig**: the cursor is **free to move and click** pins/swatches and does **not** snap to screen-centre, and on close it re-locks cleanly. Also test the **same surfaces with a controller / Steam-Input gamepad connected** (the rig the #237/#247 path covered) — must still free + re-lock. `SBPR_CursorDiag` now defaults **off** (don't ship per-frame cursor logging; the fix runs regardless). **AT-CURSOR-NOSNAP-ALL-MODALS** + **AT-CURSOR-RELOCK** on a no-controller rig. Build 0/0, tests 284/284, docs-lint OK. Daniel already confirmed (*"fixed it 🙂"*, map + sign) — this build ships it to the rest of the testers. logs-green ≠ playable — closes t_94cc9713. |
+
 ### 🔁 Carried forward — not yet shipped / not yet verified
 
 Shipped **no** code change in any tag (blocked / verify-only), so it carries into #6 rather than being archived as a #5 surface.
 
 | # | Feature | Card | Status | What to verify in-game |
 |---|---------|------|--------|------------------------|
-| 13 | **Portal Seed crafting cost** | t_a6831e8e | `blocked` — verify local solo (NRE root-crash #154 shipped in #1) | At the Explorer's Bench, Portal Seed shows cost **AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2**, and crafting **consumes** exactly that. Verify **local solo on current `main`** (the per-frame tooltip NRE that masked this, t_2dd7c705/#154, shipped in #1). If correct → close t_a6831e8e; if wrong → spawn a fix card from the observed failure mode (A no cost / B wrong cost / C not craftable / D shown-but-not-consumed). |
+| 14 | **Portal Seed crafting cost** | t_a6831e8e | `blocked` — verify local solo (NRE root-crash #154 shipped in #1) | At the Explorer's Bench, Portal Seed shows cost **AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2**, and crafting **consumes** exactly that. Verify **local solo on current `main`** (the per-frame tooltip NRE that masked this, t_2dd7c705/#154, shipped in #1). If correct → close t_a6831e8e; if wrong → spawn a fix card from the observed failure mode (A no cost / B wrong cost / C not craftable / D shown-but-not-consumed). |
 
 ### 🧭 Ground-truth cross-check at roll time (git)
 
+- **Round 3 (item 13) is the `src/**/*.cs` change in the `v0.2.35-playtest..main` window** (the build Daniel
+  played → the build carrying his round-3 fix): **#257** (`116021a`, t_94cc9713, item 13). It maps to a PENDING
+  row → `python3 scripts/gen-playtest-guide.py --tag v0.2.35-playtest --check` is **green (0 unledgered)**.
+  Docs/tooling commits in the same window are EXEMPT: **#256** (`15a2724`, installer pin auto-PR for v0.2.35,
+  `chore(installer)`).
 - **Round 2 (items 7–12) are the `src/**/*.cs` changes in the `v0.2.34-playtest..main` window** (the build Daniel
   played → the build carrying his round-2 fixes): **#248** (`21f7a92`, t_10bacccf, item 7), **#254** (`e155ba8`,
   t_9d7c3dfe / t_2d500d45, item 8), **#247** (`14c9390`, t_cad2c6f3, item 9), **#253** (`e0219ad`, t_64dff55f, item 10),
@@ -128,7 +148,7 @@ Shipped **no** code change in any tag (blocked / verify-only), so it carries int
 
 ## 3. Ground-truth cross-check (auto)
 
-Code commits touching `src/**/*.cs` since **v0.2.34-playtest**: **6**
+Code commits touching `src/**/*.cs` since **v0.2.35-playtest**: **1**
 
 
 ✅ Every merged code change maps to a ledger item. No silent-untested changes.
