@@ -154,6 +154,16 @@ namespace SBPR.Trailborne
         // Both = supplement). MinimapBlipStyle: dots+tint (default) vs trophy art on the minimap surfaces.
         internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.MinimapHandoffMode>? LensMinimapHandoffMode = null;
         internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.BlipStyle>?          LensMinimapBlipStyle   = null;
+        // On-minimap threat-blip size (px), LIVE so Daniel converges the exact magnitude on a joined
+        // client (Daniel 2026-06-24: "minimap icons notably too small, ~75% larger", card t_bc017af4).
+        // The SINGLE symbol BOTH minimap surfaces read (the SBPR carry-disc in MapSurface + the vanilla
+        // corner overlay in SunstoneMinimapThreatLayer) — parity by construction, no desync. Star pips
+        // and the off-edge rim indicator scale WITH it (pip = px*0.5, rim = px*0.6). Nullable + resolved
+        // via ResolvedMinimapBlipPx so a no-Plugin unit context falls back to the engine-free default.
+        internal static ConfigEntry<float>? LensMinimapBlipPx = null;
+        /// <summary>The one resolved on-minimap blip size both surfaces read (live knob ?? engine-free default).</summary>
+        internal static float ResolvedMinimapBlipPx =>
+            LensMinimapBlipPx?.Value ?? SBPR.Trailborne.Features.Cartography.MinimapThreatMetrics.DefaultBlipPx;
 
         // ── v3 Swamp: Iron Compass (camera-yaw HUD compass overlay, card t_ee61472f) ──
         // The needle-lag feel + the overlay anchor/size/position are LIVE config so Daniel can
@@ -584,6 +594,16 @@ namespace SBPR.Trailborne
                 + "(default): a small aggro-tinted dot, legible at the disc's tight inner threat zone. Trophy: "
                 + "the creature trophy sprite + aggro tint (richer, smaller-read). The screen-space RING is "
                 + "unaffected — it always shows the full trophy art. Live-tunable.");
+            LensMinimapBlipPx = Config.Bind(
+                "SunstoneLens", "MinimapBlipPx",
+                SBPR.Trailborne.Features.Cartography.MinimapThreatMetrics.DefaultBlipPx,
+                new ConfigDescription(
+                    "On-minimap Sunstone threat-blip size (px) for BOTH surfaces (the SBPR carry-disc + the "
+                    + "vanilla corner map). Default 24 (Daniel-locked 2026-06-24, ≈70% larger than the prior 14). Star pips and the "
+                    + "off-edge rim indicator scale WITH this (pip = px×0.5, rim = px×0.6). Live-tunable — "
+                    + "edit on a joined client and the next detection sweep rescales; no rebuild. The screen-"
+                    + "space ring is unaffected (it has its own distance→size encoding).",
+                    new AcceptableValueRange<float>(8f, 48f)));   // 8 floor lets Daniel go smaller; 48 ceiling fat-fingers can't blow up the map
 
             // v3 Swamp — Iron Compass HUD overlay (card t_ee61472f). Needle-lag feel (Q3) +
             // anchor/size/position (Q4) are LIVE config: a camera-driven HUD widget can't be

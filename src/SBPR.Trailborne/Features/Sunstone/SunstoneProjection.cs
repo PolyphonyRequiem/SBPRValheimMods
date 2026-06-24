@@ -398,10 +398,6 @@ namespace SBPR.Trailborne.Features.Sunstone
         //  a compact glanceable row sized for corner-map scale.
         // ────────────────────────────────────────────────────────────────────────
 
-        /// <summary>On-minimap star-pip size (px). Smaller than the ring's 12px row — the minimap
-        /// blip itself is ~14px, so the pips ride just above it without swamping the dot/trophy.</summary>
-        public const float MinimapPipPx = 7f;
-
         /// <summary>
         /// Mount a compact row of star pips just above a minimap blip, parented under
         /// <paramref name="blipRt"/>. Used by BOTH minimap surfaces so a 2-star Greydwarf reads the
@@ -409,22 +405,28 @@ namespace SBPR.Trailborne.Features.Sunstone
         /// (<see cref="StarSprite"/>); falls back to a Unicode ★ Text when the harvest hasn't resolved
         /// (e.g. very early, or a headless context — never blank). Pips are tinted by the aggro colour
         /// so the alert state reads on the stars too. A zero-star (level-1) hostile mounts nothing.
+        ///
+        /// Pip size derives from the blip px at the shared ratio
+        /// (<see cref="Cartography.MinimapThreatMetrics.PipToBlipRatio"/>, card t_bc017af4) so the pips
+        /// scale WITH the live blip-size knob and stay balanced at any magnitude — the same ratio the
+        /// SBPR disc uses, so the two surfaces can't desync.
         /// </summary>
         public static void MountStarPips(RectTransform blipRt, int stars, float blipPx, Color tint)
         {
             if (blipRt == null || stars <= 0) return;
             stars = Mathf.Min(stars, 5);   // 2-star is the vanilla cap; clamp defensively for modded levels
+            float pip = blipPx * Cartography.MinimapThreatMetrics.PipToBlipRatio;
 
             var rowGo = new GameObject("stars", typeof(RectTransform));
             rowGo.transform.SetParent(blipRt, worldPositionStays: false);
             var rowRt = rowGo.GetComponent<RectTransform>();
             rowRt.anchorMin = rowRt.anchorMax = rowRt.pivot = new Vector2(0.5f, 0.5f);
             // Sit the row just above the blip (blip is centre-pivoted at blipPx tall).
-            rowRt.anchoredPosition = new Vector2(0f, blipPx * 0.5f + MinimapPipPx * 0.6f);
+            rowRt.anchoredPosition = new Vector2(0f, blipPx * 0.5f + pip * 0.6f);
             rowRt.sizeDelta = Vector2.zero;
 
             Sprite? star = StarSprite();
-            float startX = -(stars - 1) * 0.5f * MinimapPipPx;
+            float startX = -(stars - 1) * 0.5f * pip;
 
             if (star != null)
             {
@@ -434,8 +436,8 @@ namespace SBPR.Trailborne.Features.Sunstone
                     pgo.transform.SetParent(rowRt, worldPositionStays: false);
                     var prt = pgo.GetComponent<RectTransform>();
                     prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
-                    prt.sizeDelta = new Vector2(MinimapPipPx, MinimapPipPx);
-                    prt.anchoredPosition = new Vector2(startX + i * MinimapPipPx, 0f);
+                    prt.sizeDelta = new Vector2(pip, pip);
+                    prt.anchoredPosition = new Vector2(startX + i * pip, 0f);
                     var img = pgo.AddComponent<Image>();
                     img.raycastTarget = false;
                     img.preserveAspect = true;
