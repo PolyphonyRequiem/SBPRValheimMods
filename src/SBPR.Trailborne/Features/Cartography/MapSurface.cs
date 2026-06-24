@@ -819,7 +819,17 @@ namespace SBPR.Trailborne.Features.Cartography
             var img = go.AddComponent<RawImage>();
 
             Sprite? sprite = ResolvePinSprite(pin);
-            if (sprite != null) img.texture = sprite.texture;
+            if (sprite != null)
+            {
+                // §2K.7 atlas-safe assign (card t_5c3944cd): a RawImage shows the WHOLE texture, so a
+                // vanilla m_icons sprite that is atlas-packed would smear the entire atlas into the pin.
+                // Crop via uvRect from the sprite's textureRect. Harmless for our full-texture MarkerSign
+                // PNGs (textureRect == full texture → uvRect (0,0,1,1)); correct for an atlased glyph.
+                img.texture = sprite.texture;
+                var tr = sprite.textureRect;
+                float tw = sprite.texture.width, th = sprite.texture.height;
+                img.uvRect = new Rect(tr.x / tw, tr.y / th, tr.width / tw, tr.height / th);
+            }
             else img.color = PinTint(pin);
 
             var rt = img.rectTransform;
@@ -844,7 +854,13 @@ namespace SBPR.Trailborne.Features.Cartography
                 txt.horizontalOverflow = HorizontalWrapMode.Overflow;
                 txt.verticalOverflow = VerticalWrapMode.Overflow;
                 txt.raycastTarget = false;
-                txt.text = pin.Name;
+                // §2K.2 Leg B (card t_5c3944cd): Localize so a snapshot pin carrying a vanilla token
+                // ($enemy_eikthyr, $location_*, a Hildir quest name) renders its human name, not the raw
+                // $token. No-op passthrough for plain marker-sign names. Same wrap as every other display
+                // string in this file (title :1304, exit prompt :1294, biome). Localizing at RENDER (not
+                // capture) is deliberate — capture-time would locale-bake the persisted blob and not
+                // repair surveys saved before this fix.
+                txt.text = Localization.instance != null ? Localization.instance.Localize(pin.Name) : pin.Name;
                 var lrt = txt.rectTransform;
                 lrt.anchorMin = lrt.anchorMax = new Vector2(0.5f, 0.5f);
                 lrt.pivot = new Vector2(0.5f, 1f);
@@ -863,6 +879,22 @@ namespace SBPR.Trailborne.Features.Cartography
                 foreach (var mk in MarkerSignsType.MarkerTypes)
                     if ((int)mk.VanillaPinType == pin.Type && !string.IsNullOrEmpty(mk.IconFile))
                         return Runtime.Assets.LoadPngAsSprite(mk.IconFile);
+
+                // §2K.7 Leg A (card t_5c3944cd): vanilla-PinType pins (Boss, Hildir1-3) — the icon Valheim
+                // shows on its OWN minimap. Mirrors PRIVATE Minimap.GetSprite (decomp Minimap.cs:2018-2025)
+                // against the PUBLIC m_icons table. Runs only for types the MarkerSigns loop above didn't
+                // match (that loop returns on hit), so Icon0 precedence is unchanged. A None type, or a
+                // PinType with no registered icon, falls through to the PinTint dot.
+                var mm = Minimap.instance;
+                if (mm != null)
+                {
+                    var pt = (Minimap.PinType)pin.Type;
+                    if (pt != Minimap.PinType.None)                  // vanilla GetSprite returns null for None
+                    {
+                        var sd = mm.m_icons.Find(x => x.m_name == pt);
+                        if (sd.m_icon != null) return sd.m_icon;     // SpriteData is a struct → default m_icon==null → null-safe
+                    }
+                }
             }
             catch { /* fall through to dot */ }
             return null;
