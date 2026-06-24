@@ -3331,6 +3331,24 @@ together in that PR.
 
 ### 2I — Held map updates live while travelling with the Kit (issue 5, 2026-06-12)
 
+> **🔴 SUPERSEDED 2026-06-24 (design PR #266, Daniel) — the render-overlay approach below is
+> REPLACED by genuine artifact mutation.** Buildable successor:
+> [`live-update-cartography-impl-spec.md`](live-update-cartography-impl-spec.md) (architect card
+> t_d46b3398). This §2I section specced a **render-time** fog merge —
+> `mergedFog[i] = snapshot.Fog[i] || liveWindow[i]` built into a throwaway copy at paint time, with
+> the stored snapshot **explicitly never mutated** (§2I.3). Daniel's #266 model
+> ([`../../design/map-provider-model.md`](../../design/map-provider-model.md) §3.2a) **reverses that
+> contract**: the field write genuinely **mutates the held map's `m_customData` artifact** (the blob
+> grows), which is the only way *"carried-but-unequipped maps update silently; the new ground appears
+> next time you equip/M-open them"* can be true (a render overlay can't persist; a handed-off or
+> relogged map would snap back to its imprint snapshot). The successor spec also generalizes the
+> single equipped map to the **plural** carried write-set (all in-region carried imprinted maps) and
+> adds the **global** co-write. **NOTE: this §2I render-overlay was specced but NEVER built**
+> (`MapViewer.cs` carries no merged-fog / live-window path), so the supersession is doc-level with no
+> code to remove; the user-visible effect §2I aimed at (held map fills as you walk) is delivered —
+> correctly, as storage growth — by the successor. Read it for the current model; the §2I.1
+> disambiguation of the two survey surfaces remains useful background.
+>
 > **Status: BUG/DESIGN — ROOT-CAUSE LOCATED + SEMANTICS RESOLVED + RENDER RE-LOCK.** Reported by
 > Daniel, v0.2.22-playtest. Resolves a behaviour the §2E.1 render model (issue 10, PR #129) made
 > *visible-by-omission*: the held Local Map's shroud is built from the **frozen imprint snapshot**

@@ -104,5 +104,32 @@ Planning artifacts for the Black Forest tier. Same role as
   adds only the doc + forward-pointer breadcrumbs. `AT-PERSIST-CARRY` / `EQUIP-SELFHEAL` / `MULTI`
   / `UNBIND-INTACT` / `BLANK` / `NOMAPOFF` / `SPEC`. SpecCheck delta = **+0**.
 
+- **`live-update-cartography-impl-spec.md`** — the buildable *how* for the **live-update WRITE axis**
+  (design lock: [`../../design/map-provider-model.md`](../../design/map-provider-model.md)
+  §3.2a/§4.0a/§5/§6, locked by Daniel **2026-06-24**, merged **PR #266**). Daniel split the
+  cartography loop into two orthogonal axes: **RENDER = equip** (one map drives the viewer + disc)
+  and **WRITE = hold + Kit** (every carried, imprinted, in-region Local Map receives the field
+  survey). This spec builds the WRITE axis: on each Kit-worn reveal tick, the same 64 m window
+  vanilla stamps into the global `m_explored` is **also OR-merged into each in-region carried
+  imprinted map's stored `SurveyData` blob** and rewritten to `m_customData` — the map's **artifact
+  genuinely grows**, so carried-but-unequipped maps update silently and the new ground persists
+  (relog/handoff survive). This **supersedes** the `cartography-impl-spec.md` **§2I render-overlay**
+  (issue 5 / PR #131), which built the live view as a render-time `snapshot ∪ live m_explored`
+  overlay that **explicitly never mutated storage** — #266 reverses that contract (a render overlay
+  can't persist or be handed off). The **perf model is the spec's spine**: **direct-blob-mutation
+  with a dirty-check** is LOCKED (justified against design §3.3's sub-KB 64 m blob; the in-RAM
+  working-set is documented as the *deferred* optimization for a future finer resolution only), and
+  it's chosen precisely because the viewer already re-reads the blob every 0.25 s
+  (`LocalMapController` `DriveMinimapDisc`/`RefreshOpenView`) — so a mutated blob **auto-reflects
+  with no render change** (confirmed from code). Also specs the **Surveyor's Table local→ingest**
+  (§4.0a): on Use, carried maps **bound to that Table** (grid-cell-keyed on the stored bound-origin)
+  fold their field discoveries + pins back into the Table survey, so a rebuilt Table re-adopts its
+  maps. New `LiveFieldWrite.cs` + `LocalMap.WriteSurveyBlob` + `SurveyData.MergeFrom(out changed)` +
+  a shared `MinimapFog.ReadExplored`; **no** `MapViewer`/`SpecCheck`/recipe change. Card
+  **t_d46b3398**; engineer child **t_9c54d492** auto-promotes on completion. `AT-LIVE-WRITE-1` /
+  `NOKIT` / `MULTI` / `OUTREGION` / `GLOBAL` / `PERSIST` / `SUPERSEDE` / `IDENTITY` / `ALIGN` /
+  `RENDER` + `AT-INGEST-1` / `REBUILD`. **status: proposed** — Daniel's design is already locked;
+  this is the spec half, gated for doc-review. SpecCheck delta = **+0** (behavior-only).
+
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
