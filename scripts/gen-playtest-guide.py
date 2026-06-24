@@ -121,6 +121,30 @@ def git_code_changes(last_tag, ref):
 def ledger_card_ids(pending):
     return set(re.findall(r"t_[a-f0-9]{8}", pending))
 
+def ledger_pr_numbers(pending):
+    """PR numbers (#NNN) named anywhere in the PENDING section.
+
+    Used ONLY to rescue a commit that carries NO t_ card id at all — a direct
+    `/bug` impl squash-merged with just its own `(#NNN)` and no card (e.g. #264,
+    the corona FeetGlow, authored straight from a Discord /bug ticket). Naming
+    that PR in a PENDING row is the SAME explicit acknowledgment the card-id path
+    provides, so the surface is tracked. PR numbers are unique + monotonic, so a
+    genuinely-unledgered FUTURE commit can never coincidentally match a PR number
+    already sitting in the ledger. This does NOT loosen id-carrying commits — see
+    the cross-check loop: a commit WITH card ids must still match a card id.
+    """
+    return set(re.findall(r"#(\d+)", pending))
+
+def own_pr_number(subject):
+    """The PR number GitHub appends to a squash-merge subject: '… (#264)'.
+
+    Matches the LAST trailing `(#NNN)` only, so a subject that also mentions
+    another PR mid-text (e.g. 'supersede #267 (#264)') still resolves to the
+    commit's OWN PR, never a referenced one.
+    """
+    m = re.search(r"\(#(\d+)\)\s*$", subject)
+    return m.group(1) if m else None
+
 # Conventional-commit types that introduce NO player-visible test surface, so a src
 # change of this type needs no ledger test item. Everything else (feat/fix/perf/refactor)
 # is player-visible-by-default and MUST carry a card id present in the ledger PENDING.
@@ -155,18 +179,31 @@ def main():
     # cross-check: a merged src change is "unledgered" (flagged) unless either
     #   (a) it is an EXEMPT commit type (revert/chore/docs/test/ci/build/style) — no
     #       player-visible surface, so no test item is owed; or
-    #   (b) it carries a card id that is present in the ledger PENDING.
-    # A feat/fix/etc. whose card id is missing from PENDING — or which carries NO card id
-    # at all — is flagged. fulltext = subject + body, so a body-only card id is matched
-    # (the exact blind spot that let the v0.2.33 ledger drift: signs #228 carried its
-    # card id only in the commit body, invisible to the old --oneline scan).
+    #   (b) it carries a card id that is present in the ledger PENDING; or
+    #   (c) it carries NO card id at all AND its own PR number (#NNN) is named in
+    #       PENDING — the direct-/bug escape hatch (a commit authored straight from a
+    #       Discord /bug ticket squash-merges with just its (#NNN) and no t_ card).
+    # A feat/fix/etc. that carries card id(s) NONE of which are in PENDING is still
+    # flagged (strict — the PR-number rescue does NOT apply to id-carrying commits, so
+    # a real missed surface that happens to mention a ledgered PR can't slip through).
+    # fulltext = subject + body, so a body-only card id is matched (the exact blind spot
+    # that let the v0.2.33 ledger drift: signs #228 carried its card id only in the body).
+    pr_numbers_in_ledger = ledger_pr_numbers(pending)
     unledgered = []
     for sha, subject, fulltext in changes:
         if commit_type(subject) in EXEMPT_TYPES:
             continue
         ids = set(re.findall(r"t_[a-f0-9]{8}", fulltext))
-        if not (ids & cards_in_ledger):
-            unledgered.append((sha, subject, ids))
+        if ids:
+            # id-carrying commit: STRICT — at least one id must be in PENDING.
+            if ids & cards_in_ledger:
+                continue
+        else:
+            # no card id at all: rescue iff its OWN PR number is named in PENDING.
+            pr = own_pr_number(subject)
+            if pr and pr in pr_numbers_in_ledger:
+                continue
+        unledgered.append((sha, subject, ids))
 
     # --check: ship/CI guard. Exit non-zero if any merged code change is unledgered,
     # so the release wrapper REFUSES to cut a build with silently-untested surfaces
