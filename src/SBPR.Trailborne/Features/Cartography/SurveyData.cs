@@ -137,12 +137,27 @@ namespace SBPR.Trailborne.Features.Cartography
         /// Grid/origin must match (same Table). If they don't (different bound origin or a
         /// grid-resolution change), the merge is refused and logged — silently OR-ing
         /// mismatched windows would corrupt the survey.
+        ///
+        /// This overload discards the change flag; it preserves the original signature for the
+        /// Table contribute path (<see cref="SurveyorTableTag"/>), which always persists.
         /// </summary>
-        public bool MergeFrom(SurveyData other)
+        public bool MergeFrom(SurveyData other) => MergeFrom(other, out _);
+
+        /// <summary>
+        /// Change-reporting overload (live-update-cartography-impl-spec §2.3): merges as above
+        /// AND sets <paramref name="changed"/> true iff anything actually flipped — a fog cell
+        /// going false→true, a NEW pin added, or the empty-adopt path running. This is the
+        /// DIRTY-CHECK the live field WRITE axis (§2/§3) uses to skip the reserialize+rewrite of a
+        /// carried map's blob when re-covering known ground (or standing still): the steady state
+        /// then costs zero writes. Return value is "did the merge RUN" (grid matched); the out-param
+        /// is "did the survey CONTENT change."
+        /// </summary>
+        public bool MergeFrom(SurveyData other, out bool changed)
         {
+            changed = false;
             if (other == null || other.IsEmpty) return false;
 
-            // If THIS is empty, adopt the other's grid wholesale (first write to a blank Table).
+            // If THIS is empty, adopt the other's grid wholesale (first write to a blank record).
             if (IsEmpty)
             {
                 OriginX = other.OriginX; OriginZ = other.OriginZ;
@@ -151,16 +166,22 @@ namespace SBPR.Trailborne.Features.Cartography
                 Size = other.Size;
                 Fog = (bool[])other.Fog.Clone();
                 Pins = new List<SurveyPin>(other.Pins);
+                changed = true;   // adopted everything — that's a change (§2.3)
                 return true;
             }
 
-            // Both non-empty: the windows must describe the same disc at the same grid.
-            const float originEps = 0.5f; // sub-cell; same Table re-derives the same origin
+            // Both non-empty: the windows must describe the same disc at the same grid. Grid-CELL
+            // equality (BoundedMapMath.SameOriginCell) — NOT raw-coordinate proximity — is the
+            // OR-merge-alignment invariant (§5): two origins in the same native cell yield identical
+            // window geometry (same OriginCellX/Y + Size via ComputeWindow), so the fog arrays align
+            // index-for-index. This is what lets a Surveyor's Table rebuilt a few metres off but in
+            // the SAME 64 m cell re-adopt its bound maps (AT-INGEST-REBUILD) where the prior raw
+            // 0.5 m proximity test would have refused. The contribute path is unaffected (it always
+            // re-captures at the exact same Table transform, so the origins are bit-identical).
             if (Size != other.Size ||
                 TextureSize != other.TextureSize ||
                 Mathf.Abs(PixelSize - other.PixelSize) > 1e-3f ||
-                Mathf.Abs(OriginX - other.OriginX) > originEps ||
-                Mathf.Abs(OriginZ - other.OriginZ) > originEps)
+                !BoundedMapMath.SameOriginCell(OriginX, OriginZ, other.OriginX, other.OriginZ, PixelSize, TextureSize))
             {
                 Plugin.Log.LogWarning(
                     "[Trailborne/Cartography] SurveyData.MergeFrom refused: window mismatch " +
@@ -171,12 +192,13 @@ namespace SBPR.Trailborne.Features.Cartography
             }
 
             if (Fog == null || Fog.Length != Size * Size) Fog = new bool[Size * Size];
-            int n = Math.Min(Fog.Length, other.Fog.Length);
-            for (int i = 0; i < n; i++)
-                Fog[i] = Fog[i] || other.Fog[i];
+            // Flip-detecting OR via the pure BoundedMapMath helper (§2.3) — the shipped dirty-check
+            // IS the headless-tested one (no second copy to drift).
+            BoundedMapMath.OrMergeFog(Fog, other.Fog, out bool fogChanged);
+            if (fogChanged) changed = true;
 
             foreach (var p in other.Pins)
-                AddOrUpdatePin(p);
+                if (AddOrUpdatePin(p)) changed = true;   // a NEW pin (folded near-dupes don't dirty)
 
             return true;
         }

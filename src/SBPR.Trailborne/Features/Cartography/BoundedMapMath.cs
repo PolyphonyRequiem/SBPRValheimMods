@@ -149,6 +149,59 @@ namespace SBPR.Trailborne.Features.Cartography
             return (dx * dx + dz * dz) <= radiusMeters * radiusMeters;
         }
 
+        // ── Live field-write region tests (live-update-cartography-impl-spec §2.1) ───
+
+        /// <summary>
+        /// The in-region pre-filter for the live field WRITE axis (impl-spec §2.1 step 3): true
+        /// if the player at (<paramref name="px"/>,<paramref name="pz"/>) is inside a carried map's
+        /// 1000 m survey disc around (<paramref name="originX"/>,<paramref name="originZ"/>),
+        /// widened by one cell (<paramref name="pixelSize"/>) so a player walking the rim doesn't
+        /// flicker in/out of the write-set. A map whose disc the player has LEFT fails this and is
+        /// not written (AT-LIVE-OUTREGION). This is a cheap array-build SKIP, never a clip widening —
+        /// the actual fog clip in <see cref="BuildWindowedFog"/> stays at exactly the radius. Pure,
+        /// engine-free, so the write-set selection is unit-testable headless.
+        /// </summary>
+        public static bool InRegionForLiveWrite(float px, float pz, float originX, float originZ,
+                                                float radiusMeters, float pixelSize)
+            => InDisc(px, pz, originX, originZ, radiusMeters + pixelSize);
+
+        /// <summary>
+        /// True if two world origins snap to the SAME native fog cell (impl-spec §5 / §2.3): the
+        /// grid-cell-equality test that (a) keys the Surveyor's Table local→ingest bound-map match
+        /// and (b) guards <see cref="SurveyData.MergeFrom"/> against OR-merging windows of different
+        /// discs. Cell equality — NOT raw-coordinate proximity — is the real OR-merge-alignment
+        /// invariant: <see cref="ComputeWindow"/> derives a window's origin cell + size purely from
+        /// <see cref="WorldToCellX"/>/<see cref="WorldToCellY"/>, so two origins in the same cell
+        /// produce byte-identical window geometry (same OriginCellX/Y, same Size) and their fog
+        /// arrays align index-for-index. This is what makes *"a Table rebuilt at the same spot
+        /// re-adopts its old maps for free"* (design §4.0a) true even when the rebuild lands a few
+        /// metres off the original — same 64 m cell ⇒ same window ⇒ safe to merge — while a rebuild
+        /// in a DIFFERENT cell correctly fails to match (accepted orphan). Pure, engine-free.
+        /// </summary>
+        public static bool SameOriginCell(float ax, float az, float bx, float bz,
+                                          float pixelSize, int textureSize)
+            => WorldToCellX(ax, pixelSize, textureSize) == WorldToCellX(bx, pixelSize, textureSize)
+            && WorldToCellY(az, pixelSize, textureSize) == WorldToCellY(bz, pixelSize, textureSize);
+
+        /// <summary>
+        /// Flip-detecting OR-merge of <paramref name="src"/> fog into <paramref name="dst"/> fog
+        /// (impl-spec §2.3, the DIRTY-CHECK core). For each cell, light <paramref name="dst"/> if
+        /// <paramref name="src"/> is lit (cells are never cleared) and set <paramref name="changed"/>
+        /// true iff at least one cell actually went false→true. This is the pure heart of the live
+        /// field-write perf gate: re-covering already-lit ground flips nothing, so the caller skips
+        /// the reserialize+rewrite (steady state = zero writes). Merges over <c>min(dst,src)</c> so a
+        /// length mismatch can't throw (defensive; same-cell windows are always equal length).
+        /// Engine-free, so the dirty-check is unit-testable headless.
+        /// </summary>
+        public static void OrMergeFog(bool[] dst, bool[] src, out bool changed)
+        {
+            changed = false;
+            if (dst == null || src == null) return;
+            int n = Math.Min(dst.Length, src.Length);
+            for (int i = 0; i < n; i++)
+                if (!dst[i] && src[i]) { dst[i] = true; changed = true; }
+        }
+
         // ── Edge indicator: polar clamp to the disc (NOT Hud.ClampToScreenEdge) ──────
 
         /// <summary>

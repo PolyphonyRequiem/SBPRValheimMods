@@ -165,6 +165,16 @@ namespace SBPR.Trailborne.Features.Cartography
                 }
             }
 
+            // ── LIVE FIELD-WRITE axis (live-update-cartography-impl-spec §2, card t_9c54d492) ──
+            // Stamp the Kit-revealed ground into every carried imprinted in-region Local Map's stored
+            // blob (the PLURAL write-set, keyed on HOLD + Kit — independent of the equip-keyed render
+            // provider above). Placed AFTER the provider machine (§4 cold-start ordering) so a freshly
+            // equipped map is already the provider when the write happens (readable logs: provider-set
+            // then writes). LiveFieldWrite self-throttles to ~2 s and is the actual fix for issue 5
+            // (carried maps never grew because nothing but Imprint wrote their blob). Client-only +
+            // dirty-checked: standing still / no Kit / re-covering known ground ⇒ zero writes (§3).
+            LiveFieldWrite.Tick(player);
+
             // ── §4.4 + §5 DISC DRIVE: render the disc iff (provider bound + imprinted + nomap ON). ──
             // §5: gate the RENDER (not the provider) on the live client nomap flag. In nomap-OFF the
             //   vanilla global minimap owns the corner — the local-map disc must stand down there
