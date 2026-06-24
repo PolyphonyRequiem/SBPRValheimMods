@@ -1,6 +1,6 @@
 ---
 title: "Trailborne v2 (Black Forest) — Live-update cartography (field WRITE axis) buildable impl-spec"
-status: built (impl card t_9c54d492 — review-required; see §12 as-built notes)
+status: current
 purpose: "Buildable implementation spec for the locked live-update cartography model (map-provider-model.md §3.2a / §4.0a / §5 / §6, design PR #266, Daniel 2026-06-24). Turns the RENDER-vs-WRITE axis split into build-ready work: the field WRITE axis (Kit-worn reveal mutates every carried imprinted in-region Local Map's stored artifact, plus the vanilla global), the chosen perf model (direct-blob-mutation with a dirty-check — justified against the sub-KB blob), the Surveyor's Table local→ingest path, and named acceptance tests. Architect spec-pass, card t_d46b3398. SUPERSEDES the §2I render-overlay half of cartography-impl-spec.md (issue 5, PR #131): that approach was a render-time snapshot∪live overlay that explicitly NEVER mutated storage; #266 reverses it — the field write genuinely grows the held map's m_customData artifact. Implementers (engineer-ui) build from THIS doc; map-provider-model.md is the design lock."
 owner: Daniel (design authority, locked #266); Starbright (impl-spec capture + grounding)
 supersedes_partial:
