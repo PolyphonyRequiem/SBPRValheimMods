@@ -18,7 +18,7 @@
 //       OUTER radius (away from your face) AND shrank them to ~nothing — far + tiny = invisible.
 //       Now every trophy sits at the SAME fixed HaloRadius; SCALE carries all the distance info:
 //         scale = SunstoneHaloGeometry.ScaleAt(dist, DetectRadius, HaloScaleMax)
-//                 // ≤10 m → full (HaloScaleMax); 50 m edge → 0.25·HaloScaleMax; linear between
+//                 // ≤10 m → full (HaloScaleMax); 70 m edge → 0.25·HaloScaleMax; linear between
 //         pos   = eye + dirN * HaloRadius                  // FIXED distance — no range-dependent push
 //       Placed on the REAL dir = blip.WorldPos - eye → camera-relative by construction (thesis
 //       guard holds; NO SignedAngle, NO north frame injected). The fixed-distance + knee math is

@@ -736,9 +736,10 @@ namespace SBPR.Trailborne.Features.Cartography
                             continue;
                         Vector2 anchored = WorldToSurfacePx(t.WorldPos, survey);
                         // Off-disc threats are NO LONGER dropped — clamp to the rim and draw smaller
-                        // (card t_aab051ae item ④). With the 50m detection radius a hostile genuinely can
-                        // sit outside the visible disc window, so the rim indicator is the "something's
-                        // out there, that way" cue. On-disc threats draw full-size in place. The clamp is
+                        // (card t_aab051ae item ④). With the 70m detection radius — which now EXCEEDS the
+                        // ~62.5m visible disc window (t_4b9f8889, Daniel 2026-06-24) — a hostile in the
+                        // 62.5–70m band genuinely sits outside the disc, so the rim indicator is the
+                        // "something's out there, that way" cue. On-disc threats draw full-size in place. The clamp is
                         // Cartography-owned geometry (BoundedMapMath) — no upward dep on Features/Sunstone.
                         bool offEdge = BoundedMapMath.ClampToRimPx(anchored.x, anchored.y, discR, ThreatRimInset,
                                                                   out float drawX, out float drawY);

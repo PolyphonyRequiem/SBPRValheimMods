@@ -287,7 +287,7 @@ total tests pass.
 
 **In-game (qa-playtest card; logs-green ≠ playable):**
 - **AT-LENS-DISC-HANDOFF** — nomap-ON + bound disc + Lens worn & charged: hostiles within
-  50 m render as dots+tint on the disc; per `MinimapHandoffMode` the ring hides
+  70 m render as dots+tint on the disc; per `MinimapHandoffMode` the ring hides
   (`DiscWhenBound`), both show (`Both`), or only the ring shows (`RingOnly`).
 - **AT-LENS-DISC-PUMP** (🔴 #209 guard) — under `DiscWhenBound`, when the ring hides the
   sweep keeps running (the `content → hidden` diagnostic line still appears; the disc keeps

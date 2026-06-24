@@ -415,7 +415,7 @@ namespace SBPR.Trailborne
             // v3 Swamp — Sunstone Lens WORLD-SPACE eidetic halo render (card t_68672b6b → t_d17d9b58;
             // geometry re-locked by bug-fix t_10bacccf). A head-centric halo of billboarded creature
             // trophies floating in the 3D world at their real bearings — FIXED ring distance + scale-only
-            // range cue (10m knee: full ≤10m, 0.25× at the 50m edge), vanilla star pips, yellow/orange/red
+            // range cue (10m knee: full ≤10m, 0.25× at the 70m edge), vanilla star pips, yellow/orange/red
             // aggro tint. Supersedes the screen-space ring. All geometry/feel LIVE-tunable so Daniel
             // converges the look on a joined client without a rebuild (a world-space visual can't be
             // verified headless — the cairn-banner lesson). Range-clamped so a fat-finger in the .cfg
