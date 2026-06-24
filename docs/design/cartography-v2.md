@@ -254,15 +254,27 @@ Daniel's new direction (verbatim): a flat rectangle ~**0.5 m wide × 0.3 m tall*
   reading a Local Map = `Minimap.AddSharedMapData(blob)`. One format everywhere.
 
 ### 4.3 Behaviors (🔴 mostly OPEN — hang on Q-CART-1)
-- **Imprint** (at a Station, via Cartographer's Kit): blank → snapshot. 🟡 Recommend
-  a snapshot (frozen at imprint time), NOT a live link — a Local Map is "the map as
-  it was when drawn," which is more diegetic and avoids live-sync complexity.
+> **🔒 REFRAMED 2026-06-24 (Daniel) — "snapshot vs live" was a FALSE fork; the Cartographer's Kit
+> is the switch.** The "snapshot, NOT a live link" recommendation below is **superseded** by the
+> render/write-axis lock in [`map-provider-model.md`](map-provider-model.md) §3.2a: a Local Map is
+> **live while a Kit-wearing player holds it inside its region** (the Kit redirects field reveal into
+> the held map, §5), and a **frozen, ageing snapshot otherwise** (in a chest, handed to a Kit-less
+> friend, or carried by a non-surveyor). So "maps age" is **kept, not killed** — it is the *default*
+> state of every map; live-update is the *privilege* of the equipped cartographer. Read the bullets
+> below as describing the FROZEN state (the common case); see map-provider-model §3.2a/§4.0a for the
+> live path and the Table-ingest that flows field discoveries home.
+- **Imprint** (at a Station, via Cartographer's Kit): blank → snapshot, and **binds the map to that
+  Station** (region boundary + name + initial survey; map-provider-model §4.0a). 🟢 An imprinted map
+  is then **live while Kit-held in-region**, frozen otherwise — not a permanent freeze (reconciled
+  2026-06-24; the original "frozen at imprint time, NOT a live link" recommendation is superseded).
 - **Read in the field** (the core UX fork): under v1's no-M-key-map nerf, *what does
   "reading" show?* Options in Q-CART-1.
 - **Stacking / weight:** 🟡 non-stackable (each is a unique document), weight ~1.0,
   so carrying many maps is a real inventory cost.
-- **Snapshot staleness:** a Local Map imprinted early shows only what the Station
-  knew then. 🟡 Recommend this as a *feature* (maps age), not a bug to fix.
+- **Snapshot staleness:** a Local Map nobody surveys with **ages** — it shows only what was known
+  when a cartographer last held it. 🟢 This is a **feature, Kit-gated** (a map without a cartographer
+  is an old chart), not a bug — reconciled 2026-06-24 with the live-update path (map-provider-model
+  §3.2a).
 
 ## 5. Feature — **Cartographer's Kit** (the gated tool)
 
