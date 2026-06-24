@@ -223,11 +223,18 @@ iron one."** The bezel is drawn by `EnsureBezelTexture` (`MapSurface.cs:1315-136
 helper (`:1335-1336`), bronze constant `new Color(0.62f, 0.55f, 0.42f, 1f)` (`:1339`
 🔵). The N glyph rides at `r ≈ holeR` (on/just inside the iron band).
 
-🔵 **Clear of the Sunstone threat zone — but the margin narrowed at 50 m detect.** The twin quantified threats
-landing within the inner ~80 % (~80 px) of the 200 px disc; the compass N at ~94 px
-radius still clears a worst-case Sunstone blip (a ~14 px margin, down from ~46 px under the
-old 30 m radius). The two overlays remain spatially disjoint — co-existence holds (§5), though
-the margin is now modest; worth an in-game eye that a max-range blip near the N bearing doesn't read as cluttered.
+🔴 **Sunstone threat zone now REACHES the compass N — the margin closed at 70 m detect (t_4b9f8889, Daniel 2026-06-24).** Re-derived: the Sunstone
+detection radius (70 m) now **exceeds** the ~62.5 m visible disc, so far threats no
+longer sit in an inner band — hostiles in the 62.5–70 m ring **rim-clamp to ~92 px**
+(`ThreatRimInset 0.92` on the 100 px disc), and the compass N rides at `holeR ≈ 94 px`.
+The earlier "~14 px clear, still disjoint by construction" guarantee (true at 50 m, ~80 px)
+**no longer holds** — a worst-case max-range Sunstone blip on the N bearing now lands
+right at the N glyph. The two overlays remain distinct *layers* (different marker kinds,
+no shared state — §5), so they don't corrupt each other, but they are **no longer
+spatially disjoint**. 🔵 **Flagged for Daniel's in-game eye:** does a 62.5–70 m threat
+blip sitting on the iron N read as cluttered / ambiguous? If so, options (not yet locked):
+nudge `ThreatRimInset` inward, or shrink the rim-clamped blip, or give the N glyph
+visual priority. Tunable, not a build blocker.
 
 > 🔴 **Parent split — the load-bearing impl subtlety.** The **bezel is a child of the
 > NON-rotating `_frame`** (`MapSurface.cs:1446` 🔵), so it never spins — correct for
@@ -355,9 +362,11 @@ The two cards carry **opposite** north-invariants:
 The features never conflict because **north is never a property of the surface** — it
 is a property of the **compass**, drawn on the surface only when worn. Sunstone-on-disc
 and Compass-on-disc can both be active at once (worn compass + worn lens + bound
-disc): the lens contributes world-blips in the inner ~80 %, the compass contributes
-one N glyph at the bezel radius (§3.3), spatially disjoint, neither contaminating the
-other's invariant.
+disc): the lens contributes world-blips (on-disc out to ~62.5 m, rim-clamped for the
+62.5–70 m band at 70 m detect), the compass contributes one N glyph at the bezel
+radius (§3.3). They are distinct layers that never corrupt each other's invariant —
+🔴 though at 70 m detect they are **no longer spatially disjoint** (a max-range blip
+can reach the N glyph; flagged for Daniel's in-game eye, §3.3).
 
 🔴 **New acceptance test — AT-DISC-NORTH-GATED** (the rule's guard): with a bound
 disc, wearing **only the Sunstone Lens** (no compass) shows threat blips and **no**

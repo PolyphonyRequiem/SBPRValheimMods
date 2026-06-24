@@ -33,7 +33,7 @@ Daniel's gate, verbatim (2026-06-20):
 | Knob | 🟢 Decision | Source |
 |---|---|---|
 | **1 — replace vs supplement** | **`MinimapHandoffMode = DiscWhenBound`** (architect's proposed default). The ring is the **fallback-only** surface: it renders ONLY when no minimap is present at all. "Ring only" = the no-minimap fallback; "take the architect's preference" = `DiscWhenBound` (NOT the `RingOnly` enum value, which would make the feature inert). Enum stays live-tunable (`RingOnly`/`DiscWhenBound`/`Both`), default `DiscWhenBound`. | "take the architects preference" + §4 |
-| **2 — blip representation** | **dots + aggro-tint** (architect's §3.3 lean). Every threat sits within the inner ~80 % of the disc where trophy art is ~80 px-from-centre small. Keep a live Config enum if cheap, default dots+tint. | §3.3 geometry |
+| **2 — blip representation** | **dots + aggro-tint** (architect's §3.3 lean). At 70 m detection (t_4b9f8889) far threats reach the disc edge and the 62.5–70 m band rim-clamps into the bezel, where trophy art would be tiny and edge-crowded — dots+tint read better still. Keep a live Config enum if cheap, default dots+tint. | §3.3 geometry |
 | **3 — nomap-OFF case** | 🔴 **OVERRIDES the architect's "ring stays" lean.** UNIVERSAL rule: **ANY minimap present, for ANY reason, gets the handoff — including the VANILLA minimap in nomap-OFF.** *Minimap present (SBPR carry-disc OR vanilla) → detection on it; ring only when no minimap exists at all.* | "if the minimap is present for any reason it should have this behavior. You can extrapolate to nomap on" |
 
 Knob 3 EXPANDS this doc beyond its original SBPR-disc-only scope. §1, §3.7 (NEW),
@@ -168,27 +168,41 @@ reference frame the ring uses* (`cam.transform.forward`,
 placed in disc-space rotates with heading automatically; it inherits the
 no-north invariant for free (§6).
 
-**3.3 The geometry — quantified (this is new, the card flagged it as
-"confirm").** 🔵
+**3.3 The geometry — quantified (re-derived at 70 m, t_4b9f8889 / Daniel
+2026-06-24; the earlier 30→50 m figures are superseded).** 🔵
 
-- Detection radius: **50 m** (`SunstoneLens.DefaultDetectRadius`, `:91`).
+- Detection radius: **70 m** (`SunstoneLens.DefaultDetectRadius`, `:91`).
 - Disc view span: **125 m edge-to-edge** → ~**62.5 m radius**
   (`MapViewer.DiscViewSpanMeters`, `:46`).
-- Disc pixel size: **200 px** (`DiscTargetPx`, `:36`) → ~100 px radius.
+- Disc pixel size: **200 px** (`DiscTargetPx`, `:36`) → ~100 px radius (**1.6 px/m**).
 
-⇒ **Every detected hostile falls within the inner ~80 % of the disc** (50/62.5),
-i.e. inside the central ~160 px diameter. Threats still stay clear of the bezel
-(~20 px margin). Two consequences the representation knob (§5) must weigh:
+⇒ 🔴 **For the first time the detection radius (70 m) EXCEEDS the visible disc
+radius (~62.5 m / 100 px).** At 30 m and 50 m every detected hostile fell *inside*
+the disc; at 70 m that no longer holds. Two bands now:
 
-1. There is **still unused outer disc** — minimal edge-clipping pressure; the §3.1
-   clip-to-visible-circle guard (`MapSurface.cs:628`) will rarely
-   fire for a threat blip (a hostile at the full 50 m sits ~80 px out on a
-   100 px-radius disc, ~20 px shy of the bezel).
-2. **Trophy art at true scale will be small.** A 50 m-distant hostile sits ~80 px
-   from centre on a 100 px-radius disc; a trophy sprite there competes with the
-   cartography texture and the player chevron. This is the strongest argument for
-   **dots + aggro-tint** over trophy art on the disc (§5 knob 2) — but it's
-   Daniel's eyes, so it's a knob, made cheap by §4.
+- **Hostiles ≤ ~62.5 m** project on-disc, 0 → ~100 px (the disc edge); drawn
+  full-size in place.
+- **Hostiles ~62.5–70 m** project *beyond* the 100 px disc and are **rim-clamped**
+  to ~92 px (`ThreatRimInset = 0.92`, `MapSurface.cs:738-745`) — the off-edge
+  "something's out there, that way" indicator (the clamp path shipped for card
+  t_aab051ae item ④, now genuinely exercised by the geometry rather than dormant).
+
+The old "**every hostile within the inner ~80 %, ~20 px shy of the bezel**" claim
+is **retired** — far blips now reach the disc edge (~100 px) and the 62.5–70 m band
+rim-clamps into the bezel region. Two consequences the representation knob (§5)
+must weigh:
+
+1. The threat-layer rim-clamp now **does** fire for far hostiles — the outer disc
+   is no longer unused slack. That's by design (the rim blip is the cue), but it
+   means a max-range blip sits at/near the bezel, not safely central — and where a
+   compass is worn, near the iron N glyph (see
+   [`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md) §3.3 for the
+   coexistence consequence, now flagged for Daniel's in-game eye).
+2. **Trophy art at true scale would be tiny AND edge-crowded.** A 60 m hostile sits
+   ~96 px out; a 70 m one rim-clamps to ~92 px — both competing with the bezel, the
+   player chevron, and the compass N. This is an even **stronger** argument for
+   **dots + aggro-tint** over trophy art on the disc (§5 knob 2) — but it's Daniel's
+   eyes, so it's a knob, made cheap by §4.
 
 **3.4 Cadence.** The disc overlay rebuilds per `Render` (~0.25 s,
 `MapSurface.cs:169` 🔵); rotation is per-frame. The ring polls detection on a
@@ -326,12 +340,14 @@ whole card; the impl-spec locks it as an acceptance test (AT-LENS-DISC-PUMP).
    (§4). Daniel may still flip `Both`/`RingOnly` in-game.
 
 2. 🟢 **Blip representation → dots + aggro-tint** (the architect's §3.3 lean,
-   ratified). The geometry decides it: every threat sits within the inner ~80 % of
-   the disc, where trophy art is ~80 px-from-centre small; dots + the 🟡/🟠/🔴
-   aggro tint read cleanly there. *Keep a live Config enum (e.g. `BlipStyle`) if
-   cheap so Daniel can compare `Dots` vs `Trophy` in-game, default `Dots`.* The
-   rejected option (directional edge ticks) stays rejected by geometry — threats
-   never reach the bezel.
+   ratified). The geometry decides it: at 70 m detection (t_4b9f8889) far threats
+   reach the disc edge and the 62.5–70 m band rim-clamps into the bezel, where
+   trophy art is tiny and edge-crowded; dots + the 🟡/🟠/🔴 aggro tint read
+   cleanly there. *Keep a live Config enum (e.g. `BlipStyle`) if cheap so Daniel
+   can compare `Dots` vs `Trophy` in-game, default `Dots`.* The rejected option
+   (directional edge ticks) is now partially **realized** by geometry — the
+   62.5–70 m rim-clamp IS a directional edge indicator — so it stays a non-goal as
+   a *primary* style, but the rim cue is no longer purely hypothetical.
 
    > 🔴 **SUPERSEDED 2026-06-21 (Daniel, ticket-sunstone-minimap-render, card
    > `t_aab051ae`) — minimap representation RICHENED to match the ring.** Daniel
@@ -347,9 +363,10 @@ whole card; the impl-spec locks it as an acceptance test (AT-LENS-DISC-PUMP).
    > - **Off-edge RIM INDICATOR added — the "directional edge ticks" rejection is
    >   REVERSED.** The original geometry argument ("threats never reach the bezel")
    >   was computed for the SBPR disc's fixed view span; it does NOT hold for (a) the
-   >   vanilla corner minimap, whose zoom is player-controlled, nor (b) the 50 m
-   >   detection radius (raised from 30 m, card `t_4b9f8889`) which lets a hostile sit
-   >   outside the visible window. Off-window threats are now CLAMPED to the rim and
+   >   vanilla corner minimap, whose zoom is player-controlled, nor (b) the 70 m
+   >   detection radius (raised 30→50→70 m, card `t_4b9f8889`) which — now EXCEEDING
+   >   the ~62.5 m visible disc — lets a 62.5–70 m hostile sit outside the visible
+   >   window. Off-window threats are now CLAMPED to the rim and
    >   drawn smaller (the "smaller indicator around the rim" the reporter asked for)
    >   instead of being dropped. Shared pixel-space clamp: `BoundedMapMath.ClampToRimPx`.
    > The richer detail the §3.3 geometry warned against is Daniel's explicit, eyeballed
@@ -448,11 +465,14 @@ deliberately north-up per the re-scope above.)
 > The compass N marker is deliberately **NOT** routed through this card's shipped
 > `IThreatMarkerProvider` — it is a *different marker kind* (screen-bearing / per-frame /
 > both-surfaces, a player-chevron sibling on `_mapContainer`), not a world-positioned
-> per-rebuild disc blip. The two overlays are spatially disjoint (threat blips in the inner
-> ~48 %; the compass N at the bezel radius) and can both be active at once without
-> contaminating each other: no compass → north-blind surface + pure camera-relative blips;
-> compass worn → the iron N-ring is the *only* element encoding north, blips stay
-> world-positioned. See [`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md) §5.
+> per-rebuild disc blip. The two overlays remain distinct marker kinds, but 🔴 **at 70 m
+> detection (t_4b9f8889) they are no longer spatially disjoint by construction** — the
+> 62.5–70 m threat band rim-clamps to ~92 px, near the compass N at the bezel radius
+> (~94 px). Co-existence still holds (different layers, no shared state) but the spatial
+> margin is gone; a max-range blip near the N bearing wants Daniel's in-game eye. No
+> compass → north-blind surface + pure camera-relative blips; compass worn → the iron
+> N-ring is the *only* element encoding north, blips stay world-positioned. See
+> [`iron-compass-minimap-ring.md`](iron-compass-minimap-ring.md) §3.3/§5.
 
 ---
 
@@ -483,7 +503,7 @@ unanswered mode and lands alongside the impl-spec:
 ## 8. Proposed acceptance tests (impl-spec will formalize)
 
 - **AT-LENS-DISC-HANDOFF** — with nomap-ON + a local map bound (disc showing) +
-  the Lens worn & charged, hostiles within 50 m render as blips **on the disc**;
+  the Lens worn & charged, hostiles within 70 m render as blips **on the disc**;
   per `MinimapHandoffMode`, the ring hides (`DiscWhenBound`), both show (`Both`),
   or only the ring shows (`RingOnly`).
 - **AT-LENS-DISC-PUMP** (🔴 #209 guard) — when the ring hides under
@@ -495,7 +515,7 @@ unanswered mode and lands alongside the impl-spec:
   cardinal orientation; no N/E/S/W decoration appears.
 - **AT-LENS-DISC-NOMAP-OFF** — in nomap-OFF (no SBPR disc; vanilla minimap owns
   the corner), Lens detection **renders on the vanilla minimap** (the custom
-  overlay, §3.7) — NOT "ring stays." Hostiles within 50 m appear as dots +
+  overlay, §3.7) — NOT "ring stays." Hostiles within 70 m appear as dots +
   aggro-tint on the vanilla minimap; the ring is hidden under `DiscWhenBound`.
 - **AT-LENS-DISC-NODRIFT** — the tint/trophy/pips a hostile shows on ANY surface
   (ring, SBPR disc, vanilla overlay) are byte-identical (all consume the single

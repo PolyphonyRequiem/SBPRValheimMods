@@ -54,7 +54,7 @@ Every `Config.Bind` lives in `Plugin.Awake` (`Plugin.cs`); **zero binds elsewher
 | 23 | `SunstoneLens` | `MaxCharge` | `DefaultMaxCharge` = 100 |
 | 24 | `SunstoneLens` | `DrainPerSecond` | `DefaultDrainPerSec` = 0.33 |
 | 25 | `SunstoneLens` | `ChargePerSecond` | `DefaultChargePerSec` = 1.0 |
-| 26 | `SunstoneLens` | `DetectRadius` | `DefaultDetectRadius` = **50** (#234, was 30) |
+| 26 | `SunstoneLens` | `DetectRadius` | `DefaultDetectRadius` = **70** (t_4b9f8889 in-game accept, was 50 #234, was 30) |
 | 27 | `SunstoneLens` | `DetectIntervalSeconds` | `DefaultDetectInterval` = 0.5 |
 | 28 | `SunstoneLens` | `ClearWeatherNames` | `""` (literal) |
 | 29 | `SunstoneLens` | `HaloRadiusMin` | `DefaultHaloRadiusMin` = 1.2 |
@@ -94,8 +94,9 @@ already exists in the file; the `default` argument is written **only when the ke
 absent**. So when a code PR bumps a default, every existing player's `.cfg` keeps the
 old value and the new default never reaches them. Verified instances:
 
-- **`DetectRadius`** — `DefaultDetectRadius` is `50f` on main (#234, `t_4b9f8889`,
-  merged 2026-06-22), but Daniel's `.cfg` pinned `30`, hiding the buff.
+- **`DetectRadius`** — `DefaultDetectRadius` is `70f` on main (t_4b9f8889 in-game
+  accept 2026-06-24, was `50f` #234 merged 2026-06-22), but Daniel's `.cfg` pinned `30`,
+  hiding the buff.
 - **`MinimapBlipStyle`** — default is `BlipStyle.Trophy` on main (#238, `t_aab051ae`,
   merged 2026-06-22), but Daniel's `.cfg` pinned `Dots`, hiding the richer blip.
 

@@ -22,7 +22,7 @@ purpose: "Architect render-design for the Sunstone Lens' standalone (no-minimap)
 >   **`HaloRadius`** (directional start ~2.0m, AT-gated — Daniel eyeballs the metres on a GPU client).
 >   **No outward push for far enemies.**
 > - **SCALE carries ALL the distance info**, with a **10m knee**: enemy **≤10m → full scale** (the
->   locked **"1.0"**); enemy at the **50m detection edge → 25% scale** (the locked **"0.25"**); linear
+>   locked **"1.0"**); enemy at the **70m detection edge → 25% scale** (the locked **"0.25"**); linear
 >   between. `scaleNear` (the absolute world-size "1.0" maps to) stays the AT-gated tunable
 >   (`HaloScaleMax` ≈ 0.6, kept); the old `HaloScaleMin` is **derived** (`0.25 × scaleNear`), not an
 >   independent knob. The **10m knee + 0.25 floor + 1.0 ceiling are LOCKED**.
@@ -30,7 +30,7 @@ purpose: "Architect render-design for the Sunstone Lens' standalone (no-minimap)
 > **What this re-lock does NOT change:** placement is still along the **real `dirToEnemy` bearing**
 > (camera-relative, the thesis guard — §Q2 #1, AT-EIDETIC-CAMREL); still **flat billboarded trophies**
 > (Knob #4); still the **hybrid trophy-less** policy (Knob #3); still the **aggro tint** + **star
-> pips**. Only the radius (variable → fixed) and the scale curve (linear-over-0..50m →
+> pips**. Only the radius (variable → fixed) and the scale curve (linear-over-0..70m →
 > 10m-knee) change. **§Q2 Knob #2, §1.2, §1.3 below are rewritten for this**; the historical
 > variable-radius prose is struck through / marked SUPERSEDED so the reversal is auditable. The pure
 > fixed-distance + knee math lives in the engine-free, **CI-gated** `SunstoneHaloGeometry`
@@ -229,11 +229,11 @@ implement as directed"):**
    bug-fix t_10bacccf (2026-06-22)** — supersedes the original t_68672b6b lock of *"head-centric
    halo with VARIABLE radius AND scale, both ∝ distance"* (struck through below), which pushed far
    enemies to the **outer** radius (away from your face) **and** shrank them toward ~nothing, so a
-   30–50m hostile read as far + tiny = invisible (exactly Daniel's report). The model is now:
+   30–70m hostile read as far + tiny = invisible (exactly Daniel's report). The model is now:
    `pos = eyePoint + dirToEnemy * HaloRadius` (a **single fixed** distance for every trophy — no
    range-dependent push), and `scale` carries all the range info through a **10m knee**:
    `k = 1 - Clamp01((dist - 10) / (detectRadius - 10)); scale = Lerp(scaleNear·0.25, scaleNear, k)`
-   — enemy **≤10m → full** (the "1.0" → `scaleNear`), enemy at the **50m edge → 0.25·scaleNear**
+   — enemy **≤10m → full** (the "1.0" → `scaleNear`), enemy at the **70m edge → 0.25·scaleNear**
    (the "0.25"), linear between. The **10m knee + 0.25 floor + 1.0 ceiling are LOCKED** (Daniel's
    numbers). `scaleNear` (= config `HaloScaleMax` ≈ 0.6) is the AT-gated eyeball tunable; the old
    `HaloScaleMin` is **derived** (`0.25·scaleNear`), not an independent knob; `HaloRadiusMin/Max`
@@ -370,7 +370,7 @@ world space). The placement **distance** is the single fixed `HaloRadius` for **
 
 🐛 **RE-LOCKED (bug-fix t_10bacccf, Daniel 2026-06-22) — supersedes the variable-radius+scale model
 below.** The shipped variable-radius design pushed far enemies to the **outer** radius (away from
-your face) **and** shrank them toward nothing, so a 30–50m hostile was far + tiny = invisible.
+your face) **and** shrank them toward nothing, so a 30–70m hostile was far + tiny = invisible.
 Daniel's correction: **placement is at a FIXED distance; SCALE alone carries range, with a 10m
 knee.**
 ```
@@ -386,10 +386,10 @@ scale = Lerp(scaleNear * 0.25, scaleNear, k)                 // full ≤10m, 0.2
   only their **size** differs. (This is the whole reversal: no more outward push.)
 - **Scale ≤10m is FULL** (`scaleNear`, the locked "1.0"). Closer than 10m does **not** render
   bigger — it's clamped at full so a point-blank enemy doesn't balloon.
-- **Scale at the 50m edge is `0.25·scaleNear`** (the locked "0.25" floor) — a readable quarter-size,
+- **Scale at the 70m edge is `0.25·scaleNear`** (the locked "0.25" floor) — a readable quarter-size,
   **not** shrunk toward nothing. Linear between the knee and the edge.
 - **The 10m knee + 0.25 floor + 1.0 ceiling are LOCKED** (Daniel's numbers). `DetectRadius` is the
-  existing `Plugin.LensDetectRadius` (default 50m). `HaloRadius` (world metres, default ~2.0m — a
+  existing `Plugin.LensDetectRadius` (default 70m). `HaloRadius` (world metres, default ~2.0m — a
   tight head-halo, AT-gated) and `scaleNear` (= config `HaloScaleMax` ≈ 0.6, the full-size world
   units) are config. `HaloScaleMin` is **gone** — the edge scale is derived (`0.25·scaleNear`).
   All **live-tunable** so Daniel converges feel in one joined session (the banner-windsock pattern).
@@ -397,8 +397,8 @@ scale = Lerp(scaleNear * 0.25, scaleNear, k)                 // full ≤10m, 0.2
   CI-gated `SunstoneHaloGeometry` (AT-HALO-FIXED-DIST / AT-HALO-SCALE-KNEE).
 
 > The `HaloRadius` is small on purpose — this is a **halo around your head**, not a ground ring at
-> detection distance. A 50m Draugr is represented by a small (0.25-scale) trophy ~2m out on its
-> bearing, not a trophy literally 50m away (which would be invisible/occluded). That is exactly the
+> detection distance. A 70m Draugr is represented by a small (0.25-scale) trophy ~2m out on its
+> bearing, not a trophy literally 70m away (which would be invisible/occluded). That is exactly the
 > Rune Magic dodge: the representation lives near the camera, so terrain rarely occludes it and no
 > through-terrain material is needed (Knob #1). The **size**, not the distance, tells you how close
 > the threat actually is.
@@ -624,13 +624,13 @@ the halo reads right — Daniel's eye on a GPU client in the next playtest build
   face it → straight ahead). Uses a real crafted/looted lens (not a `spawn`-ed one).
 - **AT-EIDETIC-2 / AT-HALO-SCALE-KNEE** — as a hostile **approaches**, its trophy **grows** (scale
   rises toward full at 10m) while staying at the **same fixed ring distance** from your face; as it
-  recedes, it **shrinks** toward the 0.25 floor at the 50m edge — but **never moves closer to or
+  recedes, it **shrinks** toward the 0.25 floor at the 70m edge — but **never moves closer to or
   farther from your face** (fixed-distance ring; only SCALE varies, the 10m knee, Knob #2 re-locked
   by t_10bacccf).
 - **AT-HALO-FIXED-DIST** — every trophy renders at the **same fixed distance** from the eye-point
-  regardless of enemy range; a near enemy and a 50m enemy sit at the same `HaloRadius`, differing
+  regardless of enemy range; a near enemy and a 70m enemy sit at the same `HaloRadius`, differing
   only in size. **No outward push** for far enemies (the bug that hid them).
-- **AT-HALO-SCALE-KNEE** — enemy **≤10m → full scale** (the "1.0"); enemy at the **50m detection
+- **AT-HALO-SCALE-KNEE** — enemy **≤10m → full scale** (the "1.0"); enemy at the **70m detection
   edge → 25% scale** (the "0.25"); linear between; the edge trophy is still clearly readable, never
   shrunk toward nothing. (Pinned headlessly in `SunstoneHaloGeometryTests.cs`; the in-game read is
   Daniel's GPU-client accept.)
@@ -678,7 +678,7 @@ session — the banner-windsock pattern).** The screen-space knobs are replaced 
 |---|---|---|
 | `HaloRadius` (m) | ~2.0 | **FIXED** ring distance — EVERY trophy is equidistant from the eye (no range-dependent push) — Knob #2 (t_10bacccf) |
 | `HaloScaleMax` | ~0.6 | trophy world-scale at FULL size (enemy ≤10m → the "1.0") — Knob #2; the AT-gated eyeball tunable (`scaleNear`) |
-| _(derived)_ edge scale | `0.25 × HaloScaleMax` | trophy scale at the 50m detection edge (the locked "0.25" floor) — **derived, not a knob** (old `HaloScaleMin` removed) |
+| _(derived)_ edge scale | `0.25 × HaloScaleMax` | trophy scale at the 70m detection edge (the locked "0.25" floor) — **derived, not a knob** (old `HaloScaleMin` removed) |
 | `HaloEyeOffsetY` (m) | ~0 | lift the halo plane off the eye-point so trophies clear the crosshair |
 | `RingMaxIcons` | ~12 | pooled-slot cap (nearest N shown in a horde) — carried over |
 | `ShowEmptyRing` | **true** | faint solar ring when nothing's near (§1.6) — carried over |
@@ -721,7 +721,7 @@ Daniel answered all four open knobs in the ticket thread, then said *"just imple
    bug-fix t_10bacccf (Daniel 2026-06-22, verbatim: "creatures should be at a fixed distance from
    the player but grow in scale from .25 at the far edges to 1.0 when within 10m").** `pos = eye +
    dirN·HaloRadius` (single fixed distance), `scale = Lerp(scaleNear·0.25, scaleNear, 1 -
-   Clamp01((dist-10)/(detectRadius-10)))` (full ≤10m → 0.25 at the 50m edge). **SUPERSEDES** the
+   Clamp01((dist-10)/(detectRadius-10)))` (full ≤10m → 0.25 at the 70m edge). **SUPERSEDES** the
    original t_68672b6b lock of variable radius AND scale ∝ distance (which pushed far enemies out
    and shrank them to invisibility). 10m knee + 0.25 floor + 1.0 ceiling LOCKED; `scaleNear`
    (=HaloScaleMax) AT-gated. Bearing stays camera-relative (thesis guard). (§Q2 #2, §1.2–§1.3.)

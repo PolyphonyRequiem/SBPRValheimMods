@@ -227,10 +227,14 @@ var ringColor    = new Color(0.62f, 0.55f, 0.42f, 1f);             // MapSurface
 **symbolically** to `DiscRingGeometry.HoleRadius(_cfg.TargetPx)` (helper at
 `DiscRingGeometry.cs:107`), NEVER a hard-coded pixel radius — see §3.5.
 
-🔵 **Clear of the Sunstone threat zone — margin narrowed at 50 m detect.** The twin's threat blips land
-within the inner ~80 % of the disc; the compass N at ≈`holeR` (just inside the ring)
-still clears them (~14 px margin at worst case, down from ~46 px under the old 30 m radius).
-The two overlays remain spatially disjoint — co-existence holds (§5), margin now modest.
+🔴 **Sunstone threat zone now REACHES the compass N — margin closed at 70 m detect (t_4b9f8889, 2026-06-24).** The Sunstone
+detection radius (70 m) now exceeds the ~62.5 m visible disc: hostiles in the 62.5–70 m
+band rim-clamp to ~92 px (`ThreatRimInset 0.92`), and the compass N rides at ≈`holeR`
+(~94 px). The earlier "~14 px clear, disjoint by construction" guarantee (true at 50 m,
+~80 px) **no longer holds** — a max-range blip on the N bearing reaches the N glyph.
+The two overlays remain distinct layers (no shared state, §5) but are **no longer
+spatially disjoint**; flagged for Daniel's in-game eye (tunable via `ThreatRimInset` /
+blip size / N-glyph priority — not a build blocker).
 
 ### 3.4 The iron recolor — gated, reverts to bronze (Daniel ②) 🟢🔵
 

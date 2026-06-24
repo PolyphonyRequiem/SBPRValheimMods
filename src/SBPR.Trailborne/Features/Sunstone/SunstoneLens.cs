@@ -88,7 +88,7 @@ namespace SBPR.Trailborne.Features.Sunstone
         public const float MinChargeToDetect   = 1f;    // below this the lens is inert (AC#5)
 
         // ── Detection tuning.
-        public const float DefaultDetectRadius   = 50f;  // metres; hostiles within this are revealed
+        public const float DefaultDetectRadius   = 70f;  // metres; hostiles within this are revealed (Daniel in-game accept 2026-06-24, t_4b9f8889; was 50, was 30)
         public const float DefaultDetectInterval = 0.5f; // seconds between detection sweeps (HUD-driven)
 
         // Icon shipped in the modpack plugin folder (assets/icons/items/*.png). A real icon

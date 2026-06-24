@@ -14,7 +14,7 @@
 //      metres on a GPU client, live-config).
 //    • SCALE carries ALL the distance information, with a 10 m knee:
 //        - enemy ≤ 10 m            → FULL scale   (the locked "1.0" → scaleNear)
-//        - enemy at the 50 m edge  → 25% scale    (the locked "0.25" → 0.25·scaleNear)
+//        - enemy at the 70 m edge  → 25% scale    (the locked "0.25" → 0.25·scaleNear)
 //        - linear between, monotonically non-increasing with distance.
 //      Implements Daniel's exact formula:
 //        k     = 1 - Clamp01((dist - 10) / (detectRadius - 10))
@@ -82,7 +82,7 @@ namespace SBPR.Trailborne.Features.Sunstone
 
         /// <summary>
         /// The 10 m-knee scale curve. <paramref name="dist"/> is the real eye→enemy distance,
-        /// <paramref name="detectRadius"/> the detection range (e.g. 50 m), <paramref name="scaleNear"/>
+        /// <paramref name="detectRadius"/> the detection range (e.g. 70 m), <paramref name="scaleNear"/>
         /// the full-size world-scale that "1.0" maps to (config HaloScaleMax). Returns:
         /// full (<paramref name="scaleNear"/>) for <paramref name="dist"/> ≤ <see cref="FullScaleKnee"/>,
         /// <see cref="EdgeScaleFactor"/>·<paramref name="scaleNear"/> at <paramref name="detectRadius"/>,
