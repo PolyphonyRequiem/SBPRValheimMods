@@ -12,6 +12,19 @@ namespace SBPR.Trailborne.Runtime
     /// </summary>
     internal static class Assets
     {
+        // ── Held-mesh painted texture (Local Map, card ticket-localmap-hoe-model) ──
+        // The map-painted-on-deer-hide albedo shipped into the plugin folder by
+        // scripts/pack-modpack.sh and authored by scripts/gen_local_map_held_texture_v01.py.
+        // NOT an inventory icon (those live in assets/icons/items/ + ship under the equipable
+        // transparency test) — this is an OPAQUE world-mesh albedo, deliberately low-res for
+        // Valheim-grade Point-filtered pixelation.
+        public const string LocalMapHeldTextureFile = "local_map_held_v0.1.png";
+
+        // Cached shader property ids for the held-map material paint (Shader.PropertyToID is the
+        // documented fast path vs string lookups every build).
+        private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+        private static readonly int ColorId   = Shader.PropertyToID("_Color");
+
         public static Sprite? LoadPngAsSprite(string filename)
         {
             try
@@ -36,6 +49,46 @@ namespace SBPR.Trailborne.Runtime
             catch (Exception e)
             {
                 Plugin.Log.LogError($"[Trailborne] LoadPngAsSprite failed for {filename}: {e}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Load a shipped PNG (from the plugin folder) into a <see cref="Texture2D"/> for use as
+        /// a WORLD-mesh albedo (not a UI sprite). Returns <see langword="null"/> if the file is
+        /// missing or decoding fails (caller falls back to the bare leather material — the SHAPE
+        /// + stance fix still lands without it).
+        ///
+        /// <paramref name="point"/> selects <see cref="FilterMode.Point"/> (nearest-neighbour) so
+        /// the low-res painted map stays CHUNKY/pixelated on the held sheet — Valheim-grade texel
+        /// crunch — instead of bilinear-smoothing into mush. Wrap mode is Clamp so the 0..1 mesh
+        /// UVs never bleed the opposite edge. Same reflection-dodge for <c>ImageConversion.LoadImage</c>
+        /// the sprite loader uses (the net48 compiler can't bind the ReadOnlySpan overload).
+        /// </summary>
+        public static Texture2D? LoadPngAsTexture(string filename, bool point = true)
+        {
+            try
+            {
+                var p = Path.Combine(Plugin.PluginFolder, filename);
+                if (!File.Exists(p))
+                {
+                    Plugin.Log.LogWarning($"[Trailborne] Held-mesh texture missing on disk: {p}");
+                    return null;
+                }
+                var bytes = File.ReadAllBytes(p);
+                var tex   = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true);
+                var loadImage = typeof(ImageConversion).GetMethod("LoadImage",
+                    new[] { typeof(Texture2D), typeof(byte[]) });
+                loadImage.Invoke(null, new object[] { tex, bytes });
+                tex.name       = Path.GetFileNameWithoutExtension(filename);
+                tex.filterMode = point ? FilterMode.Point : FilterMode.Bilinear;
+                tex.wrapMode   = TextureWrapMode.Clamp;
+                tex.Apply(updateMipmaps: true, makeNoLongerReadable: false);
+                return tex;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogError($"[Trailborne] LoadPngAsTexture failed for {filename}: {e}");
                 return null;
             }
         }
@@ -167,86 +220,65 @@ namespace SBPR.Trailborne.Runtime
 
         /// <summary>
         /// Author a FRESH procedural "field map" sheet <see cref="Mesh"/> from scratch —
-        /// a flat, lightly-folded blank-leather sheet (a few vertical fold panels) built
-        /// vertex-by-vertex with explicit verts/triangles/uv + <see cref="Mesh.RecalculateNormals"/>
-        /// / <see cref="Mesh.RecalculateBounds"/>. This is the repo's FIRST <c>new Mesh()</c>
-        /// (ADR-0006 additive: a NEW mesh, NOT a donor deform — distinct from
-        /// <see cref="GraftMeshFromBlueprint"/>, which references a vanilla shared mesh, and
-        /// from any donor-vertex rewrite). Pure UnityEngine mesh API — no game/mod source,
-        /// clean-room safe.
+        /// a FLAT rectangle (<paramref name="width"/> × <paramref name="height"/> metres,
+        /// default 0.5 × 0.3 per Daniel 2026-06-24) built vertex-by-vertex with explicit
+        /// verts/triangles/uv + <see cref="Mesh.RecalculateNormals"/> /
+        /// <see cref="Mesh.RecalculateBounds"/>. ADR-0006 additive: a NEW mesh, NOT a donor
+        /// deform — distinct from <see cref="GraftMeshFromBlueprint"/> (which references a
+        /// vanilla shared mesh). Pure UnityEngine mesh API — no game/mod source, clean-room safe.
         ///
         /// Authored in METRES in the sheet's own local frame: X = width (left↔right),
-        /// Y = height (up↔down), Z = depth (the small fold offset / thickness). The sheet is
-        /// DOUBLE-SIDED — front + back facets with reversed winding on DUPLICATED vertices,
-        /// so each side keeps its own outward normal and the sheet never renders see-through
-        /// from the back (held, dropped, or rotated) without needing a two-sided shader. Folds
-        /// are gentle valleys at the odd seam lines, so the silhouette reads as a folded-open
-        /// field map rather than a flat card — and unmistakably NOT a long-handled tool.
+        /// Y = height (up↔down), Z = depth (paper-thin). The quad is DOUBLE-SIDED — a front
+        /// and a back facet on DUPLICATED vertices with reversed winding, so each side keeps
+        /// its own outward normal and the sheet never renders see-through from the back (held,
+        /// dropped, or rotated) without needing a two-sided shader.
         ///
-        /// The size/fold defaults are a deliberate FIRST FORM for the in-game art test (the
-        /// silhouette is what carries the read; exact dimensions are a polish knob). Returns a
-        /// ready-to-assign mesh (caller sets it on a <see cref="MeshFilter.sharedMesh"/>).
+        /// UVs span the FULL 0..1 rect on BOTH faces, so the painted deer-hide map texture
+        /// (<c>local_map_held_v0.1.png</c>, instanced over the leather material as <c>_MainTex</c>)
+        /// frames edge-to-edge on the front and mirrors onto the back. The previous form was a
+        /// lightly-folded multi-panel sheet; Daniel's 2026-06-24 call simplified it to a plain
+        /// flat rectangle whose READ comes from the painted texture, not the silhouette folds.
+        ///
+        /// Returns a ready-to-assign mesh (caller sets it on a <see cref="MeshFilter.sharedMesh"/>).
         /// </summary>
         public static Mesh BuildFieldMapMesh(
-            float width = 0.45f, float height = 0.32f, int panels = 4, float foldDepth = 0.012f)
+            float width = 0.5f, float height = 0.3f)
         {
-            if (panels < 1)    panels = 1;
-            if (width  <= 0f)  width  = 0.45f;
-            if (height <= 0f)  height = 0.32f;
-
-            int seams   = panels + 1;     // vertical seam lines across the width
-            int perSide = seams * 2;      // a top + a bottom vertex per seam
-            int vCount  = perSide * 2;    // front side + back side (duplicated positions)
-            int iCount  = panels * 6 * 2; // 2 tris/panel * 3 indices * 2 sides
-
-            var verts = new Vector3[vCount];
-            var uvs   = new Vector2[vCount];
-            var tris  = new int[iCount];
+            if (width  <= 0f) width  = 0.5f;
+            if (height <= 0f) height = 0.3f;
 
             float halfW = width * 0.5f, halfH = height * 0.5f;
 
-            // Vertices: both sides share identical positions; only the winding differs below.
-            for (int side = 0; side < 2; side++)
+            // Four corners of the flat quad (z = 0; paper-thin). Duplicated per side so each
+            // facet owns its winding + outward normal. Order per side: TL, TR, BR, BL.
+            //   verts 0..3 = front side, verts 4..7 = back side (identical positions).
+            var verts = new[]
             {
-                int vBase = side * perSide;
-                for (int i = 0; i < seams; i++)
-                {
-                    float t = (float)i / panels;             // 0..1 across the width
-                    float x = -halfW + t * width;
-                    float z = (i % 2 == 1) ? -foldDepth : 0f; // gentle valley at odd seams
-                    int top = vBase + i * 2;
-                    int bot = top + 1;
-                    verts[top] = new Vector3(x, +halfH, z);
-                    verts[bot] = new Vector3(x, -halfH, z);
-                    uvs[top]   = new Vector2(t, 1f);
-                    uvs[bot]   = new Vector2(t, 0f);
-                }
-            }
+                new Vector3(-halfW, +halfH, 0f), // 0 TL front
+                new Vector3(+halfW, +halfH, 0f), // 1 TR front
+                new Vector3(+halfW, -halfH, 0f), // 2 BR front
+                new Vector3(-halfW, -halfH, 0f), // 3 BL front
+                new Vector3(-halfW, +halfH, 0f), // 4 TL back
+                new Vector3(+halfW, +halfH, 0f), // 5 TR back
+                new Vector3(+halfW, -halfH, 0f), // 6 BR back
+                new Vector3(-halfW, -halfH, 0f), // 7 BL back
+            };
 
-            // Triangles: front side (0) one winding, back side (1) reversed → opposite normals.
-            int w = 0;
-            for (int side = 0; side < 2; side++)
+            // Full-rect UVs on both faces (front maps L→R, back mirrors so the texture still
+            // reads right-way-round from behind).
+            var uvs = new[]
             {
-                int vBase  = side * perSide;
-                bool front = side == 0;
-                for (int p = 0; p < panels; p++)
-                {
-                    int tl = vBase + p * 2;
-                    int bl = tl + 1;
-                    int tr = vBase + (p + 1) * 2;
-                    int br = tr + 1;
-                    if (front)
-                    {
-                        tris[w++] = tl; tris[w++] = tr; tris[w++] = br;
-                        tris[w++] = tl; tris[w++] = br; tris[w++] = bl;
-                    }
-                    else
-                    {
-                        tris[w++] = tl; tris[w++] = br; tris[w++] = tr;
-                        tris[w++] = tl; tris[w++] = bl; tris[w++] = br;
-                    }
-                }
-            }
+                new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(1f, 0f), new Vector2(0f, 0f), // front
+                new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(1f, 0f), // back (mirrored U)
+            };
+
+            // Front faces +Z (CW when viewed from +Z given Unity's left-handed clip space);
+            // back faces -Z with reversed winding.
+            var tris = new[]
+            {
+                0, 1, 2,  0, 2, 3,        // front
+                4, 6, 5,  4, 7, 6,        // back (reversed)
+            };
 
             var mesh = new Mesh { name = "SBPR_FieldMapSheet" };
             mesh.vertices  = verts;
@@ -287,18 +319,31 @@ namespace SBPR.Trailborne.Runtime
         }
 
         /// <summary>
-        /// Assemble a procedural blank-leather field-map VISUAL as a fresh child of
+        /// Assemble the painted-deer-hide field-map VISUAL as a fresh child of
         /// <paramref name="parent"/>: a <see cref="GameObject"/> carrying ONLY a
-        /// <see cref="MeshFilter"/> (the <see cref="BuildFieldMapMesh"/> sheet) +
-        /// <see cref="MeshRenderer"/> (the vanilla <c>leatherscraps</c> material via
-        /// <see cref="TryReadLeatherMaterial"/>). No collider, no ZNetView, no script — a pure
+        /// <see cref="MeshFilter"/> (the flat <see cref="BuildFieldMapMesh"/> rectangle, 0.5 ×
+        /// 0.3 m) + <see cref="MeshRenderer"/>. No collider, no ZNetView, no script — a pure
         /// cosmetic mesh, the same shape <see cref="GraftMeshFromBlueprint"/> produces but from a
         /// fresh authored mesh instead of a donor reference.
         ///
-        /// The shape fix is primary: if the leather material can't be read the sheet is still
-        /// built (rendering with a default material) and a LOUD warning is logged — the silhouette
-        /// (flat folded sheet, not a tool) is what carries the read. Returns the assembled child,
-        /// or <see langword="null"/> only if <paramref name="parent"/> is null.
+        /// MATERIAL (the painted look, Daniel 2026-06-24): we INSTANCE the vanilla
+        /// <c>leatherscraps</c> material (<c>new Material(leather)</c> — the proven Signs-board
+        /// idiom) so Valheim's lit shader + the leather NORMAL grain still apply, then swap its
+        /// <c>_MainTex</c> to the generated painted-map albedo (<c>local_map_held_v0.1.png</c>,
+        /// a map painted on tanned hide, Point-filtered for Valheim-grade pixelation). Instancing
+        /// (not mutating the shared material) is mandatory — writing the shared <c>leatherscraps</c>
+        /// material would repaint every leather item in the world.
+        ///
+        /// <para>The base tint (<c>_Color</c>) is forced WHITE so the painted albedo shows at full
+        /// value instead of being multiply-darkened by the leather material's own tint (the
+        /// "muddy multiply" trap the Signs board hit, card t_6cc9f652).</para>
+        ///
+        /// Graceful degradation (the SHAPE + stance fix are primary and land regardless):
+        ///   • no leather material  → render with a default material (LOUD warn);
+        ///   • no painted texture   → keep the plain instanced leather (warn) — still a flat
+        ///                             rectangle in the build-hammer stance, just un-painted.
+        /// Returns the assembled child, or <see langword="null"/> only if
+        /// <paramref name="parent"/> is null.
         /// </summary>
         public static GameObject? BuildFieldMapVisual(string name, GameObject parent)
         {
@@ -313,14 +358,36 @@ namespace SBPR.Trailborne.Runtime
             var mr = go.AddComponent<MeshRenderer>();
             if (TryReadLeatherMaterial(out var leather))
             {
-                mr.sharedMaterial = leather;   // reference, not a copy — clean-room safe
+                // INSTANCE the leather material so we never repaint the shared vanilla asset.
+                var painted = new Material(leather) { name = "SBPR_LocalMapHeldMat" };
+
+                // Paint the map albedo onto _MainTex (Point-filtered → chunky pixels). If the PNG
+                // is missing we keep plain instanced leather — the shape/stance fix still lands.
+                var mapTex = LoadPngAsTexture(LocalMapHeldTextureFile, point: true);
+                if (mapTex != null)
+                {
+                    if (painted.HasProperty(MainTexId)) painted.SetTexture(MainTexId, mapTex);
+                    else                                 painted.mainTexture = mapTex;
+                    // Force the base tint white so the painted albedo isn't multiply-darkened by
+                    // the leather material's own _Color (the muddy-multiply trap, t_6cc9f652).
+                    if (painted.HasProperty(ColorId)) painted.SetColor(ColorId, Color.white);
+                }
+                else
+                {
+                    Plugin.Log.LogWarning(
+                        "[Trailborne] BuildFieldMapVisual: painted held texture " +
+                        $"'{LocalMapHeldTextureFile}' not loadable; held sheet renders as plain leather " +
+                        "this build. The flat-rectangle shape + build-hammer stance still apply.");
+                }
+
+                mr.sharedMaterial = painted;
             }
             else
             {
                 Plugin.Log.LogWarning(
                     "[Trailborne] BuildFieldMapVisual: vanilla leather material (LeatherScraps) " +
                     "could not be read; the field-map sheet renders with a default material this build. " +
-                    "The shape/silhouette fix still applies (disambiguation is shape, not hue).");
+                    "The shape (flat rectangle) + build-hammer stance fix still applies.");
             }
             return go;
         }
