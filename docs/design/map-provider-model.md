@@ -225,6 +225,11 @@ one):**
   not a separate store. Revisit only if profile-save size or RAM measurably hurts.
 
 ### 3.2 The provider binding 🟢 DECIDED (Daniel)
+> **🔒 REFINED 2026-06-24 (Daniel) — RENDER and WRITE are two independent axes; see §3.2a.**
+> The single "provider" below is specifically the **render-provider** (the one map that drives the
+> full-screen viewer + minimap disc). It is set by **equip**. A *separate*, plural set of
+> **write-targets** is set by **holding** a map while a Cartographer's Kit is worn (§3.2a / §5).
+> The §3.2 mechanics below describe the render-provider; read them with that scoping.
 - A local map becomes the **active provider** when **equipped**.
 - It **stays** the provider until: (a) another local map is equipped (new provider), OR (b) the
   active local map **leaves the inventory** — dropped, traded, OR **death**.
@@ -246,6 +251,48 @@ one):**
   matches Daniel's wording.)
 - 🔴 Redefines card **t_1d1b505b** (issue 5, "carry disc") — it was a partial glimpse of THIS
   binding state machine. Fold it into this model; don't build it standalone.
+
+### 3.2a 🔒 RENDER vs WRITE — two independent axes (🟢 DECIDED, Daniel 2026-06-24)
+Daniel locked the cartography loop's two behaviors as **orthogonal axes** keyed on different states.
+This supersedes the earlier single-"provider" framing (where equip set both who-renders and
+who-receives-writes):
+
+| Map state | Renders (full-screen viewer + minimap disc) | Writeable target (receives field survey) |
+|---|---|---|
+| **Equipped** | ✅ this map (singular — the render-provider, §3.2) | ✅ if a Cartographer's Kit is worn |
+| **Carried, not equipped** | — | ✅ if a Kit is worn **and** the player is inside the map's region |
+| In a chest / traded / no Kit worn | — | — |
+
+- 🟢 **RENDER = equip** (Daniel: *"equipping a map sets the provider to render on the local map
+  screen and the minimap"*). Exactly **one** map renders — the equipped one — so there is **no
+  "which carried map shows?" ambiguity**. The §3.2 provider machine governs this axis.
+- 🟢 **WRITE = hold + Kit** (Daniel: *"holding a map just makes it a writeable target when a
+  cartography kit is equipped"*). The write-set is **every carried, imprinted map whose region
+  contains the cell being revealed** — not a singleton. An equipped map is also held, so with the
+  Kit on you watch the equipped map update live as you walk; carried-but-unequipped maps update
+  silently and the new ground appears next time you equip or `M`-open them.
+- 🟢 **The Kit is the switch that makes a map LIVE; without it every map is FROZEN (it ages).**
+  Because the Kit is the hard gate (40 pigments — the exception, not the standard loadout), the
+  **default** state of any map is an aged snapshot, and a **live** map is the privilege of the
+  equipped cartographer. A map in a chest, handed to a Kit-less friend, or carried by anyone not
+  actively surveying stays a snapshot as of the last time a cartographer held it. This **reconciles**
+  the two earlier design statements that looked opposed — `cartography-v2.md` §4.3 *"maps age / the
+  map as it was when drawn"* and the live-update intent — as the **same map in two states**, flipped
+  by the Kit (see the cartography-v2 §4.3 reframe). Diegetically: a cartographer is what keeps a map
+  alive; without one it's an old chart.
+- 🟢 **The write hits BOTH the personal global map AND the held in-region maps** (Daniel:
+  *"it should write to the global AND the held maps"*). One reveal, Kit-worn → stamp the global
+  `m_explored` window **plus** each in-region carried imprinted map. This generalizes §6's nomap-off
+  "writes to both" into the standard nomap-ON rule. (Implementation widens the existing
+  `CartographersKit.UpdateExploreGate` write target — §5.)
+- 🟢 **Two coherent edge states (named, both correct):**
+  - **Equipped, no Kit** → you see the map but it does not update. Reading an aged chart. Correct.
+  - **Carried + Kit, never equipped** → it updates silently but you've never looked at it. Equip or
+    `M`-open to see the accumulated work. Correct.
+- 🔵 GROUNDED: write-eligibility is `LocalMap.IsImprinted(item)` (blank maps carry no region and are
+  excluded for free) + an in-region test against the map's stored bound-origin disc
+  (`LocalMap.TryGetBoundOrigin` + the §3.3 64 m window). Render-provider identity is unchanged
+  (`LocalMapController._provider`, set on equip).
 
 ### 3.3 Resolution 🟢 DECIDED (Daniel 2026-06-15) — vanilla-native 64 m, for now
 🔵 GROUNDED: vanilla's whole map stack is **64 m per texel** (`m_pixelSize = 64f` :46694, over
@@ -299,6 +346,32 @@ read of `m_explored` into the local map's artifact.
 - 🟢 RESOLVED: resolution mismatch is N/A — both global and local are 64 m (§3.3), so the table
   sync is a straight 1:1 cell copy in both directions, no down/upsampling.
 
+### 4.0a 🔒 Imprint binds region+name; Table-use INGESTS bound carried maps (🟢 DECIDED, Daniel 2026-06-24)
+Daniel split the Table's two jobs explicitly, closing what "imprint" vs "update the table" each do:
+
+1. **Imprint (at a Table) = birth a map's identity.** Imprinting a blank Local Map at Table **T**
+   binds it to T: it stamps **T's region boundary** (bound-origin + the 1000 m / 64 m window),
+   **T's name**, and T's current survey snapshot onto the item. This is what gives a map a region at
+   all — before imprint a map has **no region and no value** (Daniel: *"unimprinted maps have no
+   value"*; the code's `IsImprinted` filter already excludes blanks from every render/write path, so
+   this falls out for free). A map records the Table name **at imprint time** and does not migrate if
+   the Table is later renamed (existing AT-TABLE-RENAME-NOMIGRATE, `SurveyorTableTag.cs`).
+2. **Update the Table = ingest the bound maps' field discoveries.** Using a Surveyor's Table **finds
+   the carried Local Maps bound to THAT Table** and pulls their **new field discoveries + pins** back
+   into the Table's stored survey (local → table), then runs the existing §4 bidirectional global↔local
+   sync. So the field-survey work a cartographer accumulated on a held map (§3.2a write axis) flows
+   home to its source Table on the next visit, and from there into the global map and any overlapping
+   maps. The hotbar-imprint gesture is **not** made vestigial by live field-update: imprint still
+   births new maps' regions/names, and Table-use is now also the **ingest** point for everything the
+   field writes accumulated.
+- 🔵 GROUNDED — **the "which Table birthed me" key already exists.** The bound-origin world coord is
+  stored on every imprinted map (`LocalMap.BoundKey` / `TryGetBoundOrigin`), snapped to the 64 m grid
+  cell — so float drift is absorbed and a Table **rebuilt at the same spot re-adopts its old maps**
+  for free (this is exactly the §4 "destroyed Table rebuildable without data loss" payoff, now also
+  covering the carried-map ingest). A Table rebuilt at a **different** cell orphans its old maps
+  (they keep their snapshot but no Table will re-ingest them) — 🟡 accepted as the natural consequence
+  of position-keying; flag if Daniel wants identity-keying instead (would need a persisted Table-ID).
+
 ### 4.1 🟢 DECIDED (Daniel 2026-06-15) — local & global shrouds align 1:1 (exploration invariant)
 **The local map shroud and the global map shroud MUST align 1:1.** A cell that is explored on the
 local map is the SAME cell that is explored on the global map, and vice versa. This is an
@@ -330,12 +403,20 @@ reasons."*
 ---
 
 ## 5. Cartographer's tools 🟢 DECIDED (Daniel)
-- **Useless without a map provider.** With no bound local map, the tools do nothing.
-- When a local map IS the provider, the tools **write survey data to that provider local map**.
+- **Useless without a Kit worn.** The Kit is the gate that makes any map live (§3.2a); with no Kit
+  equipped, no map updates (every carried map stays a frozen snapshot, regardless of equip).
+- When a Kit IS worn, field reveal **writes to the personal global map AND to every carried,
+  imprinted map whose region contains the revealed cell** (§3.2a — the write axis is *hold + Kit*,
+  not equip; the write-set is plural, not the single render-provider).
+  > **🔒 REVISED 2026-06-24:** the earlier wording — *"when a local map IS the provider, the tools
+  > write survey data to that provider local map"* (singular, equip-keyed) — is superseded by §3.2a.
+  > Write target = the *held-map write-set* (all in-region carried imprinted maps) + global, gated on
+  > the Kit. Render-provider (equip) is a different axis and is NOT what gates writes.
 - 🔵 GROUNDED: the Kit already patches `Minimap.UpdateExplore`/`Explore` (CartographersKit.cs:26,
   decomp :47056/:48005) BEFORE the nomap gate, so it can write fog while the map is hidden. The
-  redirect is: instead of (or in addition to) writing `m_explored`, write the **provider local
-  map's** artifact window.
+  redirect is: in **addition** to writing `m_explored` (global), iterate the carried imprinted maps
+  and stamp the same 64 m window into each whose bound-origin disc (§3.3/§4.1) contains the cell.
+  The existing `UpdateExploreGate` Kit-detection is reused verbatim; only the write target widens.
 
 ---
 
@@ -344,8 +425,14 @@ reasons."*
    changed mid-save). They're a nomap-ON-only mechanic.
 2. **Minimap is always available**, bound to the **player's global map** (vanilla-style).
 3. **Map revealing always works WITHOUT the Cartographer's tools**, writing to the **global map**.
-   - If a local map is **also equipped**, revealing writes to **both** (global + the provider
+   - If a local map is **also equipped**, revealing writes to **both** (global + the equipped
      local map).
+     > **🔒 NOTE 2026-06-24:** nomap-off is the **degenerate case** of the §3.2a hold+Kit write axis.
+     > Because the Kit is non-functional here (item 1), there is no Kit-gated multi-map write-set; the
+     > only writeable local map in nomap-off is the **equipped** one (and only it, not all carried
+     > maps). So "equipped → writes to both" is the nomap-off special case, while nomap-ON uses the
+     > full §3.2a rule (Kit worn → global + every in-region carried imprinted map). The render axis is
+     > unchanged: nomap-off minimap stays bound to global regardless.
    - The local map is still viewable with **M**. The **global map is NOT showable with M** until
      the **Eye of Odin** is equipped later (same gate as nomap-on for the global view).
 - 🔵 GROUNDED: nomap-off = `GlobalKeys.NoMap` NOT set → vanilla `Explore` writes `m_explored`
@@ -403,6 +490,24 @@ vanilla-fed surface. Consequences:
 - ~~**Local/global shroud alignment**~~ 🟢 **1:1 exploration invariant** (§4.1) — grid-aligned,
   table floats sub-cell; already how the code works.
 
+**Closed 2026-06-24 (Daniel — this thread):**
+- ~~**Render vs write — equip or hold?**~~ 🟢 **Two independent axes** (§3.2a): RENDER = equip
+  (one map), WRITE = hold + Kit (all in-region carried imprinted maps). Kills the "which carried
+  map renders?" ambiguity outright.
+- ~~**Multi-map write — singular provider or all carried?**~~ 🟢 **All carried imprinted in-region
+  maps** receive the field write, not just one (§3.2a / §5).
+- ~~**Write target — local only or global too?**~~ 🟢 **BOTH** global `m_explored` + the held
+  in-region maps, gated on the Kit (§3.2a / §5).
+- ~~**"Maps age" vs live-update — contradiction?**~~ 🟢 **Reconciled, not killed** — the Kit is the
+  switch: Kit-held = live, everything else = frozen/ageing snapshot (§3.2a; cartography-v2 §4.3
+  reframed as Kit-gated). The standard map state is aged; the live map is the cartographer's privilege.
+- ~~**Unimprinted maps?**~~ 🟢 **No region, no value** (§4.0a) — excluded from render+write by the
+  existing `IsImprinted` filter for free.
+- ~~**Imprint vs Table-update — what does each do?**~~ 🟢 **Imprint births a map's region+name**
+  (binds it to the Table); **Table-use ingests** the carried bound maps' field discoveries+pins back
+  in, then runs the §4 bidirectional sync (§4.0a). Table identity keyed on the already-stored
+  bound-origin grid cell.
+
 **Still open:**
 1. ~~**nomap-off minimap with a local map also equipped**~~ 🟢 **GLOBAL** (§6) — the always-on
    minimap stays bound to global in nomap-off; the local map still dual-writes + is M-openable but
@@ -410,6 +515,9 @@ vanilla-fed surface. Consequences:
 2. **Eye of Odin** (Mistlands global-map unlock): deferred to the Mistlands tier — out of scope
    for THIS build, specced when that tier is built. The global map's M-view is gated behind it in
    BOTH modes. Not a blocker for the v2 cartography provider model.
+3. 🟡 **Table re-ingest keying on a DIFFERENT-cell rebuild** (§4.0a): position-keying orphans a
+   Table's old carried maps if the Table is rebuilt at a different grid cell. Accepted as natural
+   for now; revisit only if Daniel wants identity-keyed Tables (needs a persisted Table-ID).
 
 **All v2-blocking questions are now CLOSED.** The only remaining item (Eye of Odin) is a future
 Mistlands-tier feature that this model is forward-compatible with (global fog accumulates all
@@ -419,6 +527,11 @@ along, §4). This design is ready to graduate to architect impl specs.
 
 ## 10. Provenance
 - Design stated by Daniel 2026-06-15 (Discord, engineering lane), revising the cartography model.
+- **Render/write axis split + Table-ingest + Kit-gated ageing locked by Daniel 2026-06-24** (Discord,
+  #bugs / carto-kit-live-update thread): the five calls captured in §3.2a, §4.0a, §5, §6, and the
+  §9 2026-06-24 closure block — RENDER=equip / WRITE=hold+Kit, write to global+all in-region carried
+  maps, "maps age" reconciled as Kit-gated, unimprinted=no value, imprint-births-region /
+  Table-use-ingests.
 - Artifact model + multiplayer-blob concern raised by Daniel; serialization grounding by Starbright
   against `assembly_valheim.decompiled.cs` (inventory/customData/fog/minimap paths cited inline).
 - This doc is the iteration surface; close the §9 questions, then it graduates to architect specs.
