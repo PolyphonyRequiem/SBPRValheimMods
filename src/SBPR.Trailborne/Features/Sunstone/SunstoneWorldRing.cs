@@ -70,8 +70,8 @@ namespace SBPR.Trailborne.Features.Sunstone
         //    Daniel converges feel on a joined client without a rebuild — the banner-windsock pattern).
         //    Defaults per design §4 (re-locked by bug-fix t_10bacccf). HaloRadius in world metres;
         //    HaloScaleMax in world units (the trophy quad size that "1.0" maps to). ──
-        public const float DefaultHaloRadius    = 2.0f;   // FIXED ring distance — every trophy is equidistant from the eye (Daniel directional start ~2.0m, AT-gated)
-        public const float DefaultHaloScaleMax  = 0.6f;   // trophy world-size at FULL scale (enemy ≤10m → "1.0"); the AT-gated eyeball tunable
+        public const float DefaultHaloRadius    = 1.0f;   // FIXED ring distance — every trophy is equidistant from the eye (Daniel-locked 1.0m, 2026-06-24: pulled in from 2.0m for a tighter head-halo; AT-gated, live-config)
+        public const float DefaultHaloScaleMax  = 0.75f;  // trophy world-size at FULL scale (enemy ≤10m → "1.0"); Daniel-locked +25% (0.6→0.75, 2026-06-24) — lifts the whole 10m-knee curve so the 0.25× edge floor grows too; the AT-gated eyeball tunable
         public const float DefaultHaloEyeOffsetY = 0f;    // lift the halo plane off the eye-point (clear the crosshair)
 
         // The world-space Canvas is authored at this reference pixel size, then scaled to world units

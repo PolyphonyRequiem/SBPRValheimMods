@@ -42,14 +42,24 @@ namespace SBPR.Trailborne.Features.Sunstone
     /// </summary>
     public enum CoronaOrientation
     {
-        /// <summary>DEFAULT (architect). A flat horizontal disc in the XZ plane on the player —
-        /// the "sun on the floor" the fixed-distance trophy halo orbits. No Billboard; stays flat
-        /// regardless of camera.</summary>
+        /// <summary>A flat horizontal disc in the XZ plane on the player — the original "sun on the
+        /// floor." No Billboard; stays flat regardless of camera. SUPERSEDED as the default by
+        /// <see cref="FeetGlow"/> (the flat disc z-fights / hard-clips along a line where it meets
+        /// uneven terrain — Daniel /bug 2026-06-24); kept selectable for reversibility.</summary>
         GroundPlane,
 
-        /// <summary>An upright, camera-facing disc on the eye anchor — the trophy-slot Billboard
-        /// idiom (m_vertical=true). Yaws to face the camera, stays upright.</summary>
+        /// <summary>An upright, camera-facing disc on the EYE anchor — the trophy-slot Billboard
+        /// idiom (m_vertical=true). Yaws to face the camera, stays upright. A flat radial disc at
+        /// head height.</summary>
         CameraFacing,
+
+        /// <summary>DEFAULT (card t_9d7c3dfe follow-up). An upright, camera-facing VERTICAL glow that
+        /// stands UP out of the player's FEET (not a floor decal): soft at the ground (no hard clip
+        /// line), a narrow bright core at the feet that BLOOMS to full width by a set height
+        /// (CoronaFullWidthHeight), fading to a soft dome above. Uses the engine-free
+        /// <see cref="SunstoneCoronaProfile"/> vertical alpha profile. Daniel's "substantive glow that
+        /// starts around the feet, full width around .5m, doesn't hard-clip into the environment."</summary>
+        FeetGlow,
     }
 
     /// <summary>

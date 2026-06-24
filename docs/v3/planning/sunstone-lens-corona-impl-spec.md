@@ -11,6 +11,36 @@ supersedes_partial:
 
 # Sunstone Lens solar ring → 3D pulsing sun-corona disc — impl-spec (buildable)
 
+> # 🐛 FOLLOW-UP RE-LOCK (2026-06-24, Discord `ticket-diegetic-halo-render`) — default orientation is now **FeetGlow** (an upright rising vertical glow), NOT the flat GroundPlane disc
+>
+> **The shipped corona (PR #254) defaulted to `GroundPlane` — a flat disc lying in the
+> XZ plane on the player's feet (Knob #1 below).** In play that (a) **z-fights / hard-clips
+> along a line** where the flat plane meets uneven terrain, and (b) **reads "perfectly flat."**
+> Daniel reported it (verbatim):
+>
+> > *"The corona disc clips through the terrain and seems perfectly flat. I'd prefer a more
+> > 'substantive' looking glow that starts around the feet, appears at full width around .5m
+> > from ground, and doesn't seem to 'hard clip' into the environment."*
+>
+> **Re-lock:** a NEW `CoronaOrientation.FeetGlow` is added and is the **new default**. It is an
+> **upright, camera-facing VERTICAL glow** anchored at the player's **feet** (bottom-centre
+> pivot, vanilla `Billboard m_vertical=true`): **soft at the ground** (alpha → 0 at the ground
+> contact, so no hard terrain-clip line), a **narrow bright core at the feet** that **blooms to
+> full width** by a set height (`CoronaFullWidthHeight`, default 0.5 m — Daniel's "full width
+> around .5m"), fading to a **soft dome** above (`CoronaHeight`, default 1.2 m). `GroundPlane`
+> (the old flat disc) and `CameraFacing` are **kept as selectable alternatives** (live-flippable
+> via the `CoronaOrientation` .cfg key — reversibility is non-negotiable). The vertical alpha
+> profile is the engine-free, **CI-gated** `SunstoneCoronaProfile` (AT-CORONA-FEET-PROFILE) so
+> "rises from the feet, full width by X, soft on every edge" can't silently regress. New live
+> knobs: `CoronaHeight`, `CoronaFullWidthHeight`, `CoronaBaseWidthFrac` (all in §New-knobs / Plugin.cs).
+>
+> **What this did NOT change:** WHEN the corona shows (worn+charged / `ShowEmptyRing` gate,
+> depleted-hint, the #209 pump invariant), the pulse (`SunstoneCoronaPulse`, unchanged), or the
+> gold tint. Only the default render shape. The Knob #1 table below is the ORIGINAL ship lock;
+> FeetGlow supersedes its GroundPlane default per this banner. **Also in the same PR (trophy ring,
+> not corona):** `HaloRadius` 2.0 → **1.0 m** (Daniel: pull the head-halo in) and `HaloScaleMax`
+> 0.6 → **0.75** (trophies +25%) — see `sunstone-lens-trophy-ring.md`.
+
 The report ([card `t_2d500d45`](#links), Daniel via `/bug`, ticket
 `ticket-diegetic-halo-render`, 2026-06-22) is the locked *what*, verbatim:
 
