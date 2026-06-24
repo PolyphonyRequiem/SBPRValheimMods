@@ -32,6 +32,28 @@ implementation** so the doc and the code agree (repo AGENTS.md: spec and code mo
 | Blip representation | **dots + aggro-tint** (default; `BlipStyle` enum) | Every minimap surface draws a tinted dot, not trophy art, by default. The screen-space ring always shows full trophy art. |
 | nomap-OFF case | **draw on the vanilla minimap** (universal rule) | A custom overlay on `Minimap.instance` — NOT `Minimap.AddPin`. |
 
+> **AS-BUILT — minimap blip SIZE (card `t_bc017af4`, Daniel 2026-06-24: "minimap icons
+> notably too small, ~75% larger").** This tunes an *unspecified default* — it is NOT a
+> change to any gated decision above (representation is still dots+aggro-tint), so
+> `requirements.md` is untouched.
+>
+> - **Default blip size:** **24.5 px** (= the prior `14 × 1.75`), applied on BOTH minimap
+>   surfaces (the SBPR carry-disc + the vanilla corner overlay).
+> - **Live knob:** `SunstoneLens / MinimapBlipPx`, range **[8, 48]**, default 24.5 — edit on
+>   a joined client and the next detection sweep rescales; no rebuild. Both surfaces read the
+>   single resolved symbol `Plugin.ResolvedMinimapBlipPx`, so they **cannot desync** by
+>   construction (AT-BLIP-PARITY).
+> - **Shared home:** the size/ratio constants live in **`Features/Cartography/MinimapThreatMetrics.cs`**
+>   (`DefaultBlipPx`, `PipToBlipRatio`, `RimScale`) — homed in *Cartography*, the lower layer
+>   both surfaces already depend on, so neither surface inverts the blessed Sunstone→Cartography
+>   dependency arrow (`IThreatMarkerProvider.cs`). It is engine-free → link-compiled into the
+>   test project, so the ratios are CI-pinned (`MinimapThreatMetricsTests`).
+> - **Pips + rim scale WITH the blip:** star-pip size = **blip × 0.5** (`PipToBlipRatio`,
+>   reproducing the historical `7/14`); off-edge rim indicator = **blip × 0.6** (`RimScale`,
+>   value unchanged). Deriving the pip from the blip also collapsed a second latent desync (the
+>   per-surface `MinimapPipPx`/`ThreatPipPx`, both `7f`). The screen-space ring is unaffected
+>   (its own distance→size encoding); `RimInset`/`ThreatRimInset` (0.92, *position*) untouched.
+
 **Three render surfaces, one detection feed.** The detection mechanic
 (`SunstoneLens.GatherHostiles`) and the per-hostile visual derivation
 (`SunstoneProjection`) are single-sourced; only the world→screen projection differs

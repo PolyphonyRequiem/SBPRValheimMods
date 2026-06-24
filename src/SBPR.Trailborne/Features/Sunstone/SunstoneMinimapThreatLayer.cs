@@ -58,8 +58,10 @@ namespace SBPR.Trailborne.Features.Sunstone
     {
         private RectTransform? _layer;            // child of Minimap.instance.m_pinRootSmall
         private readonly List<Image> _pool = new List<Image>();
-        private const float BlipPx = 14f;         // on-minimap blip size (px); dots read at corner-map scale
-        private const float RimBlipScale = 0.6f;  // off-edge rim indicators draw smaller than in-window blips (card t_aab051ae)
+        // Blip size + rim multiplier now live in the shared Cartography.MinimapThreatMetrics (card
+        // t_bc017af4) so BOTH minimap surfaces read ONE symbol and can't desync. The size is resolved
+        // live via Plugin.ResolvedMinimapBlipPx (the SunstoneLens/MinimapBlipPx knob); the rim scale is
+        // the unchanged 0.6 constant. RimInset (position, not size) stays local — out of that scope.
         private const float RimInset = 0.92f;     // seat a clamped rim blip at 92% of the visible radius
 
         /// <summary>
@@ -118,7 +120,8 @@ namespace SBPR.Trailborne.Features.Sunstone
                 ClearStarPips(img);                 // pooled image reuse: drop last frame's star row first
                 var rt = img.rectTransform;
                 rt.anchoredPosition = drawAt;
-                float px = offEdge ? BlipPx * RimBlipScale : BlipPx;
+                float basePx = Plugin.ResolvedMinimapBlipPx;
+                float px = offEdge ? basePx * Cartography.MinimapThreatMetrics.RimScale : basePx;
                 rt.sizeDelta = new Vector2(px, px);
                 img.color = blips[i].Tint;          // OUR colour — no vanilla UpdatePins runs on our layer, so it survives
                 img.sprite = style == BlipStyle.Trophy ? (blips[i].Trophy ?? dot) : dot;

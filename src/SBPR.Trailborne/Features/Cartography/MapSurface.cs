@@ -219,8 +219,10 @@ namespace SBPR.Trailborne.Features.Cartography
         // radar, and the vanilla minimap (nomap-OFF) has its own overlay. Threat GameObjects are added
         // to _pinObjects so they counter-rotate upright + clear each rebuild for free (no new plumbing).
         private readonly List<DiscThreatMarker> _threatScratch = new List<DiscThreatMarker>();
-        private const float ThreatBlipPx = 14f;
-        private const float ThreatRimScale = 0.6f;   // off-disc rim indicators draw smaller than in-disc blips (card t_aab051ae)
+        // Blip size + rim multiplier now live in the shared Cartography.MinimapThreatMetrics (card
+        // t_bc017af4) so BOTH minimap surfaces (this disc + the vanilla corner overlay) read ONE symbol
+        // and can't desync. Size resolves live via Plugin.ResolvedMinimapBlipPx (SunstoneLens/MinimapBlipPx
+        // knob); the rim scale is the unchanged 0.6. ThreatRimInset (position, not size) stays local.
         private const float ThreatRimInset = 0.92f;  // seat a clamped rim blip at 92% of the visible disc radius
 
         private MapViewRequest _req;
@@ -890,7 +892,8 @@ namespace SBPR.Trailborne.Features.Cartography
             var rt = img.rectTransform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot = new Vector2(0.5f, 0.5f);
-            float px = offEdge ? ThreatBlipPx * ThreatRimScale : ThreatBlipPx;
+            float basePx = Plugin.ResolvedMinimapBlipPx;
+            float px = offEdge ? basePx * MinimapThreatMetrics.RimScale : basePx;
             rt.sizeDelta = new Vector2(px, px);
             rt.anchoredPosition = anchored;
             _pinObjects.Add(go);
@@ -904,20 +907,23 @@ namespace SBPR.Trailborne.Features.Cartography
         // DiscThreatMarker; we only lay out pips. Mirrors the vanilla-minimap overlay's row so a 2-star
         // hostile reads identically on both surfaces. Parented under the blip rt (rides its counter-rotation
         // + lifecycle). Falls back to a Unicode ★ Text when no sprite was supplied (never blank).
-        private const float ThreatPipPx = 7f;
+        // Pip size derives from the resolved blip px (card t_bc017af4) so pips scale WITH the live
+        // blip-size knob and stay balanced at any magnitude — shared ratio with the vanilla-minimap
+        // surface (Cartography.MinimapThreatMetrics.PipToBlipRatio), so the two surfaces can't desync.
         private static void MountThreatStarPips(RectTransform blipRt, int stars, float blipPx, Color tint, Sprite? starSprite)
         {
             if (blipRt == null || stars <= 0) return;
             stars = Mathf.Min(stars, 5);
+            float pip = blipPx * MinimapThreatMetrics.PipToBlipRatio;
 
             var rowGo = new GameObject("stars", typeof(RectTransform));
             rowGo.transform.SetParent(blipRt, worldPositionStays: false);
             var rowRt = rowGo.GetComponent<RectTransform>();
             rowRt.anchorMin = rowRt.anchorMax = rowRt.pivot = new Vector2(0.5f, 0.5f);
-            rowRt.anchoredPosition = new Vector2(0f, blipPx * 0.5f + ThreatPipPx * 0.6f);
+            rowRt.anchoredPosition = new Vector2(0f, blipPx * 0.5f + pip * 0.6f);
             rowRt.sizeDelta = Vector2.zero;
 
-            float startX = -(stars - 1) * 0.5f * ThreatPipPx;
+            float startX = -(stars - 1) * 0.5f * pip;
             if (starSprite != null)
             {
                 for (int i = 0; i < stars; i++)
@@ -926,8 +932,8 @@ namespace SBPR.Trailborne.Features.Cartography
                     pgo.transform.SetParent(rowRt, worldPositionStays: false);
                     var prt = pgo.GetComponent<RectTransform>();
                     prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
-                    prt.sizeDelta = new Vector2(ThreatPipPx, ThreatPipPx);
-                    prt.anchoredPosition = new Vector2(startX + i * ThreatPipPx, 0f);
+                    prt.sizeDelta = new Vector2(pip, pip);
+                    prt.anchoredPosition = new Vector2(startX + i * pip, 0f);
                     var pimg = pgo.AddComponent<Image>();
                     pimg.raycastTarget = false;
                     pimg.preserveAspect = true;
