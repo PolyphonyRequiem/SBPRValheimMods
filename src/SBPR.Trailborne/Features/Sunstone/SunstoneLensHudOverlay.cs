@@ -253,6 +253,14 @@ namespace SBPR.Trailborne.Features.Sunstone
                 return;
             }
 
+            // ── Charge diagnostic, overlay side (card t_charge-diag). Runs every frame the lens is WORN,
+            //    independent of whether the DrainGate prefix is firing — so it disambiguates the silence:
+            //    a DrainGate line ABSENT but THIS line PRESENT ⇒ the lens is equipped but its per-tick
+            //    durability prefix never runs (m_useDurability false on the loaded instance, or the patch
+            //    didn't weave) — i.e. the energy loop is dead, not just gated. Throttled ~1 Hz; the gate
+            //    breakdown is read from the SAME EvaluateRecharge the prefix uses (zero drift).
+            LogChargeProbe(player, lens);
+
             // Depleted (inert) state — worn but not enough charge to detect (AC#5). Corona OFF
             // (Daniel: depleted hint default off). The durability bar already signals "dim".
             if (lens.m_durability < SunstoneLens.MinChargeToDetect)
@@ -374,6 +382,46 @@ namespace SBPR.Trailborne.Features.Sunstone
                     + $"worldHaloBuilt={_worldRing.Built} "
                     + $"(host activeInHierarchy={_root.gameObject.activeInHierarchy}, content active={_content.gameObject.activeSelf}).");
             }
+        }
+
+        // ── Charge probe (card t_charge-diag) ────────────────────────────────────────────────────────
+        // Throttle + last-seen durability so we can report whether charge is actually MOVING frame-to-frame
+        // (the most direct "is the energy loop alive?" signal) and which recharge gate is denying it.
+        private float _nextChargeProbe;
+        private float _lastProbedDur = float.NaN;
+
+        /// <summary>
+        /// Once-per-second, while the lens is WORN, log its live charge + the recharge-gate breakdown
+        /// (read from <see cref="SunstoneLens.EvaluateRecharge"/> — the SAME source the DrainGate prefix
+        /// uses, so the two diagnostics can never disagree) + whether durability changed since the last
+        /// probe. Gated by the shared <see cref="SunstoneLens.DrainGate.DebugChargeEnabled"/> flag. This
+        /// is the overlay-side half of the diagnostic: present-here-but-absent-in-DrainGate ⇒ the prefix
+        /// isn't ticking the lens at all (dead energy loop), not merely gated to drain.
+        /// </summary>
+        private void LogChargeProbe(Player player, ItemDrop.ItemData lens)
+        {
+            if (!SunstoneLens.DrainGate.DebugChargeEnabled) return;
+            float now = Time.realtimeSinceStartup;
+            if (now < _nextChargeProbe) return;
+            _nextChargeProbe = now + 1f;
+
+            float dur = lens.m_durability;
+            float max = lens.GetMaxDurability();
+            string moved = float.IsNaN(_lastProbedDur)
+                ? "first"
+                : (dur > _lastProbedDur ? $"+{dur - _lastProbedDur:0.000} (charging)"
+                   : dur < _lastProbedDur ? $"{dur - _lastProbedDur:0.000} (draining)"
+                   : "0.000 (STUCK)");
+            _lastProbedDur = dur;
+
+            var g = SunstoneLens.EvaluateRecharge(player);
+            // m_dropPrefab/useDurability are the identity + tick preconditions the DrainGate prefix needs;
+            // surfacing them here pinpoints an orphaned/mis-flagged loaded instance (the "older spawns" case).
+            string prefab = lens.m_dropPrefab != null ? lens.m_dropPrefab.name : "<NULL>";
+            Plugin.Log.LogInfo(
+                $"[Trailborne/Sunstone] ChargeProbe: dur {dur:0.0}/{max:0} Δ1s={moved} | shouldCharge={g.All} env='{g.EnvName}' "
+                + $"daylight={g.Daylight} notGlobalWet={g.NotGlobalWet} notEnvWet={g.NotEnvWet} clearName={g.ClearName} "
+                + $"outdoors={g.Outdoors} notSwamp={g.NotSwamp} | useDurability={lens.m_shared.m_useDurability} dropPrefab='{prefab}'");
         }
 
         /// <summary>

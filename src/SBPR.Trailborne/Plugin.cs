@@ -90,6 +90,11 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<float>? LensChargePerSec  = null;  // ↑ charge/sec while in the sun
         internal static ConfigEntry<float>? LensDetectRadius  = null;  // metres; hostiles within are revealed
         internal static ConfigEntry<float>? LensDetectInterval = null; // seconds between detection sweeps
+        // Charge diagnostic (card t_charge-diag): when ON, the DrainGate prefix + the HUD overlay each log
+        // a throttled (~1 Hz) recharge-gate breakdown so a "won't charge in daylight" report pinpoints the
+        // false gate from one LogOutput.log. Default ON while the charge bug is open (DefaultDebugCharge);
+        // ?.Value-read so a no-Plugin unit context falls back to the const. Bake false once charging is RC.
+        internal static ConfigEntry<bool>? LensDebugCharge = null;
         // Optional clear-weather env-name allowlist (comma-separated config → this set). EMPTY
         // (default) means the recharge gate is driven purely by EnvSetup.m_isWet + IsDaylight()
         // (the env names are authored in Unity assets, not the decomp, so we don't hardcode them).
@@ -405,6 +410,15 @@ namespace SBPR.Trailborne
                 "OPTIONAL comma-separated allowlist of clear/sunny weather env names that count as 'sun' for " +
                 "recharging. EMPTY (default) means any non-wet daylight weather recharges (driven by EnvSetup.m_isWet). " +
                 "Pin specific names only to exclude a dry-but-dim weather.");
+            LensDebugCharge = Config.Bind(
+                "SunstoneLens", "DebugCharge",
+                SBPR.Trailborne.Features.Sunstone.SunstoneLens.DefaultDebugCharge,
+                "Diagnostic logging for the Lens CHARGE path (the 'won't charge in daylight' bug). When ON, the " +
+                "DrainGate durability prefix AND the HUD overlay each emit a throttled (~1/sec) line naming the live " +
+                "value of every recharge sub-gate (daylight / globalWet / envWet / clearName / outdoors / swamp), the " +
+                "weather env name, and whether durability is actually moving — so one client LogOutput.log pinpoints " +
+                "WHICH gate denies the recharge (or proves charge IS climbing and the bug is the bar/persistence). " +
+                "Default ON while the charge bug is open; set false once charging is confirmed in-game.");
             LensClearWeatherNames.Clear();
             foreach (var raw in (LensClearWeatherNamesRaw.Value ?? "").Split(','))
             {
