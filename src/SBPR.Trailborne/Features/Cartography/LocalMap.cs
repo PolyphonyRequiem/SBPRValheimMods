@@ -48,8 +48,10 @@ namespace SBPR.Trailborne.Features.Cartography
         // donor the Trailblazer's Spade uses (Trailblazing.cs). We reshape it to a
         // TwoHandedWeapon, null its build PieceTable, and empty its attacks below. We ALSO
         // replace the Hoe's visible held MESH (the gardening-tool silhouette Daniel flagged)
-        // with a procedural blank-leather field-map sheet (see InstallFieldMapHeldVisual),
-        // so NONE of the Hoe survives the player can see — only its attach-transform / equip
+        // with a procedural FLAT RECTANGLE (0.5 × 0.3 m) skinned with a map-painted-on-deer-hide
+        // texture (see InstallFieldMapHeldVisual), AND set the held STANCE to the build-Hammer
+        // pose (m_animationState = OneHanded, below) — so NONE of the Hoe the player can see
+        // survives: not the mesh, not the two-handed grip. Only its attach-transform / equip
         // rigging scaffold (which the equip + minimap-binding patches rely on) remains.
         private const string SourceHeldTool = "Hoe";
 
@@ -116,7 +118,18 @@ namespace SBPR.Trailborne.Features.Cartography
                 // m_rightItem=item+clear hidden) gives the C3 true-unequip-never-hide
                 // block-clear discipline for free (AT-MAP-BLOCKCLEAR).
                 shared.m_itemType   = ItemDrop.ItemData.ItemType.TwoHandedWeapon;
-                shared.m_animationState = ItemDrop.ItemData.AnimationState.TwoHandedAxe; // benign two-handed hold pose
+                // ── Held STANCE = the build-Hammer pose (Daniel 2026-06-24, ticket-localmap-hoe-model). ──
+                // The in-hand pose is driven PURELY by m_animationState (decomp Humanoid.SetupEquipment
+                // → m_rightItem.m_shared.m_animationState → animator s_statei, assembly_valheim:14203),
+                // INDEPENDENT of m_itemType. Ground-truthed the real vanilla Hammer prefab off the
+                // dedicated-server payload (UnityPy probe, 2026-06-24): Hammer m_animationState =
+                // OneHanded (1). The prior value TwoHandedAxe (the donor-ish two-handed grip) is what
+                // read as "still holding a hoe." So we copy the build-Hammer's OneHanded hold while
+                // KEEPING m_itemType = TwoHandedWeapon above (the block-clear equip discipline +
+                // LocalMapEquipPatch torch exception ride on the TwoHandedWeapon EquipItem branch).
+                // Vanilla itself decouples these (the Hoe is Tool + Atgeir anim), so this pairing is
+                // a normal vanilla shape, not a hack.
+                shared.m_animationState = ItemDrop.ItemData.AnimationState.OneHanded; // build-hammer stance
                 shared.m_maxStackSize = 1;     // a bound map is per-instance; never stacks
                 shared.m_weight      = 0.5f;
                 shared.m_maxQuality  = 1;       // no upgrade tiers
@@ -152,15 +165,15 @@ namespace SBPR.Trailborne.Features.Cartography
                 if (sprite != null) shared.m_icons = new[] { sprite };
             }
 
-            // ── THE DEFECT FIX (card t_64dff55f) ──────────────────────────────────────
-            // Replace the Hoe donor's visible held MESH with a procedural blank-leather
-            // field-map sheet. The Hoe's in-hand mesh lives under `attach > visual` (blade
-            // `stone` + handle `wood`) — a long-handled gardening-tool silhouette for a
-            // "field map you carry." We strip that visual subtree and author a fresh leather
-            // sheet in its place, so the in-hand AND world-drop silhouette read as a map.
-            // The `attach` transform (the equip anchor AttachItem instantiates onto the hand
-            // joint — decomp Humanoid.AttachItem) is KEPT, so equip + minimap-binding rigging
-            // is untouched (card scope: swap the visual, keep the scaffold).
+            // ── THE DEFECT FIX (cards t_64dff55f → ticket-localmap-hoe-model) ─────────
+            // Replace the Hoe donor's visible held MESH with a procedural FLAT RECTANGLE
+            // (0.5 × 0.3 m) skinned with a map-painted-on-deer-hide texture. The Hoe's in-hand
+            // mesh lives under `attach > visual` (blade `stone` + handle `wood`) — a long-handled
+            // gardening-tool silhouette for a "field map you carry." We strip that visual subtree
+            // and author the fresh painted sheet in its place, so the in-hand AND world-drop
+            // silhouette read as a map. The `attach` transform (the equip anchor AttachItem
+            // instantiates onto the hand joint — decomp Humanoid.AttachItem) is KEPT, so equip +
+            // minimap-binding rigging is untouched (scope: swap the visual, keep the scaffold).
             InstallFieldMapHeldVisual(clone);
 
             // Tag the prefab so the equip/binding patches can identify our item cheaply
@@ -169,12 +182,12 @@ namespace SBPR.Trailborne.Features.Cartography
                 clone.AddComponent<LocalMapItemTag>();
 
             Assets.RegisterPrefabInZNetScene(clone);
-            Plugin.Log.LogInfo($"[Trailborne/Cartography] Registered Local Map item: {LocalMapName} (TwoHandedWeapon, blank-until-imprinted, procedural leather held mesh).");
+            Plugin.Log.LogInfo($"[Trailborne/Cartography] Registered Local Map item: {LocalMapName} (TwoHandedWeapon, build-hammer hold stance, blank-until-imprinted, flat painted-hide held mesh).");
         }
 
         /// <summary>
-        /// Swap the Hoe donor's visible held MESH for a procedural blank-leather field-map
-        /// sheet (§4.1 "blank leather … a field map"). The donor's in-hand model sits on the
+        /// Swap the Hoe donor's visible held MESH for a procedural FLAT painted-deer-hide map
+        /// rectangle (§4.1a). The donor's in-hand model sits on the
         /// <c>attach &gt; visual</c> subtree (the same subtree <c>Humanoid.AttachItem</c>
         /// instantiates onto the hand joint when the item is equipped, and that ItemDrop's
         /// world-drop renders). We:
@@ -182,7 +195,7 @@ namespace SBPR.Trailborne.Features.Cartography
         ///      binding rigging depends on its transform), then its <c>visual</c> child;
         ///   2. DestroyImmediate every existing mesh child under <c>visual</c> (the Hoe's
         ///      <c>blade</c> + <c>handle</c>) — the only Hoe-authored renderables;
-        ///   3. author a fresh leather sheet under <c>visual</c> via
+        ///   3. author the fresh flat painted-hide sheet under <c>visual</c> via
         ///      <see cref="Assets.BuildFieldMapVisual"/>.
         ///
         /// DestroyImmediate is correct here (mirrors <see cref="Assets.StripToDecorative"/>):

@@ -189,6 +189,60 @@ stone blade) for "a field map you carry." Daniel flagged it in-game and picked
   `LocalMap.cs` (`InstallFieldMapHeldVisual`) + `Runtime/Assets.cs`
   (`BuildFieldMapMesh` / `BuildFieldMapVisual` / `TryReadLeatherMaterial`).
 
+### 4.1b Held model v2 — flat painted-deer-hide rectangle + build-hammer stance (🟢 RESOLVED + EXECUTED, 2026-06-24, ticket-localmap-hoe-model)
+The §4.1a folded-leather sheet (shipped v0.2.35/36) still read wrong in-game: Daniel
+on the live build — *"This mesh is not good. The player also looks like they're holding
+a hoe still as far as pose."* Two distinct defects survived §4.1a: (1) the folded-leather
+**mesh** was an unconvincing blank sheet, and (2) the **held stance** was never touched —
+the item still posed the player in the two-handed grip that reads as "holding a hoe."
+Daniel's new direction (verbatim): a flat rectangle ~**0.5 m wide × 0.3 m tall** with a
+**generated PNG texture**, made to look like a map **painted on a deer hide**, keeping
+**Valheim-level pixelation**, and the held stance changed to the **build-hammer stance**.
+
+- **Decision (LOCKED, executed not re-gated):**
+  1. **Mesh → a plain flat rectangle** (0.5 × 0.3 m, double-sided, full 0..1 UVs). The
+     read now comes from the **painted texture**, not silhouette folds, so the geometry
+     simplifies to a quad. `BuildFieldMapMesh` rewritten from the fold-panel sheet to the
+     flat quad (defaults `width=0.5f, height=0.3f`).
+  2. **Look → a map painted on tanned deer hide**, generated at a low native resolution
+     (**160 × 96**, the 5:3 mesh aspect) and **Point-filtered in-game** so texels stay
+     chunky — Valheim-grade pixelation, not bilinear mush. Authored by a new committed
+     generator `scripts/gen_local_map_held_texture_v01.py` → `assets/textures/local_map_held_v0.1.png`.
+     Content: coastline/landmass, dashed route to a destination **X**, mountain carets,
+     an **N** compass tick, and sea hatching, all in **dark charcoal/umber ink on light
+     tan hide — separated by VALUE, never a red-vs-green hue cue** (Pillar 2 + Daniel is
+     red-green colorblind: NO red X on green land).
+  3. **Stance → the build-Hammer hold.** Ground-truthed (UnityPy probe of the real vanilla
+     prefabs off the dedicated-server payload, 2026-06-24): the in-hand pose is driven
+     **purely by `m_animationState`** (animator reads `m_rightItem.m_shared.m_animationState`
+     directly — decomp `assembly_valheim:14203`), **independent of `m_itemType`**. The build
+     **Hammer's `m_animationState = OneHanded`**; the Local Map's was `TwoHandedAxe` (the
+     two-handed grip = "still a hoe"). Changed to **`OneHanded`** while KEEPING
+     `m_itemType = TwoHandedWeapon` (the block-clear equip discipline + the
+     `LocalMapEquipPatch` torch exception ride on the `TwoHandedWeapon` `EquipItem` branch).
+     Vanilla itself decouples these (the Hoe is `Tool` + `Atgeir` anim), so the pairing is a
+     normal vanilla shape, not a hack.
+- **Material (the paint):** `BuildFieldMapVisual` now **instances** the `leatherscraps`
+  material (`new Material(leather)` — the proven Signs-board idiom, so Valheim's lit shader
+  + leather normal grain still apply) and swaps its **`_MainTex`** to the painted hide
+  albedo, with **`_Color` forced white** so the painted albedo isn't multiply-darkened (the
+  muddy-multiply trap, t_6cc9f652). Instancing (not mutating the shared material) is
+  mandatory — writing the shared `leatherscraps` material would repaint every leather item.
+  Loaded via new `Assets.LoadPngAsTexture` (Point filter, Clamp wrap, mips). Graceful
+  degradation preserved: no texture → plain instanced leather; no leather → default material;
+  the **flat shape + build-hammer stance land regardless.**
+- **Scope / SpecCheck:** still cosmetic + a one-field stance flip — **no recipe / cost /
+  station change → SpecCheck manifest unmoved (+0).** Hoe clone scaffold still kept for the
+  `attach`-transform / equip / minimap-binding rigging (t_85f45dd7).
+- **Shipping:** `scripts/pack-modpack.sh` now also overlays `assets/textures/*.png` (minus
+  `*_preview*`) into the plugin folder so `Assets.LoadPngAsTexture` finds the hide albedo at
+  runtime. (The `*_preview6x.png` nearest-neighbor render is review-only, never shipped.)
+- **AT (the real gate, UNCHANGED):** held look + pose are an **in-hand F-key check on a GPU
+  client** — Daniel's eye is the final gate. Verified here only to **build 0/0 + 284 tests
+  green**; *logs-green ≠ playable*. Build path: `LocalMap.cs` (`m_animationState`,
+  `InstallFieldMapHeldVisual`) + `Runtime/Assets.cs` (`BuildFieldMapMesh` /
+  `BuildFieldMapVisual` / `LoadPngAsTexture`) + `scripts/gen_local_map_held_texture_v01.py`.
+
 ### 4.2 Data storage (🟡PROPOSED — implementation surface to verify)
 - Store the version-3 blob on the **item instance**, not a placed ZDO. Recent
   Valheim `ItemDrop.ItemData` carries `m_customData` (a `Dictionary<string,string>`)

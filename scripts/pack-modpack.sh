@@ -104,6 +104,28 @@ shopt -u nullglob
 for png in "${icons[@]}"; do cp "$png" "$PLUGDIR/"; done
 ok "Plugin folder: 1 DLL + ${#icons[@]} icon(s)"
 
+# 2b) Overlay world-mesh TEXTURES (held-item albedos etc.) the plugin loads at runtime
+#     via Assets.LoadPngAsTexture. These are NOT inventory icons (the equipable-icon
+#     transparency test deliberately does NOT scan them) — e.g. the Local Map's painted
+#     deer-hide held sheet. Shipped flat into the plugin folder alongside the icons, since
+#     Plugin.PluginFolder is the single load root for both. The *_preview*.png review-only
+#     renders are skipped so they never bloat the shipped pack.
+TEX_SRC="$REPO_ROOT/assets/textures"
+if [ -d "$TEX_SRC" ]; then
+    shopt -s nullglob
+    texes=("$TEX_SRC"/*.png)
+    shopt -u nullglob
+    texcount=0
+    for png in "${texes[@]}"; do
+        case "$(basename "$png")" in
+            *_preview*) continue ;;   # review-only nearest-neighbor previews — not shipped
+        esac
+        cp "$png" "$PLUGDIR/"
+        texcount=$((texcount + 1))
+    done
+    [ "$texcount" -gt 0 ] && ok "Plugin folder: + ${texcount} world-mesh texture(s)"
+fi
+
 # 3) Overlay bundled third-party mods we ship for playtesters.
 #    ServerDevcommands (JereKuusela, Unlicense/public-domain) turns on the dev
 #    console cheat commands (spawn/god/fly) for admin playtesters — on a DEDICATED

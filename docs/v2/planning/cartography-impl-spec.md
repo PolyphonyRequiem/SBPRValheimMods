@@ -415,6 +415,38 @@ with the Table via the `CartographyViewer` seam).
   `Humanoid.AttachItem` (decomp :29194) instantiates onto the hand joint is exactly this
   `attach` child, so the swap fixes both the **in-hand** and **world-drop** silhouette.
 - **This is the repo's first procedural world-mesh** (`new Mesh()` was 0 hits in `src/`).
+
+##### 2A.1b Held model v2 — flat painted-deer-hide rectangle + build-hammer stance (Daniel in-game, ticket-localmap-hoe-model, 2026-06-24)
+- The §2A.1a folded-leather sheet still read wrong: *"This mesh is not good. The player
+  also looks like they're holding a hoe still as far as pose."* Two defects survived 2A.1a —
+  the blank folded **mesh**, and the untouched **held stance**. New direction (design
+  `cartography-v2.md` §4.1b, LOCKED + executed): a **flat 0.5 × 0.3 m rectangle** carrying a
+  **generated PNG texture** that looks like a **map painted on a deer hide** with
+  **Valheim-level pixelation**, plus the **build-Hammer held stance**.
+- **Mesh:** `Assets.BuildFieldMapMesh` rewritten from the multi-panel fold sheet to a plain
+  **double-sided flat quad** (defaults `width=0.5f, height=0.3f`, full 0..1 UVs on both faces).
+- **Texture:** new committed generator `scripts/gen_local_map_held_texture_v01.py` →
+  `assets/textures/local_map_held_v0.1.png`, authored at **160 × 96** (5:3 mesh aspect) and
+  **Point-filtered** in-game for chunky texels. Loaded by new `Assets.LoadPngAsTexture`
+  (Point/Clamp/mips). Map ink is **dark charcoal/umber on light tan, value-separated, no
+  red-vs-green** (Pillar 2 + colorblind).
+- **Material:** `Assets.BuildFieldMapVisual` **instances** the `leatherscraps` material
+  (`new Material(leather)` — Signs-board idiom, keeps the lit shader + leather normal grain),
+  sets `_MainTex` to the painted albedo, and forces `_Color = white` (anti muddy-multiply,
+  t_6cc9f652). Falls back to plain instanced leather if the PNG is missing — shape + stance
+  still land.
+- **Stance (the "still a hoe" pose fix):** the in-hand pose is driven **purely by
+  `m_animationState`** (decomp `Humanoid` → animator `m_rightItem.m_shared.m_animationState`,
+  `assembly_valheim:14203`), **independent of `m_itemType`**. UnityPy probe of the real
+  vanilla prefabs (dedicated-server payload, 2026-06-24): build **Hammer = `OneHanded`**, our
+  map was `TwoHandedAxe`. Changed `LocalMap.cs` `m_animationState` → **`OneHanded`** while
+  KEEPING `m_itemType = TwoHandedWeapon` (block-clear + torch exception ride on the
+  `TwoHandedWeapon` `EquipItem` branch; vanilla's own Hoe is `Tool`+`Atgeir`, so the decouple
+  is a normal vanilla shape).
+- **Shipping:** `scripts/pack-modpack.sh` now also overlays `assets/textures/*.png` (skipping
+  `*_preview*`) into the plugin folder. **SpecCheck manifest unmoved (+0)** — still cosmetic +
+  one stance-field flip. Verified **build 0/0 + 284 tests green**; in-hand look/pose are a
+  GPU-client F-key check (logs-green ≠ playable).
   Disambiguation from a tool is **silhouette/value (flat sheet vs handle+blade), NOT hue**
   (Pillar 2 + Daniel is colorblind).
 - **Scope fence:** held **visual mesh + material only**; the full ADR-0006 de-clone of the
