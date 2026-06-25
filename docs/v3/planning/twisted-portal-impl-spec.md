@@ -480,6 +480,21 @@ A jump of distance `D`:
 > **expose it as a BepInEx config knob**, OR, if no defensible baseline falls out of the design doc's
 > numbers, **BLOCK for Daniel** rather than guess. This is the one genuinely under-specified constant
 > in the cost model; the card body for C2 says so explicitly.
+>
+> ✅ **RESOLVED in C2 (card t_6e992a30): `METERS_PER_PE = 1.0`, exposed as the live config knob
+> `TwistedPortal/MetersPerPortalEnergy` (range 0.1–10).** This is a *derived*, not invented, baseline —
+> it is the value that makes the locked anchors line up most legibly:
+> - **1 PE = 1 m** means a Bukeberry's locked **30 m** reserve is worth exactly **30 PE** of belly, so
+>   belly fuel and berry fuel are denominated in the same unit — the "berries extend reach" framing
+>   (§5.4) reads as one continuous fuel scale, not two arbitrary ones.
+> - The **300 m ceiling** then equals **300 PE**. A *strong* full belly (three premium personal slots,
+>   PE ≈ 105–150 each → ~315–450 PE) earns one or two near-ceiling jumps before leaning on berries,
+>   while a *modest* belly (PE ~30–120) hits the reserve sooner — exactly the "meaningful but not
+>   unlimited range" intent, with provisioning quality (not just quantity) setting reach.
+> - It is round and legible, so Daniel can retune in playtest against an obvious mental model
+>   (raise → food stretches farther per minute; lower → food costs more per metre). The architecture
+>   (distance drains food-time; long jump → depleted) is unchanged by any retune.
+>   No BLOCK was needed — a defensible baseline fell straight out of the locked numbers.
 
 ### 5.4 Bukeberries — the emergency reserve (vanilla `Pukeberries`)
 
@@ -568,6 +583,52 @@ constant), `BUKE_METERS_PER_BERRY` (30), `FEAST_RANGE_CAP` (28), the `/30` tier 
 clamp, the eitr weighting, the `SE_Puke` arrival-debuff scale, and shaman drop rate (vanilla). Encode
 the locked baselines as a **boot-time runtime assertion** (the SpecCheck/watchdog pattern) so a
 silently-drifted config default screams on boot (AT-PE-MATH covers the pure-math core).
+
+### 5.9 C2 build notes (card t_6e992a30 — what shipped, and the grounding corrections)
+
+> ✅ **BUILT 2026-06-25.** The cost model is implemented as the §3 split: the pure math is the
+> engine-free `Features/Portals/PortalEnergyMath.cs` (CI-gated by `tests/PortalEnergyMathTests.cs`,
+> AT-PE-MATH — 58 cases derived from the design-doc §3/§5 worked numbers, link-compiled into the net8
+> test project the same way `SunstoneHaloGeometry`/`CompassNorthGate` are), and the engine I/O is
+> `Features/Portals/TwistedPortalEnergy.cs` (the C1 seam body, now the real debit). Six live
+> `TwistedPortal/*` BepInEx knobs (`MetersPerPortalEnergy`, `FeastRangeCapMinutes`,
+> `BukeberryMetersPerBerry`, `TierDivisor`, `TierClampLo`, `TierClampHi`), resolved via
+> `TwistedPortalEnergy.ResolveKnobs()` with `?.Value ?? PortalEnergyMath.Default*` (the no-Plugin unit
+> fallback). A `SpecCheck.CheckPortalEnergyManifest` boot assertion diffs the locked §6 baselines
+> against the `Default*` consts AND the two derived anchors (300 m ÷ 30 m/berry == 10; tier(143)==5.0,
+> tier(27)==1.0). Build `-c Release` → **0/0**. **Patch-free** (PE read on demand from `GetFoods()`;
+> no Harmony patch — §8 holds). The lore breadcrumb (§5.7) ships in the portal `m_description`.
+
+**Two grounding corrections vs the seam's decomp hints (re-verified against `assembly_valheim` this
+pass — the hints were close but imprecise; the build follows the decomp, not the hint):**
+
+1. **Bukeberry count/remove matches on the PREFAB name, not the vanilla string overloads.** §5.4 cites
+   `Inventory.RemoveItem("Pukeberries", n)` / `CountItems("Pukeberries")`. Those overloads
+   (`Inventory.CountItems(string)` :56985, `RemoveItem(string,int,…)` :56938) match on
+   **`m_shared.m_name`** — the *localization token* `$item_pukeberries`, **not** the prefab name
+   `Pukeberries` — so passing the prefab name silently matches nothing. C2 therefore enumerates
+   `Inventory.GetAllItems()` (:57227) and matches each item's **`m_dropPrefab.name`** (stripped of any
+   `(Clone)`), then removes via the by-reference `RemoveItem(ItemData,int)` (:56922). This is the same
+   `m_dropPrefab.name` discipline the equipped-accessory detection uses elsewhere in the repo.
+2. **The lore breadcrumb is plain English, NOT a `$sbpr_*` token.** §5.7 (and the design doc §5.2)
+   describe the hint as a `$sbpr_*` localization-string edit. **This repo has no localization-
+   registration layer** (no `Localization.AddJson`/`AddWord` anywhere — confirmed; the C1
+   `SBPR_TwistedPortal` / `SurveyorTableTag` center messages all use plain English for exactly this
+   reason), so a `$sbpr_*` token would render on-screen as a literal `[sbpr_...]`. The breadcrumb is
+   written as evocative, non-explicit plain-English description text instead — faithful to the design
+   intent (a whispered, no-numbers hint), just via the only string surface the repo actually localizes
+   cleanly. *(If a `$sbpr_*` JSON layer is ever added, the hint can migrate to a token then — flagged,
+   not built.)*
+
+> ⚠️ **One C1-seam ordering edge case observed (flagged for review — it lives at C1's call site, not in
+> C2's math):** `SBPR_TwistedPortal.Teleport` (C1) calls `TwistedPortalEnergy.TrySpendForJump` (which
+> **debits**) *before* `player.TeleportTo` (:20771). `Character.TeleportTo` can return `false` without
+> moving the player if `m_teleportCooldown < 2f` or a teleport is already in flight (:20778–:20785) —
+> in which case the food/berries were spent but no jump happened. In normal play the cooldown is
+> satisfied (you're not teleporting twice in 2 s), so this is an edge case, not a hot path; but the
+> clean fix is for C1 to check `TeleportTo`'s return and refund on `false`, OR gate the spend on a
+> cooldown pre-check. **Left for C1 to resolve** (C2 must not re-derive the teleport per the seam
+> contract); noted here so it isn't rediscovered as a "berries vanished but I didn't jump" report.
 
 ---
 
