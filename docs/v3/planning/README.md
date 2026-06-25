@@ -7,10 +7,17 @@ Planning + impl specs for the **v3 Swamp tier** of SBPR Trailborne.
 - [`twisted-portal-impl-spec.md`](twisted-portal-impl-spec.md) — the build-ready spec for the
   **Twisted Portal**, a long-range named portal network. A distinct portal class that teleports
   even where vanilla portals are blocked (the `NoPortals` global key), addressed by player-assigned
-  **rune names**, accessed via a **food-charged key** (a Trinket whose durability is its charge —
-  the Sunstone Lens energy model). Nearby portal names are listed on-step. **Blocked on three
-  Daniel design decisions** (coexist-vs-replace, charge economy, destination UX) — see the spec's
-  §1/§2. Decomposes into impl cards C1–C3 once unblocked (card t_f9cab392).
+  **rune names**. **Cost model = FOOD-AS-FUEL (no key trinket)** — teleport range is gated by the
+  food in your belly (**Portal Energy** = remaining-food-minutes × a stat-derived tier), a jump
+  spends food-time scaled by distance (so distance both costs provisioning AND lands you depleted),
+  and **Bukeperries** are a burnable emergency reserve for the shortfall (a berry-jump arrives
+  *Feeling Sick*). **Reconciled 2026-06-24 to the locked design** (`twisted-portal-food-charge.md`,
+  PR #270/#271) — the former `SBPR_TwistedKey` durability-battery economy is removed. Q2 (charge
+  economy) resolved → food-as-fuel; **Q1 = coexist and Q3 = Model A (name-pairing + informational
+  through-terrain overlay) locked.** The cost model is **patch-free** (PE read on demand from
+  `Player.GetFoods()`). Decomposes into already-created impl cards C1 (t_2b388cd5 portal core), C2
+  (t_6e992a30 cost model), C3 (t_e732bd8b overlay) — they auto-promote when this reconciliation
+  merges (reconcile card t_c15411b2; original t_f9cab392).
 - [`trail-lights-impl-spec.md`](trail-lights-impl-spec.md) — architect+spec for the v3
   **trail-light family** (card t_117bc232): two distinct **eternal** Spade-placed pieces, a
   tall far-reaching **Beacon** and a small **Surtling-Ember Lamp**, gated by Surtling core.
