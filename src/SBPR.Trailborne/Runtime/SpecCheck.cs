@@ -195,6 +195,25 @@ namespace SBPR.Trailborne.Runtime
                     R(Pigments.PigmentRedName, IronCompass.RedPigmentCost),
                 }
             },
+            // ── v3 Swamp: Twisted Portal (card t_2b388cd5) ──
+            // Twisted Portal — Hammer-placed build piece (m_craftingStation = null), the endgame
+            // no-restriction portal. Build cost FineWood ×20 + GreydwarfEye ×10 + SurtlingCore ×4
+            // + SBPR_Sunstone ×1 (Q1 = coexist shape). Sunstone referenced via SunstoneLens.SunstoneName
+            // and GreydwarfEye via MarkerSigns.EyeResource so a rename can't drift the recipe; both
+            // register into ODB earlier in the same wiring pass (Sunstone via SunstoneLens, before
+            // TwistedPortal.DoObjectDBWiring). Piece-only shape (no Item, no Station). Under
+            // food-as-fuel there is NO key item row (the trinket was removed in the t_c15411b2
+            // reconciliation) — this is the feature's only manifest row. LOCKED per
+            // docs/v3/planning/twisted-portal-impl-spec.md §0.
+            new RecipeSpec {
+                Piece = TwistedPortal.PortalPieceName, Station = null,
+                Resources = new[] {
+                    R("FineWood", TwistedPortal.PortalFineWoodCost),
+                    R(MarkerSigns.EyeResource, TwistedPortal.PortalGreydwarfEyeCost),  // "GreydwarfEye" — shared const
+                    R("SurtlingCore", TwistedPortal.PortalSurtlingCoreCost),
+                    R(SunstoneLens.SunstoneName, TwistedPortal.PortalSunstoneCost),    // "SBPR_Sunstone" — shared const
+                }
+            },
         };
 
         public static void Run()

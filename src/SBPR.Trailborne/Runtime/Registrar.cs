@@ -93,6 +93,14 @@ namespace SBPR.Trailborne.Runtime
                 // SBPR prefab — placement here just keeps the exploration tools together.
                 IronCompass.RegisterPrefabs(__instance);
 
+                // v3 Swamp — Twisted Portal (card t_2b388cd5, the portal MECHANISM). After
+                // Portals (reuses the additive piece-shell + kitbash helpers) and after
+                // SunstoneLens (the portal recipe consumes SBPR_Sunstone — the prefab must exist
+                // in ZNetScene; the recipe BuildReq resolves it in the ODB pass below). Registers
+                // the distinct SBPR_TwistedPortal teleporter (NoPortals-bypass, rune-name pairing);
+                // deliberately does NOT touch Game.PortalPrefabHash (§4.3 option b — own ZDO walk).
+                TwistedPortal.RegisterPrefabs(__instance);
+
                 // v3 Swamp — Sunstone Lens trophy-less startup DUMP (card t_d17d9b58 Knob #3c). Default ON.
                 // After ALL RegisterPrefabs above so the full creature catalog (vanilla + any SBPR creatures)
                 // is present in ZNetScene.m_prefabs. Enumerates every Character prefab, resolves each to
@@ -181,6 +189,13 @@ namespace SBPR.Trailborne.Runtime
                 // pigment item is in ODB by now, so BuildReq resolves it. Also after Trailhead
                 // (the Explorer's Bench station must exist for FindStation).
                 IronCompass.DoObjectDBWiring(ZNetScene.instance);
+
+                // v3 Swamp — Twisted Portal recipe (card t_2b388cd5). Consumes SBPR_Sunstone, so
+                // MUST stay AFTER SunstoneLens.DoObjectDBWiring (above) — the Sunstone material is
+                // in ODB by now, so the portal's BuildReq resolves it. No item recipe (the portal
+                // is a Hammer-placed piece, no key item under food-as-fuel); this rebuilds the
+                // piece cost authoritatively + adds the portal to the Hammer menu.
+                TwistedPortal.DoObjectDBWiring(ZNetScene.instance);
 
                 Plugin.Log.LogInfo("[Trailborne] ObjectDB wiring complete (items + recipes + hammer pieces).");
 
