@@ -95,6 +95,16 @@ namespace SBPR.Trailborne.Runtime
                 Resources = new[] { R("FineWood", 10), R("Bronze", 2), R("DeerHide", 4), R("BoneFragments", 8) }
             },
 
+            // ── Trailside Camp — Bear Hide Tent (docs/design/trailside-camp.md) ──
+            // Black-Forest tier (bear Bjorn is a BF creature → BjornHide is a BF material).
+            // Placeholder art = vanilla TraderTent mesh shipped in SBPR's first custom
+            // AssetBundle. NO bench-in-range to place (Pillar 1, m_craftingStation = null).
+            // Recipe PROVISIONAL pending the design doc's lock; must equal BearHideTent.BuildResources().
+            new RecipeSpec {
+                Piece = "piece_sbpr_bearhide_tent", Station = null,
+                Resources = new[] { R("BjornHide", 4), R("FineWood", 6), R("LeatherScraps", 4) }
+            },
+
             // ── Item recipes ───────────────────────────────────────────
             new RecipeSpec {
                 Item = "SBPR_TrailblazersSpade", Station = "piece_sbpr_explorers_bench", Amount = 1,

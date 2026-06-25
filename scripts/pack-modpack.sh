@@ -126,6 +126,23 @@ if [ -d "$TEX_SRC" ]; then
     [ "$texcount" -gt 0 ] && ok "Plugin folder: + ${texcount} world-mesh texture(s)"
 fi
 
+# 2c) Overlay custom AssetBundles the plugin loads at runtime via AssetBundle.LoadFromFile
+#     (Plugin.PluginFolder root, same as icons/textures). Currently: sbpr_tradertent.unity3d
+#     — the Bear Hide Tent's placeholder mesh (vanilla TraderTent repacked to Unity 6;
+#     built by scripts/build_bear_hide_tent_bundle.py). SBPR's first custom bundle.
+BUNDLE_SRC="$REPO_ROOT/assets/bundles"
+if [ -d "$BUNDLE_SRC" ]; then
+    shopt -s nullglob
+    bundles=("$BUNDLE_SRC"/*.unity3d)
+    shopt -u nullglob
+    bundlecount=0
+    for b in "${bundles[@]}"; do
+        cp "$b" "$PLUGDIR/"
+        bundlecount=$((bundlecount + 1))
+    done
+    [ "$bundlecount" -gt 0 ] && ok "Plugin folder: + ${bundlecount} asset bundle(s)"
+fi
+
 # 3) Overlay bundled third-party mods we ship for playtesters.
 #    ServerDevcommands (JereKuusela, Unlicense/public-domain) turns on the dev
 #    console cheat commands (spawn/god/fly) for admin playtesters — on a DEDICATED

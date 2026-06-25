@@ -425,6 +425,35 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 
 ---
 
+## Trailborne — Trailside Camp (Black Forest)
+
+> The portable-camp triad (Bear Hide Tent + special bedroll + covered camp fire) that
+> lets an Explorer sleep out on the trail. Design: `docs/design/trailside-camp.md`.
+> Net-new pillar, NOT in requirements.md v1. **Only the Bear Hide Tent ships so far**
+> (placeholder art); the bedroll + camp fire are later cards on the same design doc.
+
+### Pieces
+
+#### Bear Hide Tent
+
+| Field | Value |
+|---|---|
+| Display name | Bear Hide Tent |
+| Prefab name | `piece_sbpr_bearhide_tent` |
+| Type | `Piece` (placed tent; additive shell, no custom Tag yet — visual-only piece this cut) |
+| Mod | Trailborne |
+| Biome tier | Black Forest (bear `Bjorn` is a BF creature → `BjornHide` is a BF material; design §1.3) |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed via the **Trailblazer's Spade build menu** ('Trail' tab), like every Spade-placed SBPR piece (Pillar 1, never the Hammer) |
+| Recipe (build) | Bear Hide (`BjornHide`) ×4 + Fine Wood ×6 + Leather Scraps ×4 — **PROVISIONAL** pending the design doc's recipe lock |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`; `EnsureCategory` guards drift) |
+| Function | A trailside tent — **placeholder shelter, VISUAL-ONLY this cut.** Its open canopy reads `underRoof=true` (so it keeps a player dry / a nearby camp fire lit in rain), but it does NOT reach the 0.8 cover threshold, so it does not by itself satisfy vanilla's sleep `CheckExposure` (by design — the special bedroll's gated `Bed.CheckExposure` relax, a later Camp card, is what makes sleep legal). No comfort aura, no sleep mechanic on the tent itself yet. |
+| Visual notes | **🔴 SBPR's FIRST custom AssetBundle.** Placeholder art = the vanilla **TraderTent** mesh (Haldor's market tent; stitched-hide canopy, the closest vanilla look to bear hide; legs kept, native 8.0 × 4.9 × 6.9 m — Daniel 2026-06-24 "make it trader tent… it's placeholder art anyhow"). TraderTent is location decoration in a lazy SoftRef bundle and is **NOT** in ZNetScene (`GetPrefab` returns null — verified vs Jotunn prefab-list + decomp), so it can't be grafted by name like every other SBPR donor. We ship the mesh in `assets/bundles/sbpr_tradertent.unity3d` (a repack of the game's own Unity-6 bundle with the mesh renamed `SBPR_TraderTentMesh`, so the Unity-version metadata matches by construction; built by `scripts/build_bear_hide_tent_bundle.py`, round-trip verified). **Material built at RUNTIME** (the server payload strips shaders): `new Material(leather)` off the vanilla `LeatherScraps` material (real lit shader + hide normal grain) with `_MainTex` swapped to the extracted `sbpr_tradertent_d.png` — a bundle-baked material would render magenta. Additive shell (ADR-0006: `Assets.ConstructPieceShell` + cosmetic mesh child); never instantiates a networked prefab. HP 600 (tunable). |
+| Patch surface | None. Registered additively via `BearHideTent.RegisterPrefabs` / `DoObjectDBWiring` (Registrar), added to the spade table in `Trailblazing.DoObjectDBWiring`. The AssetBundle + textures ship into the plugin folder via `pack-modpack.sh` (steps 2b/2c). |
+| Status | **IMPLEMENTED — build 0/0 (2026-06-25).** Code + SpecCheck Piece row + dataset + design doc. `[hold]` for Daniel's review + in-game verify. **logs-green ≠ playable** — the AssetBundle load + runtime material only prove out on a joined client (bundle header verified UnityFS/6000.0.61f1 off-box; in-game render unverified). Recipe is PROVISIONAL pending the design doc's open recipe lock. |
+| Source spec | `docs/design/trailside-camp.md` (§1.2 placeholder art, §1.3 BF tier, §2 visual-only shelter) |
+
+---
+
 ## Trailborne v1.1 (planned, not yet specced)
 
 - Ember Lamps
