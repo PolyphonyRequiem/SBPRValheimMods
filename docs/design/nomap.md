@@ -134,15 +134,18 @@ This is the trickiest one in the nomap track. Vanilla `Container` (line 101699) 
 
 > 🔴 **COST MODEL SUPERSEDED (Daniel-locked 2026-06-24) →
 > [`twisted-portal-food-charge.md`](twisted-portal-food-charge.md).** The
-> "charged accessory burns durability per teleport, food restores durability,
-> bukeberries purge-accelerate" economy below (the `SBPR_TwistedKey` trinket, the
-> `EatFood`/`RemoveOneFood` charge hooks) is **REPLACED by food-as-fuel**: there
-> is **no key trinket**; teleport range is gated by the food in the player's belly
-> (Portal Energy = remaining-food-minutes × a stat-derived tier). This resolves
-> the impl-spec's open decision #2 ("charge economy"). Everything else in this §7
-> — the distinct portal class, rune-name pairing, the `NoPortals` bypass, the
-> through-terrain name overlay — is **unaffected**. Read the food-charge doc for
-> the cost model; the notes below are kept for the portal-mechanics history.
+> "charged accessory burns durability per teleport, food restores durability"
+> economy below (the `SBPR_TwistedKey` trinket, the `EatFood`/`RemoveOneFood`
+> charge hooks) is **REPLACED by food-as-fuel**: there is **no key trinket**;
+> teleport range is gated by the food in the player's belly (Portal Energy =
+> remaining-food-minutes × a stat-derived tier). The **bukeberry purge-accelerator
+> is re-homed** (not dropped) as an emergency reserve fuel — Bukeperries are burned
+> only when belly food can't cover a jump (30 m/berry, 10 = the 300 m ceiling), and
+> a berry-burning jump arrives *Feeling Sick*. This resolves the impl-spec's open
+> decision #2 ("charge economy"). Everything else in this §7 — the distinct portal
+> class, rune-name pairing, the `NoPortals` bypass, the through-terrain name
+> overlay — is **unaffected**. Read the food-charge doc for the cost model; the
+> notes below are kept for the portal-mechanics history.
 >
 > 🟢 **SPECCED → `docs/v3/planning/twisted-portal-impl-spec.md`** (architect spec-pass, card
 > t_f9cab392). Read that to implement; the notes below are the historical anchors, kept for
