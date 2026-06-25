@@ -32,6 +32,12 @@
     * No admin rights needed. No registry surgery. Fully removable: just
       delete %LOCALAPPDATA%\Trailborne and the Desktop shortcut.
 
+  RESET-TO-SHIPPED (keeps playtests clean): by DEFAULT each run resets the modded
+  BepInEx\plugins + BepInEx\config to exactly what THIS build ships — removing any
+  dev-session plugin leftovers and stale plugin .cfg so the build's new defaults
+  actually apply. BepInEx.cfg is always preserved. Override with -NoStomp /
+  -NoConfigReset, or keep specific names with -Keep <name> / -KeepConfig <name>.
+
   RUN IT:
     iwr https://raw.githubusercontent.com/PolyphonyRequiem/SBPRValheimMods/main/installer.ps1 -UseBasicParsing | iex
 
@@ -50,12 +56,34 @@ param(
     [string]$ModdedDirName = 'Valheim-Modded',
     [switch]$Force,          # skip the confirmation prompt
     [switch]$NoShortcut,     # don't drop a Desktop shortcut
-    [switch]$NoConsole       # launch WITHOUT -console (omit the F5 dev console). Default: -console IS added.
+    [switch]$NoConsole,      # launch WITHOUT -console (omit the F5 dev console). Default: -console IS added.
+    # ── Reset-to-shipped-baseline controls (the "stomp unexpected plugins" + config-wipe) ──
+    # BepInEx\plugins and BepInEx\config are write-once-accumulate across installs
+    # (robocopy /XD BepInEx preserves them on refresh), so anything dropped in once
+    # during a dev session loads forever even though it was never in the shipped zip.
+    # Every install RESETS the BepInEx tree to exactly what THIS build ships, minus
+    # the allowlists below. Use -NoStomp / -NoConfigReset to skip; -Keep / -KeepConfig
+    # to preserve specific names this run.
+    [switch]$NoStomp,            # keep unexpected plugins (don't reset plugins to the shipped set)
+    [switch]$NoConfigReset,      # keep existing SBPR config (don't reset config to this build's defaults)
+    [string[]]$Keep = @(),       # preserve plugins\<name> this run (repeatable: -Keep a,b)
+    [string[]]$KeepConfig = @()  # preserve config\<name> this run (repeatable)
 )
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Version = '0.1.0 (2026-06-04)'
+
+# ── Central allowlist (the "limited set of exceptions" to the reset) ──────────
+# Default EMPTY: every install resets BepInEx\plugins + BepInEx\config to exactly
+# what the shipped zip carries (the baseline is read from the extracted payload
+# itself — zero maintenance). To allow an exception for ALL testers, add its name
+# here and push to main (the one-liner re-fetches this file each run). Per-run
+# overrides: -Keep / -KeepConfig / -NoStomp / -NoConfigReset. Mirrors installer.sh.
+#   PluginAllowlist = plugins\<NAME> folder (or loose <NAME>.dll)
+#   ConfigAllowlist = config\<NAME> filename (BepInEx.cfg is ALWAYS preserved)
+$PluginAllowlist = @()
+$ConfigAllowlist = @()
 
 function Say  { param($m,$c='Gray')  Write-Host $m -ForegroundColor $c }
 function Step { param($m) Write-Host "`n==> $m" -ForegroundColor Cyan }
@@ -211,6 +239,67 @@ if (-not (Test-Path (Join-Path $modded 'BepInEx\plugins\SBPR.Trailborne\SBPR.Tra
 $cacheDir = Join-Path $modded 'BepInEx\cache'
 if (Test-Path $cacheDir) { Remove-Item $cacheDir -Recurse -Force }
 Ok "BepInEx doorstop + Trailborne DLL + icons in place."
+
+# ── 5b. Reset the BepInEx tree to the shipped baseline (stomp + config-reset) ──
+# WHY: the game-file copy (step 3) excludes BepInEx (robocopy /XD) so loaders +
+# config survive a refresh — but that makes BepInEx\plugins and BepInEx\config
+# WRITE-ONCE-ACCUMULATE. A plugin or .cfg dropped in once (a dev-session DLL, a
+# fork, hand-tuned values) then loads on EVERY launch forever, though it was never
+# in the shipped zip. So after overlaying we RESET to exactly what THIS build ships,
+# minus an allowlist. The "expected" set is read from the freshly-extracted payload
+# ($payload) itself, so it tracks the build with zero maintenance. Loud by design.
+function Get-ShippedNames { param($sub)   # immediate child names under payload BepInEx\<sub>
+    $d = Join-Path $payload "BepInEx\$sub"
+    if (-not (Test-Path $d)) { return @() }
+    Get-ChildItem -LiteralPath $d -Force | Select-Object -ExpandProperty Name
+}
+
+# (a) STOMP unexpected plugins — reset plugins\ to (shipped + allowlist + -Keep).
+if (-not $NoStomp) {
+    Step "Resetting plugins to the shipped set (removing anything unexpected)"
+    $keepP = @(Get-ShippedNames 'plugins') + $PluginAllowlist + $Keep
+    $pluginsDir = Join-Path $modded 'BepInEx\plugins'
+    $removed = 0
+    if (Test-Path $pluginsDir) {
+        foreach ($entry in Get-ChildItem -LiteralPath $pluginsDir -Force) {
+            if ($keepP -contains $entry.Name) { continue }
+            Remove-Item -LiteralPath $entry.FullName -Recurse -Force
+            Warn3 "removed unexpected plugin: $($entry.Name)  (not in this build; pass -Keep '$($entry.Name)' or add to `$PluginAllowlist to keep)"
+            $removed++
+        }
+    }
+    if ($removed -eq 0) { Ok "Plugins match the shipped set (nothing unexpected)." }
+    else { Ok "Reset plugins to the shipped set ($removed removed)." }
+    if ($PluginAllowlist.Count) { Note "Kept by allowlist: $($PluginAllowlist -join ', ')" }
+    if ($Keep.Count)            { Note "Kept by -Keep:    $($Keep -join ', ')" }
+} else {
+    Warn3 "-NoStomp: leaving any extra plugins in place (they will load)."
+}
+
+# (b) CONFIG-RESET — delete generated plugin .cfg so BepInEx regenerates this
+# build's DEFAULTS. A returning tester's existing .cfg keeps OLD values for every
+# key it already has (BepInEx writes defaults only for MISSING keys), silently
+# defeating new shipped defaults. Always keep BepInEx.cfg + shipped configs + allowlist.
+if (-not $NoConfigReset) {
+    Step "Resetting plugin configs to this build's defaults"
+    $keepC = @('BepInEx.cfg') + (Get-ShippedNames 'config') + $ConfigAllowlist + $KeepConfig
+    $configDir = Join-Path $modded 'BepInEx\config'
+    $wiped = 0
+    if (Test-Path $configDir) {
+        foreach ($cfg in Get-ChildItem -LiteralPath $configDir -Force -Filter *.cfg) {
+            if ($keepC -contains $cfg.Name) { continue }
+            Remove-Item -LiteralPath $cfg.FullName -Force
+            Note "reset config (regenerates at defaults): $($cfg.Name)"
+            $wiped++
+        }
+    }
+    if ($wiped -eq 0) { Ok "No stale plugin config to reset." }
+    else { Ok "Reset $wiped plugin config(s) — BepInEx regenerates them at this build's defaults on launch." }
+    if ($ConfigAllowlist.Count) { Note "Kept by config allowlist: $($ConfigAllowlist -join ', ')" }
+    if ($KeepConfig.Count)      { Note "Kept by -KeepConfig:    $($KeepConfig -join ', ')" }
+} else {
+    Warn3 "-NoConfigReset: keeping your existing config (new build defaults will NOT apply to keys you already have)."
+}
 
 # ── 6. Launcher + shortcut ──────────────────────────────────────────────
 # IMPORTANT: this is a SEPARATE copy, so we launch valheim.exe DIRECTLY.

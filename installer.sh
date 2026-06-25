@@ -31,6 +31,12 @@
 #  Options: --force (skip prompt) --no-console (omit -console) --no-launch-test
 #           --zip <path> (install from a local zip, skip download)
 #           --url <u> --sha256 <h> (override the pinned release asset)
+#           --keep <name> / --keep-config <name> (preserve a plugin/config the
+#               build doesn't ship — repeatable)
+#           --no-stomp (keep unexpected plugins) --no-config-reset (keep your .cfg)
+#  By DEFAULT each run RESETS BepInEx/plugins + BepInEx/config to exactly what this
+#  build ships (removing dev-session leftovers + stale config so new defaults apply);
+#  BepInEx.cfg is always preserved. See the allowlist near the top to keep exceptions.
 # ============================================================================
 set -euo pipefail
 
@@ -42,7 +48,27 @@ STATUS_URL='https://gist.githubusercontent.com/PolyphonyRequiem/7b54a29aeefb3eff
 MODDED_DIRNAME='Valheim-Modded'
 VERSION='0.1.0 (2026-06-18)'
 
+# ── Reset-to-shipped-baseline allowlist (the "limited set of exceptions") ─────
+# BepInEx/plugins and BepInEx/config are write-once-accumulate across installs
+# (the game-file copy excludes BepInEx to preserve loaders), so anything ever
+# dropped there during a dev session survives forever and keeps loading even
+# though it was never in the shipped modpack. On every install we therefore RESET
+# the modded BepInEx tree to exactly what the build ships, MINUS these allowlists.
+#
+# The expected/baseline set is derived from the shipped zip itself (zero upkeep) —
+# these arrays are ONLY for things we deliberately keep that are NOT in the zip.
+# Default: EMPTY (stomp everything unexpected). To allow an exception centrally,
+# add its name here and push to main — the one-liner re-fetches this file each run,
+# so it's live for every tester immediately. Power users can also pass --keep /
+# --keep-config at runtime, or --no-stomp / --no-config-reset to skip entirely.
+#
+# PLUGIN names = the plugins/<NAME> folder (or a loose <NAME>.dll).
+# CONFIG names = the config/<NAME> filename (BepInEx.cfg is ALWAYS preserved).
+PLUGIN_ALLOWLIST=()
+CONFIG_ALLOWLIST=()
+
 FORCE=0; NO_CONSOLE=0; NO_LAUNCH_TEST=0; LOCAL_ZIP=''
+NO_STOMP=0; NO_CONFIG_RESET=0; KEEP_PLUGINS=(); KEEP_CONFIGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --force) FORCE=1; shift ;;
@@ -51,6 +77,10 @@ while [ $# -gt 0 ]; do
     --zip) LOCAL_ZIP="${2:-}"; shift 2 ;;
     --url) MODPACK_URL="${2:-}"; shift 2 ;;
     --sha256) EXPECTED_SHA256="${2:-}"; shift 2 ;;
+    --no-stomp) NO_STOMP=1; shift ;;          # keep unexpected plugins (don't reset to shipped set)
+    --no-config-reset) NO_CONFIG_RESET=1; shift ;;  # keep existing SBPR config (don't reset to defaults)
+    --keep) KEEP_PLUGINS+=("${2:-}"); shift 2 ;;     # preserve plugins/<name> this run (repeatable)
+    --keep-config) KEEP_CONFIGS+=("${2:-}"); shift 2 ;;  # preserve config/<name> this run (repeatable)
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -209,6 +239,72 @@ PLUGIN_DLL="$MODDED/BepInEx/plugins/SBPR.Trailborne/SBPR.Trailborne.dll"
 # via the overlay, so without this the stale cache survives forever.)
 rm -rf "$MODDED/BepInEx/cache"
 okm "BepInEx doorstop + Trailborne DLL + icons in place."
+
+# ── 5b. Reset the BepInEx tree to the shipped baseline (stomp + config-reset) ──
+# WHY: the game-file copy (step 3) excludes BepInEx so loaders/config survive a
+# refresh — but that makes BepInEx/plugins and BepInEx/config WRITE-ONCE-ACCUMULATE.
+# A plugin or .cfg dropped in once (a dev-session DLL, a fork, hand-tuned values)
+# then loads on EVERY launch forever, even though it was never in the shipped zip.
+# So after overlaying we RESET to exactly what THIS build ships, minus an allowlist.
+# The "expected" set is read from the freshly-extracted payload ($PAYLOAD) itself,
+# so it tracks the build with zero maintenance. Loud by design — prints removals.
+shipped_set() {  # names present under the shipped payload's BepInEx/<1=plugins|2=config>
+  local sub="$1"
+  [ -d "$PAYLOAD/BepInEx/$sub" ] || return 0
+  ( cd "$PAYLOAD/BepInEx/$sub" && find . -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null )
+}
+in_list() { local n="$1"; shift; local x; for x in "$@"; do [ "$x" = "$n" ] && return 0; done; return 1; }
+
+# (a) STOMP unexpected plugins — reset plugins/ to (shipped ∪ allowlist ∪ --keep).
+if [ "$NO_STOMP" != 1 ]; then
+  step "Resetting plugins to the shipped set (removing anything unexpected)"
+  mapfile -t SHIPPED_PLUGINS < <(shipped_set plugins)
+  KEEP_P=( "${SHIPPED_PLUGINS[@]}" "${PLUGIN_ALLOWLIST[@]}" "${KEEP_PLUGINS[@]}" )
+  removed=0
+  if [ -d "$MODDED/BepInEx/plugins" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      if in_list "$entry" "${KEEP_P[@]}"; then continue; fi
+      rm -rf "$MODDED/BepInEx/plugins/$entry"
+      warn "removed unexpected plugin: $entry  (not in this build; pass --keep '$entry' or add to PLUGIN_ALLOWLIST to keep)"
+      removed=$((removed+1))
+    done < <(cd "$MODDED/BepInEx/plugins" && find . -maxdepth 1 -mindepth 1 -printf '%f\n' 2>/dev/null)
+  fi
+  if [ "$removed" = 0 ]; then okm "Plugins match the shipped set (nothing unexpected)."
+  else okm "Reset plugins to the shipped set ($removed removed)."; fi
+  [ ${#PLUGIN_ALLOWLIST[@]} -gt 0 ] && note "Kept by allowlist: ${PLUGIN_ALLOWLIST[*]}"
+  [ ${#KEEP_PLUGINS[@]}    -gt 0 ] && note "Kept by --keep:    ${KEEP_PLUGINS[*]}"
+else
+  warn "--no-stomp: leaving any extra plugins in place (they will load)."
+fi
+
+# (b) CONFIG-RESET — delete generated plugin .cfg so BepInEx regenerates this
+# build's DEFAULTS. A returning tester's existing .cfg keeps OLD values for every
+# key it already has (BepInEx only writes defaults for MISSING keys), silently
+# defeating new shipped defaults (e.g. a new corona/halo default). We always keep
+# BepInEx.cfg (framework settings) + the shipped configs + the allowlist/--keep-config.
+if [ "$NO_CONFIG_RESET" != 1 ]; then
+  step "Resetting plugin configs to this build's defaults"
+  mapfile -t SHIPPED_CONFIGS < <(shipped_set config)
+  KEEP_C=( BepInEx.cfg "${SHIPPED_CONFIGS[@]}" "${CONFIG_ALLOWLIST[@]}" "${KEEP_CONFIGS[@]}" )
+  wiped=0
+  if [ -d "$MODDED/BepInEx/config" ]; then
+    while IFS= read -r cfg; do
+      [ -n "$cfg" ] || continue
+      case "$cfg" in *.cfg) ;; *) continue ;; esac   # only touch .cfg files
+      if in_list "$cfg" "${KEEP_C[@]}"; then continue; fi
+      rm -f "$MODDED/BepInEx/config/$cfg"
+      note "reset config (regenerates at defaults): $cfg"
+      wiped=$((wiped+1))
+    done < <(cd "$MODDED/BepInEx/config" && find . -maxdepth 1 -mindepth 1 -name '*.cfg' -printf '%f\n' 2>/dev/null)
+  fi
+  if [ "$wiped" = 0 ]; then okm "No stale plugin config to reset."
+  else okm "Reset $wiped plugin config(s) — BepInEx regenerates them at this build's defaults on launch."; fi
+  [ ${#CONFIG_ALLOWLIST[@]} -gt 0 ] && note "Kept by config allowlist: ${CONFIG_ALLOWLIST[*]}"
+  [ ${#KEEP_CONFIGS[@]}     -gt 0 ] && note "Kept by --keep-config:    ${KEEP_CONFIGS[*]}"
+else
+  warn "--no-config-reset: keeping your existing config (new build defaults will NOT apply to keys you already have)."
+fi
 
 # ── 6. Launcher (doorstop 4.x env contract) ───────────────────────────────────
 step "Creating the launcher"
