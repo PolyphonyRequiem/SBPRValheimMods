@@ -2,18 +2,18 @@
 title: "SBPR Trailborne — Playtest #6 Testers Guide"
 status: current
 purpose: "Playtest #6 — generated from playtest-ledger.md + git ground truth. Do not hand-edit; regenerate."
-generated_from_tag: v0.2.36-playtest
+generated_from_tag: v0.2.37-playtest
 diff_ref: main
 ---
 
 # SBPR Trailborne — Playtest #6 Testers Guide
 
-**Build:** SBPR Trailborne 0.2.36 (current `main`, ahead of `v0.2.36-playtest`)
+**Build:** SBPR Trailborne 0.2.37 (current `main`, ahead of `v0.2.37-playtest`)
 **Test mode:** Local solo on a fresh client build (unless an item says otherwise).
-**Generated:** 2026-06-24 15:08 PDT
+**Generated:** 2026-06-25 09:54 PDT
 
 > This guide is produced by `scripts/gen-playtest-guide.py` from the living
-> **playtest ledger** and the actual code changes since `v0.2.36-playtest`. The
+> **playtest ledger** and the actual code changes since `v0.2.37-playtest`. The
 > **Playtest #6** number is the human-facing testing series — distinct from the
 > `vX.Y.Z-playtest` build tags.
 
@@ -42,7 +42,7 @@ Both verify the modpack SHA256 before installing and write a launcher
 this build's `BepInEx/plugins/SBPR.Trailborne/` from the release zip into your install.
 
 Either way, launch Valheim and confirm the BepInEx console logs
-`Loading [SBPR Trailborne 0.2.36]` and `Harmony patches applied.`
+`Loading [SBPR Trailborne 0.2.37]` and `Harmony patches applied.`
 
 ## 2. Acceptance checklist
 
@@ -50,9 +50,9 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
 
 ### Test items (from the ledger)
 
-> Build target: **`v0.2.36-playtest`** (SBPR Trailborne 0.2.36) — the **third** build carrying Playtest #6
-> (counter HELD; `v0.2.34-playtest` was the first #6 build, `v0.2.35-playtest` the second). Test **local solo**
-> on a fresh client build unless an item says otherwise.
+> Build target: **`v0.2.38-playtest`** (SBPR Trailborne 0.2.38) — the **fifth** build carrying Playtest #6
+> (counter HELD across the whole #6 line: `v0.2.34` first, `v0.2.35` second, `v0.2.36` third, `v0.2.37` fourth,
+> `v0.2.38` fifth). Test **local solo** on a fresh client build unless an item says otherwise.
 >
 > **Round 1 (items 1–6)** — Daniel-feedback fixes that merged to `main` and shipped in `v0.2.34-playtest`
 > (cut 2026-06-22 08:38 PDT) after Daniel's **Playtest #5** run on the `v0.2.33` client.
@@ -119,6 +119,21 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
 | 20 | **Cartography — vanilla location/POI auto-icon pins (Haldor, temple, BogWitch, discovered POIs, modded) on both SBPR map surfaces** | t_1dea827c / design t_b5e535b0 (#265) | ✅ merged to `main` (`8231e6b`); ships in `v0.2.37` | **Group 2** follow-up to item 19. Adds the vanilla **auto-icon location set** — Haldor's vendor, StartTemple, Hildir's camp, the BogWitch, discovered POIs, and any **modded** flagged location — to **both** SBPR local-map surfaces (Surveyor's Table modal + carry-disc) as a **live-re-derived, icon-only, non-deletable** layer (built as a sibling of the Sunstone threat-marker layer: live re-derive → transient icon → render without persisting). This is the **same set the vanilla minimap shows** → parity, not new info (Daniel-locked: full auto-icon set / live re-derive / both surfaces). On both surfaces: **(a)** Haldor's vendor icon appears once discovered; **(b)** temple/BogWitch/Hildir-camp/POI icons render with vanilla art; **(c)** they **live-update** as you discover them; **(d)** they're **icon-only** (no labels) and **non-deletable**. **AT-VPIN-LOC-HALDOR / SET / LIVE / NONDEL.** logs-green ≠ playable — closes t_1dea827c. |
 | 21 | **Cartography live-update WRITE axis — carried maps update while travelling with the Kit worn (the real fix for issue 5)** | t_9c54d492 / impl-spec t_d46b3398 (#268) | ✅ merged to `main` (`17a1d36`); ships in `v0.2.37` | Daniel's **issue 5**: *"local map(s) data don't update while travelling when the cartographer's tools are equipped."* It **never worked** — nothing wrote a Local Map's blob except `LocalMap.Imprint`; the prior fix (#131) was a docs-only render-overlay since superseded by #266. This is the **real write path**: a new `LiveFieldWrite` per-~2 s throttled tick that, **with the Cartographer's Kit worn**, stamps the Kit-revealed fog into **every** carried, imprinted, in-region Local Map's stored blob (direct-blob-mutation + dirty-check → **zero writes** when standing still / no Kit / re-covering known ground). With the **Kit equipped**, travel across **unrevealed** ground while carrying one or more imprinted Local Maps: **(a)** the carried map's revealed area **grows as you travel** (AT-LIVE-WRITE-1); **(b)** **multiple** carried imprinted maps all update (AT-LIVE-MULTI); **(c)** **without** the Kit, no live write (AT-LIVE-NOKIT); **(d)** out-of-region maps don't update (AT-LIVE-OUTREGION); **(e)** survives relog (AT-LIVE-PERSIST); **(f)** a Surveyor's Table **ingests** a map dropped a few metres off but in the same 64 m cell (AT-INGEST-REBUILD). Full AT-LIVE-* / AT-INGEST-* per PR #268 §9. logs-green ≠ playable — closes t_9c54d492. |
 
+### 🆕 Round 5 — Twisted Portal feature chain + Trailside Camp first piece, ship in `v0.2.38-playtest`
+
+> Counter stays at **#6** — `v0.2.38-playtest` is the **fifth** build carrying Playtest #6. These are **net-new
+> feature surfaces** (the Twisted Portal triad + the first Trailside Camp piece), not round-refinements of a prior
+> #6 bug — but Daniel has not signed off #6 as a series, so the counter holds on the running #6 line (a roll to #7
+> is a one-flag `--roll` decision if he'd rather track these as a fresh series). All four are **net-new player-facing
+> surfaces with NO in-game verification yet** — "logs-green ≠ playable" applies to every row.
+
+| # | Feature | Card | Status | What to verify in-game |
+|---|---------|------|--------|------------------------|
+| 22 | **Twisted Portal — core mechanism (distinct class, NoPortals bypass, rune-name pairing)** | t_2b388cd5 (#273) | ✅ merged to `main` (`8441eca`); ships in `v0.2.38` | First in-game test of the Twisted Portal. Build the **Twisted Portal** piece (Spade/Hammer-placed, swamp-tinted ring kitbash from the Ancient Portal). **(a)** `[Use]` opens a vanilla rename box; type a rune name — it persists (stored in the dedicated `sbpr_rune_name` ZDO slot, NOT vanilla `s_tag`). **(b)** Place a **second** Twisted Portal, give it the **same** rune → they pair and teleport to each other (Model A nearest-other-same-rune). **(c)** 🔴 **The headline behaviour — these work where vanilla portals are forbidden:** in a NoPortals-flagged context the Twisted Portal still teleports (the spec §4.4 NoPortals bypass, `:123008` omitted). **(d)** Confirm a vanilla portal and a Twisted Portal do **NOT** cross-link (our hash isn't in `Game.PortalPrefabHash` — AT-NO-VANILLA-PAIR by construction). Boss gate + ore-transport ban are KEPT by default (conservative; each a one-line flip if Daniel wants them off). **AT-CORE-*** per PR #273. logs-green ≠ playable — closes t_2b388cd5. |
+| 23 | **Twisted Portal — food-as-fuel cost model (Portal Energy + Bukeperry reserve + Feeling Sick)** | t_6e992a30 (#276) | ✅ merged to `main` (`dfcb90f`); ships in `v0.2.38` | The cost behind a Twisted Portal jump. With food in your belly, jump through a paired Twisted Portal: **(a)** the jump **drains your food/belly** proportional to distance (you **arrive depleted** — AT-ARRIVE-DEPLETED), per the locked `docs/design/twisted-portal-food-charge.md` model (tier = clamp(totalStats/30, 1, 5) rounded to ½, off the **base** stat budget; PE = Σ rangeMin × tier; 1 PE = 1 m). **(b)** If belly can't cover the jump, **Bukeperries** are burned from your inventory as reserve fuel (`ceil(shortfall/30m)` berries — a 30 m berry per 30 PE shortfall). **(c)** A **berry-fuelled** jump applies vanilla **Feeling Sick / `SE_Puke`**. **(d)** Six live `TwistedPortal/*` BepInEx config knobs tune the model without a rebuild. **(e)** Server boot runs `SpecCheck.CheckPortalEnergyManifest` — confirm **no** boot assertion failure naming the §6 baselines. 58 unit cases (AT-PE-MATH) are green offline; the in-game spend/refill/puke loop is Daniel's accept. logs-green ≠ playable — closes t_6e992a30. |
+| 24 | **Twisted Portal — through-terrain rune-name overlay (informational, Model A)** | t_e732bd8b (#274) | ✅ merged to `main` (`d3d560d`); ships in `v0.2.38` | The highest-risk UI in the feature — a **visual** check only Daniel's eye can accept. Stand within **~3 m** of a Twisted Portal: floating **world-space rune labels** (+ optional distance) appear over every nearby Twisted Portal, rendered **through terrain** (reads behind hills/walls — ZTest-Always). **(a)** Labels show each portal's rune name; **(b)** they're **informational only** — a read-out, **NOT** a destination picker (Model B stays out of scope); **(c)** they **billboard** to face the camera; **(d)** unnamed portals are skipped; **(e)** the overlay host-pump stays alive for the HUD lifetime (the #209 self-deactivating-host invariant — visibility toggles the world-space field, host never deactivates). Does the through-terrain render read clearly without cluttering? **AT-OVERLAY-*** per PR #274 — render is GPU-only, Daniel's in-game eyeball is the accept. logs-green ≠ playable — closes t_e732bd8b. |
+| 25 | **Bear Hide Tent — placeholder piece (SBPR's first custom AssetBundle)** | _(#277, `feat(camp)`; design-thread piece — no card)_ | ✅ merged to `main` (`8520de5`); ships in `v0.2.38` | First piece of the Trailside Camp triad — **VISUAL-ONLY this cut** (no sleep Tag, no mechanic yet). Placeholder art = the vanilla TraderTent mesh, shipped via SBPR's **first custom AssetBundle** (`sbpr_tradertent.unity3d`), hide material built at **runtime** off vanilla LeatherScraps (a bundle-baked material would render magenta). **(a)** With a **Spade** equipped, find the **Bear Hide Tent** in the build menu (Misc category, 'Trail'/Spade placement), Black Forest tier — recipe **PROVISIONAL** (BjornHide ×4 + FineWood ×6 + LeatherScraps ×4). **(b)** 🔴 **The load-bearing render check — the canopy mesh must actually appear (bundle loaded OK) AND the hide must NOT render magenta (runtime material OK):** place it and look — it reads as a trader-tent canopy with legs, hide-coloured, **not** a magenta/missing-shader blob. **(c)** It's cosmetic decor only — no sleep, no buff, nothing to interact with yet. If the canopy is invisible or magenta, the bundle/material path failed — grab `LogOutput.log`. **AT-TENT-RENDER** (canopy renders + hide material reads). logs-green ≠ playable. |
+
 ### 🔁 Carried forward — not yet shipped / not yet verified
 
 Shipped **no** code change in any tag (blocked / verify-only), so it carries into #6 rather than being archived as a #5 surface.
@@ -180,7 +195,7 @@ Shipped **no** code change in any tag (blocked / verify-only), so it carries int
 
 ## 3. Ground-truth cross-check (auto)
 
-Code commits touching `src/**/*.cs` since **v0.2.36-playtest**: **8**
+Code commits touching `src/**/*.cs` since **v0.2.37-playtest**: **4**
 
 
 ✅ Every merged code change maps to a ledger item. No silent-untested changes.
