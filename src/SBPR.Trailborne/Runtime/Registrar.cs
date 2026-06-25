@@ -10,6 +10,7 @@ using SBPR.Trailborne.Features.MarkerSigns;
 using SBPR.Trailborne.Features.Portals;
 using SBPR.Trailborne.Features.Sunstone;
 using SBPR.Trailborne.Features.Exploration;
+using SBPR.Trailborne.Features.Camp;
 
 namespace SBPR.Trailborne.Runtime
 {
@@ -67,6 +68,9 @@ namespace SBPR.Trailborne.Runtime
                 Signs.RegisterPrefabs(__instance);
                 Cairns.RegisterPrefabs(__instance);
                 SurveyorsTable.RegisterPrefabs(__instance);
+                // Trailside Camp (docs/design/trailside-camp.md): the Bear Hide Tent is a
+                // Spade-placed BF piece whose mesh ships in SBPR's first custom AssetBundle.
+                BearHideTent.RegisterPrefabs(__instance);
                 LocalMap.RegisterPrefabs(__instance);
                 CartographersKit.RegisterPrefabs(__instance);
                 MarkerSigns.RegisterPrefabs(__instance);
@@ -165,6 +169,7 @@ namespace SBPR.Trailborne.Runtime
                 MarkerSigns.DoObjectDBWiring(ZNetScene.instance);
                 Cairns.DoObjectDBWiring(ZNetScene.instance);
                 SurveyorsTable.DoObjectDBWiring(ZNetScene.instance);
+                BearHideTent.DoObjectDBWiring(ZNetScene.instance);
                 LocalMap.DoObjectDBWiring(ZNetScene.instance);
                 // Cartographer's Kit recipe consumes the four pigments — Pigments.DoObjectDBWiring
                 // (above) has already registered the pigment items into ObjectDB, so BuildReq
