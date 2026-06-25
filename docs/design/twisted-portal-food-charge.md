@@ -1,7 +1,7 @@
 ---
 title: "Twisted Portal cost model — food-as-fuel (Portal Energy v3 tuning baseline)"
 status: accepted
-purpose: "Locks the v3 Twisted Portal travel-cost model: NO key trinket. Teleport range is gated by the food in the player's belly — Portal Energy (PE) = remaining-food-minutes x a stat-derived tier, summed across the belly's food slots; a jump spends PE as food-time, so distance both costs provisioning AND lands you depleted. Tier is computed from a food's total stat budget (Health+Stamina+Eitr), tier = round(clamp(total/30, 1, 5) * 2) / 2, snapped to 0.5 rungs, range [1.0, 5.0]. This is the authoritative stat-fallback so vanilla and modded/unaccounted foods slot in with zero hand-authoring; an optional explicit override registry may pin individual foods later. Feasts run on a separate normalized ~28 m range clock (their real 50 m buff timer is untouched) so they land slightly under personal crafted meals for travel. Daniel locked this 2026-06-24 as a tuning baseline (maths may be retuned; the architecture is fixed). SUPERSEDES the trinket-key/durability charge economy in nomap.md §7 and the food-charged-key premise in docs/v3/planning/twisted-portal-impl-spec.md (resolves that spec's open decision #2, 'charge economy')."
+purpose: "Locks the v3 Twisted Portal travel-cost model: NO key trinket. Teleport range is gated by the food in the player's belly — Portal Energy (PE) = remaining-food-minutes x a stat-derived tier, summed across the belly's food slots; a jump spends PE as food-time, so distance both costs provisioning AND lands you depleted. Tier is computed from a food's total stat budget (Health+Stamina+Eitr), tier = round(clamp(total/30, 1, 5) * 2) / 2, snapped to 0.5 rungs, range [1.0, 5.0]. This is the authoritative stat-fallback so vanilla and modded/unaccounted foods slot in with zero hand-authoring; an optional explicit override registry may pin individual foods later. Feasts run on a separate normalized ~28 m range clock (their real 50 m buff timer is untouched) so they land slightly under personal crafted meals for travel. BUKEPERRIES (vanilla Pukeberries) are a burnable EMERGENCY RESERVE PE source — spent ONLY when belly food can't cover a jump, at 30 m/berry (10 berries = the 300 m portal ceiling); a berry-burning jump arrives food-empty AND Feeling Sick (vanilla SE_Puke), and the feature is advertised ONLY by a Greydwarf-portal-magick lore breadcrumb (no UI). Daniel locked the food model 2026-06-24 and the Bukeperry reserve + thematic cost 2026-06-24 as a tuning baseline (maths may be retuned; the architecture is fixed). SUPERSEDES the trinket-key/durability charge economy in nomap.md §7 and the food-charged-key premise in docs/v3/planning/twisted-portal-impl-spec.md (resolves that spec's open decision #2, 'charge economy'); the old Bukeperry purge-accelerator is RE-HOMED as the reserve tank, not dropped."
 owner: Daniel (design authority); Starbright (synthesis + grounding)
 supersedes_partial:
   - "docs/design/nomap.md §7 (:146, :154-158) — the 'charged accessory burns durability per teleport, food restores durability, bukeberries purge-accelerate' trinket-key economy is REPLACED by food-as-fuel. No SBPR_TwistedKey item; no EatFood/RemoveOneFood durability hooks for travel charge. The portal class, rune-name pairing, NoPortals bypass, and through-terrain overlay from §7 are UNAFFECTED."
@@ -178,7 +178,70 @@ food (Marinated greens, PE 150). So **the travel-optimal pick is always a
 personal meal** — "just eat feast for travel" never wins, and feasts keep their
 combat/sharing identity. "Slightly under" holds across the ladder.
 
-## 5. Open tuning knobs (baseline locked, numbers live)
+## 5. Bukeperries — the emergency reserve tank (burned only when food is short)
+
+**Bukeperries** (vanilla internal id `Pukeberries`; the wiki display-name is the
+"Bukeperries" spoonerism) are a **burnable bonus PE source** — an emergency
+reserve that extends a jump *past* an empty belly. They are a renewable
+consumable: drops from **Greydwarf shaman** (Black Forest) and **Fuling shaman**
+(Plains), stack 50 @ 0.1 weight.
+
+**The reserve is touched only when belly food can't cover the jump** (Daniel,
+2026-06-24). A jump always spends belly PE first; Bukeperries are spent **only for
+the shortfall**, and only if one exists:
+
+```
+1. Jump distance D requested.
+2. Drain belly PE → covers belly_range meters.
+3. D ≤ belly_range → done. Arrive depleted (the §1 coupling). ZERO berries spent.
+4. D > belly_range → belly empties; the shortfall (D − belly_range) is paid by
+                     ceil(shortfall / BUKE_METERS_PER_BERRY) Bukeperries.
+```
+
+- **30 m per berry → 10 berries = 300 m.** That ceiling is not arbitrary: 300 m
+  is the Twisted Portal's own pairing/visible range (`nomap.md` §7). A single
+  *from-empty, maximum-range* jump therefore costs **exactly 10 berries**, and you
+  can never need more than 10 on one jump because you cannot jump farther than
+  300 m. Daniel's "300 yards for 10 Bukeperries" *is* the portal ceiling.
+- **Berries extend reach, they do not refill you.** They fire only after the belly
+  is empty, so the "long jump = arrive depleted" coupling is preserved — a
+  berry-powered jump always lands you food-empty *by construction*.
+
+### 5.1 The thematic cost — arrive *Feeling Sick* (Daniel locked 2026-06-24)
+
+When a jump burns Bukeperries, the player **arrives food-empty AND afflicted with
+the vanilla *Feeling Sick* effect** the berry already carries on consumption
+(`SE_Puke`: 15 s of −100 % health regen, −100 % stamina regen, −50 % movement
+speed, 1 dmg / 2 s). You pushed past your provisions and you land **wrecked** —
+the cost is on-brand with the berry whose entire flavor is *"quickly evacuate any
+misplaced meal."* The item and the trigger mean the same thing: the berry that
+empties your stomach is the fuel that fires *when your stomach is already empty*.
+
+> **Design tension, accepted:** the *Feeling Sick* debuff lands at exactly the
+> moment a player is most likely to berry-jump — a panicked "get home NOW" escape.
+> Arriving with −50 % move / no regen is genuinely punishing there. That is the
+> **intended** weight: berry travel is a desperation lever, not a convenience one.
+> (The forgiving alternative — arrive merely food-empty, no debuff — was
+> considered and rejected; food-empty alone made berries too clean a substitute
+> for cooking.)
+
+### 5.2 Subtly advertised — discovery by lore, not by UI (Daniel, 2026-06-24)
+
+This is a **whispered feature**. There is **no tutorial, no tooltip math, no UI
+readout** announcing "Bukeperries fuel the portal." The *only* in-game signpost is
+a **lore breadcrumb in item description text** — e.g. the Twisted Portal (and/or
+the Bukeperry) hover/description hints that *Greydwarves are known to use these
+berries in their own portal-magicks, though nobody really understands how it
+works.* Players discover the mechanic by experiment and rumor, which is what makes
+it feel arcane. The lore tweak is the **entire** advertisement surface.
+
+- **Implementation note (for the impl-spec):** the hint is a localization-string
+  edit (`$sbpr_*` keys), not a mechanic — keep it evocative and *non-explicit*
+  (no numbers, no "10 berries = 300 m"). It should read as flavor, and only
+  reveal itself as load-bearing to a player who already noticed berries vanishing
+  from their stack after a long jump.
+
+## 6. Open tuning knobs (baseline locked, numbers live)
 
 These do **not** reopen the architecture; they are dials for playtest:
 
@@ -192,14 +255,32 @@ These do **not** reopen the architecture; they are dials for playtest:
    curve. *Baseline: `/30`, clamp [1,5].*
 4. **Override registry.** If specific foods mis-price, pin them in an explicit
    `foodID → tier` table that wins over the formula. *Baseline: none needed.*
+5. **Bukeperry reach (`BUKE_METERS_PER_BERRY`).** 30 m/berry → 10 berries = the
+   300 m portal ceiling. Lower it (fewer m/berry) to make berry-travel costlier in
+   stack; raise it to stretch reserves further. *Baseline: 30 m.*
+6. **Bukeperry arrival debuff.** *Feeling Sick* (vanilla `SE_Puke`) on a
+   berry-burning jump. Could be shortened/scaled vs the full 15 s vanilla effect if
+   playtest finds it too lethal on escape jumps. *Baseline: full vanilla
+   `SE_Puke`.*
+7. **Shaman drop / stockpile rate.** How fast a player can bank a berry reserve
+   (a 50-stack ≈ 1500 m ≈ 5 max jumps). If hoarding trivializes the desperation
+   framing, tighten drop rates. *Baseline: vanilla shaman drops.*
 
-## 6. What this supersedes
+## 7. What this supersedes
 
 This **replaces the trinket-key charge economy** described in
 [`nomap.md` §7](nomap.md) (the `SBPR_TwistedKey` durability accessory, the
-`EatFood`/`RemoveOneFood` charge hooks, the bukeberry purge-accelerator) and the
+`EatFood`/`RemoveOneFood` charge hooks) and the
 food-charged-key premise in
 [`../v3/planning/twisted-portal-impl-spec.md`](../v3/planning/twisted-portal-impl-spec.md),
 resolving that spec's open decision #2 ("charge economy"). Everything else in §7
 and the impl spec — the distinct portal class, rune-name pairing, the `NoPortals`
 bypass, the through-terrain name overlay, server-side pairing — is **unaffected**.
+
+**The old Bukeperry "purge-accelerator" is re-homed, not dropped.** In the
+superseded trinket model, Bukeperries dumped food to charge the key faster. With
+no key to charge, that role is re-cast as the **emergency reserve tank** of §5:
+Bukeperries are now burned *only when belly food can't cover a jump*, at 30 m
+each (10 = the 300 m ceiling), and a berry-burning jump arrives food-empty **and**
+*Feeling Sick* (§5.1). Same item, same "spend stomach for portal range" spirit —
+now expressed as overflow fuel instead of key-charge.
