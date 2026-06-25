@@ -10,7 +10,9 @@ purpose: v0.1.0 milestone map (M0–M4).
 
 A player can: build the bench → grind pigment → craft Painted Signs → walk out, mark things, walk back, the map remembers → place Cairns for shelter comfort + recovery.
 
-Black Forest tier (Blue/Black pigment, Scrying Altar, embers, beacons, pocket portals, Seer's Stone) = **v0.2.0+**. Out of scope for v0.1.0.
+Black Forest tier (Blue/Black pigment, Scrying Altar, embers, beacons, pocket portals) = **v0.2.0+**. Out of scope for v0.1.0.
+
+> **Tier correction (2026-06-25):** the **Seer's Stone** is **v4 / Mountains / crystal-gated**, NOT Black Forest — it was previously listed on the Black Forest line above. The locked spec (`requirements.md`, `PARKED-2026-06-03.md`) places it at Mountains as the sole v4 headline; see `docs/design/seers-stone.md`.
 
 ---
 

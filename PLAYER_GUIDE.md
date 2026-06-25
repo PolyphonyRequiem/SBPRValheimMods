@@ -145,10 +145,11 @@ You unlock:
 - **Pocket Portal** — a single-use stackable teleport piece. Place one, walk away with
   the matching piece in your inventory. Place its pair somewhere new. The link is
   established. Stack of 5.
-- **Seer's Stone** (copper, surtling core, greydwarf eyes) — *the Explorer's signature
+- **Seer's Stone** (crystal-gated, Mountains tier) — *the Explorer's signature
   item*. Worn as an accessory — looks like an amulet in art (a polished stone set in
-  a copper bezel on a leather cord around the neck). When worn, the world starts to
-  whisper.
+  a silver bezel on a leather cord around the neck). When worn, the world starts to
+  whisper. *(Crafted at the Forge from Crystal + Silver + cord — a Mountains-tier
+  reward, not an early-game pickup. See `docs/design/seers-stone.md`.)*
 
 ### How the Seer's Stone feels
 

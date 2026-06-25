@@ -1,6 +1,13 @@
-# Seer's Stone — Wisp-Eligibility Whitelist (DRAFT for ratification)
+---
+title: "Seer's Stone — wisp-eligibility whitelist (the ratified roster)"
+status: current
+purpose: "The exhaustive per-biome roster of what gets a wisp: 20 pickables + 9 surface-ore + 103 locations, grounded against the real ZoneSystem POI table + vprefab roster. The data behind the shipped default whitelist config. Companion to seers-stone.md."
+---
 
-> **Status:** 🟡 DRAFT — Daniel's ratification gate. This is the "what gets a wisp"
+# Seer's Stone — Wisp-Eligibility Whitelist (ratified roster)
+
+> **Status:** ✅ RATIFIED (Daniel, 2026-06-25) — shipped as the default
+> `seers_stone_whitelist.default.yaml` (132 entries). This is the "what gets a wisp"
 > list referenced as open fork #5 in the thread seed. Nothing here is locked until
 > Daniel approves the ★ column. Once ratified, this folds into `seers-stone.md` and
 > the per-prefab whitelist becomes the spec the implementation reads.
