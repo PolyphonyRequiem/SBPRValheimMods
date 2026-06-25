@@ -175,13 +175,58 @@ namespace SBPR.Trailborne.Features.SeersStone
             // "effects" subtree (light + particles = the wisp glow); fall back to the mesh child if
             // that fails, so the wisp is at least visible. If both fail, the wisp still exists +
             // orbits + is pinnable — just invisible (logs-green ≠ playable; Daniel verifies on Prime).
-            if (!Runtime.Assets.TryGraftVisualSubtree(WispVisualDonor, WispVisualChild, go, "SBPR_WispVisual", out _))
-                Runtime.Assets.TryGraftVisualSubtree(WispVisualDonor, WispVisualChildFallback, go, "SBPR_WispVisual", out _);
+            if (!Runtime.Assets.TryGraftVisualSubtree(WispVisualDonor, WispVisualChild, go, "SBPR_WispVisual", out var visual))
+                Runtime.Assets.TryGraftVisualSubtree(WispVisualDonor, WispVisualChildFallback, go, "SBPR_WispVisual", out visual);
+
+            // Style the wisp: BIGGER + GREYER than vanilla wisps (Daniel 2026-06-25). Grey is a
+            // VALUE cue (not hue), so it reads regardless of the colorblind axis AND visually
+            // separates our overlay motes from vanilla's cyan-white Wisp/demister glow so players
+            // don't confuse the two.
+            if (visual != null) StyleWisp(visual);
 
             var beh = go.AddComponent<WispBehaviour>();
             var p = WispMotionParams.Default(boundsRadius, phaseOffset: (_phaseSeed++ * 1.1f) % 6.2831855f);
             beh.Init(centroid, p, prefab, friendlyName, kind);
             _wisps[id] = beh;
+        }
+
+        /// <summary>Wisp glow scale multiplier vs the donor demister_ball — bigger so it reads as ours.</summary>
+        private const float WispVisualScale = 1.8f;
+        /// <summary>The grey wisp tint (value cue, not hue — colorblind-safe; distinct from vanilla cyan-white).</summary>
+        private static readonly Color WispGrey = new Color(0.72f, 0.74f, 0.78f, 1f);
+
+        /// <summary>
+        /// Make the grafted glow BIGGER + GREYER (Daniel 2026-06-25). Scales the visual root and
+        /// recolours every Light + ParticleSystem in the subtree toward <see cref="WispGrey"/>. All
+        /// adjustments are on the CLONED cosmetic child only — the donor demister_ball is untouched
+        /// (we read it as a blueprint, ADR-0006). Best-effort: any missing component is simply skipped.
+        /// </summary>
+        private static void StyleWisp(GameObject visual)
+        {
+            try
+            {
+                visual.transform.localScale *= WispVisualScale;
+
+                // Lights → grey (keep them a touch brighter so a desaturated glow still carries).
+                foreach (var light in visual.GetComponentsInChildren<Light>(includeInactive: true))
+                {
+                    if (light == null) continue;
+                    light.color = WispGrey;
+                    light.range *= WispVisualScale;
+                }
+
+                // Particle systems → grey start colour (the drifting motes themselves).
+                foreach (var ps in visual.GetComponentsInChildren<ParticleSystem>(includeInactive: true))
+                {
+                    if (ps == null) continue;
+                    var main = ps.main;
+                    main.startColor = WispGrey;
+                }
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/SeersStone] StyleWisp failed (wisp still works, just unstyled): {e.Message}");
+            }
         }
 
         /// <summary>Resolve a Pickable's friendly name (its hover name, sans count) for the pin label.</summary>
