@@ -611,13 +611,21 @@ silently-drifted config default screams on boot (AT-PE-MATH covers the pure-math
 When the local player stands on (or near) a Twisted Portal, an overlay lists nearby Twisted Portals
 by rune name, **rendered through terrain** so labels are visible behind hills.
 
-- **Route B — world-space through-terrain labels (the v3.0 deliverable, C3).** A world-space `Canvas`
-  per nearby portal with a `UI.Text` rune label rendered with a **ZTest Always** material so it shows
-  *through* terrain (the `nomap.md` §7 "ZTest-Always shader, prefab-only" note). Pure prefab/shader
-  work (no patches), but the most bespoke UI in the mod — which is why C3 is **intentionally LAST** in
+- **Route B — world-space through-terrain labels (the v3.0 deliverable, C3 — BUILT).** A world-space
+  `Canvas` per nearby portal with a `UI.Text` rune label (+ optional distance) rendered with a
+  **ZTest Always** material so it shows *through* terrain (the `nomap.md` §7 "ZTest-Always shader,
+  prefab-only" note). The most bespoke UI in the mod — which is why C3 is **intentionally LAST** in
   the build chain and is a **visual eyeball accept** that's Daniel's (build-green is the floor, "does
   it read right through terrain" is the in-game gate). Reference `BugattiBoys/PortalIndicator` for the
   *pattern* only (clean-room: read for API shape, copy zero gameplay code — ADR-0001).
+  **Shipped files:** `Features/Portals/TwistedPortalOverlay.cs` (the render — a `Hud.Awake`-postfix
+  pump mounted under `Hud.m_rootObject` that toggles a WORLD-SPACE billboarded label field, the
+  `SunstoneLensHudOverlay`/`SunstoneWorldRing` #209 pump-stays-alive pattern; the ZTest-Always
+  material is a non-destructive clone of the default UI material with `unity_GUIZTestMode = Always`)
+  + `Features/Portals/TwistedPortalOverlayModel.cs` (the engine-free nearest-N / radius / unnamed-skip
+  / distance-format policy, CI-gated in `tests/TwistedPortalOverlayModelTests.cs` — the
+  `SunstoneHaloGeometry` link-compile precedent). Through-terrain is a **live BepInEx toggle**
+  (`TwistedPortalOverlay.ThroughTerrain`) so Daniel A/B's see-through-hills vs honest-depth in-world.
 - **Route A — HUD overlay (the fallback, NOT the commissioned route).** A list under
   `Hud.instance.m_rootObject` showing rune name + distance + bearing — NoMap-safe, client-only, the
   Sunstone Lens precedent. Documented here as the lower-risk alternative **if** the through-terrain
@@ -663,8 +671,11 @@ New files in the existing `Features/Portals/` slice:
   patches**. Its pure-math core (tier, PE sum, berry-shortfall) is link-compiled into the test
   project as an engine-free truth table (the `SunstoneHaloGeometry`/`CompassNorthGate` precedent) so
   CI gates the math (AT-PE-MATH). The runtime call site is `SBPR_TwistedPortal.Teleport` (§4.4).
-- **`TwistedPortalOverlay`** (§7) — client-only overlay; wired by the proximity trigger, no game
-  patch (it reads ZDOs + draws a Canvas).
+- **`TwistedPortalOverlay`** (§7) — client-only overlay. Its ONE Harmony patch is the **`Hud.Awake`
+  postfix** (`TwistedPortalOverlay.HudBootstrap`) that mounts the overlay pump under
+  `Hud.m_rootObject` — the Sunstone Lens / Iron Compass HUD-bootstrap doctrine. Past the mount it is
+  patch-free (reads ZDOs + draws world-space Canvas labels). Registered in `Plugin.Awake` and
+  PatchCheck-asserted (see below).
 - **Wire into `Runtime/Registrar.cs`** — add the `RegisterPrefabs` call **after `Portals` and
   `SunstoneLens`** (Twisted reuses Portal helpers and consumes Sunstone), and `DoObjectDBWiring`
   **after `Trailhead`** (Explorer's Bench must exist if any recipe needs a station — though the
@@ -672,10 +683,14 @@ New files in the existing `Features/Portals/` slice:
 - **`SpecCheck.cs`** — add the **one** new row (§0, the portal piece); extend the `LOCKED SOURCE`
   comment to cite this doc. (Sunstone's row already exists from the Lens — do not duplicate. **Do not
   add a key row** — there is no key.)
-- **`Plugin.Awake` patch registration: none required for this feature.** The portal/teleport/trigger/
-  ZDO/PE/berry/`SE_Puke` machinery is **patch-free by construction**. (If the overlay's proximity
-  trigger ends up needing a `Hud.Awake`-style mount postfix, register THAT one and PatchCheck-assert
-  it — but the cost model contributes no patches. Contrast the old draft, which had to register three.)
+- **`Plugin.Awake` patch registration: ONE patch for this feature (C3's overlay mount).** The
+  portal/teleport/trigger/ZDO/PE/berry/`SE_Puke` machinery (C1+C2) is **patch-free by construction**
+  — the cost model contributes no patches (contrast the old draft, which had to register three). C3's
+  overlay adds exactly one: the **`Hud.Awake` postfix** (`TwistedPortalOverlay.HudBootstrap`) that
+  mounts the overlay pump under `Hud.m_rootObject` — registered via
+  `harmony.PatchAll(typeof(TwistedPortalOverlay.HudBootstrap))` and PatchCheck-asserted (or it ships
+  dead, the t_564f695a lesson). This is the same `Hud.Awake`-mount idiom the Sunstone Lens HUD + Iron
+  Compass overlays use; it never fires on the dedicated server (no Hud).
 - **Server-gating:** every registration is gated `if (!ServerContext.OnSBServer) return;` via the
   Registrar fan-out (SBPR doctrine). The overlay is client-relevant; the registration is server+client.
 

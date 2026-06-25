@@ -207,6 +207,28 @@ namespace SBPR.Trailborne
         // ON in this diagnostic build; flip to false (cheap) once the fix is confirmed in-game.
         internal static ConfigEntry<bool>? CursorDiag = null;
 
+        // ── v3 Swamp: Twisted Portal on-step proximity OVERLAY (card t_e732bd8b / C3) ──
+        // The through-terrain portal-name overlay. Every knob is LIVE config so Daniel converges the
+        // look on a joined client without a rebuild (the banner-windsock / client-visual-can't-be-
+        // verified-headless rule the Sunstone/Compass overlays use). In particular ThroughTerrain is
+        // the headline A/B (ZTest-Always vs honest depth) and is live so Daniel can flip it in-world.
+        // Nullable + ?.Value-accessed from TwistedPortalOverlay / TwistedPortalOverlayModel so a
+        // no-Plugin unit context falls back to the Default* consts (single source of truth). Bound in Awake.
+        internal static ConfigEntry<float>? TwistedOverlayProximityRange = null;  // metres to a portal that shows the overlay (spec §7.3)
+        internal static ConfigEntry<float>? TwistedOverlayRadius         = null;  // metres; nearby portals listed (best-effort, §2 client-window-limited)
+        internal static ConfigEntry<int>?   TwistedOverlayMaxLabels      = null;  // cap on simultaneous floating labels (horde guard, pooled nearest-N)
+        internal static ConfigEntry<float>? TwistedOverlayLabelScale     = null;  // world-metres the label maps to (eyeball tunable)
+        internal static ConfigEntry<float>? TwistedOverlayLabelHeight    = null;  // metres above the portal the label floats (clears the ~3 m ring)
+        internal static ConfigEntry<float>? TwistedOverlayRefreshInterval = null; // seconds between proximity/ZDO refreshes
+        internal static ConfigEntry<bool>?  TwistedOverlayShowUnnamed     = null;  // show unnamed portals with a placeholder (informational)
+        internal static ConfigEntry<bool>?  TwistedOverlayShowDistance    = null;  // append a formatted distance under the rune
+        internal static ConfigEntry<bool>?  TwistedOverlayThroughTerrain  = null;  // the ZTest-Always trick (the headline; Daniel A/B's it in-game)
+        // Diagnostic-logging gate (the Iron Compass / Sunstone self-deactivating-host pump lesson):
+        // emit the overlay MOUNT + first-populate count so a client LogOutput.log splits "mount/pump
+        // fail / no portals held" from "labels drawn but invisible." Default ON for the diagnostic cut;
+        // bake to false once Daniel confirms the labels render in-game.
+        internal static ConfigEntry<bool>?  TwistedOverlayDebugMount      = null;
+
         private void Awake()
         {
             Log = Logger;
@@ -715,6 +737,65 @@ namespace SBPR.Trailborne
                 + "surface locks north-up and the player chevron rotates. NOTE: this knob is INERT in M1 — the "
                 + "north-up rotation lands in M2; binding it now keeps the config section stable across the split.");
 
+            // ── Twisted Portal on-step OVERLAY knobs (card t_e732bd8b / C3) ──────────────
+            // The through-terrain portal-name overlay. All LIVE so Daniel converges the look on a
+            // joined client without a rebuild (the banner-windsock / can't-verify-a-visual-headless rule).
+            TwistedOverlayProximityRange = Config.Bind(
+                "TwistedPortalOverlay", "ProximityRange",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultProximityRange,
+                "Metres from a Twisted Portal within which the on-step overlay appears (you're standing on / near "
+                + "one). Off-portal the overlay hides entirely. Spec §7.3 default ~3 m. Live-tunable.");
+            TwistedOverlayRadius = Config.Bind(
+                "TwistedPortalOverlay", "OverlayRadius",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultOverlayRadius,
+                "Metres within which nearby Twisted Portals get a floating rune label while the overlay is up. "
+                + "🔴 BEST-EFFORT on a dedicated server: a client only holds portal ZDOs within ~64–128 m (spec §2), "
+                + "so the list may be shorter than this on a far-flung world — an accepted v3.0 cosmetic limitation "
+                + "(AT-OVERLAY), NOT a travel bug (travel resolves server-side). Live-tunable.");
+            TwistedOverlayMaxLabels = Config.Bind(
+                "TwistedPortalOverlay", "MaxLabels",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultMaxLabels,
+                "Cap on simultaneous floating labels (the pooled nearest-N — a dense portal hub shows the closest N). "
+                + "Horde/readability guard. Live-tunable.");
+            TwistedOverlayLabelScale = Config.Bind(
+                "TwistedPortalOverlay", "LabelScale",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultLabelScale,
+                "World-metres the floating label maps to (its world-space size). The AT-gated eyeball tunable — "
+                + "Daniel converges legibility on a GPU client. Live-tunable.");
+            TwistedOverlayLabelHeight = Config.Bind(
+                "TwistedPortalOverlay", "LabelHeightMeters",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultLabelHeight,
+                "Metres above the portal the label floats (clears the ~3 m ring). Eyeball tunable. Live-tunable.");
+            TwistedOverlayRefreshInterval = Config.Bind(
+                "TwistedPortalOverlay", "RefreshIntervalSeconds",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlay.DefaultRefreshInterval,
+                "Seconds between proximity/ZDO refreshes (the overlay re-walks the held portal ZDOs and re-places "
+                + "labels). Lower = snappier, slightly costlier. Live-tunable.");
+            TwistedOverlayShowUnnamed = Config.Bind(
+                "TwistedPortalOverlay", "ShowUnnamed",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultShowUnnamed,
+                "Show UNNAMED Twisted Portals too, with a '(unnamed)' placeholder. Informational only — an unnamed "
+                + "portal can't pair until named (Model A). false hides them so the overlay lists only named, "
+                + "pair-capable portals. Live-tunable.");
+            TwistedOverlayShowDistance = Config.Bind(
+                "TwistedPortalOverlay", "ShowDistance",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultShowDistance,
+                "Append a formatted distance under each rune ('142m' / '1.4km'). Live-tunable.");
+            TwistedOverlayThroughTerrain = Config.Bind(
+                "TwistedPortalOverlay", "ThroughTerrain",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlayModel.DefaultThroughTerrain,
+                "THE HEADLINE: render labels THROUGH terrain (a ZTest-Always material on the label so it's legible "
+                + "behind hills — the design's 'visible through terrain' reading). true (default) = see-through-hills; "
+                + "false = honest depth (labels occlude behind terrain). Daniel A/B's this in-world. Live-tunable.");
+            TwistedOverlayDebugMount = Config.Bind(
+                "TwistedPortalOverlay", "DebugMount",
+                true,
+                "Diagnostic logging for the overlay mount + first-populate (the Iron Compass / Sunstone self-"
+                + "deactivating-host pump lesson). When ON, the mod logs the overlay MOUNT under Hud.m_rootObject "
+                + "and the first frame it draws N labels — so one client LogOutput.log splits 'pump never ran / no "
+                + "portals held' (line absent) from 'labels drawn but invisible' (line present with a count). Default "
+                + "ON for the diagnostic cut; bake false once Daniel confirms the labels render in-game.");
+
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
@@ -940,6 +1021,17 @@ namespace SBPR.Trailborne
             //    Harmony. MUST be registered here or it ships dead and PatchCheck ERRORs at boot
             //    (the t_564f695a unregistered-patch lesson). Never fires on the dedicated server (no Hud).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Exploration.CompassHudBootstrapPatch));
+
+            // v3 Swamp — Twisted Portal on-step overlay (card t_e732bd8b / C3). ONE client-relevant
+            // patch:
+            //  • TwistedPortalOverlay.HudBootstrap: Postfix on Hud.Awake that mounts the client-only
+            //    through-terrain portal-name overlay pump under Hud.m_rootObject (the Sunstone Lens /
+            //    Iron Compass HUD-bootstrap doctrine — NoMap-safe, no minimap surface needed). The
+            //    overlay reads portal ZDOs + draws world-space billboarded rune labels; it is otherwise
+            //    patch-free (component wiring + an on-demand ZDO read). MUST be registered here or it
+            //    ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
+            //    Never fires on the dedicated server (no Hud).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Portals.TwistedPortalOverlay.HudBootstrap));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 

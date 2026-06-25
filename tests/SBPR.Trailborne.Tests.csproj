@@ -68,6 +68,7 @@
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneHaloGeometry.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneCoronaPulse.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneCoronaProfile.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Portals/TwistedPortalOverlayModel.cs" />
   </ItemGroup>
 
 </Project>
