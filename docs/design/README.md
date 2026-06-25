@@ -65,6 +65,29 @@ here; the buildable *how* graduates to a version-scoped impl-spec when built.
 Designs awaiting a Daniel decision before they graduate to a version-scoped
 impl-spec. Each carries its open questions inline.
 
+- **[`trailside-beautification.md`](trailside-beautification.md)** — LIVING
+  (Daniel, 2026-06-24 #design thread). The **Trailside Beautification** system:
+  trail furniture (Painted Signs, Path Lamps, Traveller's Cache, terrain paint,
+  tents) aggregates into tiered **Convenience / Safety / Appeal** area buffs over
+  overlapping ~32 m coverage zones via a **cascade quality-gate** — each piece's %
+  fills its own tier *and every tier below*, highest meter ≥100% wins, so Tier-1
+  spam can never buy a Tier-3 buff. The three buffs are locked + decomp-grounded:
+  Convenience = stamina-consume reduction; Safety = *Relaxed* (slows food
+  digestion); Appeal = *Inspired* (accumulating skill-gain, also fed by non-cairn
+  comfort). Cairn comfort is a separate shipped system. Eight open knobs, incl. a
+  real Meadows-vs-Black-Forest cache-tier conflict. Pairs with `trailside-camp.md`
+  (the tent is a shared piece).
+
+- **[`trailside-camp.md`](trailside-camp.md)** — LIVING (Daniel, 2026-06-24
+  #design thread). The **Trailside Camp**: a portable triad (Bear Hide Tent +
+  special bedroll + covered camp fire) that together satisfy Valheim's vanilla
+  sleep prerequisite out on the trail. Grounded hard against the decompiled
+  `Bed`/`Cover`/`Fireplace` chain — the open tent canopy passes `underRoof` but
+  fails only the 0.8-cover clause, which the bedroll's prefab-gated
+  `Bed.CheckExposure` relax exists to drop. Tent placeholder = vanilla `TraderTent`
+  (visual-only). Six open knobs. Owns the *sleep mechanic*;
+  `trailside-beautification.md` owns the tent's *aura*.
+
 - **[`travellers-cache.md`](travellers-cache.md)** — a trailside chest with a
   shared public shelf plus a per-player private drawer. Architecture is grounded
   on the in-tree Surveyor's Table ZDO-blob pattern; five design knobs (tier,
