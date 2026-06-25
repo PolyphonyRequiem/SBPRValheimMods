@@ -197,7 +197,14 @@ namespace SBPR.Trailborne.Features.Portals
                     "An endgame portal woven from twisted swamp-magic. Place it on solid earth with the " +
                     "Hammer, then name it with a rune and name a second portal the SAME rune to pair them. " +
                     "Jump up into the ring to travel — it works even where ordinary portals are sealed. " +
-                    "Travel burns the food in your belly; a long jump leaves you depleted.";
+                    "Travel burns the food in your belly; a long jump leaves you depleted. " +
+                    // Lore breadcrumb (spec §5.7 — the ONLY advertisement for the Bukeberry emergency reserve).
+                    // Plain English, NOT a $sbpr_* token: this repo has no localization-registration layer, so a
+                    // custom token would leak on-screen as a literal "[sbpr_...]" (the SBPR_TwistedPortal /
+                    // SurveyorTableTag center-message precedent). Kept evocative + NON-EXPLICIT (no numbers, no
+                    // "10 berries = 300 m") so the reserve stays a whispered, discover-by-experiment mechanic.
+                    "The greydwarves are said to weave these same magicks with the foul berries their shamans " +
+                    "hoard, though none can say quite how.";
                 piece.m_category = Piece.PieceCategory.Misc;        // Hammer 'Misc' tab
                 piece.m_craftingStation = null;                     // NO bench-in-range to place (§4.2)
                 piece.m_groundOnly = true;                          // solid earth only, not on structures (§4.2)

@@ -229,6 +229,21 @@ namespace SBPR.Trailborne
         // bake to false once Daniel confirms the labels render in-game.
         internal static ConfigEntry<bool>?  TwistedOverlayDebugMount      = null;
 
+        // ── v3 Swamp: Twisted Portal FOOD-AS-FUEL cost model (card t_6e992a30, C2) ──
+        // The six Portal Energy knobs (design doc §6 — architecture fixed, numbers are playtest dials).
+        // All LIVE config so Daniel retunes the travel economy on a joined client without a rebuild (the
+        // Sunstone Lens "?.Value ?? Default" idiom — a no-Plugin unit context falls back to
+        // PortalEnergyMath.Default* consts, the single source of truth shared with the engine-free math,
+        // the AT-PE-MATH unit tests, and the boot-time PE manifest assertion). Resolved via
+        // TwistedPortalEnergy.ResolveKnobs(). METERS_PER_PE is the one under-specified constant (impl-spec
+        // §5.3) — baseline 1.0 derived from the locked anchors, exposed as a dial not a fixed law.
+        internal static ConfigEntry<float>? PeMetersPerPe          = null;  // belly-PE → metres
+        internal static ConfigEntry<float>? PeFeastRangeCapMinutes = null;  // feast range clock cap, minutes
+        internal static ConfigEntry<float>? PeBukeMetersPerBerry   = null;  // metres of reach per burned Bukeberry
+        internal static ConfigEntry<float>? PeTierDivisor          = null;  // stat-points per whole tier (slope)
+        internal static ConfigEntry<float>? PeTierClampLo          = null;  // tier floor
+        internal static ConfigEntry<float>? PeTierClampHi          = null;  // tier ceiling
+
         private void Awake()
         {
             Log = Logger;
@@ -795,6 +810,72 @@ namespace SBPR.Trailborne
                 + "and the first frame it draws N labels — so one client LogOutput.log splits 'pump never ran / no "
                 + "portals held' (line absent) from 'labels drawn but invisible' (line present with a count). Default "
                 + "ON for the diagnostic cut; bake false once Daniel confirms the labels render in-game.");
+
+            // v3 Swamp — Twisted Portal FOOD-AS-FUEL cost model (card t_6e992a30, C2). All six PE knobs
+            // are LIVE config so Daniel retunes the travel economy on a joined client without a rebuild
+            // (the design doc §6 marks the architecture fixed but every NUMBER a playtest dial; the
+            // Sunstone Lens "?.Value ?? Default" precedent). Defaults mirror PortalEnergyMath.Default*
+            // consts (single source of truth shared with the engine-free math + the unit tests + the
+            // boot-time PE manifest assertion). Range-clamped so a fat-finger in the .cfg can't NaN the
+            // tier curve or zero a divisor. METERS_PER_PE is the ONE under-specified constant (impl-spec
+            // §5.3 🔴) — baseline 1.0 derived from the locked anchors (a Bukeberry's 30 m ≈ 30 PE of belly;
+            // the 300 m ceiling stays the long-jump target); it is explicitly a dial, not a fixed law.
+            PeMetersPerPe = Config.Bind(
+                "TwistedPortal", "MetersPerPortalEnergy",
+                SBPR.Trailborne.Features.Portals.PortalEnergyMath.DefaultMetersPerPe,
+                new ConfigDescription(
+                    "FOOD-AS-FUEL: how many METRES of teleport range one point of Portal Energy buys. PE for a "
+                    + "food slot = remaining-minutes × tier; belly range = ΣPE × this. Baseline 1.0 (one food-minute "
+                    + "at tier 1 = one metre), derived from the locked anchors: a Bukeberry's 30 m reserve ≈ 30 PE of "
+                    + "belly, and a strong full belly earns near-ceiling single jumps while a modest belly leans on "
+                    + "the berry reserve. RAISE to stretch a belly farther per minute of food; LOWER to make food "
+                    + "costlier per metre. The one constant the design doc left to playtest (impl-spec §5.3).",
+                    new AcceptableValueRange<float>(0.1f, 10f)));
+            PeFeastRangeCapMinutes = Config.Bind(
+                "TwistedPortal", "FeastRangeCapMinutes",
+                SBPR.Trailborne.Features.Portals.PortalEnergyMath.DefaultFeastRangeCapMinutes,
+                new ConfigDescription(
+                    "FOOD-AS-FUEL: a feast (a Feast* food) contributes travel range on a NORMALISED clock capped at "
+                    + "this many minutes, regardless of its real ~50 m buff timer (its buff duration is untouched). "
+                    + "Baseline 28 (≈7% under the 30 m personal-food ceiling) so the best feast stays just UNDER the "
+                    + "best personal meal for travel — 'just eat feast to travel' never wins. Lower toward ~24 for a "
+                    + "steeper feast travel penalty. (design §4 / §6.2)",
+                    new AcceptableValueRange<float>(5f, 50f)));
+            PeBukeMetersPerBerry = Config.Bind(
+                "TwistedPortal", "BukeberryMetersPerBerry",
+                SBPR.Trailborne.Features.Portals.PortalEnergyMath.DefaultBukeMetersPerBerry,
+                new ConfigDescription(
+                    "FOOD-AS-FUEL: metres of reach per Bukeberry (Pukeberries) burned from the emergency reserve when "
+                    + "the belly can't cover a jump. Baseline 30 → 10 berries = the 300 m portal ceiling (a from-empty "
+                    + "max jump costs exactly 10). LOWER to make berry-travel costlier in stack; RAISE to stretch "
+                    + "reserves further. Berries fire ONLY for the shortfall and a berry jump always lands food-empty + "
+                    + "Feeling Sick. (design §5 / §6.5)",
+                    new AcceptableValueRange<float>(5f, 100f)));
+            PeTierDivisor = Config.Bind(
+                "TwistedPortal", "TierDivisor",
+                SBPR.Trailborne.Features.Portals.PortalEnergyMath.DefaultTierDivisor,
+                new ConfigDescription(
+                    "FOOD-AS-FUEL: stat-points per whole travel tier — the SLOPE of the tier curve "
+                    + "tier = round(clamp(totalStats/THIS, lo, hi) × 2)/2, totalStats = Max Health + Max Stamina + "
+                    + "Eitr. Baseline 30 (~30 stat-points per tier). Lower = foods climb tiers faster (more range "
+                    + "spread); higher = flatter. (design §2 / §6.3)",
+                    new AcceptableValueRange<float>(5f, 100f)));
+            PeTierClampLo = Config.Bind(
+                "TwistedPortal", "TierClampLo",
+                SBPR.Trailborne.Features.Portals.PortalEnergyMath.DefaultTierClampLo,
+                new ConfigDescription(
+                    "FOOD-AS-FUEL: the FLOOR of the tier multiplier (the weakest food's travel tier). Baseline 1.0 "
+                    + "(raised from an earlier 0.5, which made forage a 10× penalty vs the 5× the rest of the ladder "
+                    + "uses). (design §2 / §6.3)",
+                    new AcceptableValueRange<float>(0.5f, 5f)));
+            PeTierClampHi = Config.Bind(
+                "TwistedPortal", "TierClampHi",
+                SBPR.Trailborne.Features.Portals.PortalEnergyMath.DefaultTierClampHi,
+                new ConfigDescription(
+                    "FOOD-AS-FUEL: the CEILING of the tier multiplier (the strongest food's travel tier). Baseline "
+                    + "5.0. Raise to let elite foods travel even farther per minute; the round(×2)/2 snap keeps every "
+                    + "food on a legible 0.5 rung. (design §2 / §6.3)",
+                    new AcceptableValueRange<float>(1f, 10f)));
 
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
