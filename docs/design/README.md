@@ -35,6 +35,26 @@ Deep dives into specific patch surfaces, done before committing to an approach:
 - **[`pin-sharing.md`](pin-sharing.md)** — the multiplayer pin-sharing surface
   and how shared map pins can work under server gating.
 
+## Accepted (locked, awaiting impl-spec)
+
+Design decisions Daniel has **locked**. The *why* and the locked parameters live
+here; the buildable *how* graduates to a version-scoped impl-spec when built.
+
+- **[`twisted-portal-food-charge.md`](twisted-portal-food-charge.md)** — the v3
+  Twisted Portal cost model. **No key trinket** — teleport range is gated by the
+  **food in your belly**: Portal Energy = remaining-food-minutes × a stat-derived
+  tier, summed across food slots; a jump spends PE as food-time, so distance both
+  costs provisioning AND lands you depleted. Tier is computed from total stats
+  (`round(clamp(total/30, 1, 5) × 2)/2`, snapped to 0.5 rungs) — making the
+  **stat fallback the primary rule**, so vanilla and modded foods slot in with
+  zero hand-authoring. Feasts run on a separate normalized ~28 m range clock
+  (their 50 m buff timer untouched) so they land **slightly under** personal
+  crafted meals for travel. **Supersedes** the trinket-key/durability charge
+  economy in `nomap.md` §7 (resolves the impl-spec's open "charge economy"
+  decision). Locked 2026-06-24 as a tuning baseline — architecture fixed, numbers
+  (the `/30` divisor, `[1,5]` clamp, 28 m feast cap, eitr weighting) are live
+  playtest knobs.
+
 ## Proposed features (designed, not yet locked)
 
 Designs awaiting a Daniel decision before they graduate to a version-scoped
