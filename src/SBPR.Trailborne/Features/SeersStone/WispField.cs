@@ -193,13 +193,17 @@ namespace SBPR.Trailborne.Features.SeersStone
         /// <summary>Wisp glow scale multiplier vs the donor demister_ball — bigger so it reads as ours.</summary>
         private const float WispVisualScale = 1.8f;
         /// <summary>The grey wisp tint (value cue, not hue — colorblind-safe; distinct from vanilla cyan-white).</summary>
-        private static readonly Color WispGrey = new Color(0.72f, 0.74f, 0.78f, 1f);
+        private static readonly Color WispGrey = new Color(0.78f, 0.80f, 0.83f, 1f);
 
         /// <summary>
-        /// Make the grafted glow BIGGER + GREYER (Daniel 2026-06-25). Scales the visual root and
-        /// recolours every Light + ParticleSystem in the subtree toward <see cref="WispGrey"/>. All
-        /// adjustments are on the CLONED cosmetic child only — the donor demister_ball is untouched
-        /// (we read it as a blueprint, ADR-0006). Best-effort: any missing component is simply skipped.
+        /// Make the grafted glow BIGGER + GREYER (Daniel 2026-06-25). Scales the visual root, recolours
+        /// the Light(s) grey, and — critically — neutralises the demister's VIOLET particles to grey.
+        /// The first pass only set ParticleSystem.main.startColor, but the demister particles carry a
+        /// purple/blue tint via the COLOR-OVER-LIFETIME module + the renderer material, so startColor
+        /// alone composited to violet (verified on Prime 2026-06-25). This pass: sets startColor grey,
+        /// DISABLES colorOverLifetime (the gradient that drove the purple), and tints the renderer
+        /// material's colour properties grey. All on the CLONED cosmetic child only — the donor
+        /// demister_ball is untouched (ADR-0006). Best-effort; a missing component is skipped.
         /// </summary>
         private static void StyleWisp(GameObject visual)
         {
@@ -207,7 +211,6 @@ namespace SBPR.Trailborne.Features.SeersStone
             {
                 visual.transform.localScale *= WispVisualScale;
 
-                // Lights → grey (keep them a touch brighter so a desaturated glow still carries).
                 foreach (var light in visual.GetComponentsInChildren<Light>(includeInactive: true))
                 {
                     if (light == null) continue;
@@ -215,12 +218,26 @@ namespace SBPR.Trailborne.Features.SeersStone
                     light.range *= WispVisualScale;
                 }
 
-                // Particle systems → grey start colour (the drifting motes themselves).
                 foreach (var ps in visual.GetComponentsInChildren<ParticleSystem>(includeInactive: true))
                 {
                     if (ps == null) continue;
+                    // 1) Base start colour → grey.
                     var main = ps.main;
                     main.startColor = WispGrey;
+                    // 2) Kill the colour-over-lifetime gradient (the violet ramp the demister ships).
+                    var col = ps.colorOverLifetime;
+                    col.enabled = false;
+                    // 3) Tint the renderer material grey (the texture itself can carry colour).
+                    var pr = ps.GetComponent<ParticleSystemRenderer>();
+                    if (pr != null && pr.sharedMaterial != null)
+                    {
+                        // Instance the material (never mutate the shared demister material → would
+                        // repaint every demister in the world). Set the common colour properties.
+                        var mat = pr.material; // accessing .material instances it for this renderer
+                        if (mat.HasProperty("_Color")) mat.SetColor("_Color", WispGrey);
+                        if (mat.HasProperty("_TintColor")) mat.SetColor("_TintColor", WispGrey);
+                        if (mat.HasProperty("_EmissionColor")) mat.SetColor("_EmissionColor", WispGrey);
+                    }
                 }
             }
             catch (System.Exception e)
