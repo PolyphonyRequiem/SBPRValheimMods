@@ -357,10 +357,21 @@ namespace SBPR.Trailborne.Runtime
                 }
             }
 
+            // ── v3 Twisted Portal FOOD-AS-FUEL: Portal Energy constant manifest (card t_6e992a30, C2) ──
+            // Not a recipe — the cost model has no craftable — so it's its own boot assertion, the
+            // SpecCheck/watchdog pattern the impl-spec §5.8 calls for: encode the design-doc §6 locked
+            // baselines as INDEPENDENT literals here and diff them against PortalEnergyMath.Default* (the
+            // single source of truth the config + the engine-free math + the unit tests all read). A drift
+            // in EITHER — a fat-fingered Default* const or a design-doc number that moved without updating
+            // the code — screams at boot, exactly like a recipe drift. Counted separately so the recipe
+            // tally stays pure.
+            int peChecks = 0;
+            CheckPortalEnergyManifest(ref errors, ref peChecks);
+
             if (errors == 0)
-                Plugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest; {iconChecks} item icon(s) loaded (no fallback placeholders); {attackChecks} item(s) have non-null m_attack (no tooltip-NRE landmine).");
+                Plugin.Log.LogInfo($"[Trailborne/SpecCheck] ✓ All {checks} recipes match the v0.1.0 spec manifest; {iconChecks} item icon(s) loaded (no fallback placeholders); {attackChecks} item(s) have non-null m_attack (no tooltip-NRE landmine); {peChecks} Portal Energy constant(s) match the locked food-as-fuel manifest.");
             else
-                Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} recipe + {iconChecks} icon + {attackChecks} attack checks. See above.");
+                Plugin.Log.LogError($"[Trailborne/SpecCheck] ✗ {errors} drift(s) detected across {checks} recipe + {iconChecks} icon + {attackChecks} attack + {peChecks} Portal-Energy checks. See above.");
         }
 
         private static void CompareResources(string? itemName, Req[] expected, Piece.Requirement[] actual, ref int errors)
@@ -480,6 +491,76 @@ namespace SBPR.Trailborne.Runtime
                     "selected, throwing a per-frame NRE in the craft panel. An additive item must seed " +
                     "`new Attack()` for both in TryConstructItemShell (beside the m_icons pre-seed); a clone " +
                     "inherits the donor's non-null attack.");
+                errors++;
+            }
+        }
+
+        /// <summary>
+        /// FOOD-AS-FUEL Portal Energy boot assertion (card t_6e992a30, C2 — impl-spec §5.8). The cost
+        /// model has no recipe, so its drift backstop is this: the design-doc §6 LOCKED baselines, written
+        /// here as INDEPENDENT literals, diffed against the <see cref="PortalEnergyMath"/> Default* consts
+        /// the runtime + config + unit tests actually read. If a Default* const is fat-fingered, or a
+        /// design number moves without updating the code, the two disagree and this ERROR-logs at boot —
+        /// the same fail-loud discipline the recipe manifest uses. It ALSO verifies the two derived design
+        /// ANCHORS hold (30 m/berry × 10 berries == the 300 m portal ceiling), so a berry-conversion change
+        /// that silently breaks "10 berries = a max jump" is caught too.
+        /// </summary>
+        private static void CheckPortalEnergyManifest(ref int errors, ref int peChecks)
+        {
+            // The locked baselines (docs/design/twisted-portal-food-charge.md §6 / impl-spec §5.8),
+            // re-typed here so this assertion is independent of the consts it checks.
+            CheckConst("PE tier divisor (/30 slope, §2/§6.3)",        30f, PortalEnergyMath.DefaultTierDivisor, ref errors, ref peChecks);
+            CheckConst("PE tier clamp LO (floor 1.0, §2/§6.3)",        1f, PortalEnergyMath.DefaultTierClampLo, ref errors, ref peChecks);
+            CheckConst("PE tier clamp HI (ceiling 5.0, §2/§6.3)",      5f, PortalEnergyMath.DefaultTierClampHi, ref errors, ref peChecks);
+            CheckConst("PE meters-per-PE (baseline 1.0, §5.3)",        1f, PortalEnergyMath.DefaultMetersPerPe, ref errors, ref peChecks);
+            CheckConst("PE feast range cap (28 m, §4/§6.2)",          28f, PortalEnergyMath.DefaultFeastRangeCapMinutes, ref errors, ref peChecks);
+            CheckConst("PE meters-per-Bukeberry (30 m, §5/§6.5)",     30f, PortalEnergyMath.DefaultBukeMetersPerBerry, ref errors, ref peChecks);
+
+            // Derived anchor: a from-empty MAX jump (the 300 m portal ceiling) costs EXACTLY 10 berries.
+            // ceil(300 / 30) must equal 10 — the locked "300 yards for 10 Bukeperries" (design §5). This
+            // ties the berry conversion to the ceiling so a 30→X m/berry change that breaks the "10 = max"
+            // contract screams even though each individual const still "looks" fine.
+            peChecks++;
+            int ceilingBerries = PortalEnergyMath.BerriesForShortfall(
+                PortalEnergyMath.PortalCeilingMeters, PortalEnergyMath.DefaultBukeMetersPerBerry);
+            if (ceilingBerries != PortalEnergyMath.CeilingBerryCost)
+            {
+                Plugin.Log.LogError(
+                    $"[Trailborne/SpecCheck] PE ANCHOR DRIFT: a from-empty {PortalEnergyMath.PortalCeilingMeters:F0} m " +
+                    $"max jump costs {ceilingBerries} Bukeberries, but the locked design anchor is " +
+                    $"{PortalEnergyMath.CeilingBerryCost} (300 m ÷ 30 m/berry). The berry conversion or the portal " +
+                    "ceiling drifted — re-read twisted-portal-food-charge.md §5.");
+                errors++;
+            }
+
+            // Derived anchor: the tier curve snaps to 0.5 rungs and respects the [lo,hi] clamp. Spot-check
+            // two design-doc §3 worked values so a rounding/clamp regression (e.g. ToEven, or a dropped
+            // clamp) is caught: Marinated greens (143 stats → tier 5.0, the lone ceiling) and Raspberries
+            // (27 stats → tier 1.0, the floor). round(clamp(143/30,1,5)*2)/2 = round(4.766*2)/2 = 5.0;
+            // round(clamp(27/30,1,5)*2)/2 = round(max(0.9,1)*2)/2 = round(2)/2 = 1.0.
+            peChecks++;
+            float tierGreens = PortalEnergyMath.Tier(143f);
+            float tierRasp   = PortalEnergyMath.Tier(27f);
+            if (tierGreens != 5.0f || tierRasp != 1.0f)
+            {
+                Plugin.Log.LogError(
+                    $"[Trailborne/SpecCheck] PE TIER CURVE DRIFT: design §3 anchors mis-priced — Marinated greens " +
+                    $"(143 stats) → {tierGreens} (locked 5.0), Raspberries (27 stats) → {tierRasp} (locked 1.0). " +
+                    "The /30 divisor, the [1,5] clamp, or the 0.5-rung snap regressed.");
+                errors++;
+            }
+        }
+
+        private static void CheckConst(string label, float expected, float actual, ref int errors, ref int peChecks)
+        {
+            peChecks++;
+            // Exact equality is correct here: these are hand-authored baseline literals, not computed
+            // floats, so any difference is a real drift (not FP noise).
+            if (expected != actual)
+            {
+                Plugin.Log.LogError(
+                    $"[Trailborne/SpecCheck] PE CONST DRIFT — {label}: locked baseline '{expected}', " +
+                    $"PortalEnergyMath default '{actual}'. Update BOTH the const AND the design doc in one commit.");
                 errors++;
             }
         }
