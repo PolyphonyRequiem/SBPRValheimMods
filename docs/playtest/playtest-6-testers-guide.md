@@ -2,18 +2,18 @@
 title: "SBPR Trailborne — Playtest #6 Testers Guide"
 status: current
 purpose: "Playtest #6 — generated from playtest-ledger.md + git ground truth. Do not hand-edit; regenerate."
-generated_from_tag: v0.2.37-playtest
+generated_from_tag: v0.2.38-playtest
 diff_ref: main
 ---
 
 # SBPR Trailborne — Playtest #6 Testers Guide
 
-**Build:** SBPR Trailborne 0.2.37 (current `main`, ahead of `v0.2.37-playtest`)
+**Build:** SBPR Trailborne 0.2.39 (current `main`, ahead of `v0.2.38-playtest`)
 **Test mode:** Local solo on a fresh client build (unless an item says otherwise).
-**Generated:** 2026-06-25 09:54 PDT
+**Generated:** 2026-06-26 12:23 PDT
 
 > This guide is produced by `scripts/gen-playtest-guide.py` from the living
-> **playtest ledger** and the actual code changes since `v0.2.37-playtest`. The
+> **playtest ledger** and the actual code changes since `v0.2.38-playtest`. The
 > **Playtest #6** number is the human-facing testing series — distinct from the
 > `vX.Y.Z-playtest` build tags.
 
@@ -42,7 +42,7 @@ Both verify the modpack SHA256 before installing and write a launcher
 this build's `BepInEx/plugins/SBPR.Trailborne/` from the release zip into your install.
 
 Either way, launch Valheim and confirm the BepInEx console logs
-`Loading [SBPR Trailborne 0.2.37]` and `Harmony patches applied.`
+`Loading [SBPR Trailborne 0.2.39]` and `Harmony patches applied.`
 
 ## 2. Acceptance checklist
 
@@ -134,6 +134,18 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
 | 24 | **Twisted Portal — through-terrain rune-name overlay (informational, Model A)** | t_e732bd8b (#274) | ✅ merged to `main` (`d3d560d`); ships in `v0.2.38` | The highest-risk UI in the feature — a **visual** check only Daniel's eye can accept. Stand within **~3 m** of a Twisted Portal: floating **world-space rune labels** (+ optional distance) appear over every nearby Twisted Portal, rendered **through terrain** (reads behind hills/walls — ZTest-Always). **(a)** Labels show each portal's rune name; **(b)** they're **informational only** — a read-out, **NOT** a destination picker (Model B stays out of scope); **(c)** they **billboard** to face the camera; **(d)** unnamed portals are skipped; **(e)** the overlay host-pump stays alive for the HUD lifetime (the #209 self-deactivating-host invariant — visibility toggles the world-space field, host never deactivates). Does the through-terrain render read clearly without cluttering? **AT-OVERLAY-*** per PR #274 — render is GPU-only, Daniel's in-game eyeball is the accept. logs-green ≠ playable — closes t_e732bd8b. |
 | 25 | **Bear Hide Tent — placeholder piece (SBPR's first custom AssetBundle)** | _(#277, `feat(camp)`; design-thread piece — no card)_ | ✅ merged to `main` (`8520de5`); ships in `v0.2.38` | First piece of the Trailside Camp triad — **VISUAL-ONLY this cut** (no sleep Tag, no mechanic yet). Placeholder art = the vanilla TraderTent mesh, shipped via SBPR's **first custom AssetBundle** (`sbpr_tradertent.unity3d`), hide material built at **runtime** off vanilla LeatherScraps (a bundle-baked material would render magenta). **(a)** With a **Spade** equipped, find the **Bear Hide Tent** in the build menu (Misc category, 'Trail'/Spade placement), Black Forest tier — recipe **PROVISIONAL** (BjornHide ×4 + FineWood ×6 + LeatherScraps ×4). **(b)** 🔴 **The load-bearing render check — the canopy mesh must actually appear (bundle loaded OK) AND the hide must NOT render magenta (runtime material OK):** place it and look — it reads as a trader-tent canopy with legs, hide-coloured, **not** a magenta/missing-shader blob. **(c)** It's cosmetic decor only — no sleep, no buff, nothing to interact with yet. If the canopy is invisible or magenta, the bundle/material path failed — grab `LogOutput.log`. **AT-TENT-RENDER** (canopy renders + hide material reads). logs-green ≠ playable. |
 
+### 🆕 Round 6 — Seer's Stone (v4 Mountains wisp-lens), ships in `v0.2.39-playtest`
+
+> Counter stays at **#6** — `v0.2.39-playtest` is the **sixth** build carrying Playtest #6. The Seer's Stone is a
+> **net-new feature surface** (the Mountains-tier signature Explorer item), not a round-refinement of a prior #6 bug.
+> It is a **net-new player-facing surface with NO in-game verification yet** — "logs-green ≠ playable" applies, and
+> two of its accept points are explicit **eyeball/decision gates** for Daniel (the placeholder glow + magenta icon, and
+> the parser-dependency reversal). Built end-to-end across four milestones; all design forks were locked in-thread.
+
+| # | Feature | Card | Status | What to verify in-game |
+|---|---------|------|--------|------------------------|
+| 26 | **Seer's Stone — v4 Mountains wisp-lens (whitelist substrate · item · wisp field · pin-by-look)** | _(#279, `feat(seers-stone)`; #design-thread feature — no card)_ | ✅ merged to `main` (`020b4b2`); ships in `v0.2.39` | SBPR's signature Explorer item, the full feature across four milestones — **all four player surfaces are new, NO in-game verification yet.** Craft the **`SBPR_SeersStone`** at a **Forge** (crystal-gated recipe: **Crystal + Silver + JuteRed**), equip it in the **Utility** slot. **(a) M1 — whitelist substrate:** on first server boot a default `seers_stone_whitelist.yaml` (132 entries: 20 pickable + 9 surface-ore + 103 location) seeds into `BepInEx/config/SBPR.Trailborne/`; it's owner-editable and unlisted/modded prefabs get no marker (ignore-unlisted). **(b) M3 — wisp field (worn):** while the stone is worn, eligible nearby **Pickables/ore** show small **helix-orbiting wisps** (perimeter orbit at bounds+margin + vertical bob, ground-aware), and curated **Locations** show **bigger, greyer markers** — personal/client-only, no networking/ZDO, persisting while the object exists. **(c) M4 — pin-by-look (Alt+E):** look at a resource cluster or location and press **Alt+E** → a camera raycast re-checks eligibility and drops a map pin (`Minimap.AddPin` for Pickables / `DiscoverLocation` for Locations) with merge-dedup so a cluster pins once. **AT-SEERS-WHITELIST-SEED / AT-SEERS-WISP-WORN / AT-SEERS-WISP-CLASSES (small-colored vs bigger-greyer) / AT-SEERS-PIN-BY-LOOK / AT-SEERS-PIN-DEDUP.** 🟡 **Two explicit Daniel gates:** (1) the wisp glow is the raw **`demister_ball`** placeholder effect and the item icon is a **magenta v0.1 fallback** — both are eyeball polish passes, your look decides the final art; (2) the YAML parser was **hand-written engine-free, YamlDotNet dropped** (no shipped lib = no assembly-version collision — your stated concern) — flagged for your explicit yes/no, the wrapper's shaped to drop the real parser back in if you'd rather. Recipe numbers are eyeball, yours to tune. Build 0/0, **451 unit tests green**, render-verified on Prime (wisp glows + helix orbits at 2.75 m measured). logs-green ≠ playable — the glow, icon, and pin feel are your in-game accept. |
+
 ### 🔁 Carried forward — not yet shipped / not yet verified
 
 Shipped **no** code change in any tag (blocked / verify-only), so it carries into #6 rather than being archived as a #5 surface.
@@ -195,7 +207,7 @@ Shipped **no** code change in any tag (blocked / verify-only), so it carries int
 
 ## 3. Ground-truth cross-check (auto)
 
-Code commits touching `src/**/*.cs` since **v0.2.37-playtest**: **4**
+Code commits touching `src/**/*.cs` since **v0.2.38-playtest**: **1**
 
 
 ✅ Every merged code change maps to a ledger item. No silent-untested changes.
