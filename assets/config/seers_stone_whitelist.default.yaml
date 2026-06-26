@@ -1,0 +1,177 @@
+# ============================================================================
+#  Seer's Stone — wisp-eligibility whitelist  (SBPR Trailborne)
+# ----------------------------------------------------------------------------
+#  This file controls WHICH things glow with a wisp when you wear the Seer's
+#  Stone. It ships pre-packaged with the full VANILLA roster below — but it is
+#  YOURS to edit. Server owners & modpack authors: add or remove lines freely.
+#
+#  HOW IT WORKS
+#   - List the PREFAB NAME of anything that should glow (one per line, under a
+#     section). The runtime '(Clone)' suffix is handled for you — write the
+#     base name (e.g. 'RaspberryBush', not 'RaspberryBush(Clone)').
+#   - IGNORE-UNLISTED: anything NOT listed here gets NO wisp. That's the design —
+#     this file is the allow-list. To make a modded berry/ore/POI glow, add its
+#     prefab name to the matching section below.
+#   - Lines starting with '#' are comments. Blank lines are ignored.
+#   - The three sections are organizational only; eligibility is their UNION.
+#
+#  WHAT'S DELIBERATELY EXCLUDED (by design, Daniel 2026-06-25)
+#   - World-floor litter: stone, wood/branch, flint (too common to mean anything).
+#   - Creatures (deer/boar/etc.) — the stone reveals places & forage, not hunting.
+#   - BURIED silver veins — a wisp there would replace the Wishbone's whole job,
+#     and a wisp can't ride a buried object's bounds. Surface ore IS included.
+#
+#  To restore the shipped defaults: delete this file and restart — it re-seeds.
+# ============================================================================
+
+# Schema version — do not edit; lets the mod migrate the format if it ever changes.
+version: 1
+
+# ── PICKABLES ───────────────────────────────────────────────────────────────
+# Clustered forage & high-value pick-ups. Patch-forming bushes glow over the
+# whole patch; the wisp persists while the plant exists, even after harvest.
+pickables:
+  - RaspberryBush                   # Meadows — raspberries
+  - BlueberryBush                   # Black Forest — blueberries
+  - CloudberryBush                  # Plains — cloudberries
+  - Pickable_Mushroom               # Meadows/BF/Swamp — mushroom
+  - Pickable_Mushroom_yellow        # BF caves — yellow mushroom
+  - Pickable_Mushroom_blue          # Swamp — blue mushroom
+  - Pickable_Mushroom_Magecap       # Mistlands — magecap
+  - Pickable_Mushroom_JotunPuffs    # Mistlands — jotun puffs
+  - Pickable_Dandelion              # Meadows — dandelion
+  - Pickable_Thistle                # BF/Swamp — thistle
+  - Pickable_Fiddlehead             # Ashlands — fiddlehead
+  - Pickable_Carrot                 # cultivated — wild carrot (rare natural)
+  - Pickable_Turnip                 # Swamp — wild turnip clusters
+  - Pickable_SeedCarrot             # Black Forest — carrot seeds
+  - Pickable_SeedTurnip             # Swamp — turnip seeds
+  - Pickable_SeedOnion              # Mountain — onion seeds (in chests/ruins)
+  - Pickable_Barley_Wild            # Plains — wild barley (Fuling villages)
+  - Pickable_Flax_Wild              # Plains — wild flax (Fuling villages)
+  - Pickable_RoyalJelly             # Mistlands — royal jelly
+  - Pickable_DragonEgg              # Mountain — dragon egg (high value)
+
+# ── SURFACE ORE ─────────────────────────────────────────────────────────────
+# Pickable ore + ABOVE-GROUND mine deposits (copper boulders, tin/obsidian).
+# Buried silver veins are intentionally absent (see header).
+ore_surface:
+  - Pickable_Tin                    # Black Forest — tin (small pickable)
+  - Pickable_Obsidian               # Mountain — obsidian (pickable)
+  - Pickable_BogIronOre             # Swamp — bog iron (pickable)
+  - Pickable_SulfurRock             # Ashlands — sulfur (pickable)
+  - Pickable_MountainCaveCrystal    # Mountain caves — crystal
+  - Pickable_Meteorite              # Ashlands — meteorite shard (glowing metal)
+  - MineRock_Tin                    # Black Forest — tin deposit (surface MineRock)
+  - MineRock_Copper                 # Black Forest — copper deposit (surface MineRock)
+  - MineRock_Obsidian               # Mountain — obsidian deposit (surface MineRock)
+
+# ── LOCATIONS ───────────────────────────────────────────────────────────────
+# Worldgen POIs worth returning to: dungeons, boss altars, vendor, loot
+# structures, resource POIs (tar pits, drake nests), runestones. Spawner camps
+# (greydwarf nests, surtling fireholes) and pure decor (statues, viaducts) are
+# deliberately omitted. 103 vanilla locations, Meadows→Ashlands.
+locations:
+  - StartTemple
+  - Eikthyrnir
+  - WoodHouse1
+  - WoodHouse2
+  - WoodHouse3
+  - WoodHouse4
+  - WoodHouse5
+  - WoodHouse6
+  - WoodHouse7
+  - WoodHouse8
+  - WoodHouse9
+  - WoodHouse10
+  - WoodHouse11
+  - WoodHouse12
+  - WoodHouse13
+  - WoodFarm1
+  - WoodVillage1
+  - ShipSetting01
+  - Runestone_Meadows
+  - Runestone_Boars
+  - Dolmen01
+  - Dolmen02
+  - Dolmen03
+  - GDKing
+  - Vendor_BlackForest
+  - Crypt2
+  - Crypt3
+  - Crypt4
+  - TrollCave02
+  - Ruin1
+  - Ruin2
+  - StoneHouse3
+  - StoneTowerRuins03
+  - StoneTowerRuins07
+  - StoneTowerRuins08
+  - StoneTowerRuins09
+  - StoneTowerRuins10
+  - Runestone_Greydwarfs
+  - Runestone_BlackForest
+  - Bonemass
+  - SunkenCrypt4
+  - Grave1
+  - SwampRuin1
+  - SwampRuin2
+  - SwampHut1
+  - SwampHut2
+  - SwampHut3
+  - SwampHut4
+  - SwampHut5
+  - InfestedTree01
+  - Runestone_Draugr
+  - Runestone_Swamps
+  - Dragonqueen
+  - MountainCave02
+  - StoneTowerRuins04
+  - StoneTowerRuins05
+  - AbandonedLogCabin02
+  - AbandonedLogCabin03
+  - AbandonedLogCabin04
+  - MountainGrave01
+  - MountainWell1
+  - DrakeNest01
+  - Waymarker01
+  - Waymarker02
+  - DrakeLorestone
+  - Runestone_Mountains
+  - GoblinKing
+  - GoblinCamp2
+  - Ruin3
+  - StoneTower1
+  - StoneTower3
+  - StoneHenge1
+  - StoneHenge2
+  - Stonehenge3
+  - Stonehenge4
+  - Stonehenge5
+  - TarPit1
+  - TarPit2
+  - TarPit3
+  - Runestone_Plains
+  - Mistlands_DvergrTownEntrance1
+  - Mistlands_DvergrTownEntrance2
+  - Mistlands_DvergrBossEntrance1
+  - Mistlands_GuardTower1_new
+  - Mistlands_GuardTower2_new
+  - Mistlands_GuardTower3_new
+  - Mistlands_Lighthouse1_new
+  - Mistlands_Excavation1
+  - Mistlands_Excavation2
+  - Mistlands_Excavation3
+  - Mistlands_Harbour1
+  - Mistlands_Giant1
+  - Mistlands_Giant2
+  - Mistlands_Swords1
+  - Mistlands_Swords2
+  - Mistlands_Swords3
+  - Mistlands_RoadPost1
+  - Runestone_Mistlands
+  - ShipWreck01
+  - ShipWreck02
+  - ShipWreck03
+  - ShipWreck04
+  - Meteorite

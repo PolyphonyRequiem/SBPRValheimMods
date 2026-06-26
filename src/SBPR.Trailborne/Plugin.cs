@@ -877,6 +877,15 @@ namespace SBPR.Trailborne
                     + "food on a legible 0.5 rung. (design §2 / §6.3)",
                     new AcceptableValueRange<float>(1f, 10f)));
 
+            // ── Seer's Stone wisp-eligibility whitelist (v4 substrate, M1) ───────────
+            // Seed the pre-packaged default into BepInEx/config/<mod>/ on first run, then
+            // load the owner's copy. Owner-editable, IGNORE-UNLISTED (Daniel 2026-06-25).
+            // Engine-free decision/parse logic is gated by tests/SeersStone*Tests.cs; this
+            // is the one I/O call that wires it to the live config dir. Failures fail-safe to
+            // an empty whitelist (no wisps) and log loud — never crash boot.
+            SBPR.Trailborne.Features.SeersStone.SeersStoneWhitelist.Load(
+                Paths.ConfigPath, PluginFolder, msg => Log.LogInfo(msg));
+
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Registrar));
             harmony.PatchAll(typeof(CairnPatches));
@@ -1113,6 +1122,14 @@ namespace SBPR.Trailborne
             //    ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
             //    Never fires on the dedicated server (no Hud).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Portals.TwistedPortalOverlay.HudBootstrap));
+
+            // v4 Mountains — Seer's Stone (Daniel 2026-06-25). Two client-only patches:
+            //   • LocalPlayerAttach — adds the SeersStoneFieldHost (owns the personal wisp field)
+            //     to the local Player on spawn.
+            //   • PinByLookInput — Alt+E camera-raycast pin-by-look. Both no-op unless the local
+            //     player wears the stone. Wisps are personal/client-only (no networking, no ZDO).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.SeersStone.LocalPlayerAttach));
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.SeersStone.PinByLookInput));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 

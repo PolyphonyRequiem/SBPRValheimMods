@@ -93,11 +93,13 @@ If it completes end-to-end, the foundation is sound. Everything below is depth o
   **Black Pigment** (coal), **Blue Pigment** (blueberry), **Surtling Embers** (cores 1:5),
   **Ember Lamp** (eternal), **Surtling Torch** (eternal carry torch), **Beacons** (huge
   red corona, hilltop navigation), **Pocket Portals** (stackable one-shot teleport pairs).
-- **Seer's Stone** (the signature item, worn accessory): walk the Black Forest and
-  **wisps** drift into view above clusters (berries, mushrooms, crypt entrances, surtling
-  spawners). Take it off → wisps vanish. Wisps are **personal** (other players don't see
-  them). Pin-while-looking adds the cluster to your map. *(Note: parts of the Seer's Stone
-  wisp pass may still be TBD in this build — verify what's wired, flag what isn't.)*
+- **Seer's Stone** (the signature item, worn accessory — **v4 / Mountains / crystal-gated**;
+  it is NOT a Black Forest item, tier corrected 2026-06-25, see `docs/design/seers-stone.md`):
+  wearing it, **wisps** drift into view above eligible clusters (berries, mushrooms, crypt
+  entrances, surtling spawners, surface ore). Take it off → wisps vanish. Wisps are
+  **personal** (other players don't see them). Pin-while-looking (**Alt+E**) adds the cluster
+  to your map. *(Note: the wisp glow + item icon are placeholders in this build; the substrate,
+  item, wisp helix, and pin-by-look are wired + render-verified.)*
 - **Cartography Table / Surveyor's Table**: each table is a **regional 1000m observation
   post**, not vanilla's global blob. Read a table → you get a fixed 1000m window centered
   on it. Walk 1500m away and that region fogs back over. **Zoom is capped**, map is a

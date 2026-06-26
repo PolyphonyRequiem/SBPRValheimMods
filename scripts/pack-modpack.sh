@@ -126,6 +126,25 @@ if [ -d "$TEX_SRC" ]; then
     [ "$texcount" -gt 0 ] && ok "Plugin folder: + ${texcount} world-mesh texture(s)"
 fi
 
+# 2b-ii) Overlay shipped DEFAULT config files the plugin seeds on first run. These are
+#     read from Plugin.PluginFolder (same load root as icons/textures) and copied into
+#     BepInEx/config/<mod>/ the first time the mod boots if the owner has none yet —
+#     e.g. the Seer's Stone wisp-eligibility whitelist (seers_stone_whitelist.default.yaml).
+#     Shipping the *.default.yaml (not the live file) keeps the seed pristine and lets the
+#     owner edit their copy without our updates clobbering it; deleting their copy re-seeds.
+CFG_SRC="$REPO_ROOT/assets/config"
+if [ -d "$CFG_SRC" ]; then
+    shopt -s nullglob
+    cfgs=("$CFG_SRC"/*.yaml)
+    shopt -u nullglob
+    cfgcount=0
+    for y in "${cfgs[@]}"; do
+        cp "$y" "$PLUGDIR/"
+        cfgcount=$((cfgcount + 1))
+    done
+    [ "$cfgcount" -gt 0 ] && ok "Plugin folder: + ${cfgcount} default config file(s)"
+fi
+
 # 2c) Overlay custom AssetBundles the plugin loads at runtime via AssetBundle.LoadFromFile
 #     (Plugin.PluginFolder root, same as icons/textures). Currently: sbpr_tradertent.unity3d
 #     — the Bear Hide Tent's placeholder mesh (vanilla TraderTent repacked to Unity 6;

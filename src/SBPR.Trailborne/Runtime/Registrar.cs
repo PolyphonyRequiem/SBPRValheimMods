@@ -73,6 +73,12 @@ namespace SBPR.Trailborne.Runtime
                 BearHideTent.RegisterPrefabs(__instance);
                 LocalMap.RegisterPrefabs(__instance);
                 CartographersKit.RegisterPrefabs(__instance);
+                // v4 Mountains — Seer's Stone (the Explorer's signature wisp-lens accessory,
+                // Daniel 2026-06-25). Utility-slot sibling of the Cartographer's Kit; crystal-gated.
+                // Order is free (its crystal/silver/jute recipe inputs are vanilla items, resolved in
+                // the ODB pass); placed by the Kit for code locality. The M1 whitelist substrate is
+                // loaded separately in Plugin.Awake; this registers the equippable ITEM (M2).
+                SBPR.Trailborne.Features.SeersStone.SeersStone.RegisterPrefabs(__instance);
                 MarkerSigns.RegisterPrefabs(__instance);
                 // Portals (Seed item + Ancient Portal piece). After Trailhead so the
                 // Explorer's Bench exists for the recipe station; also registers the portal
@@ -175,6 +181,11 @@ namespace SBPR.Trailborne.Runtime
                 // (above) has already registered the pigment items into ObjectDB, so BuildReq
                 // resolves them here. MUST stay after Pigments.
                 CartographersKit.DoObjectDBWiring(ZNetScene.instance);
+
+                // v4 Mountains — Seer's Stone item + crystal recipe (Daniel 2026-06-25). Its recipe
+                // inputs (Crystal/Silver/JuteRed) are all vanilla items already in ODB, so ordering
+                // relative to other SBPR features is free; placed by the Kit for code locality.
+                SBPR.Trailborne.Features.SeersStone.SeersStone.DoObjectDBWiring(ZNetScene.instance);
 
                 // Portals: Seed recipe (Explorer's Bench) + Ancient Portal cost rebuild +
                 // Hammer-menu add. After Trailhead (the bench station + Hammer table must
