@@ -69,6 +69,7 @@
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneCoronaPulse.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Sunstone/SunstoneCoronaProfile.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Portals/TwistedPortalOverlayModel.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Portals/TwistedPortalLabelScale.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Portals/PortalEnergyMath.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/SeersStoneEligibility.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/WhitelistDocument.cs" />
