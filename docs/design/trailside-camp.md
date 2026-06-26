@@ -205,6 +205,26 @@ All three pieces are built from scratch per ADR-0006 (read vanilla prefabs as
 > - **Q2 Sleep = skip-night-only, NO spawn set** (was open). Bedroll skips the night +
 >   grants comfort, but does not overwrite your respawn point. Mechanism + impl-VERIFY
 >   in §3.1. (§1.4)
+>
+> **🟢 RESOLVED / 🟡 PROPOSED 2026-06-26 (architect, card t_439f2351 — graduating the buildable half):**
+> The Bear Hide Tent collider defect (Daniel's 2026-06-26 playtest) forced this doc's
+> graduation. The buildable scope now lives in two impl-specs under `docs/v2/planning/`:
+> **`bear-hide-tent-collider-fit-impl-spec.md`** (the tent collider walk-under fix — defect 1)
+> and **`bear-hide-tent-triad-build-impl-spec.md`** (the bedroll + camp fire — defects 2,3).
+> The architect closed Q3–Q7 there:
+> - **Q3 Placement = SPADE** 🟢 RESOLVED — matches the tent's existing Spade wiring + Pillar 1.
+> - **Q5 THREE separate pieces** 🟢 RESOLVED — confirms the lean; no atomic-combo precedent.
+> - **Q6 Bedroll KEEPS `underRoof` required** 🟢 RESOLVED — relax drops *only* the 0.8 cover
+>   clause; keeping `underRoof` is what makes the tent load-bearing (no open-sky sleep).
+> - **Q4 Camp-fire storm-proofing = accept rain-only (placeholder)** 🟡 PROPOSED — Daniel gates
+>   (gameplay-feel: storms block camping vs. a mini-roof later).
+> - **Q7 Inspired = DEFERRED** 🟡 PROPOSED + 🔴 **CORRECTION:** the `Inspired` buff is **not
+>   built** (zero code — it lives only in the `living` `trailside-beautification.md`), so the
+>   bedroll cannot wire into a non-existent hook. It ships granting vanilla `SE_Rested` now;
+>   Inspired is deferred to beautification's graduation. Daniel confirms the sequencing.
+>
+> The original Q3–Q7 prose below is retained for decision-history; the **closures above
+> govern**.
 
 **Q3 — Placement tool: Spade or Hammer?** Same Pillar-1 tension as the Traveller's
 Cache. The camp is *trailside* furniture (Spade-shaped), but it's also a
@@ -249,13 +269,16 @@ beautification Inspired spec, **not** a from-scratch effect design.
 4. Bedroll keeps `underRoof` required (lean) or fully exposed? [§5-Q6]
 5. **Bedroll grants *Inspired* — confirm it's the beautification buff via the non-cairn-comfort hook** (not a new effect) [§5-Q7]
 
-> **Until the open knobs settle this stays `status: living` and does NOT graduate.** When
-> they lock it becomes a version-scoped impl-spec under `docs/v2/planning/` (Black Forest
-> tier, Q1 resolved), adds SpecCheck manifest rows (3 pieces) + `PIECES_AND_CRAFTABLES.md`
-> dataset rows, and code + spec + manifest move together (AGENTS.md). The implementing card
-> goes to **engineer-systems** (the gated `Bed.CheckExposure` relax + skip-no-spawn path +
-> wiring the bedroll wake into the beautification *Inspired* grant hook + 3 additive
-> pieces); the real bear-hide art is a separate art swap behind the placeholder prefab names.
+> **🟢 GRADUATED 2026-06-26 (architect, card t_439f2351).** The buildable scope left this
+> `living` doc for two version-scoped impl-specs under `docs/v2/planning/` (Black Forest tier,
+> Q1 resolved): **`bear-hide-tent-collider-fit-impl-spec.md`** (tent collider walk-under fix)
+> and **`bear-hide-tent-triad-build-impl-spec.md`** (the bedroll + camp fire, SpecCheck +2 +
+> `PIECES_AND_CRAFTABLES.md` rows). Code + spec + manifest move together (AGENTS.md). Both
+> implementing cards go to **engineer-systems** (the collider graft mirrors the Ancient Portal
+> walk-up fix; the gated `Bed.CheckExposure` relax + skip-no-spawn path is the triad spine).
+> The real bear-hide art is a separate art swap behind the placeholder prefab names, and the
+> *Inspired* feed lands when `trailside-beautification.md` graduates (§5-Q7). **This doc stays
+> `living`** for those two seeds (art + §8 time-acceleration), not for the now-specced build.
 
 
 ## 7. Scope boundaries

@@ -131,5 +131,50 @@ Planning artifacts for the Black Forest tier. Same role as
   `RENDER` + `AT-INGEST-1` / `REBUILD`. **status: proposed** — Daniel's design is already locked;
   this is the spec half, gated for doc-review. SpecCheck delta = **+0** (behavior-only).
 
+- **`bear-hide-tent-collider-fit-impl-spec.md`** — the buildable *how* for the **Bear Hide
+  Tent collider fix** (BUG card `t_439f2351` defect 1, Daniel 2026-06-26 in-game playtest:
+  *"the collision mesh has no relationship to the tent mesh"* / *"I am not finding a spot
+  where I can get shelter."*). GROUNDED firsthand: the shipped bundle mesh
+  (`SBPR_TraderTentMesh`) has its pivot at Haldor's camp scene-origin, so its AABB centres at
+  root-local **(4.49, 2.38, 1.46)** — but it's attached at `Vector3.zero`, so the canopy
+  renders ~4.7 m horizontally off the box collider authored at `(0, 2.45, 0)`. **CORRECTS the
+  card's proposed fix** in one load-bearing way: the card says "measure a box to the mesh AABB
+  like the siblings," but the real defect is a wrong collider **TYPE** — the as-built threw
+  away the donor's **open-sided `MeshCollider{convex:false}`** (which the vanilla `TraderTent`
+  ships, proving a runtime concave static collider is safe) for a **solid 8×4.9×6.9 box** that
+  walls off the interior (fails walk-under at *any* size) and would invert the §2 open-canopy
+  cover intent. Fix = graft the donor's open MeshCollider, **seated to the MEASURED mesh
+  foot/centre** (the `Assets.Measure*` pattern from `Signs.cs`/`MarkerSigns.cs` — **not** the
+  hand-guessed `SurveyorsTable` box the card mis-cites), + demote the shell box to a thin
+  ground pad (the Ancient Portal walk-up philosophy: never leave the piece with zero
+  structural colliders). **Implementer = `engineer-systems`** (same profile that fixed the
+  structurally-identical Ancient Portal walk-up collider). `AT-COLLIDER-FIT` / `WALK-UNDER` /
+  `UNDERROOF` / `PLANT` / `HIT` / `BUILD`. SpecCheck delta = **+0** (collider geometry on an
+  existing prefab). **status: current** — fixes a live playtest bug; the engineer child builds
+  it. Base = `main` (the tent ships there, not the seers-stone branch).
+
+- **`bear-hide-tent-triad-build-impl-spec.md`** — the buildable *how* for the **two unbuilt
+  Trailside Camp pieces** (card `t_439f2351` defects 2,3, Daniel: *"I don't see the bed."*).
+  Only 1 of the 3 triad pieces was ever built (`Features/Camp/` = one file); this graduates
+  the buildable half of [`../../design/trailside-camp.md`](../../design/trailside-camp.md):
+  the **special bedroll** (`piece_sbpr_bedroll` — vanilla `Bed` + a **prefab-gated
+  `Bed.CheckExposure` relax** that drops *only* the `cover ≥ 0.8` clause while keeping
+  `underRoof`, so you sleep under *the tent* but not open sky + a **skip-night-NO-spawn** path
+  so a trail nap never overwrites your home respawn) and the **covered camp fire**
+  (`piece_sbpr_camp_fire` — small `Fireplace` + Heat `EffectArea`, *inverting* the Cairns'
+  strip-the-Heat machinery to **keep** it, satisfying vanilla sleep gate 4). **Closes design
+  §5's open knobs:** Q3 (Spade), Q5 (three separate pieces), Q6 (keep `underRoof`) **RESOLVED**
+  by grounded lean + repo consistency; Q4 (camp-fire storm-proofing → accept rain-only) and Q7
+  (Inspired) **PROPOSED, Daniel-gates**. 🔴 **Q7 sequencing correction:** the design assumed
+  the bedroll feeds the beautification *Inspired* buff "via the existing non-cairn-comfort
+  hook," but that buff is **NOT built** (zero code — it lives only in the `living`
+  `trailside-beautification.md`). So the bedroll ships granting vanilla **`SE_Rested`** now
+  (free from the skip-wake = Daniel's "plus comfort"), with Inspired **deferred** to when
+  beautification graduates (built Inspired-ready, not blocking). **Implementer =
+  `engineer-systems`** (the gated `Bed` patch is the spine). `AT-BEDROLL-SLEEP` / `NOFIRE` /
+  `WET` / `COMFORT` / `VANILLA` (regression: vanilla beds untouched) + `AT-CAMPFIRE-PLACE` +
+  `AT-TRIAD-BUILD`. SpecCheck delta = **+2** (bedroll + camp fire pieces + dataset rows).
+  **status: proposed** — Daniel gates Q4/Q7 + doc-review; the engineer child builds it.
+
 As more v2 features (Real Tents, lamp/pigment graduation) get specced, their
 requirements land here too.
