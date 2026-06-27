@@ -203,7 +203,7 @@ tint so it's visually distinguishable at a glance"* — with:
 > - **Visual kitbash — a DISTINCT silhouette (colorblind-safe; deferred→required, card t_4ab58b42).**
 >   The Twisted Portal must read as its own object by **shape**, not hue: Daniel is colorblind, so a
 >   tint-only diff from the Ancient Portal is invisible to him. Per
->   [`twisted-portal-distinct-mesh.md`](../../design/twisted-portal-distinct-mesh.md), build a
+>   [`twisted-portal-distinct-mesh.md`](twisted-portal-distinct-mesh.md), build a
 >   distinct additive kitbash (ADR-0006, all mesh-reference grafts, ZNetView-free): a cluster of
 >   **5 uneven inward-leaning tapered spikes** (`Stalagmite` `default` mesh) on a tighter ~0.9 m
 >   radius, crowned by a **self-emissive `GuckSack` (`Cancer`) mass** in place of the
