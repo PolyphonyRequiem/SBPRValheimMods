@@ -255,8 +255,11 @@ namespace SBPR.Trailborne.Features.Cartography
         /// CANDIDATES in <see cref="RemovePinNear"/> so the Table-edit eraser still removes the nearest
         /// *player* pin instead of being blocked by an adjacent system pin. PinType is a collision-free
         /// discriminator: vanilla pin-UI only ever places Icon0-4, so a Boss/Hildir type is unambiguous.
+        /// Promoted private→internal (card t_2110193e / §2N.3) so the live system-pin collector
+        /// (SystemPins.Collect) reuses this SINGLE discriminator — the live-derive filter and the §2K.8
+        /// delete-guard can never drift on "what is a system pin." No logic change.
         /// </summary>
-        private static bool IsSystemPin(int type)
+        internal static bool IsSystemPin(int type)
         {
             var pt = (Minimap.PinType)type;
             return pt == Minimap.PinType.Boss

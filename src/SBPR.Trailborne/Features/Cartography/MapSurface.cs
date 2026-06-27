@@ -232,6 +232,12 @@ namespace SBPR.Trailborne.Features.Cartography
         // radar). Persists nothing (not SurveyPins) so SurveyData.WireVersion stays 1. Location
         // GameObjects are added to _pinObjects so they counter-rotate upright + clear each rebuild.
         private readonly List<LocationMarker> _locationScratch = new List<LocationMarker>();
+        // Live system pins (Boss + Hildir1–3) read from the holder's vanilla Minimap.m_pins each
+        // RebuildOverlay (card t_2110193e). The MISSING capture path: boss pins used to reach the map ONLY
+        // via a frozen Surveyor's-Table survey (CollectShareablePins), so a boss discovered-but-not-surveyed
+        // never showed. Derive them live like the MarkerSign pins, AddIfNew'd into `rendered` so they ride the
+        // EXISTING SpawnPinMarker (icon + localized label + dedup), pixel-identical to a frozen boss pin.
+        private readonly List<SurveyPin> _systemPinScratch = new List<SurveyPin>();
         // Blip size + rim multiplier now live in the shared Cartography.MinimapThreatMetrics (card
         // t_bc017af4) so BOTH minimap surfaces (this disc + the vanilla corner overlay) read ONE symbol
         // and can't desync. Size resolves live via Plugin.ResolvedMinimapBlipPx (SunstoneLens/MinimapBlipPx
@@ -705,6 +711,22 @@ namespace SBPR.Trailborne.Features.Cartography
             catch (Exception e)
             {
                 Plugin.Log.LogWarning($"[Trailborne/Cartography] MapSurface: live WorldPins scan failed: {e.Message}");
+            }
+
+            // Live system pins (Boss + Hildir1–3) from the holder's vanilla Minimap.m_pins (card t_2110193e,
+            // §2N). The missing capture path: boss pins only reached the map via a frozen Table survey, so a
+            // boss discovered-but-not-surveyed never showed. Emit them as SurveyPins and AddIfNew them into the
+            // SAME `rendered` list, so they ride the EXISTING SpawnPinMarker loop below — inheriting the §2K.7
+            // icon, the §2K.2 localized label, PinIconPx sizing, and K1 dedup vs the frozen survey pins for
+            // free (a live boss is pixel-identical to a frozen one). Persists nothing → WireVersion stays 1.
+            try
+            {
+                SystemPins.Collect(_systemPinScratch);
+                foreach (var sp in _systemPinScratch) AddIfNew(rendered, sp);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[Trailborne/Cartography] MapSurface: live SystemPins scan failed: {e.Message}");
             }
 
             float edge = _mapRect.sizeDelta.x;
