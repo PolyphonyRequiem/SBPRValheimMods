@@ -2,18 +2,18 @@
 title: "SBPR Trailborne — Playtest #6 Testers Guide"
 status: current
 purpose: "Playtest #6 — generated from playtest-ledger.md + git ground truth. Do not hand-edit; regenerate."
-generated_from_tag: v0.2.38-playtest
+generated_from_tag: v0.2.39-playtest
 diff_ref: main
 ---
 
 # SBPR Trailborne — Playtest #6 Testers Guide
 
-**Build:** SBPR Trailborne 0.2.39 (current `main`, ahead of `v0.2.38-playtest`)
+**Build:** SBPR Trailborne 0.2.39 (current `main`, ahead of `v0.2.39-playtest`)
 **Test mode:** Local solo on a fresh client build (unless an item says otherwise).
-**Generated:** 2026-06-26 12:23 PDT
+**Generated:** 2026-06-27 09:50 PDT
 
 > This guide is produced by `scripts/gen-playtest-guide.py` from the living
-> **playtest ledger** and the actual code changes since `v0.2.38-playtest`. The
+> **playtest ledger** and the actual code changes since `v0.2.39-playtest`. The
 > **Playtest #6** number is the human-facing testing series — distinct from the
 > `vX.Y.Z-playtest` build tags.
 
@@ -146,6 +146,18 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
 |---|---------|------|--------|------------------------|
 | 26 | **Seer's Stone — v4 Mountains wisp-lens (whitelist substrate · item · wisp field · pin-by-look)** | _(#279, `feat(seers-stone)`; #design-thread feature — no card)_ | ✅ merged to `main` (`020b4b2`); ships in `v0.2.39` | SBPR's signature Explorer item, the full feature across four milestones — **all four player surfaces are new, NO in-game verification yet.** Craft the **`SBPR_SeersStone`** at a **Forge** (crystal-gated recipe: **Crystal + Silver + JuteRed**), equip it in the **Utility** slot. **(a) M1 — whitelist substrate:** on first server boot a default `seers_stone_whitelist.yaml` (132 entries: 20 pickable + 9 surface-ore + 103 location) seeds into `BepInEx/config/SBPR.Trailborne/`; it's owner-editable and unlisted/modded prefabs get no marker (ignore-unlisted). **(b) M3 — wisp field (worn):** while the stone is worn, eligible nearby **Pickables/ore** show small **helix-orbiting wisps** (perimeter orbit at bounds+margin + vertical bob, ground-aware), and curated **Locations** show **bigger, greyer markers** — personal/client-only, no networking/ZDO, persisting while the object exists. **(c) M4 — pin-by-look (Alt+E):** look at a resource cluster or location and press **Alt+E** → a camera raycast re-checks eligibility and drops a map pin (`Minimap.AddPin` for Pickables / `DiscoverLocation` for Locations) with merge-dedup so a cluster pins once. **AT-SEERS-WHITELIST-SEED / AT-SEERS-WISP-WORN / AT-SEERS-WISP-CLASSES (small-colored vs bigger-greyer) / AT-SEERS-PIN-BY-LOOK / AT-SEERS-PIN-DEDUP.** 🟡 **Two explicit Daniel gates:** (1) the wisp glow is the raw **`demister_ball`** placeholder effect and the item icon is a **magenta v0.1 fallback** — both are eyeball polish passes, your look decides the final art; (2) the YAML parser was **hand-written engine-free, YamlDotNet dropped** (no shipped lib = no assembly-version collision — your stated concern) — flagged for your explicit yes/no, the wrapper's shaped to drop the real parser back in if you'd rather. Recipe numbers are eyeball, yours to tune. Build 0/0, **451 unit tests green**, render-verified on Prime (wisp glows + helix orbits at 2.75 m measured). logs-green ≠ playable — the glow, icon, and pin feel are your in-game accept. |
 
+### 🆕 Round 7 — fixes from Daniel's Niflheim playtest on the `v0.2.39` client, ship in `v0.2.40-playtest`
+
+> Counter stays at **#6** — `v0.2.40-playtest` is the **seventh** build carrying Playtest #6. These are a
+> round-refinement of a prior #6 surface (the Sunstone lens-live cue) plus a render-defect fix on the
+> round-5 Twisted Portal overlay — not a new testing series. Both are **player-visible surfaces with NO
+> in-game verification yet** — "logs-green ≠ playable" applies to every row.
+
+| # | Feature | Card | Status | What to verify in-game |
+|---|---------|------|--------|------------------------|
+| 27 | **Sunstone Lens — persistent corona aura (lens-live cue survives the minimap handoff)** | t_7416e5b9 (#255) | ✅ merged to `main` (`1c07d2e`); ships in `v0.2.40` | Re-homes the old flat-ring "pulsing aura" intent (t_acaa0190, superseded by the #254 world-space corona) onto the shipped corona by **decoupling it from the trophy halo**. Before: when a minimap won the threat feed the empty-state corona went dark with the ring, so a worn+charged Lens with a minimap up and **nothing near** showed **no "lens is live" cue at all**. Now (`CoronaPersistsOnMinimap` ON by default): the world-space sun-corona keeps **breathing** (alpha-pulse luminance, legible independent of hue) whenever the Lens is worn+charged, regardless of which surface draws threats. Equip + solar-charge the Lens with a **minimap present** (SBPR carry-disc **or** vanilla corner) and **no hostiles near**: **(a)** the corona stays lit and pulsing at your feet (FeetGlow default from #264) — the lens always reads "live"; **(b)** when a threat appears, the trophy halo rides the **same** root (one shared show/hide lifecycle, #209 host-pump invariant holds); **(c)** the cue is a luminance breath, **not** a hue change (colorblind-safe). The decoupling lives on the engine-free `LensHandoffDecision` truth table (`coronaContentVisible = ringContentVisible || persistKnob`), headless-CI-gated. **AT-CORONA-PERSIST-MINIMAP** + **AT-CORONA-DECOUPLED-FROM-TROPHIES** (8 new `LensHandoffDecisionTests` cases green; render is GPU-only — Daniel's eye is the accept). logs-green ≠ playable — closes t_7416e5b9. |
+| 28 | **Twisted Portal — through-terrain rune labels: un-mirror + de-fuzz + constant-on-screen size** | t_f66a3e37 / architect t_f739451f (#284) | ✅ merged to `main` (`efd198e`); ships in `v0.2.40` | Daniel on `v0.2.39` (Niflheim): the round-5 Twisted Portal rune labels (#274, item 24) rendered **mirrored, fuzzy, and shrank with distance** (unreadable). Route B (the shipped through-terrain overlay) is **KEPT** — all three are render-only defects fixed in place (Route A would discard shipped code + kill the through-terrain headline). **(a) UN-MIRROR:** labels read left-to-right, not back-to-front (vanilla `Billboard.m_invert=true`, decomp-grounded; upright-yaw + ZTest-Always through-terrain preserved). **(b) DE-FUZZ:** glyphs are **crisp**, not blurry (4× supersampled atlas; on-screen world size invariant by construction). **(c) CONSTANT ON-SCREEN SIZE:** labels hold ~constant angular/pixel size across the overlay range (clamped near/far) — they **no longer shrink** with raw perspective (`ConstantOnScreen` default; `KneeFloor` alt selectable, both live BepInEx config). Stand within ~3 m of one or more **named** Twisted Portals and read the floating rune labels at varied distances + through hills/walls: **(a)** text reads correctly (not mirrored), **(b)** crisp at all ranges, **(c)** stays readable far away (doesn't shrink to nothing), **(d)** still renders **through terrain** + billboards to camera (AT-LABEL-THROUGHTERRAIN-PRESERVED regression). Model untouched — pure render fix; geometry/sharpness not color (low colorblind risk). **AT-LABEL-UNMIRROR / -CRISP / -CONSTANT-SIZE / -THROUGHTERRAIN-PRESERVED** (AT-LABEL-SCALE-MATH +32 xUnit cases green; rendered pixels are Daniel's in-game accept). logs-green ≠ playable — closes the impl half of t_f66a3e37 (architect t_f739451f). |
+
 ### 🔁 Carried forward — not yet shipped / not yet verified
 
 Shipped **no** code change in any tag (blocked / verify-only), so it carries into #6 rather than being archived as a #5 surface.
@@ -194,10 +206,10 @@ Shipped **no** code change in any tag (blocked / verify-only), so it carries int
 
 ### ⏳ In-flight (will join PENDING when merged)
 
-- **Open PRs** not yet on `main` (become the next-build candidates when merged): **#255** persistent corona aura —
-  lens-live cue survives the minimap handoff (t_7416e5b9).
+- _(none currently — #255 corona aura merged via #284's cut window and is now a real PENDING row (item 27),
+  removed from in-flight so it can't mask the guard next cycle — the check-3 trap.)_
 - **Closed without merge** (dropped, not a candidate): **#241** Sunstone Lens pulsing solar aura impl-spec (t_e4a6f559) —
-  superseded by the shipped corona #254 / the open #255 aura.
+  superseded by the shipped corona #254 / the re-homed #255 aura (now item 27).
 
 > _Reconciled at the v0.2.37 cut: the Eikthyr boss-pin surface (t_5c3944cd) **merged** via #263 and is now a real
 > PENDING row (item 19) — removed from in-flight so it can't mask the guard next cycle (the check-3 trap)._
@@ -207,7 +219,7 @@ Shipped **no** code change in any tag (blocked / verify-only), so it carries int
 
 ## 3. Ground-truth cross-check (auto)
 
-Code commits touching `src/**/*.cs` since **v0.2.38-playtest**: **1**
+Code commits touching `src/**/*.cs` since **v0.2.39-playtest**: **2**
 
 
 ✅ Every merged code change maps to a ledger item. No silent-untested changes.
