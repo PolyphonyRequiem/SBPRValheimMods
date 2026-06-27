@@ -35,13 +35,17 @@ graduated_to: "docs/v3/planning/sunstone-lens-aura-impl-spec.md (the buildable s
 > - **§0–§5 below (pulse the FLAT `_emptyRing` for the no-minimap home) → SUPERSEDED**
 >   by the 3D corona. The screen-space annulus is removed, not animated.
 > - **The MINIMAP-RIM RE-HOMING half (§3 / §7 AT-AURA-MINIMAP-RIM / AT-AURA-FOLLOWS-
->   DETECTION) → PARKED, still a live proposal.** Drawing the lens aura on a *minimap
->   surface* (vanilla corner-map rim / carry-disc bezel) when a minimap owns detection
->   is a **different surface and a different concern** (the §2 disc-bezel colour
->   collision) — it is **NOT built by `t_2d500d45`/`t_9d7c3dfe`** and was **not blocked
->   on it**. Per Daniel it is **conditional on him still wanting the aura on a minimap
->   surface**; if he confirms, cut a fresh `engineer-ui` card then. This doc stays
->   `proposed` for that parked half.
+>   DETECTION) → NOW BUILT, RE-HOMED (card `t_7416e5b9`, Daniel confirmed 2026-06-22,
+>   Discord `ticket-diegetic-halo-render`: "implement 241, apply it to the new design").**
+>   Daniel confirmed he wanted the "lens is live on the minimap path" cue — so it is now
+>   built, but **re-homed onto the new design**: NOT a separate gold annulus on the
+>   minimap rim / carry-disc bezel (which collided with the Iron Compass `_bezel.color`
+>   tint, §2), but the **world-space sun-corona itself kept breathing** when a minimap
+>   owns detection (the corona is decoupled from the threat trophies; only the trophies
+>   hand off to the minimap). One new live knob `CoronaPersistsOnMinimap` (default ON).
+>   Buildable spec: [`../v3/planning/sunstone-lens-aura-impl-spec.md`](../v3/planning/sunstone-lens-aura-impl-spec.md).
+>   **With both halves now resolved (flat-ring → corona; minimap-surface → corona
+>   persistence), this design doc is fully realized — it owes no further cards.**
 
 Daniel's idea, verbatim (2026-06-21, via `/bug`, ticket `ticket-sunstone-lens-aura`):
 
