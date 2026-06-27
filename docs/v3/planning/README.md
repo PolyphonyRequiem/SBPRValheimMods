@@ -5,19 +5,20 @@ Planning + impl specs for the **v3 Swamp tier** of SBPR Trailborne.
 ## What's here
 
 - [`twisted-portal-impl-spec.md`](twisted-portal-impl-spec.md) — the build-ready spec for the
-  **Twisted Portal**, a long-range named portal network. A distinct portal class that teleports
-  even where vanilla portals are blocked (the `NoPortals` global key), addressed by player-assigned
-  **rune names**. **Cost model = FOOD-AS-FUEL (no key trinket)** — teleport range is gated by the
-  food in your belly (**Portal Energy** = remaining-food-minutes × a stat-derived tier), a jump
-  spends food-time scaled by distance (so distance both costs provisioning AND lands you depleted),
-  and **Bukeperries** are a burnable emergency reserve for the shortfall (a berry-jump arrives
-  *Feeling Sick*). **Reconciled 2026-06-24 to the locked design** (`twisted-portal-food-charge.md`,
-  PR #270/#271) — the former `SBPR_TwistedKey` durability-battery economy is removed. Q2 (charge
-  economy) resolved → food-as-fuel; **Q1 = coexist and Q3 = Model A (name-pairing + informational
-  through-terrain overlay) locked.** The cost model is **patch-free** (PE read on demand from
-  `Player.GetFoods()`). Decomposes into already-created impl cards C1 (t_2b388cd5 portal core), C2
-  (t_6e992a30 cost model), C3 (t_e732bd8b overlay) — they auto-promote when this reconciliation
-  merges (reconcile card t_c15411b2; original t_f9cab392).
+  **Twisted Portal**, a long-range portal network. A distinct portal class that teleports
+  even where vanilla portals are blocked (the `NoPortals` global key). **Destination model = LOOK-TO-AIM picker**
+  (option A, gaze-selected; SUPERSEDES the prior Model A same-rune pairing, card t_3d908685, 2026-06-27): stand on a
+  portal, **aim the crosshair at a destination portal**, see a **food-impact preview**, **press [Use]/E to commit**.
+  Rune names survive as human-readable **aim labels** (not the pairing key); server-authoritative long-range resolution
+  is now **REQUIRED** (the `SurveyorTableTag` owner-routed-RPC precedent), and the overlay flips from informational to
+  the **interactive selection surface**. **Cost model = FOOD-AS-FUEL (no key trinket), unchanged** — teleport range is
+  gated by the food in your belly (**Portal Energy** = remaining-food-minutes × a stat-derived tier), a jump spends
+  food-time scaled by distance, and **Bukeperries** are a burnable emergency reserve for the shortfall (a berry-jump
+  arrives *Feeling Sick*); the cost model is **patch-free** (PE read on demand from `Player.GetFoods()`). The shipped
+  base portal + cost engine + through-terrain labels (Model A cards C1/C2/C3) are carried forward and reused; this pass
+  decomposes into the look-to-aim impl cards **L1 (t_f4d0d5e1 aim-pick + E-commit), L2 (t_ccb454f8 server-authoritative
+  long-range), L3 (t_d9ea1b2c overlay selection + food preview)** — they auto-promote when this spec PR merges. The one
+  open Daniel design-lock is the E-key (rename vs commit; default tap-E commits, rename → hold-E).
 - [`trail-lights-impl-spec.md`](trail-lights-impl-spec.md) — architect+spec for the v3
   **trail-light family** (card t_117bc232): two distinct **eternal** Spade-placed pieces, a
   tall far-reaching **Beacon** and a small **Surtling-Ember Lamp**, gated by Surtling core.
