@@ -1,12 +1,49 @@
 ---
 title: "Twisted Portal — long-range named portal network, food-as-fuel cost model (v3 impl spec)"
 status: proposed
-purpose: "Build-ready architect spec for the v3 Swamp-tier Twisted Portal: a distinct portal class that teleports even where vanilla portals are blocked (NoPortals), addressed by player-assigned RUNE NAMES, with travel range gated by FOOD-AS-FUEL — NO key trinket. RECONCILED 2026-06-24 to the locked cost model in docs/design/twisted-portal-food-charge.md (PR #270 + #271, merged): Portal Energy PE(slot)=remaining_minutes x tier(food) summed over active belly slots; a teleport spends PE as food-time scaled by distance (so distance both costs provisioning AND lands you depleted); Bukeperries (vanilla Pukeberries) are a burnable EMERGENCY RESERVE spent only on the shortfall (30 m/berry, 10 = the 300 m ceiling), and a berry-burning jump arrives food-empty AND Feeling Sick (vanilla SE_Puke). The superseded SBPR_TwistedKey durability-battery economy is REMOVED from the build surface entirely. Q2 (charge economy) is RESOLVED -> food-as-fuel; Q1 (coexist) and Q3 (Model A name-pairing + informational overlay) are LOCKED as the architect's bottom-line recommendations. The portal mechanism, NoPortals bypass, rune-name ZDO pairing, the through-terrain overlay, and the server-side 300 m multiplayer finding are UNAFFECTED by the cost-model change. Every decomp line re-verified this pass against assembly_valheim. The child impl cards (C1 portal core t_2b388cd5, C2 cost model t_6e992a30, C3 overlay t_e732bd8b) are already created with this card as parent and auto-promote when this reconciliation merges. Daniel gates the merge (docs-only PR)."
+purpose: "Build-ready architect spec for the v3 Swamp-tier Twisted Portal: a distinct portal class that teleports even where vanilla portals are blocked (NoPortals), travel range gated by FOOD-AS-FUEL — NO key trinket. DESTINATION model SUPERSEDED 2026-06-27 (card t_3d908685): the prior Model A (same-rune-name pairing) is RETIRED in favor of a LOOK-TO-AIM destination picker (option A, gaze-selected) — stand on a portal, aim the crosshair at a destination portal in the world, a visual indicator + a food-impact PREVIEW show the target, press [Use]/E to commit. Daniel reported the look-to-aim interaction as completely absent in playtest (blocker) and confirmed it IS option A (the selectable picker) with gaze selection, not name-matching. Rune names survive as human-readable aim labels (default), not the pairing key. Server-authoritative long-range resolution is now REQUIRED (a picker must reach destinations beyond the client's ~64-128 m ZDO window — the SurveyorTableTag owner-routed-RPC precedent), and the false 'runs on the OWNER' comment at TwistedPortal.cs:54-58 is swept. A read-only PreviewJump food-impact readout is added (the non-mutating PortalEnergyMath.SolveJump seam already ships), overturning the prior 'no charge readout' line. The overlay flips from informational to an interactive selection surface. UNCHANGED and verified firsthand against origin/main: the shipped food-as-fuel cost engine (PortalEnergyMath/TwistedPortalEnergy), the additive swamp-tint construction, the sbpr_rune_name ZDO slot + owner-write discipline, the NoPortals bypass, and Player.TeleportTo as the move primitive — only the addressing/selection/commit surface moved. This card converts the prior design-revisit-blocked card into a SPEC-PASS that rewrites Q3 + the destination/commit/overlay sections in one PR and decomposes into impl children. The earlier reconciliation context (food-as-fuel, PR #270/#271; the SBPR_TwistedKey economy removed; Q1=coexist) is carried forward intact. Daniel gates the merge (docs-only PR) and the single E-key design-lock line."
 supersedes_partial:
-  - "This spec's own former §5 (the SBPR_TwistedKey food-charged Trinket durability-battery economy) is REPLACED by food-as-fuel per docs/design/twisted-portal-food-charge.md. No SBPR_TwistedKey item, no EatFood/RemoveOneFood charge postfixes, no DrainEquipedItemDurability prefix. The portal class, rune-name pairing, NoPortals bypass, through-terrain overlay, and server-side 300 m pairing are carried forward unchanged."
+  - "This spec's own former §5 (the SBPR_TwistedKey food-charged Trinket durability-battery economy) is REPLACED by food-as-fuel per docs/design/twisted-portal-food-charge.md. No SBPR_TwistedKey item, no EatFood/RemoveOneFood charge postfixes, no DrainEquipedItemDurability prefix. The portal class, rune-name storage, NoPortals bypass, and food-as-fuel cost engine are carried forward unchanged."
+  - "The former Q3 DESTINATION model (Model A: a Twisted Portal teleports to the nearest other Twisted Portal that shares its rune name) is SUPERSEDED 2026-06-27 (card t_3d908685) by a LOOK-TO-AIM destination picker (option A, gaze-selected): the player aims the crosshair at a destination portal and presses [Use]/E to commit, with a food-impact preview. Rune names are demoted to human-readable aim labels (default) and are no longer the pairing key. The informational-overlay lock (§7) and the jump-through-ring commit verb (§4.5) are superseded accordingly; server-authoritative long-range resolution becomes REQUIRED (§2). The NAMING UX (TextInput via TextReceiver, §6) and the rune-name ZDO storage slot are carried forward — only their ROLE changes (label, not key) and the E-key that opens rename moves to a secondary gesture."
 ---
 
 # Twisted Portal — long-range named portal network, food-as-fuel cost model
+
+> 🟥🟥 **SUPERSESSION 2026-06-27 (card t_3d908685): the DESTINATION model is now LOOK-TO-AIM, not Model A name-pairing.**
+> Daniel playtested on Niflheim and reported the travel interaction he expects is **completely absent** (severity:
+> blocker): *"the model we discussed is 'while standing on the foundation of a twisted portal, aim the crosshair close
+> to the target twisted portal in the world, a visual indicator shows the target clearly, as well as the impact to
+> food. Press E to commit.' None of that is happening. When standing on a portal, other names are appearing but that's
+> it."* He corrected this card's framing explicitly — *"read again and you would know it was A"* — confirming the
+> look-to-aim model **IS option A, the selectable destination picker**, with selection by **gaze** (aim the crosshair)
+> rather than a list click. This is a **design decision by the authority, not an open question**: name-matching as the
+> *destination rule* is retired. What this changes, in this PR:
+> - **§1 Q3** — destination model flips from **Model A (same-rune pairing)** → **look-to-aim destination picker (option
+>   A, gaze-selected)**. Rune names survive as **human-readable aim labels** (default), not as the pairing key.
+> - **§2** — server-authoritative long-range resolution moves from *optional / out-of-v3.0-scope* → **REQUIRED on the
+>   redesign** (a picker must surface destinations beyond the client's ~64–128 m ZDO window). The false "runs on the
+>   OWNER" comment at `TwistedPortal.cs:54-58` is swept by the impl (grounded below).
+> - **§4.4 / §4.5** — the commit verb flips from **jump-through-the-ring** → **aim + press [Use]/E to commit**;
+>   `ResolveDestination` changes from *nearest-same-rune* → *the aimed/selected destination*; the overhead jump-through
+>   trigger is removed/repurposed.
+> - **§5 / §6** — a read-only **`PreviewJump`** food-impact readout is added (the non-mutating `SolveJump` seam already
+>   exists), which **overturns §6's "No charge readout"** line (the model makes cost a pre-commit preview).
+> - **§7** — the overlay flips from **informational** → **interactive selection surface** (the labels are the aim
+>   targets; a selected/aimed-highlight state is added). This overturns §7's "informational, not a picker" lock.
+> - **UNCHANGED** (verified firsthand against `origin/main` this pass): the food-as-fuel cost engine (§5 math:
+>   `PortalEnergyMath`/`TwistedPortalEnergy`, shipped), the additive construction + swamp-tint kitbash (§4.1–§4.3), the
+>   `sbpr_rune_name` ZDO slot + owner-write discipline (§6 storage), the `NoPortals` bypass, and `Player.TeleportTo` as
+>   the move primitive. Only the *addressing / selection / commit* surface moved.
+>
+> **The one genuine fork carried to Daniel (a single design-lock line, NOT a menu — §6):** today [Use]/E opens the rune
+> rename; under look-to-aim **E must commit travel**. Architect default for his nod: **keep rune names as aim labels;
+> tap-E commits travel to the aimed destination; renaming moves to hold-E / the hover menu.** (If he'd rather drop
+> naming entirely, E frees up — but the labels are the aim targets, so read-only labels is the safer default.)
+>
+> The rest of this document is the prior **food-as-fuel reconciliation (2026-06-24)**, carried forward intact where the
+> banner above does not override it. Where the two conflict, **this banner and the sections it names win.**
+
+---
 
 The design is locked across two docs: the *what* of the portal mechanism
 ([`nomap.md` §7 "Twisted Portal (THE BIG ONE)"](../../design/nomap.md)), and the *what* of the
@@ -46,14 +83,15 @@ acceptance tests, the `Features/Portals/` placement, and the SpecCheck manifest 
 > additive shell + grafted-ring kitbash (`docs/v2/planning/ancient-portal-impl-spec.md`).
 
 > 🟢🟢 **STATUS after reconciliation: the cost economy is DECIDED (food-as-fuel, design-locked).**
-> The two pacing/UX calls that remained — **Q1** (coexist vs replace) and **Q3** (destination UX) —
-> are LOCKED to the architect's bottom-line recommendations (**Q1 = coexist, Q3 = Model A**), which
-> is what the already-created child cards build against. The old "🔴 BLOCKED ON DANIEL: three design
-> decisions" gate is **retired**: Q2 is resolved by the merged design doc; Q1/Q3 are the
-> low-risk, vanilla-congruent defaults this spec always recommended. The remaining secondary flags
-> (NoBossPortals keep/lift, ore-ban keep/lift, the AT-NO-VANILLA-PAIR `s_tag` approach) are
-> engineer-resolvable in-game and noted per-section, not gates. If an engineer finds a hard reason
-> to reopen Q1 or Q3 mid-build, they BLOCK with the specific finding rather than guessing (§1).
+> Q1 (coexist vs replace) is LOCKED = **coexist**. Q2 (charge economy) is RESOLVED = **food-as-fuel** (merged design
+> doc). **Q3 (destination UX) is SUPERSEDED 2026-06-27 (card t_3d908685): the destination model is now the LOOK-TO-AIM
+> picker (option A, gaze-selected), NOT Model A name-pairing** — see the supersession banner above and the rewritten
+> §1 Q3 / §2 / §4.4–§4.5 / §6 / §7. The old "🔴 BLOCKED ON DANIEL: three design decisions" gate stays retired (Q2 is
+> resolved by the merged design doc; Q1 is locked-coexist). The remaining secondary flags (NoBossPortals keep/lift,
+> ore-ban keep/lift) are engineer-resolvable in-game and noted per-section, not gates. The **one** new design-lock line
+> this pass carries to Daniel is the **E-key collision** (rename vs travel-commit, §6) — a single default for his nod,
+> not a menu. If an engineer finds a hard reason to reopen Q1 mid-build, they BLOCK with the specific finding rather
+> than guessing (§1).
 
 ---
 
@@ -100,9 +138,9 @@ spec + SpecCheck row move in the **same PR** (spec-first rule).
 
 ---
 
-## 1. Design questions — Q2 RESOLVED, Q1 + Q3 LOCKED (the gate is retired)
+## 1. Design questions — Q2 RESOLVED, Q1 LOCKED, Q3 SUPERSEDED (look-to-aim picker)
 
-The card body named three open questions. They are now settled:
+The card body named three open questions. Q1/Q2 are settled; Q3's *destination* answer was superseded 2026-06-27:
 
 ### Q1 — Coexist with, or replace, vanilla/Ancient portals once unlocked? → **LOCKED: COEXIST**
 *(card OpenQ 1; also `nomap.md` §7 open #3)*
@@ -133,43 +171,101 @@ entire §5 (now the PE engine, not a key), §8 (the patch surface **collapses** 
 **zero Harmony patches**, where the key needed three), and the SpecCheck manifest (§0, the key row
 removed). This is the substance of the t_c15411b2 reconciliation.
 
-### Q3 — Rune-name UX (naming + destination choice) → **LOCKED: Model A**
-*(card OpenQ 3; `nomap.md` §7 — "on-step shows visible portal names")*
+### Q3 — Destination UX → **SUPERSEDED 2026-06-27: LOOK-TO-AIM PICKER (option A, gaze-selected)**
+*(card OpenQ 3; `nomap.md` §7 — "on-step shows visible portal names"; supersession card t_3d908685)*
 
-Two interactions, both locked:
+> 🟥 **The former answer (Model A: "a Twisted Portal teleports to the nearest other Twisted Portal that shares its
+> rune name") is RETIRED as the DESTINATION rule.** Daniel never intended a matching-name requirement, reported the
+> look-to-aim interaction as **absent** in playtest (blocker), and confirmed the model **IS option A — the selectable
+> destination picker** — with selection by **gaze** (aim the crosshair at the destination) rather than a list click.
+> The prior `ResolveDestination` (`SBPR_TwistedPortal.cs:174-243`, verified this pass) does an exact same-rune match
+> (`:212 if (theirRune != myRune) continue;`) and an unnamed portal never pairs (`:184`) — that is the gate Daniel is
+> rejecting. This is the design authority's call, not an open question.
 
-- **(a) Naming — reuse the vanilla `TextInput` rename dialog** (the path vanilla portals use for
-  their tag: `TeleportWorld.Interact` → `TextInput.instance.RequestText(this, …)`). Our class
-  implements `TextReceiver` (`GetText`/`SetText`, decomp interface `:54810`); `[Use]` (E) opens the
-  rename box, the typed string is written to the `sbpr_rune_name` ZDO slot (§6). Zero new UI;
-  matches every other nameable SBPR piece (the Surveyor's Table rename, the Marker Signs).
-- **(b) Destination choice — LOCKED to Model A ("named-tag pairing").** A Twisted Portal teleports
-  to *the nearest other Twisted Portal that shares its rune name*, mirroring vanilla's tag-pair
-  semantics but on our `sbpr_rune_name` slot instead of `s_tag`. The player "picks a destination" by
-  **naming two portals the same rune** — no new selection UI. The 300 m on-step list (§7) is purely
-  **informational**, not a picker. Smallest, most vanilla-congruent build; routes teleport
-  resolution **server-side** (multiplayer-correct by construction, §2). **Model B** (a selectable
-  many-to-many directory picker + cross-client RPC sync) is explicitly **out of v3.0 scope** — it
-  is a later milestone only if Daniel later wants the directory-picker fantasy. If an engineer reads
-  the feature as REQUIRING Model B's picker, that's a scope expansion — **BLOCK and flag it**, don't
-  discover it mid-impl. **What it changes in the build:** §4.4a (name-match resolution), §7 (overlay
-  is informational), and §2's directory sync stays optional/out-of-scope.
+**The model, verbatim (Daniel, 2026-06-27):** *"while standing on the foundation of a twisted portal, aim the crosshair
+close to the target twisted portal in the world, a visual indicator shows the target clearly, as well as the impact to
+food. Press E to commit."*
 
-> 🟢 **Architect's bottom line (now locked):** the cheap, shippable, vanilla-congruent v3.0 is
-> **Q1 = coexist, Q2 = food-as-fuel (design-locked), Q3 = Model A name-pairing with an
-> informational overlay.** That combination is patch-light (the cost model is now entirely
-> patch-free), multiplayer-safe, and reuses proven SBPR precedents. The richer readings (replace;
-> directory picker) remain *real* later options, each a larger build, each requiring an explicit
-> Daniel go-ahead before an engineer builds it.
+Decomposed into **four beats**, each grounded against shipped code (verified firsthand against `origin/main` this pass)
+so the impl child can pick it up cold:
+
+- **Beat 1 — "stand on the portal" = the proximity-active state. ALREADY EXISTS.** The overlay's `nearAPortal` gate
+  (`TwistedPortalOverlay.cs`) + `TwistedPortalOverlayModel.DefaultProximityRange = 3f` (`:72`) is exactly "you're on a
+  portal." Reuse directly — the overlay-visible state IS the selection-active state.
+- **Beat 2 — "aim the crosshair at a destination" = the NOVEL selection mechanism (the heart of this redesign).** Two
+  grounded options; the architect default is **(ii)**:
+  - *(i) Vanilla hover-raycast* (`Player.FindHoverObject` → `m_hovering`). Clean and standard, BUT it needs a
+    line-of-sight collider — you can only select a destination portal you can physically see and that's in collider
+    range. A portal behind a hill is unselectable, which **defeats "look at a destination"** on the very terrain the
+    through-terrain labels were built for.
+  - *(ii) Angular pick among the overlay's candidate set* — nearest portal to the **crosshair direction** among the
+    nearest-N the overlay already computes (`TwistedPortalOverlayModel.OverlayCandidate{Distance,HasRune}` `:41`,
+    `SelectNearest` `:119`). You aim at the **through-terrain label**, not the portal's collider, so a destination
+    behind a hill is selectable. **This is the architect-locked default**; flag only if grounding overturns it. The
+    input plumbing has an in-repo precedent: `SeersStoneFieldHost.cs:127-141` does a `GameCamera.instance.transform`
+    position+forward read (camera-forward ray) gated on a keypress with Console/Chat-focus guards — mirror that camera
+    read for the **angular** pick (compare each candidate's world-direction-from-camera against `camT.forward`), rather
+    than inventing input plumbing.
+  - 🔴 **This flips the overlay from INFORMATIONAL to INTERACTIVE** (the labels become the selection surface) — a §7
+    rewrite, and it **couples to the label-render work** (t_f739451f / its impl child): the labels you aim at must be
+    legible and stable, which the constant-on-screen-size fix already delivered look-to-aim-forward.
+- **Beat 3 — "visual indicator shows the target clearly" + "the impact to food" = the SELECTED-highlight + PREVIEW.**
+  - The *selected/aimed* label gets a distinct highlight state (color/material). The overlay already left per-slot
+    label color/material reachable for exactly this (`TwistedPortalOverlayModel.DefaultLabelScale`/material seam, §7.4
+    forward-compat note) — no re-architecture needed.
+  - The *food-impact preview* is the **cheap beat**: the cost math is already pure and non-mutating.
+    `PortalEnergyMath.SolveJump(slots, distanceMeters, knobs)` (`PortalEnergyMath.cs:262`) returns a read-only
+    `JumpSolution` (`:128`) carrying `BellyRangeMeters`, `ShortfallMeters`, `BerriesNeeded`, `MinutesRemovedPerSlot` —
+    and its own doc-comment states it **"does NOT decide success."** A preview snapshots the belly (the same
+    `GetFoods()` → `PeSlot[]` walk `TwistedPortalEnergy.TrySpendForJump` does at `:107-124`) and calls `SolveJump`,
+    then renders the result and **STOPS before the debit** (`ApplyFoodTimeDrain`/`RemoveBukeberries`/`ApplyFeelingSick`,
+    `:146-153`). Requires a new **read-only `PreviewJump(player, D) → JumpSolution`** sibling of `TrySpendForJump`; the
+    math already exists, so this is an I/O wrapper, not new cost logic. **This overturns §6's "No charge readout"** —
+    the model makes cost a pre-commit preview (see §6).
+- **Beat 4 — "press E to commit" = the COMMIT verb, which collides with rename and replaces the jump-through trigger.**
+  - 🔴 **E currently opens the rune-rename dialog.** `SBPR_TwistedPortal.Interact` (`:317-329`) → `RequestRename()` only.
+    Under look-to-aim, **tap-E must commit travel** to the aimed destination. This is the one genuine design fork for
+    Daniel (§6); architect default: tap-E commits travel, rename moves to hold-E / the hover menu, rune names stay as
+    read-only aim labels.
+  - 🔴 **The real current commit verb is JUMP-THROUGH-THE-RING, not E.** Travel fires from
+    `SBPR_TwistedPortalTrigger.OnTriggerEnter` (`TwistedPortal.cs:411-418`) when the player jumps into the overhead
+    ring built by `BuildOverheadTrigger` (`:333`). Under E-commit, the overhead jump-through trigger is **removed or
+    repurposed** in the same change (impl default; flag to Daniel only if he wants to keep *both* travel verbs). See
+    §4.5.
+
+**Rune names under the new model.** Naming itself is carried forward unchanged (the vanilla `TextInput` rename dialog
+via `TextReceiver`, §6) — but its ROLE changes: rune names are now **human-readable aim labels** (so you know what
+you're aiming at), **not** the pairing key. Default: keep them. (If Daniel later wants to drop naming entirely, E frees
+up for commit with no collision — flagged in §6, not pre-decided.)
+
+> 🟢 **Architect's bottom line (this pass):** the shippable v3.0 is **Q1 = coexist, Q2 = food-as-fuel (design-locked),
+> Q3 = look-to-aim destination picker (gaze-selected, option A)** with: selection = **angular-pick among the
+> through-terrain candidate set** (default ii), a **selected-highlight + read-only food preview** (the `SolveJump` seam
+> already ships), **tap-E commits / rename demoted** (the one Daniel fork), and the overhead jump-through trigger
+> retired. Server-authoritative long-range resolution is **REQUIRED** (§2) — a picker must reach destinations past the
+> client's ZDO window, which is the work the old spec scoped out *under name-pairing* and is now back in scope because
+> the picker (A) was chosen.
 
 ---
 
-## 2. 🔴 The multiplayer 300m-proximity fork (architect finding — UNAFFECTED by the cost-model change)
+## 2. 🔴 The multiplayer 300m-proximity fork — now a REQUIRED build axis (look-to-aim promotes it)
 
-> 🔄 **Reconciliation note:** this finding is about the *portal proximity query*, not the cost
-> model — so food-as-fuel leaves it **entirely intact**. It is preserved verbatim (citations
-> re-verified this pass) because it is still the single highest-risk finding in the portal
-> mechanism, and Model A (locked Q3) is what defuses it.
+> 🟥 **SUPERSEDED FRAMING (2026-06-27, card t_3d908685):** the prior note said "Model A (locked Q3) is what defuses
+> it" and the custom-RPC directory was "out of v3.0 scope." **Both are overtaken.** Under the look-to-aim picker
+> (option A, chosen by Daniel), the player must be able to **select and travel to a destination beyond the client's
+> ~64–128 m ZDO window** — so server-authoritative resolution is **REQUIRED, not optional**. The finding below is
+> preserved (citations re-verified this pass) because it is exactly the constraint the redesign must satisfy; only its
+> *disposition* changed (defused-by-name-pairing → must-be-built).
+>
+> 🔴 **Code landmine to sweep in the same impl change — a comment that lies.** `TwistedPortal.cs:54-58` asserts the
+> destination walk *"runs on the OWNER … NOT subject to the client's ~64–128 m sector window."* **This is false**
+> (verified firsthand this pass): there is **no RPC anywhere in the path** —
+> `SBPR_TwistedPortalTrigger.OnTriggerEnter` (`:411-418`) → `SBPR_TwistedPortal.Teleport` (`:84`) →
+> `ResolveDestination` (`:174`) all run **synchronously on the local client**, and `ResolveDestination`'s own
+> doc-comment (`:164-169`) admits the opposite (*"this walk sees only the ZDOs the CURRENT peer holds … a client …
+> would see a short list"*). Anyone reading `:54-58` today is told the feature is multiplayer-correct when it is not.
+> The look-to-aim impl that adds real server-authoritative resolution must **delete/correct `:54-58`** in the same
+> change so the comment stops lying.
 
 The design doc (`nomap.md` §7) says: *"query `ZDOMan` for all ZDOs of the SBPR prefab hash within
 radius (cheap — there's already `ZDOMan.GetAllZDOsWithPrefab` available)."* **That works in
@@ -196,38 +292,38 @@ Ancient Portal spec caught the `PortalPrefabHash` pairing gotcha that *its* desi
   (the add path is `:64704`/`:64706`). Registering our hash there (§4.3) populates the **server's**
   list, not the client's view.
 
-**The three resolution options (architect-ranked):**
+**The resolution options, RE-RANKED for look-to-aim (architect):**
 
-1. ✅ **Model A (name-tag pairing) makes this a NON-issue for *travel* — LOCKED (Q3).** Under Model
-   A, teleport resolution is a **name match resolved exactly like vanilla tag-pairing** —
-   server-side over the `m_portalObjects` list (our hash is registered), using `sbpr_rune_name`
-   instead of `s_tag`. The server has every Twisted ZDO; the 300 m client query is then needed
-   **only for the cosmetic on-step overlay** (§7), where "I only see the portals my client currently
-   holds (~64–128 m)" degrades gracefully to "the overlay shows nearby portals, maybe not the full
-   300 m on a far-flung server." That cosmetic shortfall is acceptable for v3.0 and is explicitly
-   flagged in AT-OVERLAY. **This is why Model A is the locked Q3 answer: it removes the hardest
-   multiplayer risk from the critical path.**
+1. 🟥 **Model A (name-tag pairing) — RETIRED as the destination rule (Q3 superseded).** It *would* have routed travel
+   server-side over the `m_portalObjects` list, but Daniel rejected same-rune-name matching as the addressing model.
+   Kept here only as the record of why server-side resolution is correct: the server holds every Twisted ZDO, so a
+   server-side walk is the multiplayer-correct substrate. The look-to-aim picker must inherit that property by a
+   different route (option 2), since selection is now by gaze, not by shared name.
 
-2. ⚠️ **Custom RPC directory sync (REQUIRED only if Daniel later picks Model B).** To populate a
-   true 300 m directory on a dedicated client, the owner/server must *push* the portal directory to
-   the client. The repo has the precedent: `SurveyorTableTag` uses `nview.Register<ZPackage>(…)` to
-   sync a ZDO blob owner→client (`Cartography/SurveyorTableTag.cs`). A Twisted "rune registry" node
-   would have the server maintain the authoritative directory (name → position) over the
-   `m_portalObjects` list filtered to our hash, and RPC-send the within-300 m slice to the stepping
-   client. This is a **real, multi-day build** — the bulk of why Model B is "HIGH risk." Specced
-   here so it's ready *if* commissioned; **out of v3.0 scope** under the locked answers.
+2. ✅ **Server-authoritative resolution for the picker — REQUIRED (in v3.0 scope under look-to-aim).** The candidate
+   set the player aims at, and the destination they commit to, must include portals **beyond the client's held ZDO
+   window**. The repo has the exact precedent: `Cartography/SurveyorTableTag.cs` registers an owner-side persistence
+   RPC (`nview.Register<ZPackage>(RpcSurveyData, RPC_SurveyData)` `:86`) and routes a blob owner→client via
+   `nview.InvokeRPC(...)` (`:603`), mirroring vanilla `MapTable`'s `MapData` RPC. A Twisted "rune registry" applies the
+   same shape: the server/owner maintains the authoritative directory (name → position) over the `m_portalObjects`
+   list filtered to our hash (or our own `GetAllZDOsWithPrefabIterative` walk where the full set lives) and RPC-pushes
+   the within-range slice (the candidate set) to the stepping client; commit routes the chosen destination's resolution
+   through the owner the same way. **This is the work the old spec scoped OUT under name-pairing and is now back IN
+   scope because the picker (option A) was chosen.** It is the bulk of the redesign's net-new build — the impl child
+   should scope it explicitly and may stage it (local-window candidate set first for the in-game look/feel accept, then
+   the RPC directory for true long range) but must not ship a client-window-limited picker as the final state.
 
-3. ❌ **Force `m_distant = true` on the portal ZNetView.** Tempting (distant ZDOs sync at longer
-   range), but rejected: the distant ring is gated behind `toSync.Count < 10` (`:65261`), is still
-   only ±1 distant zone, carries no 300 m guarantee, and marking a teleport-bearing build piece
-   `m_distant` has unknown interactions with the portal-hash sync path. Not a real fix; noted so a
-   future worker doesn't rediscover it as a "clever" shortcut.
+3. ❌ **Force `m_distant = true` on the portal ZNetView.** Still rejected (unchanged): the distant ring is gated behind
+   `toSync.Count < 10` (`:65261`), is only ±1 distant zone, carries no 300 m guarantee, and marking a teleport-bearing
+   build piece `m_distant` has unknown interactions with the portal-hash sync path. Not a real fix; noted so a future
+   worker doesn't rediscover it as a "clever" shortcut.
 
-> 🟢 **Architect resolution (locked):** ship **Model A**, which routes teleport resolution through
-> the server-side `m_portalObjects` path (multiplayer-correct by construction) and lets the 300 m
-> overlay be a best-effort client cosmetic. The custom-RPC directory (option 2) is specced so it's
-> ready *if* Daniel ever picks Model B, but it is explicitly **out of v3.0 scope**. This finding is
-> the reason Q3 locks to Model A.
+> 🟢 **Architect resolution (this pass):** the look-to-aim picker **requires** server-authoritative candidate-set +
+> destination resolution (option 2, the `SurveyorTableTag` owner-routed-RPC precedent). A pure client-side
+> `GetAllZDOsWithPrefabIterative` walk is acceptable as a **staging step** for the in-game look/feel accept, but the
+> shipped state must reach destinations past the client's ~64–128 m window. The same impl change deletes the false
+> `TwistedPortal.cs:54-58` "runs on the OWNER" comment (it describes server-side resolution that doesn't currently
+> exist).
 
 ---
 
@@ -303,13 +399,22 @@ for name-pairing — but the teleport *method* is ours, not vanilla's.
 - Build cost: recipe row 1 (§0), Q1 = coexist shape. Rebuilt authoritatively in `DoObjectDBWiring`
   after the materials resolve (the Ancient Portal ordering).
 
-### 4.3 Prefab-hash registration (the server-side pairing substrate — REQUIRED for Model A)
+### 4.3 Prefab-hash registration / the s_tag-collision question — RESOLVED by look-to-aim (option b, de-facto)
+
+> 🟥 **Look-to-aim note (2026-06-27).** Under the picker, travel resolution does **not** depend on vanilla's
+> `m_portalObjects`/`ConnectPortals` pairing at all — it uses **our own server-authoritative directory** (L2, the
+> `SurveyorTableTag` RPC). The shipped code already chose **option (b)** below (its own
+> `GetAllZDOsWithPrefabIterative` walk, never writing `s_tag`, verified `SBPR_TwistedPortal.cs:194/:209`), so the
+> AT-NO-VANILLA-PAIR `s_tag`-collision concern is **moot by construction** — we never participate in vanilla pairing.
+> The subsection is kept for the record; the only live action is "never write `s_tag`," which the shipped code honors.
+> Whether to register our hash in `PortalPrefabHash` at all is now a don't-care for travel (it doesn't drive
+> resolution); leave it as shipped unless L2 finds a reason to change it.
+
 Register `"piece_sbpr_twisted_portal".GetStableHashCode()` into `Game.instance.PortalPrefabHash`
 **exactly as the Ancient Portal does** (`Portals.EnsurePortalHashRegistered`, called at
 `Portals.cs:155` — idempotent, null-Game-guarded, re-asserted in `DoObjectDBWiring`). This makes
-`ZDOMan` track our portal ZDOs in `m_portalObjects` (add path `:64704`/`:64706`), which is what gives
-the **server** an authoritative list of all Twisted Portals for name-pairing (§4.4) — the
-multiplayer-correct substrate from §2.
+`ZDOMan` track our portal ZDOs in `m_portalObjects` (add path `:64704`/`:64706`). *(Historically this was framed as
+"the server-side substrate for name-pairing"; under look-to-aim it is not on the travel path — see the note above.)*
 
 > 🔴 **But do NOT let vanilla `Game.ConnectPortals` auto-connect our portals on `s_tag`.** Vanilla
 > `ConnectPortals` (`:84570`) pairs `m_portalObjects` entries by their `s_tag` ZDO string. Our
@@ -327,23 +432,29 @@ multiplayer-correct substrate from §2.
 > AT-NO-VANILLA-PAIR check; this is the #1 build-time decision inside the portal-core card.
 
 ### 4.4 Teleport — our reimplementation, NoPortals omitted, PE debited (card AC#2 + food-as-fuel)
-The activation surface is the **overhead jump-through trigger** (the Ancient Portal's
-`TeleportWorldTrigger` precedent) — BUT since we don't have a vanilla `TeleportWorld`, the trigger
-calls **our** teleport. Reproduce the minimal slice of `TeleportWorld.Teleport` (`:123002`) we want,
-deliberately **omitting the NoPortals check** (`:123008`), and **debiting belly Portal Energy**
-(§5) instead of any key charge:
+
+> 🟥 **SUPERSEDED activation surface (2026-06-27, look-to-aim).** The prior draft activated teleport via the **overhead
+> jump-through trigger** and resolved the destination by **nearest-same-rune**. Under the look-to-aim picker: the
+> activation surface is **aim + press [Use]/E to commit** (the trigger is removed, §4.5), and the destination is **the
+> aimed/selected portal** (§4.4a), not a name match. The teleport *core* below — NoPortals omitted, ore/boss gates,
+> the food-as-fuel debit, `Player.TeleportTo` as the move — is **carried forward unchanged**; only how `target` is
+> chosen and how the method is *invoked* change.
+
+The teleport core reproduces the minimal slice of `TeleportWorld.Teleport` (`:123002`) we want, deliberately
+**omitting the NoPortals check** (`:123008`), and **debiting belly Portal Energy** (§5) instead of any key charge.
+Under look-to-aim it is invoked from the **commit keypress** (tap-E while aiming), receiving the already-selected
+destination rather than resolving nearest-same-rune:
 
 ```
-SBPR_TwistedPortal.Teleport(Player player):
-   if player == null: return
-   target = ResolveDestination()        # §4.4a — name-match, server-side (Model A)
-   if target == null: message "$sbpr_twisted_no_destination"; return
-   D = Vector3.Distance(player.pos, target.pos)        # the jump distance
+SBPR_TwistedPortal.CommitTravel(Player player, TwistedDestination selected):  # called on tap-E while aiming
+   if player == null or selected == null: return
+   target = selected                                   # §4.4a — the AIMED destination, not a name match
+   D = Vector3.Distance(player.pos, target.pos)        # the jump distance (same as before)
    # NO GlobalKeys.NoPortals check — this is the whole point (AC#2)
    # NoBossPortals: KEEP the boss check (:123013) — flagged for Daniel, default KEEP
    # Ore-ban: KEEP — player.IsTeleportable() (:57606); block "$msg_noteleport" (flag, default KEEP)
    #
-   # FOOD-AS-FUEL GATE + DEBIT (§5) — replaces the old key-charge gate:
+   # FOOD-AS-FUEL GATE + DEBIT (§5) — unchanged. (The food PREVIEW already showed this number pre-commit, Beat 3.)
    result = TwistedPortalEnergy.TrySpendForJump(player, D)   # drains belly PE, then berries
    if not result.ok: message result.reason; return           # e.g. "not enough fuel even with berries"
    pos = target.position + (target.rotation * Vector3.forward) * exitDistance + Vector3.up
@@ -355,34 +466,59 @@ SBPR_TwistedPortal.Teleport(Player player):
 - **`Player.TeleportTo(pos, rot, distantTeleport)`** (`:20771`) is the clean public primitive —
   owner-RPC-safe, handles the 2 s fade + area-ready wait + floor-find. We do NOT hand-poke
   transforms. Same call vanilla `TeleportWorld.Teleport` ends in (`:123031`).
-- **The PE debit + berry-shortfall + Feeling Sick is the cost model (§5).** The portal-core card
-  (C1, t_2b388cd5) exposes this **teleport entry point + the computed `D`** as the seam; the
-  cost-model card (C2, t_6e992a30) implements `TwistedPortalEnergy.TrySpendForJump`. C1 must not
-  invent PE math; C2 must not re-derive the teleport. The seam is `D` (distance, meters) in,
-  `{ok, reason, burnedBerries}` out.
+- **The PE debit + berry-shortfall + Feeling Sick is the cost model (§5).** The shipped seam is `D` (distance, meters)
+  in, `{ok, reason, burnedBerries}` out — `TwistedPortalEnergy.TrySpendForJump` (already built). The look-to-aim impl
+  must NOT re-derive PE math; it adds a **read-only preview sibling** `PreviewJump(player, D) → JumpSolution` (Beat 3,
+  §5) that calls the same non-mutating `PortalEnergyMath.SolveJump` and stops before the debit, for the pre-commit
+  food-impact readout. The debit path itself is unchanged.
 - **Ore-ban (card "otherwise behaves"): KEEP by default** — call `player.IsTeleportable()`
   (`:57606`) and block with `$msg_noteleport` if carrying ore, exactly like vanilla (`:123018`).
   The card lifts the *NoPortals* restriction, not the *ore* restriction. **Flag for Daniel:** does
   the endgame portal also let ore through? Default **NO** (keep the ban); it's a one-line flip.
 
-#### 4.4a `ResolveDestination()` — server-correct name pairing (Model A, unchanged)
-- Walk the authoritative portal set **server-side**: the owner of this portal (or the server)
-  enumerates Twisted Portal ZDOs (via the `m_portalObjects` list filtered to our hash, OR our own
-  `GetAllZDOsWithPrefabIterative` `:65497` walk per §4.3 option b), filters to those whose
-  `sbpr_rune_name` equals this portal's, excludes self, and picks the nearest (or the single paired
-  one). Returns its position+rotation.
-- Because this runs where the full ZDO set exists (server/owner), it is **not** subject to the
-  client's 64–128 m window (§2) — the core reason Model A is multiplayer-correct.
-- If resolution must happen client-side and the destination is outside the client's held set, route
-  through the portal owner via a routed RPC (the `SurveyorTableTag` RPC precedent). For v3.0 the
-  common case (host owns world ZDOs) resolves directly; the RPC fallback is the robustness path.
+#### 4.4a `ResolveDestination()` → **`ResolveAimedDestination()`** — the gaze pick (look-to-aim)
 
-### 4.5 The overhead jump-through trigger (reuse the Ancient Portal, AC — jump to travel)
-Identical mechanism to the Ancient Portal's `BuildOverheadTrigger` (`Portals.cs:317`): a child
-`BoxCollider{isTrigger=true}` + a small trigger MonoBehaviour whose `OnTriggerEnter` calls
-`SBPR_TwistedPortal.Teleport(player)`. **Size is desk-estimated, FLAGGED for in-game tuning**
-(AT-JUMP-ACTIVATE) — the same ~2.6 m × ~0.9 m envelope the Ancient Portal uses, reused verbatim.
-(Twisted has no grow timer — active on placement, §4.6 — so the trigger is enabled immediately.)
+> 🟥 **SUPERSEDED (2026-06-27).** The old `ResolveDestination` returned the **nearest other portal sharing this rune**
+> (Model A). Under look-to-aim it returns **the portal the player is aiming at**. Same return shape (position+rotation);
+> different selection rule.
+
+- **Selection = angular pick among the candidate set (Beat 2, default ii).** While the player stands on a portal (Beat
+  1 proximity-active), each refresh: build the candidate set (the portals the overlay already computes,
+  `TwistedPortalOverlayModel.OverlayCandidate` `:41` / `SelectNearest` `:119`, extended to the server-authoritative set
+  per §2), read the camera forward (`GameCamera.instance.transform.forward`, the `SeersStoneFieldHost.cs:135` idiom),
+  and pick the candidate whose **world-direction-from-the-player** is closest in angle to the crosshair (within an
+  aim-cone tolerance, a live BepInEx knob). That candidate is the *aimed destination*; its label gets the
+  selected-highlight (Beat 3). Returns its position+rotation on commit.
+- **Why angular, not raycast:** aiming at the **through-terrain label** (not the collider) is what lets you select a
+  destination behind a hill — the whole point of "look at a destination" on Niflheim terrain. Vanilla hover-raycast
+  (option i) is rejected for the destination pick because a line-of-sight collider requirement defeats that. (Hover/use
+  reach for the *current* portal's own interactions still uses the normal Interact gate.)
+- **Server-authoritative reach (§2, REQUIRED):** the candidate set + the committed destination must include portals
+  beyond the client's ~64–128 m ZDO window. The shipped client-side `GetAllZDOsWithPrefabIterative` walk
+  (`SBPR_TwistedPortal.cs:194`) is acceptable as a **staging step** for the in-game aim/feel accept, but the final
+  state routes through the owner via the `SurveyorTableTag` `Register<ZPackage>`/`InvokeRPC` precedent (§2 option 2).
+  The false "runs on the OWNER" comment at `TwistedPortal.cs:54-58` is corrected in this change (§2).
+
+### 4.5 Commit input — **aim + tap-[Use]/E** (the overhead jump-through trigger is RETIRED)
+
+> 🟥 **SUPERSEDED (2026-06-27).** The prior draft committed travel via the **overhead jump-through trigger**
+> (`BuildOverheadTrigger` `Portals.cs`→`TwistedPortal.cs:333`; `SBPR_TwistedPortalTrigger.OnTriggerEnter` `:411-418`
+> calls `Teleport`). Under look-to-aim, **commit is a keypress** — while aiming at a destination (Beat 2), **tap [Use]
+> /E** to call `CommitTravel(player, aimedDestination)` (§4.4). The overhead jump-through trigger is **removed or
+> repurposed** in the same change (impl default; flag to Daniel only if he wants to keep *both* travel verbs — jump AND
+> aim+E).
+
+- **Input plumbing precedent:** `SeersStoneFieldHost.cs:101-141` is the in-repo pattern — a per-frame check gated on a
+  keypress (`Input.GetKeyDown(KeyCode.E)`), guarding against Console/Chat focus (`:117`), reading the camera transform
+  for the aim, doing the pick, and acting. Mirror it: gate on the proximity-active state (Beat 1), aim-pick (Beat 2),
+  and on tap-E commit. **E-key collision with rename is the one Daniel fork (§6):** default tap-E = commit travel,
+  rename → hold-E / hover menu.
+- **The C1 cooldown-refund edge (carried forward, still applies):** `Character.TeleportTo` (`:20771`) can return
+  `false` without moving (`:20778-:20785`) if `m_teleportCooldown < 2f` or a teleport is in flight — in which case the
+  food/berries were spent but no jump happened (§5.9 ⚠). Under E-commit the debit still precedes the move, so the same
+  refund-on-false / cooldown-pre-check guard is required at the commit site.
+- **No grow timer (unchanged, §4.6):** the portal is live on placement, so commit is available as soon as you stand on
+  a placed portal — there is no warm-up gate (only the food-as-fuel check at commit time).
 
 ### 4.6 No grow timer (a deliberate difference from the Ancient Portal)
 The Ancient Portal's 15 s grow is its planted-seed fantasy. Twisted is *built*, not *grown* — active
@@ -410,6 +546,18 @@ the decision has a home; not built under the locked answer.
 **The whole model in one line:** how far you can teleport is set by the food in your belly. There is
 **no key, no item, no equip slot.** A jump spends food-time scaled by distance, so a long haul both
 *costs* provisioning and *lands you depleted*. Bukeberries are an emergency reserve for the overflow.
+
+> 🟥 **Look-to-aim addition (2026-06-27): a read-only `PreviewJump` for the pre-commit food readout (Beat 3).** The
+> shipped engine `TwistedPortalEnergy.TrySpendForJump` (`:99`) is compute-AND-debit in one call (snapshot belly →
+> `SolveJump` → drain `m_time` + burn berries + apply `SE_Puke`). Daniel's model needs the player to **see the food
+> impact BEFORE committing**, so the impl adds a **non-mutating sibling** `PreviewJump(player, D) → JumpSolution`: it
+> reuses the exact belly snapshot (`GetFoods()` → `PeSlot[]`, `:107-124`) and the **already-non-mutating**
+> `PortalEnergyMath.SolveJump` (`PortalEnergyMath.cs:262`, whose doc-comment states it "does NOT decide success"), then
+> returns the `JumpSolution` (`BellyRangeMeters`, `ShortfallMeters`, `BerriesNeeded`, per-slot drain) and **stops before
+> any debit**. No new cost math — the seam already exists; this is the read-only I/O wrapper. The overlay (§7) renders
+> the result on/under the aimed label. This **overturns §6's "No charge readout"** (the cost is now a pre-commit
+> preview). The whisper/no-numbers intent (§5.7) constrains the *block* message, not this *aimed preview* — the preview
+> is the deliberate, designed readout Daniel asked for.
 
 ### 5.1 The decomp surface — Portal Energy is a pure on-demand READ (no patches, no accumulation)
 
@@ -632,9 +780,13 @@ pass — the hints were close but imprecise; the build follows the decomp, not t
 
 ---
 
-## 6. Rune-name storage (`sbpr_rune_name` ZDO slot — card AC, UNAFFECTED by the cost-model change)
+## 6. Rune-name storage (`sbpr_rune_name` ZDO slot — carried forward; ROLE changes under look-to-aim)
 
-> 🔄 Unchanged by food-as-fuel. Carried forward intact.
+> 🟥 **Look-to-aim role change (2026-06-27).** The ZDO slot + owner-write discipline below are **carried forward
+> unchanged** (the storage mechanism is correct and shipped). What changes: rune names are now **human-readable aim
+> labels** (so you know what destination you're aiming at, §7), **not** the pairing key — and the **E-key that opens
+> rename is demoted** (E now commits travel, §4.5). Two bullets below (Naming UX, Hover text) are updated for this; the
+> rest is intact.
 
 - **A dedicated ZDO string slot, SEPARATE from `s_tag`** — `m_zdo.Set("sbpr_rune_name", name)` /
   `GetString("sbpr_rune_name")`. The card names this slot explicitly. Keeping it off `s_tag` is what
@@ -645,32 +797,42 @@ pass — the hints were close but imprecise; the build follows the decomp, not t
   ZDO (ghost = no-op), claim ownership before writing (`if (!nview.IsOwner()) nview.ClaimOwnership()`),
   then `Set`. Reads are free. The `SBPR_TwistedPortal` class owns this — fold the ZDO discipline in
   rather than a separate `…Tag` unless the class grows unwieldy (§3 noted both options).
-- **Naming UX** = the vanilla `TextInput` dialog (Q3a): `Interact(human, hold, alt)` →
-  `TextInput.instance.RequestText(this, "$sbpr_twisted_rune", 15)` (the portal's `[Use]` opens the
-  rename box; `TextReceiver.SetText` writes the slot). 15-char cap (vanilla portal tags are 10; a
-  rune name can be a touch longer — flag the exact cap, default 15).
-- **Hover text** shows the rune name + paired destination: `GetHoverText()` returns the localized rune
-  name + "[E] Set rune" + (if a paired destination exists) "→ <dest rune>". `GetHoverName()` returns
-  "Twisted Portal". *(No charge readout — there is no key/charge to display. If anything, the hover
-  could carry the §5.7 lore breadcrumb; keep it non-explicit.)*
+- **Naming UX** = the vanilla `TextInput` dialog (carried forward), but the **opening gesture is demoted off tap-E**
+  under look-to-aim (tap-E now commits travel, §4.5). Default: **hold-E** (or a hover-menu entry) opens the rename box;
+  `Interact(human, hold, alt)` routes the hold/alt branch to `TextInput.instance.RequestText(this, "Set portal rune",
+  15)` and `TextReceiver.SetText` writes the slot. 15-char cap (flag the exact cap, default 15). 🔴 **This is the one
+  Daniel design-lock fork** (E-key sharing): tap-E = commit travel, hold-E = rename is the architect default for his
+  nod; if he'd rather drop naming entirely, tap-E is free and rename disappears (but read-only labels are the safer
+  default since the labels are the aim targets). Today `SBPR_TwistedPortal.Interact` (`:317-329`) maps **all** [Use]/E
+  to `RequestRename` — that mapping is what changes.
+- **Hover text** shows the rune name (the aim label) + the naming affordance: `GetHoverText()` returns the localized
+  rune name + the rename key hint (now "[Hold E] Set rune" per the demote) + (optionally) "[E] Travel" when aiming.
+  `GetHoverName()` returns "Twisted Portal". 🟥 **The old "No charge readout" note is OVERTURNED (2026-06-27):** under
+  look-to-aim the **food-impact preview IS shown** — but on the *aimed destination label* (§7 / Beat 3), driven by the
+  read-only `PreviewJump` (§5), **not** in this per-frame hover (`GetHoverText` is re-read every frame and must stay
+  cheap — `:301-306` deliberately avoids the ZDO walk there). The preview surface is the overlay, not the hover.
 - **CensorShittyWords / UGC filter:** vanilla portal tags run through `CensorShittyWords.FilterUGC`
   (`:123045`). Mirror it for rune names so a server's profanity policy applies (the Surveyor's Table
   naming did this) — flag as a nicety, not a blocker.
 
 ---
 
-## 7. The on-step proximity overlay (card AC: "lists nearby names within 300m, visible through terrain")
+## 7. The on-step overlay — now the INTERACTIVE selection surface (was informational)
 
-> 🔄 Unaffected by the cost-model change in substance. **One reconciliation correction:** the child
-> UI card (**C3, t_e732bd8b**) commissions the **through-terrain world-space** overlay (the design
-> doc's literal "visible through terrain" reading) as the v3.0 deliverable — NOT the HUD-list route
-> the earlier draft recommended as the safe default. This section is re-pointed to match the card the
-> engineer-ui profile actually builds. Under the locked Model A (Q3), the overlay is **informational,
-> not interactive** — it is not a destination picker.
+> 🟥 **SUPERSEDED (2026-06-27, look-to-aim).** The prior draft locked the overlay as **informational, not a destination
+> picker** (under Model A). Daniel's look-to-aim model makes the overlay's labels the **selection surface** — you aim
+> the crosshair at a through-terrain label to pick a destination, the aimed label highlights, and the food-impact
+> preview renders on/under it; tap-E commits (§4.5). The through-terrain world-space render (Route B) is **carried
+> forward and is now load-bearing** (the labels you aim at must render through hills). What's added: an
+> aimed/selected-highlight state, the food preview readout, and the server-authoritative candidate set (§2). The
+> render-defect fixes (§7.4) already shipped look-to-aim-forward.
 
 ### 7.1 What it shows
-When the local player stands on (or near) a Twisted Portal, an overlay lists nearby Twisted Portals
-by rune name, **rendered through terrain** so labels are visible behind hills.
+When the local player stands on (or near) a Twisted Portal, an overlay shows nearby Twisted Portals
+by rune name, **rendered through terrain** so labels are visible behind hills. Under look-to-aim the
+labels are also the **aim targets**: the one the crosshair is pointing at (angular pick, §4.4a) gets a
+**selected-highlight**, and the **food-impact preview** (`PreviewJump`, §5 / Beat 3) renders on or under
+that highlighted label. The other labels stay in their normal (unselected) state.
 
 - **Route B — world-space through-terrain labels (the v3.0 deliverable, C3 — BUILT).** A world-space
   `Canvas` per nearby portal with a `UI.Text` rune label (+ optional distance) rendered with a
@@ -697,12 +859,14 @@ by rune name, **rendered through terrain** so labels are visible behind hills.
 - The overlay queries nearby Twisted Portals via `ZDOMan.GetAllZDOsWithPrefabIterative` (`:65497`) for
   our prefab hash, filtered to within `OverlayRadius` (300 m) of the player, reading each one's
   `sbpr_rune_name`.
-- 🔴 **Per §2, on a dedicated server the client only holds portal ZDOs within ~64–128 m** — so the
-  overlay shows the portals the client currently has, which may be fewer than the true 300 m set on a
-  far-flung world. **Under Model A this is an acceptable cosmetic shortfall** (travel itself resolves
-  server-side and is correct; only the *list display* is range-limited). **AT-OVERLAY explicitly tests
-  + documents this** so it's a known, accepted limitation, not a bug. A *guaranteed* 300 m list on
-  dedicated servers is the custom-RPC directory sync (§2 option 2 / Model B) — out of v3.0 scope.
+- 🔴 **Per §2, on a dedicated server the client only holds portal ZDOs within ~64–128 m** — so a client-side walk
+  shows (and lets you aim at) only the portals the client currently has. 🟥 **Under look-to-aim this is NO LONGER a
+  cosmetic shortfall** — the overlay is the *selection surface*, so a range-limited candidate set means you literally
+  cannot aim at / travel to a far destination. That is exactly why **server-authoritative candidate-set resolution is
+  REQUIRED (§2 option 2)**, not optional: the candidate set the player aims at must include portals past the client
+  window (the `SurveyorTableTag` owner-routed-RPC precedent). A client-side walk is acceptable only as a **staging
+  step** for the in-game aim/feel accept; the shipped state must reach the full set. **AT-OVERLAY tests the local case;
+  AT-PICK-LONGRANGE (§10) tests the required long-range case.**
 
 ### 7.3 Trigger
 A proximity check (player within ~3 m of a Twisted Portal, the `Player.GetClosestPlayer` /
@@ -735,16 +899,37 @@ defects are all fixable in place). The three fixes:
   knee+floor shape with a high readable floor — selectable, reversible). All scale params are
   live BepInEx config for in-game convergence.
 
-**Forward-compat (NOT built here, do not foreclose):** under the look-to-aim travel model
-(t_3d908685, BLOCKED on Daniel) these labels become the destination-SELECTION surface. Constant
-on-screen size is already the right call for that. Keep per-slot color/material reachable so a
-future SELECTED/aimed-highlight state can be added without re-architecting. This card builds NO
-picker and NO selection — Model A (Q3 LOCKED) keeps the overlay **informational**; a picker is a
-Model B scope expansion (BLOCK + flag, do not silently build).
+**Now the build target (look-to-aim, 2026-06-27 — supersedes the prior "forward-compat, NOT built here" note):** the
+constant-on-screen-size labels ARE the destination-selection surface. The render-defect fixes above already shipped
+look-to-aim-forward (constant on-screen size is exactly right for an aim target; per-slot color/material was left
+reachable for the selected/aimed-highlight state). The look-to-aim impl adds: the **selected/aimed-highlight** state on
+the per-slot label material (the reachable seam), the **food-impact preview** rendered on/under the aimed label
+(`PreviewJump`, §5), and consumption of the **server-authoritative candidate set** (§2). The prior lock — "this card
+builds NO picker; a picker is a Model B scope expansion, BLOCK + flag" — is **RETIRED**: Daniel chose the picker
+(option A, gaze-selected), so building the selection surface is now in scope, not a violation.
 
 ---
 
 ## 8. Registration + wiring order (Registrar, PatchCheck, server-gating) — the patch surface COLLAPSES
+
+> 🟥 **Look-to-aim build-surface additions (2026-06-27) on top of the shipped wiring below.** The food-as-fuel cost
+> model stays **patch-free**; the look-to-aim redesign adds, in `Features/Portals/`:
+> - **Commit-input poll + aim pick** — a per-frame client-only check (gate on Beat-1 proximity-active, read camera
+>   forward, angular-pick the candidate, on tap-E commit) following the `SeersStoneFieldHost` precedent
+>   (`:101-141`, a `Player.Update` postfix — one additive Harmony postfix, NOT a game-state patch) OR an `Update` on
+>   the existing overlay pump (no new patch). Engineer picks the mount; both are precedented.
+> - **`PreviewJump(player, D) → JumpSolution`** — the read-only sibling of `TrySpendForJump` in `TwistedPortalEnergy`
+>   (§5). No patch; reuses the shipped non-mutating `SolveJump`.
+> - **`CommitTravel(player, selected)`** in `SBPR_TwistedPortal` (§4.4) — replaces the jump-through trigger's
+>   `Teleport` call. The overhead trigger (`BuildOverheadTrigger`/`SBPR_TwistedPortalTrigger`) is **removed/repurposed**.
+> - **Server-authoritative resolution** — the `SurveyorTableTag` owner-routed-RPC (`Register<ZPackage>`/`InvokeRPC`)
+>   for the candidate set + commit (§2). This is the one net-new networking surface; it is NOT a Harmony patch (it's a
+>   `ZNetView` RPC registration, the cartography precedent).
+> - **Overlay selection surface** — the aimed-highlight state + preview render on the per-slot label material (§7).
+> - **Sweep the false `TwistedPortal.cs:54-58` comment** in the same change (§2).
+>
+> Net: the cost model remains patch-free; the look-to-aim surface adds at most one additive input postfix (or reuses
+> the overlay `Update`) + one RPC registration — no game-state Harmony patches.
 
 > 🔄 **The biggest structural win of food-as-fuel: the cost model is patch-free.** The old key model
 > needed **three Harmony patches** (`Player.EatFood` postfix, `Player.RemoveOneFood` postfix, the
@@ -789,24 +974,30 @@ New files in the existing `Features/Portals/` slice:
 
 ---
 
-## 9. Decomposition — the impl cards (ALREADY CREATED; they auto-promote when this reconciliation merges)
+## 9. Decomposition — the look-to-aim impl cards (created by THIS spec pass; gate on the merge)
 
-> 🔄 **Reconciliation reality:** unlike the old draft (which said "the architect creates C1–C3 once
-> Daniel unblocks"), the child cards **already exist** — they were created with **this card
-> (t_c15411b2) as the gating parent** and **auto-promote from `todo`→`ready` the moment this
-> reconciliation lands**. This architect card does **NOT** create them and does **NOT** implement
-> anything; it reconciles the spec they build against. The fan-out as it actually exists on the board:
+> 🟥 **SUPERSEDED (2026-06-27).** The prior §9 listed the already-BUILT Model A cards (C1 t_2b388cd5 portal core, C2
+> t_6e992a30 food-as-fuel cost, C3 t_e732bd8b informational overlay). Those shipped the **base portal + the cost
+> engine + the through-terrain labels** — all carried forward and reused. They did **NOT** build the look-to-aim
+> destination/commit/preview surface (verified: aim-to-commit exists nowhere in code). This spec pass (card
+> t_3d908685) creates the **look-to-aim impl children** below, parented on this card so they auto-promote from
+> `todo`→`ready` when this spec PR merges (the same gating pattern the prior cards used). This architect card does
+> **NOT** implement — it specs + decomposes.
 
 | # | Card (real id) | Assignee | Depends on | Scope | Primary ATs |
 |---|---|---|---|---|---|
-| C1 | **t_2b388cd5** — Twisted Portal piece: distinct class, NoPortals bypass, rune-name pairing | `engineer-systems` | this card (t_c15411b2) | §3, §4, §6. The portal class, hash registration + the AT-NO-VANILLA-PAIR `s_tag` decision, our `Teleport` (NoPortals omitted) **exposing the teleport entry point + distance `D` as the seam for C2**, `ResolveDestination` name-match (Model A), the rune `TextInput` rename, the overhead trigger (reuse Ancient). Recipe row 1. | AT-PORTAL-PLACE, AT-NOPORTALS-BYPASS, AT-RUNE-NAME, AT-NAME-PAIR, AT-NO-VANILLA-PAIR, AT-JUMP-ACTIVATE, AT-NO-KEY |
-| C2 | **t_6e992a30** — Food-as-fuel Portal Energy + Bukeperry reserve + Feeling Sick | `engineer-systems` | **C1** (the teleport seam must exist to debit) | §5. The PE read off `GetFoods()`, the tier curve, the distance→food-time debit, the feast range-clock, the Bukeberry shortfall solve, the `SE_Puke` arrival apply, the lore breadcrumb. **Patch-free.** Hooks C1's teleport seam (`D` in, `{ok,reason,burnedBerries}` out). | AT-PE-DEBIT, AT-ARRIVE-DEPLETED, AT-BUKE-RESERVE, AT-BUKE-SICK, AT-FEAST-CLOCK, AT-PE-MATH |
-| C3 | **t_e732bd8b** — Through-terrain portal-name overlay (informational, Model A) | `engineer-ui` | **C1** (portals must exist + be named) | §7. The world-space ZTest-Always rune labels, the proximity trigger, the 300 m client-window caveat documented. **Last in the chain; visual eyeball accept is Daniel's.** | AT-OVERLAY, AT-OVERLAY-THROUGHTERRAIN, AT-NOMAP-SAFE |
+| L1 | **t_f4d0d5e1** — aim-pick destination + tap-E commit; retire the jump-through trigger | `engineer-systems` | this card (t_3d908685) | §1 Q3, §4.4, §4.4a, §4.5, §6. The angular aim-pick (default ii, the `SeersStoneFieldHost` camera-read precedent), `CommitTravel(player, selected)` reusing the shipped teleport core + food-as-fuel debit, the overhead trigger removal, the E-key demote (rename→hold-E). Structures the candidate-set seam for L2. | AT-AIM-SELECT, AT-AIM-THROUGHTERRAIN, AT-COMMIT-E, AT-NO-JUMPTRIGGER, AT-RENAME-DEMOTE, AT-COOLDOWN-REFUND |
+| L2 | **t_ccb454f8** — server-authoritative long-range candidate set + commit (RPC); sweep the lying comment | `engineer-systems` | **L1** (the aim-pick seam) | §2 (now REQUIRED). The owner-routed `Register<ZPackage>`/`InvokeRPC` directory (the `SurveyorTableTag` precedent), swapping the client-side staging walk for the RPC candidate set so travel reaches destinations past the ~64–128 m client window; deletes the false `TwistedPortal.cs:54-58` comment. | AT-PICK-LONGRANGE, AT-COMMENT-SWEPT |
+| L3 | **t_d9ea1b2c** — overlay selection-highlight + food-impact preview render | `engineer-ui` | **L1** (the aim-pick + PreviewJump seam) | §7 (now interactive) + §5 (PreviewJump). The aimed/selected-highlight on the per-slot label material (the reachable seam), the read-only food-impact preview on the aimed label (overturns §6 "no charge readout"), consuming L2's candidate set. | AT-AIM-HIGHLIGHT, AT-FOOD-PREVIEW, AT-OVERLAY-THROUGHTERRAIN |
 
-- **Build order:** C1 → C2 → C3 (the board edges already encode `parents`: C2 and C3 both depend on
-  C1). Each is its own Daniel-gated PR (incremental delivery doctrine).
-- **This (architect) card does NOT implement.** Its deliverable is the reconciled spec + the doc
-  manifest updates; on merge, the board promotes C1, and C2/C3 follow as C1 completes.
+- **Build order:** L1 → (L2, L3 in parallel, both depend on L1). The board edges encode `parents`. Each is its own
+  Daniel-gated PR (incremental delivery doctrine); each ends in `kanban_block(review-required)` with a PR URL, not
+  `kanban_complete`.
+- **The shipped Model A cards (C1/C2/C3) are NOT re-run.** Their output (portal class, cost engine, through-terrain
+  labels) is the foundation the look-to-aim cards build ON. The one piece of shipped Model A behavior that is *removed*
+  is the nearest-same-rune `ResolveDestination` + the jump-through trigger (L1 replaces them).
+- **This (architect) card does NOT implement.** Its deliverable is the rewritten spec + the doc manifest updates + the
+  L1–L3 fan-out; on merge, the board promotes L1, and L2/L3 follow as L1 completes.
 
 ---
 
@@ -820,7 +1011,38 @@ the build PRs do NOT self-close these.
 > AT-KEY-SPLIT, AT-KEY-SPEND, AT-KEY-ZERO-INERT) — there is no key. They are replaced by the
 > food-as-fuel ATs below.
 
-**Portal mechanism (C1):**
+> 🟥 **Look-to-aim AT changes (2026-06-27, card t_3d908685):** **AT-NAME-PAIR is RETIRED** (same-rune pairing is no
+> longer the destination rule) and **AT-JUMP-ACTIVATE is RETIRED** (the jump-through trigger is removed — E commits).
+> They are replaced by the look-to-aim ATs in the new block below. The food-as-fuel ATs (AT-PE-*, AT-BUKE-*, etc.) and
+> the portal/placement ATs (AT-PORTAL-PLACE, AT-NOPORTALS-BYPASS, AT-RUNE-NAME, AT-NO-VANILLA-PAIR, AT-NO-KEY) are
+> carried forward unchanged.
+
+**Look-to-aim destination/commit/preview (L1/L2/L3 — the new headline ATs):**
+- **AT-AIM-SELECT** (L1, the headline) — standing on a Twisted Portal, **aiming the crosshair at another Twisted
+  Portal** selects it as the destination (its label highlights); sweeping the crosshair to a different label moves the
+  selection. No same-rune requirement — any Twisted Portal is selectable by aim.
+- **AT-AIM-THROUGHTERRAIN** (L1) — a destination portal **behind a hill** (no line-of-sight collider) is still
+  selectable by aiming at its through-terrain label (proves the angular pick, not a collider raycast).
+- **AT-COMMIT-E** (L1, card AC) — **tap [Use]/E while aiming** at a selected destination teleports there (with
+  `NoPortals` set). The food-as-fuel debit fires exactly as before (AT-PE-DEBIT still holds).
+- **AT-NO-JUMPTRIGGER** (L1) — jumping into the overhead ring **no longer teleports** (the trigger is removed); travel
+  is aim+E only. (Unless Daniel opted to keep both verbs — then this AT is "jump still works too," flagged.)
+- **AT-RENAME-DEMOTE** (L1, the E-key fork) — **tap-E commits travel; rename opens on hold-E / the hover menu** (per
+  Daniel's locked choice). The rune name still persists across relog (AT-RUNE-NAME holds) — only the gesture moved.
+- **AT-COOLDOWN-REFUND** (L1) — committing twice inside the 2 s teleport cooldown does **not** silently eat food/berries
+  on the no-op second attempt (refund-on-`false` / cooldown pre-check).
+- **AT-PICK-LONGRANGE** (L2, 🔴 the dedicated-server proof) — on the **Niflheim dedicated server**, standing on portal
+  A you can aim at and travel to portal B that is **beyond one client's ZDO window** (>128 m, different sector). Proves
+  the server-authoritative candidate set + commit (not a client-window-limited walk).
+- **AT-COMMENT-SWEPT** (L2) — the `TwistedPortal.cs:54-58` comment matches reality (no longer claims owner-side
+  resolution that doesn't exist). *(Closeable at code review, not in-game.)*
+- **AT-AIM-HIGHLIGHT** (L3, visual) — the aimed label visibly highlights and tracks as the crosshair sweeps across
+  candidate labels; through terrain. Daniel's eyeball accept.
+- **AT-FOOD-PREVIEW** (L3, card AC — "the impact to food") — the food impact (belly range vs distance, berries needed)
+  shows on the aimed label **before** commit; the actual post-commit drain matches the preview. The preview spends
+  nothing (non-mutating `PreviewJump`).
+
+**Portal mechanism (carried forward — the base portal shipped):**
 - **AT-PORTAL-PLACE** — `piece_sbpr_twisted_portal` is placeable with the **Hammer**, **no station in
   range**, solid-earth only (rejected on structures), costs the recipe-1 materials. Visually distinct
   from the Ancient Portal (swamp tint).
@@ -829,13 +1051,14 @@ the build PRs do NOT self-close these.
   still binds vanilla).
 - **AT-RUNE-NAME** (card AC) — `[Use]` opens the rename dialog; the typed rune name persists across
   relog (stored in `sbpr_rune_name`, NOT `s_tag`). Hover shows the rune name.
-- **AT-NAME-PAIR** (card AC#2, Model A) — two Twisted Portals with the **same rune name** teleport to
-  each other; two with **different** names do not. Works with `NoPortals` set.
+- **AT-NAME-PAIR** — 🟥 **RETIRED (2026-06-27).** Same-rune pairing is no longer the destination rule (look-to-aim
+  picker supersedes it). Replaced by AT-AIM-SELECT / AT-COMMIT-E above. *(Kept as a tombstone so the supersession is
+  legible.)*
 - **AT-NO-VANILLA-PAIR** (🔴 §4.3 risk) — two UNNAMED Twisted Portals are NOT auto-connected by vanilla
   `ConnectPortals` into a spurious `ConnectionType.Portal` link; a Twisted Portal never pairs with a
   vanilla `portal_wood`. Verified in-game (the `s_tag`-empty / hash-registration interaction).
-- **AT-JUMP-ACTIVATE** (🔴 geometry, reuse Ancient tuning) — **jumping up** into the ring teleports;
-  **walking underneath** does not. Trigger box tuned on a joined client.
+- **AT-JUMP-ACTIVATE** — 🟥 **RETIRED (2026-06-27).** The overhead jump-through trigger is removed; travel commits on
+  aim+E (AT-COMMIT-E / AT-NO-JUMPTRIGGER). *(Tombstone.)*
 - **AT-NO-KEY** (🔄 NEW, the reconciliation proof) — **no trinket item exists.** There is no
   `SBPR_TwistedKey` in the ObjectDB, no craftable key recipe, no Trinket to equip; SpecCheck has **no
   key row**. Travel is gated purely by belly food. (The negative AT that proves the supersession
@@ -863,38 +1086,35 @@ the build PRs do NOT self-close these.
   worked numbers in a link-compiled unit table (the `SunstoneHaloGeometry` precedent). The one AT that
   closes headless.
 
-**Overlay (C3) + cross-cutting:**
-- **AT-OVERLAY** (card AC, Model A) — standing on a Twisted Portal shows the nearby Twisted Portal rune
-  names. **Documented caveat:** on a dedicated server the list is limited to the client's held ZDO
-  window (~64–128 m), not a guaranteed 300 m (§2/§7.2) — an accepted v3.0 limitation, verified +
-  noted, not a bug. Informational only (not a picker).
-- **AT-OVERLAY-THROUGHTERRAIN** (C3, the visual gate) — the rune labels render **through terrain**
+**Overlay + cross-cutting:**
+- **AT-OVERLAY** (carried) — standing on a Twisted Portal shows the nearby Twisted Portal rune names (the aim labels).
+  🟥 **Look-to-aim note:** the overlay is now the **interactive selection surface** (not informational) — see
+  AT-AIM-SELECT / AT-AIM-HIGHLIGHT. On a dedicated server the candidate set must reach past the client window
+  (AT-PICK-LONGRANGE / §2 — server-authoritative, no longer an accepted shortfall).
+- **AT-OVERLAY-THROUGHTERRAIN** (the visual gate) — the rune labels render **through terrain**
   (ZTest Always), readable behind hills. Daniel's in-game eyeball accept.
 - **AT-NOMAP-SAFE** — the overlay renders with the SB server's default NoMap (no minimap) — it does not
   depend on the map being on (the Sunstone Lens / Iron Compass HUD doctrine).
 - **AT-VANILLA-ONLY** (card AC) — no third-party portal-mod code read or copied; all hooks are
-  base-game primitives (the named-directory + food-as-fuel mechanics are net-new SBPR fiction).
-- *(Model B, only if Daniel ever commissions it)* **AT-DIRECTORY-PICKER** — a selectable 300 m
-  directory teleports to the chosen portal, correct on a dedicated server (requires the RPC sync).
+  base-game primitives (the look-to-aim picker + food-as-fuel mechanics are net-new SBPR fiction).
 
 ---
 
 ## 11. Cross-doc updates (spec-first — move in the SAME PR as this spec) + decision log
 
 ### Cross-doc updates this spec PR carries (the docs half of spec-first)
-- **`docs/v3/planning/index.md`** + **`docs/v3/planning/README.md`** — **rewrite the Twisted Portal
-  rows** from the stale "food-charged TRINKET key (durability-as-charge)" blurb to **food-as-fuel
-  (no key)**; flip the status framing from "BLOCKED on three Daniel decisions" to "cost model
-  design-locked (food-as-fuel, PR #270/#271); Q1=coexist, Q3=Model A locked; reconciled card
-  t_c15411b2." SpecCheck note: **+1 row** (was +2/+3; the key row is removed). *(Done in this PR.)*
-- **`docs/datasets/PIECES_AND_CRAFTABLES.md:442`** — **rewrite the Twisted Portal line:** drop the
-  `SBPR_TwistedKey` (Trinket charge-meter) half entirely; describe the single `piece_sbpr_twisted_portal`
-  prefab + the food-as-fuel travel-cost model (belly Portal Energy, Bukeberry reserve). *(Done in this
-  PR.)*
-- **`docs/design/nomap.md` §7** — **NO further edit needed.** The food-as-fuel supersession banner is
-  **already in place** (lines 135–159, landed by the merged design PR #270/#271), and the two factual
-  drifts (`GetAllZDOsWithPrefab`→`…Iterative`, bukeberries→`Pukeberries`) were **already corrected**
-  there by the prior spec-pass. This reconciliation does not re-touch nomap. *(Verified, no-op.)*
+- **`docs/v3/planning/index.md`** + **`docs/v3/planning/README.md`** — **rewrite the Twisted Portal rows** to flip the
+  destination model from "Model A (same-rune name-pairing) + informational overlay" to the **look-to-aim destination
+  picker (option A, gaze-selected): aim the crosshair at a destination portal, see a food-impact preview, press [Use]/E
+  to commit**; note server-authoritative long-range resolution is now REQUIRED and the overlay is interactive. (The
+  food-as-fuel cost model is unchanged.) *(Done in this PR.)*
+- **`docs/datasets/PIECES_AND_CRAFTABLES.md:471`** — **update the Twisted Portal line:** the addressing/travel model is
+  now look-to-aim (aim + E to commit, food preview), not same-rune pairing; the prefab + food-as-fuel cost are
+  unchanged. *(Done in this PR.)*
+- **`docs/design/nomap.md` §7** — **NO edit in this PR.** The design doc's "on-step shows visible portal names" still
+  reads true (the labels exist; they're now also the aim targets). The look-to-aim *interaction* is an impl-spec-level
+  detail; if Daniel wants the design doc to carry the look-to-aim narrative, that's a separate small design-doc pass —
+  flagged, not bundled. *(No-op this PR.)*
 
 > **Folder-existence note (resolved):** the old draft flagged that `docs/v3/planning/` "does not yet
 > exist on the v1 integration branch." That is **stale** — the folder exists on `main` (this spec, the
@@ -908,30 +1128,40 @@ the build PRs do NOT self-close these.
   food-time, Bukeberries are the shortfall reserve, berry-jumps arrive `SE_Puke`. (Resolves the old
   Q2.) Numbers are tuning knobs; the architecture is fixed.
 
-**Locked by the architect this pass (grounded in precedent + the locked design — the gate is retired):**
+**Locked by the architect this pass (grounded in precedent + the locked design):**
 - **Q1 = COEXIST** — vanilla/Ancient portals stay craftable; §4.7 empty (the child portal card builds
   this).
-- **Q3 = Model A** — name-tag pairing on `sbpr_rune_name`, server-side resolution, informational 300 m
-  overlay; Model B (picker + RPC sync) explicitly out of v3.0 scope.
+- **Q3 = LOOK-TO-AIM destination picker (option A, gaze-selected)** — 🟥 supersedes the prior "Model A name-pairing."
+  Stand on a portal, aim the crosshair at a destination portal (angular pick among the through-terrain candidate set,
+  default ii), see a food-impact preview on the aimed label, **press [Use]/E to commit**. Rune names are demoted to
+  human-readable **aim labels** (not the pairing key). Server-authoritative long-range resolution is **REQUIRED** (§2,
+  the `SurveyorTableTag` RPC precedent). The overlay is **interactive** (the selection surface), not informational. The
+  overhead jump-through trigger is **retired**.
 - Distinct class `SBPR_TwistedPortal`, NOT inheriting `TeleportWorld` (card AC#1; tag-collision).
 - Reimplement teleport via `Player.TeleportTo` (`:20771`), omitting the `NoPortals` check (`:123008`,
-  card AC#2); debit belly PE (§5) at the teleport seam.
-- Additive construction reusing the Ancient Portal shell + kitbash (ADR-0006).
-- Hammer-placed, no station, solid-earth-only (the Ancient Portal's locked placement choices).
+  card AC#2); debit belly PE (§5) at the commit seam. **Carried forward unchanged.**
+- Additive construction reusing the Ancient Portal shell + kitbash (ADR-0006). **Shipped.**
+- Hammer-placed, no station, solid-earth-only (the Ancient Portal's locked placement choices). **Shipped.**
 - Rune name in the dedicated `sbpr_rune_name` ZDO slot, off `s_tag` (card AC); naming via the vanilla
-  `TextInput` dialog through `TextReceiver` (Q3a).
+  `TextInput` dialog through `TextReceiver`. **Shipped; the opening gesture moves to hold-E (see the Daniel fork).**
 - **The cost model is patch-free** — PE read on demand from `Player.GetFoods()` (`:17598`); no
-  `EatFood`/`RemoveOneFood`/`DrainEquipedItemDurability` patches (those were the deleted key model).
+  `EatFood`/`RemoveOneFood`/`DrainEquipedItemDurability` patches (those were the deleted key model). **Shipped.**
+
+**The ONE open Daniel design-lock (a single line for his nod, not a menu — §6):**
+- **E-key sharing.** Today [Use]/E opens rename; under look-to-aim E must commit travel. Architect default: **tap-E =
+  commit travel; rename → hold-E / hover menu; rune names kept as read-only aim labels.** Alternative (his call): drop
+  naming entirely, freeing E with no collision. Default = keep-as-labels. The impl children build the default unless
+  Daniel changes it at merge.
 
 **Engineer-resolvable IN-GAME (noted per-section; not gates, not Daniel decisions):**
-- `METERS_PER_PE` baseline (§5.3) — derive from the design doc's anchors + expose as config; **BLOCK
-  for Daniel only if no defensible baseline falls out of the locked numbers.**
+- Aim-cone tolerance for the angular pick (§4.4a) — a live BepInEx knob; tune on a joined client.
+- `METERS_PER_PE` baseline (§5.3) and the other cost knobs — config, baselines from the design doc §6. **Shipped.**
 - NoBossPortals keep/lift (§4.4, default KEEP); ore-ban keep/lift (§4.4, default KEEP).
-- AT-NO-VANILLA-PAIR `s_tag` approach (a) sentinel vs (b) own-walk (§4.3, architect lean = b).
-- Feast `FEAST_RANGE_CAP`, `BUKE_METERS_PER_BERRY`, tier `/30`+clamp, `SE_Puke` debuff scale — all
-  config knobs, baselines from the design doc §6.
-- The overlay route (§7): C3 builds Route B (through-terrain); falls back to Route A only if Route B
-  proves unviable, with a flag.
+- Selection mechanism (§4.4a): angular-pick (default ii) vs hover-raycast (i) — default ii; flag only if grounding
+  overturns it in-game.
+- Server-auth staging (§2): client-side candidate set is OK as a staging step for the aim/feel accept, but the shipped
+  state must reach the full set (L2).
 
-**No remaining 🔴 BLOCK on this card.** The reconciliation is a docs-only PR; on Daniel's merge, the
-board promotes C1 (t_2b388cd5), and C2/C3 follow as C1 lands. **No impl code is written by this card.**
+**No remaining 🔴 BLOCK on this card.** This is a docs-only spec PR; on Daniel's merge it promotes the look-to-aim impl
+children L1 (t_f4d0d5e1) → L2 (t_ccb454f8) + L3 (t_d9ea1b2c). **No impl code is written by this card.** The single
+E-key default above rides into the impl unless Daniel overrides it at merge.
