@@ -111,8 +111,17 @@ namespace SBPR.Trailborne.Features.SeersStone
 
             var seen = new HashSet<int>();
 
-            // ── Pickables (and their vegetation) via OverlapSphere ───────────────────────────
+            // ── Pickables → spawn-time CLUSTERS (one wisp per patch, not per bush) ────────────
+            // Each OverlapSphere collider resolves to a Pickable; a "patch" is several separate
+            // same-prefab Pickables placed close together. Previously the wisp dict was keyed per
+            // Pickable INSTANCE → N bushes = N wisps (the bug). Spec (seers-stone.md:38) wants ONE
+            // wisp per cluster — the spawn-time aggregate. Collect eligible candidates (deduped by
+            // instance id, since one Pickable can carry multiple colliders), group by prefab ×
+            // proximity (PickableClustering — one R == the 15 m pin merge radius), and spawn one
+            // wisp per cluster at the centroid with the patch's aggregate bounds.
             var hits = Physics.OverlapSphere(playerPos, ScanRadius, _scanMask, QueryTriggerInteraction.Collide);
+            var candidates = new List<PickableCandidate>(hits.Length);
+            var candidateIds = new HashSet<int>();
             foreach (var col in hits)
             {
                 if (col == null) continue;
@@ -123,10 +132,21 @@ namespace SBPR.Trailborne.Features.SeersStone
                 if (!SeersStoneWhitelist.IsEligible(prefab)) continue;
 
                 int id = pickable.gameObject.GetInstanceID();
-                seen.Add(id);
-                if (!_wisps.ContainsKey(id))
-                    SpawnWisp(id, pickable.transform.position, prefab,
-                              ResolveFriendlyName(pickable), WispHitKind.Pickable, boundsRadius: 2.0f);
+                if (!candidateIds.Add(id)) continue; // one candidate per Pickable (skip its other colliders)
+
+                var pos = pickable.transform.position;
+                candidates.Add(new PickableCandidate(
+                    prefab, new Vec3(pos.x, pos.y, pos.z), id, ResolveFriendlyName(pickable)));
+            }
+
+            foreach (var cluster in PickableClustering.Cluster(candidates))
+            {
+                seen.Add(cluster.Key);
+                if (!_wisps.ContainsKey(cluster.Key))
+                    SpawnWisp(cluster.Key,
+                              new Vector3(cluster.Centroid.X, cluster.Centroid.Y, cluster.Centroid.Z),
+                              cluster.Prefab, cluster.FriendlyName, WispHitKind.Pickable,
+                              boundsRadius: cluster.BoundsRadius);
             }
 
             // ── Locations (registry-scan; FindObjectsByType is the non-deprecated form) ────

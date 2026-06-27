@@ -75,6 +75,7 @@
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/WhitelistDocument.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/WispMotion.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/SeersStonePinDecision.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/PickableClustering.cs" />
   </ItemGroup>
 
 </Project>
