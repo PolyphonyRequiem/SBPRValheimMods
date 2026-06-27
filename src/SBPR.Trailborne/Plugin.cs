@@ -223,6 +223,15 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<bool>?  TwistedOverlayShowUnnamed     = null;  // show unnamed portals with a placeholder (informational)
         internal static ConfigEntry<bool>?  TwistedOverlayShowDistance    = null;  // append a formatted distance under the rune
         internal static ConfigEntry<bool>?  TwistedOverlayThroughTerrain  = null;  // the ZTest-Always trick (the headline; Daniel A/B's it in-game)
+        // FIX 3c (t_f66a3e37) — distance-compensated label scale (constant on-screen size). All LIVE
+        // so Daniel converges the feel on a joined client (banner-windsock). The math is the engine-
+        // free, CI-gated TwistedPortalLabelScale; these knobs feed its ScaleMul.
+        internal static ConfigEntry<SBPR.Trailborne.Features.Portals.LabelScaleMode>? TwistedOverlayLabelScaleMode = null;  // ConstantOnScreen (default) | KneeFloor
+        internal static ConfigEntry<float>? TwistedOverlayLabelScaleRefDist = null;  // metres at which the multiplier is 1.0 (authored size); ConstantOnScreen
+        internal static ConfigEntry<float>? TwistedOverlayLabelScaleMinMul  = null;  // lower clamp on the multiplier (near label can't collapse)
+        internal static ConfigEntry<float>? TwistedOverlayLabelScaleMaxMul  = null;  // upper clamp on the multiplier (far label can't balloon)
+        internal static ConfigEntry<float>? TwistedOverlayLabelScaleKnee    = null;  // KneeFloor: full-scale distance knee (metres)
+        internal static ConfigEntry<float>? TwistedOverlayLabelScaleFloor   = null;  // KneeFloor: edge multiplier floor (readable, high vs Sunstone's 0.25)
         // Diagnostic-logging gate (the Iron Compass / Sunstone self-deactivating-host pump lesson):
         // emit the overlay MOUNT + first-populate count so a client LogOutput.log splits "mount/pump
         // fail / no portals held" from "labels drawn but invisible." Default ON for the diagnostic cut;
@@ -802,6 +811,60 @@ namespace SBPR.Trailborne
                 "THE HEADLINE: render labels THROUGH terrain (a ZTest-Always material on the label so it's legible "
                 + "behind hills — the design's 'visible through terrain' reading). true (default) = see-through-hills; "
                 + "false = honest depth (labels occlude behind terrain). Daniel A/B's this in-world. Live-tunable.");
+            // ── FIX 3c (t_f66a3e37): distance-compensated label scale — constant ON-SCREEN size ──────
+            // The Route-B labels shrank with raw perspective (sub-pixel at the overlay edge). These knobs
+            // feed the engine-free, CI-gated TwistedPortalLabelScale.ScaleMul so a label holds ~constant
+            // on-screen size across the range, clamped near/far. Two modes behind a LIVE enum
+            // (reversibility is a hard requirement — never delete a mode). Range-clamped against a .cfg
+            // fat-finger; defaults mirror the TwistedPortalLabelScale.Default* consts (single source).
+            TwistedOverlayLabelScaleMode = Config.Bind(
+                "TwistedPortalOverlay", "LabelScaleMode",
+                SBPR.Trailborne.Features.Portals.TwistedPortalLabelScale.DefaultMode,
+                "How a floating label's size responds to camera distance. ConstantOnScreen (default): the "
+                + "label holds ~constant ON-SCREEN (pixel) size across the overlay range — it does NOT shrink "
+                + "with perspective — clamped near/far (LabelScaleRefDist / Min / MaxMul). KneeFloor: the "
+                + "Sunstone trophy-halo shape — full at/under LabelScaleKnee metres, LabelScaleFloor× at the "
+                + "overlay edge, linear between (a faint depth cue, high readable floor). Live-flippable.");
+            TwistedOverlayLabelScaleRefDist = Config.Bind(
+                "TwistedPortalOverlay", "LabelScaleRefDist",
+                SBPR.Trailborne.Features.Portals.TwistedPortalLabelScale.DefaultRefDist,
+                new ConfigDescription(
+                    "ConstantOnScreen: camera distance (metres) at which a label renders at its AUTHORED world "
+                    + "size (multiplier 1.0). Closer means smaller world (same pixels); farther means bigger world to "
+                    + "hold the pixel size, until LabelScaleMaxMul. Lower = labels read bigger on screen. Eyeball tunable.",
+                    new AcceptableValueRange<float>(2f, 200f)));
+            TwistedOverlayLabelScaleMinMul = Config.Bind(
+                "TwistedPortalOverlay", "LabelScaleMinMul",
+                SBPR.Trailborne.Features.Portals.TwistedPortalLabelScale.DefaultMinMul,
+                new ConfigDescription(
+                    "ConstantOnScreen: lower clamp on the world-scale multiplier — a NEAR label can't shrink "
+                    + "below this fraction of its authored size (stops it collapsing into the ~3 m portal ring). "
+                    + "Eyeball tunable.",
+                    new AcceptableValueRange<float>(0.05f, 2f)));
+            TwistedOverlayLabelScaleMaxMul = Config.Bind(
+                "TwistedPortalOverlay", "LabelScaleMaxMul",
+                SBPR.Trailborne.Features.Portals.TwistedPortalLabelScale.DefaultMaxMul,
+                new ConfigDescription(
+                    "ConstantOnScreen: upper clamp on the world-scale multiplier — a FAR label can't grow beyond "
+                    + "this multiple of its authored size (stops it becoming a giant billboard at the overlay edge). "
+                    + "Eyeball tunable.",
+                    new AcceptableValueRange<float>(1f, 40f)));
+            TwistedOverlayLabelScaleKnee = Config.Bind(
+                "TwistedPortalOverlay", "LabelScaleKnee",
+                SBPR.Trailborne.Features.Portals.TwistedPortalLabelScale.DefaultKnee,
+                new ConfigDescription(
+                    "KneeFloor mode only: camera distance (metres) at/under which the label is FULL (1.0) scale "
+                    + "(the Sunstone 10 m knee). Beyond it the label tapers toward LabelScaleFloor at the overlay edge. "
+                    + "Eyeball tunable.",
+                    new AcceptableValueRange<float>(0f, 100f)));
+            TwistedOverlayLabelScaleFloor = Config.Bind(
+                "TwistedPortalOverlay", "LabelScaleFloor",
+                SBPR.Trailborne.Features.Portals.TwistedPortalLabelScale.DefaultFloor,
+                new ConfigDescription(
+                    "KneeFloor mode only: the world-scale multiplier at the overlay edge — the floor a far label "
+                    + "shrinks to. HIGHER than the Sunstone halo's 0.25 (default 0.6) so far labels stay readable while "
+                    + "keeping a faint depth cue. Eyeball tunable.",
+                    new AcceptableValueRange<float>(0.1f, 1f)));
             TwistedOverlayDebugMount = Config.Bind(
                 "TwistedPortalOverlay", "DebugMount",
                 true,

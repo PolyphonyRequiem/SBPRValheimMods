@@ -710,6 +710,38 @@ A proximity check (player within ~3 m of a Twisted Portal, the `Player.GetCloses
 `:122980`) toggles the overlay visible, refreshed on a ~0.5 s throttle from the overlay's `Update`
 (costs nothing on the server, which has no Hud — the Sunstone Lens cadence).
 
+### 7.4 Label render-defect fixes + the constant-on-screen-size decision (t_f739451f → architect-locked)
+
+Daniel's 2026-06-26 Niflheim playtest reported the Route B labels were mirrored, fuzzy, and
+shrank with distance (unreadable). Architect decision: **Route B is KEPT** (Route A — the
+screen-space HUD list — loses the through-terrain headline and discards shipped code; the
+defects are all fixable in place). The three fixes:
+
+- **Un-mirror:** the per-slot `Billboard` gets `m_invert = true` (it was unset → vanilla default
+  `false`). Vanilla `Billboard.LateUpdate` with `m_invert` reflects the camera-facing target to
+  *behind* the label so the canvas +Z points away from the camera → uGUI Text reads
+  left-to-right instead of back-to-front. Composes with `m_vertical = true` (reflect runs first,
+  upright-yaw preserved); ZTest-Always through-terrain is unaffected (it's on the material).
+- **De-fuzz:** the glyph atlas is **supersampled** — `FontPx`, `ReferencePx`, and the canvas px
+  are raised by the same factor so the on-screen WORLD size is invariant but the raster is
+  rendered at N× density then minified (crisp). The black Outline is kept (dark-swamp contrast)
+  and scaled proportionally. The exact factor is a GPU-client eyeball converge (banner-windsock).
+- **Constant on-screen size:** labels are **distance-compensated** to hold ~constant angular
+  (pixel) size across the overlay range, clamped near/far — they no longer shrink with raw
+  perspective. This is the same move as the Sunstone trophy halo (`SunstoneHaloGeometry.ScaleAt`):
+  the SCALE carries the range behaviour, factored into the engine-free CI-gated
+  `TwistedPortalLabelScale.cs` (`ScaleMul`, link-compiled + unit-pinned — AT-LABEL-SCALE-MATH).
+  Two modes ship behind a live enum (`ConstantOnScreen` default; `KneeFloor` — the Sunstone
+  knee+floor shape with a high readable floor — selectable, reversible). All scale params are
+  live BepInEx config for in-game convergence.
+
+**Forward-compat (NOT built here, do not foreclose):** under the look-to-aim travel model
+(t_3d908685, BLOCKED on Daniel) these labels become the destination-SELECTION surface. Constant
+on-screen size is already the right call for that. Keep per-slot color/material reachable so a
+future SELECTED/aimed-highlight state can be added without re-architecting. This card builds NO
+picker and NO selection — Model A (Q3 LOCKED) keeps the overlay **informational**; a picker is a
+Model B scope expansion (BLOCK + flag, do not silently build).
+
 ---
 
 ## 8. Registration + wiring order (Registrar, PatchCheck, server-gating) — the patch surface COLLAPSES

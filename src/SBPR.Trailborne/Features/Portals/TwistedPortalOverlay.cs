@@ -140,6 +140,14 @@ namespace SBPR.Trailborne.Features.Portals
             float labelScale  = Plugin.TwistedOverlayLabelScale?.Value   ?? TwistedPortalOverlayModel.DefaultLabelScale;
             float labelHeight = Plugin.TwistedOverlayLabelHeight?.Value  ?? TwistedPortalOverlayModel.DefaultLabelHeight;
 
+            // ── FIX 3c distance-compensated scale policy (live config; banner-windsock eyeball) ──
+            LabelScaleMode scaleMode = Plugin.TwistedOverlayLabelScaleMode?.Value ?? TwistedPortalLabelScale.DefaultMode;
+            float scaleRefDist = Plugin.TwistedOverlayLabelScaleRefDist?.Value ?? TwistedPortalLabelScale.DefaultRefDist;
+            float scaleMinMul  = Plugin.TwistedOverlayLabelScaleMinMul?.Value  ?? TwistedPortalLabelScale.DefaultMinMul;
+            float scaleMaxMul  = Plugin.TwistedOverlayLabelScaleMaxMul?.Value  ?? TwistedPortalLabelScale.DefaultMaxMul;
+            float scaleKnee    = Plugin.TwistedOverlayLabelScaleKnee?.Value    ?? TwistedPortalLabelScale.DefaultKnee;
+            float scaleFloor   = Plugin.TwistedOverlayLabelScaleFloor?.Value   ?? TwistedPortalLabelScale.DefaultFloor;
+
             // ── Gather every Twisted Portal ZDO this peer holds (the §2 client window) and turn it
             //    into rows of (position, rune, hasRune, distance). ──
             Vector3 here = player.transform.position;
@@ -171,7 +179,8 @@ namespace SBPR.Trailborne.Features.Portals
             TwistedPortalOverlayModel.SelectNearest(_candidates, radius, maxLabels, showUnnamed, _selected);
 
             // ── Hand the chosen rows to the world-space field as (worldPos, labelText, hasRune). ──
-            _field.BeginFrame(throughTerrain, labelScale);
+            _field.BeginFrame(throughTerrain, labelScale,
+                scaleMode, scaleRefDist, scaleMinMul, scaleMaxMul, radius, scaleKnee, scaleFloor);
             int drawn = 0;
             for (int s = 0; s < _selected.Count; s++)
             {
@@ -254,10 +263,22 @@ namespace SBPR.Trailborne.Features.Portals
         {
             // The world-space Canvas is authored at this reference pixel size, then scaled to world
             // units via localScale (worldSize / ReferencePx). Generous so two short lines never clip.
-            private const float ReferencePx = 256f;
-            private const float CanvasWidthPx  = 512f;
-            private const float CanvasHeightPx = 256f;
-            private const int   FontPx = 40;
+            //
+            // ── DE-FUZZ via SUPERSAMPLE (FIX 3b, t_f66a3e37). ────────────────────────────────────
+            // A world-space uGUI label minified to ~1 world-metre rasterises too few texels/metre →
+            // blur (smeared further by the Outline). The fix is to author the glyph atlas + canvas at
+            // N× the pixel density AND minify by the SAME N× (localScale = labelScale / ReferencePx,
+            // ReferencePx ∝ N) so the on-screen WORLD size is UNCHANGED but the raster is supersampled
+            // (crisp). The single Supersample factor below ties FontPx / ReferencePx / canvas-px
+            // together so they can NEVER drift apart: world footprint = CanvasWidthPx × (labelScale /
+            // ReferencePx) = 512·N·labelScale / (256·N) — the N cancels, so world size is invariant in
+            // N BY CONSTRUCTION (not just by comment). Converge N by eye on a GPU client (banner-
+            // windsock); it's baked into slot construction, so a change is a rebuild, not live-config.
+            private const int   Supersample    = 4;          // glyph-atlas density multiplier (eyeball-converged)
+            private const float ReferencePx    = 256f * Supersample;   // 1024
+            private const float CanvasWidthPx  = 512f * Supersample;   // 2048
+            private const float CanvasHeightPx = 256f * Supersample;   // 1024
+            private const int   FontPx = 40 * Supersample;             // 160
 
             // Named portals read warm/white; unnamed read a dim grey (informational, can't pair).
             private static readonly Color NamedColor   = new Color(0.96f, 0.92f, 0.78f, 1f);
@@ -295,20 +316,51 @@ namespace SBPR.Trailborne.Features.Portals
             }
 
             /// <summary>Open a refresh: ensure the root exists + visible (when a camera exists),
-            /// record this frame's through-terrain + scale choices.</summary>
-            public void BeginFrame(bool throughTerrain, float labelScale)
+            /// record this frame's through-terrain + scale choices + the camera position (for the
+            /// per-label distance-compensated scale, FIX 3c).</summary>
+            public void BeginFrame(
+                bool throughTerrain,
+                float labelScale,
+                LabelScaleMode scaleMode,
+                float refDist,
+                float minMul,
+                float maxMul,
+                float overlayRadius,
+                float knee,
+                float floor)
             {
                 if (_disposed) return;
                 EnsureBuilt();
                 if (_root == null) return;
-                if (Utils.GetMainCamera() == null) { SetVisible(false); return; }
+                var cam = Utils.GetMainCamera();
+                if (cam == null) { SetVisible(false); return; }
 
                 _throughTerrain = throughTerrain;
                 _frameScale = Mathf.Max(0.01f, labelScale);
+                // FIX 3c: capture the camera position + the live scale policy so each DrawLabel can
+                // distance-compensate (hold ~constant on-screen size). Scale (our localScale) and facing
+                // (the Billboard rotation) are independent transform channels — no conflict with m_invert.
+                _frameCameraPos = cam.transform.position;
+                _frameScaleMode = scaleMode;
+                _frameRefDist = refDist;
+                _frameMinMul = minMul;
+                _frameMaxMul = maxMul;
+                _frameOverlayRadius = overlayRadius;
+                _frameKnee = knee;
+                _frameFloor = floor;
                 SetVisible(true);
             }
 
             private float _frameScale = 1f;
+            // FIX 3c per-frame scale state (set in BeginFrame, read in DrawLabel).
+            private Vector3 _frameCameraPos = Vector3.zero;
+            private LabelScaleMode _frameScaleMode = TwistedPortalLabelScale.DefaultMode;
+            private float _frameRefDist = TwistedPortalLabelScale.DefaultRefDist;
+            private float _frameMinMul = TwistedPortalLabelScale.DefaultMinMul;
+            private float _frameMaxMul = TwistedPortalLabelScale.DefaultMaxMul;
+            private float _frameOverlayRadius = TwistedPortalOverlayModel.DefaultOverlayRadius;
+            private float _frameKnee = TwistedPortalLabelScale.DefaultKnee;
+            private float _frameFloor = TwistedPortalLabelScale.DefaultFloor;
 
             /// <summary>Place + fill the <paramref name="index"/>-th pooled label at
             /// <paramref name="worldPos"/> with <paramref name="text"/>. Named vs unnamed tints the
@@ -319,7 +371,15 @@ namespace SBPR.Trailborne.Features.Portals
 
                 Slot slot = EnsureSlot(index);
                 slot.Go.transform.position = worldPos;
-                slot.Go.transform.localScale = Vector3.one * (_frameScale / ReferencePx);
+                // FIX 3c: distance-compensate the world-scale so the label holds ~constant ON-SCREEN
+                // size across the overlay range (clamped near/far) instead of shrinking with raw
+                // perspective. The multiplier is the engine-free, CI-gated TwistedPortalLabelScale curve
+                // (AT-LABEL-SCALE-MATH) — the same SCALE-carries-range move as the Sunstone trophy halo.
+                float camDist = Vector3.Distance(_frameCameraPos, worldPos);
+                float mul = TwistedPortalLabelScale.ScaleMul(
+                    _frameScaleMode, camDist, _frameRefDist, _frameMinMul, _frameMaxMul,
+                    _frameOverlayRadius, _frameKnee, _frameFloor);
+                slot.Go.transform.localScale = Vector3.one * (_frameScale / ReferencePx) * mul;
 
                 slot.Label.text = text;
                 slot.Label.color = hasRune ? NamedColor : UnnamedColor;
@@ -376,6 +436,17 @@ namespace SBPR.Trailborne.Features.Portals
 
                 var bb = go.AddComponent<Billboard>();        // base-game camera-facing (ADR-0001)
                 bb.m_vertical = true;
+                // UN-MIRROR (FIX 3a, t_f66a3e37). Vanilla Billboard.LateUpdate
+                // (assembly_valheim.decompiled.cs:100000-100020) does transform.LookAt(camera), which
+                // points the transform's +Z TOWARD the camera. A uGUI Canvas renders its content on +Z,
+                // so a viewer reading +Z-at-them sees the canvas from BEHIND → text reads back-to-front
+                // (mirrored). m_invert (:99991, default false — never set, so every label mirrored)
+                // reflects the look-target to BEHIND the label (vector = pos - (camPos - pos), :100006-
+                // 100008), so LookAt ends with +Z pointing AWAY from the camera → glyphs read forward.
+                // The reflect runs BEFORE the m_vertical step (:100010-100013), so upright-yaw is
+                // preserved; ZTest-Always (the through-terrain trick) is on the material, independent of
+                // facing — unaffected. This is the exact vanilla knob; no hand-rolled 180° rotation.
+                bb.m_invert = true;
 
                 // The label Text fills the canvas, centred, two-line capable (overflow both axes).
                 var labelGo = new GameObject("text", typeof(RectTransform));
@@ -400,9 +471,12 @@ namespace SBPR.Trailborne.Features.Portals
                 // Black outline for legibility against the bright sky / dark swamp (the Sunstone debug
                 // text precedent). The outline adds verts to the SAME CanvasRenderer/material, so it is
                 // also through-terrain when the ZTest material is applied — no separate plumbing.
+                // FIX 3b: effectDistance scales with Supersample so the VISUAL outline thickness is
+                // unchanged at the higher atlas density (2px × N = 8px at N=4). Kept (not dropped) — the
+                // dark-swamp / bright-sky contrast need is real (the Sunstone debug-text precedent).
                 var outline = labelGo.AddComponent<Outline>();
                 outline.effectColor = new Color(0f, 0f, 0f, 0.92f);
-                outline.effectDistance = new Vector2(2f, -2f);
+                outline.effectDistance = new Vector2(2f * Supersample, -2f * Supersample);
 
                 return new Slot { Go = go, Rt = rt, Label = txt, ZTestApplied = false };
             }
