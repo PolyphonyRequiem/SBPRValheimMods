@@ -7,13 +7,15 @@
 //  Design   : Daniel 2026-06-27 — "stand on the portal, aim the crosshair at the
 //             target portal, press E to commit."
 //  Math     : AimPickMath (engine-free angular pick, CI-gated AT-AIM-SELECT).
-//  Source   : TwistedPortalCandidates.Gather (the shared candidate set; L2 swaps
-//             its body for the server-authoritative RPC set, §2).
+//  Source   : TwistedPortalCandidates.Gather (the shared candidate set; now
+//             SERVER-AUTHORITATIVE via the L2 directory, card t_ccb454f8 — reaches
+//             destinations past the client's ~64-128 m ZDO window, spec §2).
 //
 //  WHAT THIS DOES. A Player.Update POSTFIX (the SeersStone PinByLookInput / the
 //  IronCompass camera-read precedent) that, while the local player stands on a
 //  Twisted Portal (Beat 1 proximity-active):
-//    1. gathers the candidate destination set (throttled ZDO walk, §2 staging);
+//    1. gathers the candidate destination set (throttled; server-authoritative via
+//       the L2 directory — local window UNION the server's far portals, §2);
 //    2. EVERY FRAME picks the destination whose world-direction-from-the-camera
 //       is closest in angle to the crosshair (camera forward), within the aim
 //       cone (AimPickMath; the live BepInEx cone knob) — the angular pick, NOT a
