@@ -23,10 +23,19 @@
 //
 //  Bootstrap: a single SeersStoneFieldHost MonoBehaviour is attached to the local
 //  Player by a Player.OnSpawned-ish hook (Plugin wiring), and it owns one WispField.
-//  Wisps are children of the host so they're destroyed with it on logout/death.
+//  Wisps are parented to WORLD ROOT (not the host/player) and torn down explicitly by
+//  the host's OnDestroy → ClearAll → Object.Destroy(go) over the _wisps dict.
+//
+//  ⚠️ WHY WORLD ROOT, NOT THE PLAYER (architect decomp proof, Player.cs:3929):
+//  vanilla FindHoverObject SKIPS any collider whose attachedRigidbody is the local
+//  player (so you can't hover your own body). A wisp parented under the player resolves
+//  its collider's attachedRigidbody UP to the player's Rigidbody → the hover ray would
+//  skip it forever, and the [E] prompt would never appear. Parenting to world root (no
+//  parent, no rigidbody) makes the trigger collider visible to the hover pipeline. Motion
+//  is unaffected — WispBehaviour writes ABSOLUTE world position each frame (parent-independent).
 //
 //  Clean-side (ADR-0001): SBPR-authored; reads vanilla Pickable/Location/Physics —
-//  no clone, no patch (the only patch in the feature is the Alt+E input, separate file).
+//  no clone, no patch (the only patch in the feature is LocalPlayerAttach, separate file).
 // ============================================================================
 
 using System.Collections.Generic;
@@ -59,16 +68,19 @@ namespace SBPR.Trailborne.Features.SeersStone
         // Active wisps keyed by their source object's instance id, so a re-scan reuses an existing
         // wisp for a still-present patch instead of churning it.
         private readonly Dictionary<int, WispBehaviour> _wisps = new Dictionary<int, WispBehaviour>();
-        private readonly Transform _parent;          // the host transform; wisps are children
         private float _nextScanAt;
         private int _phaseSeed;                       // spreads phase offsets across wisps
 
         // Layer mask for the scan: pieces + items (where Pickables/Locations live). Resolved once.
         private static int _scanMask = -1;
 
-        public WispField(Transform parent)
+        // The wisp GO layer — piece_nonsolid (a non-solid cosmetic, IN the vanilla m_interactMask so
+        // the hover/interact pipeline sees the trigger collider, but won't block the player or melee).
+        // Resolved once; -1 until first SpawnWisp.
+        private static int _wispLayer = -1;
+
+        public WispField()
         {
-            _parent = parent;
         }
 
         /// <summary>Live wisp count (diagnostics / tests-via-host).</summary>
@@ -189,12 +201,32 @@ namespace SBPR.Trailborne.Features.SeersStone
                                WispHitKind kind, float boundsRadius)
         {
             var go = new GameObject($"SBPR_Wisp_{prefab}");
-            go.transform.SetParent(_parent, worldPositionStays: true);
 
-            // Visual: graft the demister_ball glow subtree (ZNetView-free cosmetic child). Try the
-            // "effects" subtree (light + particles = the wisp glow); fall back to the mesh child if
-            // that fails, so the wisp is at least visible. If both fail, the wisp still exists +
-            // orbits + is pinnable — just invisible (logs-green ≠ playable; Daniel verifies on Prime).
+            // Re-parent: WORLD ROOT, not the player host. The hover pipeline (Player.cs:3929) SKIPS any
+            // collider whose attachedRigidbody is the local player, so a player-child wisp would never
+            // hover. World root = no parent rigidbody = the trigger collider is visible to the ray.
+            // Position the GO at the centroid up-front (WispBehaviour.Init then drives absolute world
+            // position each frame, so the parentless transform tracks the helix exactly as before).
+            go.transform.position = centroid;
+
+            // Layer: piece_nonsolid — a non-solid cosmetic IN vanilla's m_interactMask (Player.cs:587)
+            // so the hover/interact ray sees it, but it won't block the player or melee. Resolve once.
+            if (_wispLayer < 0) _wispLayer = LayerMask.NameToLayer("piece_nonsolid");
+            if (_wispLayer >= 0) go.layer = _wispLayer;
+
+            // Trigger collider so the bobbing wisp is a hover target. Generous radius (the wisp drifts
+            // on a ~bounds+margin orbit and bobs) so the crosshair lands on it within the 5 m interact
+            // gate = "walk up." isTrigger=true keeps it non-blocking; trigger HITS depend on
+            // Physics.queriesHitTriggers (Unity default true) — the #1 in-game verify item (PR note).
+            var col = go.AddComponent<SphereCollider>();
+            col.isTrigger = true;
+            col.radius = WispColliderRadius;
+
+            // Visual: graft the demister_ball glow subtree (ZNetView-free cosmetic child; StripToDecorative
+            // removes any donor collider so the ONLY collider on the wisp is the trigger above). Try the
+            // "effects" subtree (light + particles = the wisp glow); fall back to the mesh child if that
+            // fails, so the wisp is at least visible. If both fail, the wisp still exists + orbits + is
+            // pinnable — just invisible (logs-green ≠ playable; Daniel verifies on Prime).
             if (!Runtime.Assets.TryGraftVisualSubtree(WispVisualDonor, WispVisualChild, go, "SBPR_WispVisual", out var visual))
                 Runtime.Assets.TryGraftVisualSubtree(WispVisualDonor, WispVisualChildFallback, go, "SBPR_WispVisual", out visual);
 
@@ -206,9 +238,14 @@ namespace SBPR.Trailborne.Features.SeersStone
 
             var beh = go.AddComponent<WispBehaviour>();
             var p = WispMotionParams.Default(boundsRadius, phaseOffset: (_phaseSeed++ * 1.1f) % 6.2831855f);
-            beh.Init(centroid, p, prefab, friendlyName, kind);
+            // Hand the visual to the behaviour so a successful Use (E) pin can DIM it (the "pinned"
+            // feedback Daniel asked for). Null visual (graft failed) → dim is a safe no-op.
+            beh.Init(centroid, p, prefab, friendlyName, kind, visual);
             _wisps[id] = beh;
         }
+
+        /// <summary>Trigger-sphere radius (m) — generous so the bobbing wisp is an easy hover target within ~5 m.</summary>
+        private const float WispColliderRadius = 1.25f;
 
         /// <summary>Wisp glow scale multiplier vs the donor demister_ball — bigger so it reads as ours.</summary>
         private const float WispVisualScale = 1.8f;

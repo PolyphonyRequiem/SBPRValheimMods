@@ -1,13 +1,13 @@
 ---
 title: "Seer's Stone — the Explorer's wisp-lens (v4 / Mountains)"
 status: current
-purpose: "The consolidated design + as-built spec for the Seer's Stone: a crystal-gated Mountains-tier Utility accessory that reveals personal 'wisps' over eligible forage/ore/locations, pinnable by look (Alt+E). Locks the decisions from Daniel's #design thread (2026-06-25) and records the v0.x as-built (M1–M4)."
+purpose: "The consolidated design + as-built spec for the Seer's Stone: a crystal-gated Mountains-tier Utility accessory that reveals personal 'wisps' over eligible forage/ore/locations, pinnable by walking up to a wisp and pressing Use (E). Locks the decisions from Daniel's #design thread (2026-06-25, pin-gesture re-locked to Use/E 2026-06-27) and records the v0.x as-built (M1–M4)."
 ---
 
 # Seer's Stone — the Explorer's wisp-lens (v4 / Mountains)
 
 > **Status: BUILT (M1–M4), render-verified, pending Daniel's in-game accept.**
-> The whitelist substrate, the item, the wisp field, and pin-by-look are implemented,
+> The whitelist substrate, the item, the wisp field, and pin-by-use are implemented,
 > build 0/0, 451 unit tests green, and the wisp render + helix motion were captured on
 > a real GPU client (Prime, Niflheim). The wisp glow + item icon are **placeholders**
 > (the demister_ball effect / magenta-fallback icon) — visual polish is flagged, not a
@@ -19,7 +19,7 @@ The **Seer's Stone** is the Explorer's signature item — a sunfinder's lens bou
 silver, worn in the **Utility slot** (the Megingjord/Wishbone slot). While worn, the
 world whispers: faint **wisps** drift over clusters of interesting things — a berry
 patch, an ore deposit, a dungeon entrance — visible **to you alone** because you wear
-the lens. Look at a wisp and press **Alt+E**, and that thing goes onto your map. Take
+the lens. Walk up to a wisp and press **Use (E)** — stand close and a native `[E]` prompt appears on the wisp — and that thing goes onto your map; the wisp then **dims** to confirm it's pinned. Take
 the stone off and the wisps vanish; the world looks ordinary again. The stone is why
 the Explorer is load-bearing: without it a biome is hours of walking; with it, minutes.
 
@@ -36,6 +36,8 @@ the Explorer is load-bearing: without it a biome is hours of walking; with it, m
 | Wisp motion | **Helix on a cylinder**: the patch centroid is the axis; the wisp rides the WALL — a slow perimeter **orbit** at radius `bounds + margin` (floats just outside the foliage), plus a slow **vertical sine** bob. Ground-aware Y (samples ground at the orbit point so it never clips the uphill side on a slope). Extends **slightly beyond** the bounds so it's never hidden in geometry. | LOCKED |
 | Wisp lifecycle | Wisps are **personal + client-only** (no networking, no ZDO). A wisp marks an object's **existence**, not its current fruit: it persists while the source object exists (picked-bare is fine), and only leaves when the object is destroyed/cleared, leaves range, or the stone comes off. | LOCKED |
 | Abundance | The **wisp IS the spawn-time group aggregate** (no count shown), so pinning the wisp pins the **whole patch** as one pin — one press, the patch is recorded. | LOCKED |
+| Pin gesture | **Walk-up Use (E) on the wisp itself** (re-locked Daniel 2026-06-27, superseding the 2026-06-25 ranged Alt+E look-to-pin). The wisp is a vanilla interactable: a native `[E] <name>` hover prompt within interact range, E drops the pin. Ranged Alt+E look-to-pin is **retired**. | LOCKED |
+| Pin feedback | On a successful pin the wisp's glow **dims** (lower light/particle intensity) to signal "pinned." Personal/client-only, no ZDO — consistent with wisp lifecycle. | LOCKED |
 
 ## 3. The whitelist substrate (M1) — as built
 
@@ -86,24 +88,23 @@ the Explorer is load-bearing: without it a biome is hours of walking; with it, m
   (bounds 2.0 + margin 0.75) at all three capture samples, ~90° apart, Y bobbing 1.12–1.85 m.
 - **`WispBehaviour`** (engine-side) — drives one wisp's transform off `WispMotion`, with the
   **ground-aware-Y** read (`ZoneSystem.GetGroundHeight` at the orbit point). Carries the
-  source identity for pin-by-look.
+  source identity and IS the vanilla `Hoverable`+`Interactable` for pin-by-use.
 - **`WispField`** (engine-side) — the per-frame manager on the local player
   (`SeersStoneFieldHost`, attached on `Player.OnSpawned`). While the stone is worn, a
   **throttled OverlapSphere scan** (1 Hz, 60 m) finds eligible Pickables + Locations and
   reconciles the wisp set (spawn new, despawn gone/out-of-range); stone off → tear down all.
-  Wisps are children of the host (destroyed on logout/death).
+  Wisps are parented to **world root** (not the host) so vanilla's hover ray sees them; teardown is the explicit `ClearAll` on the host's `OnDestroy` (logout/death) + the worn=false tick.
 - **Visual:** the `demister_ball` glow subtree (Point light + particles) grafted ZNetView-free
   (placeholder; polish flagged).
+- **Vanilla-interactable wisp:** the wisp GO carries a trigger `SphereCollider` on `piece_nonsolid` and `WispBehaviour` implements `Hoverable`+`Interactable`, so vanilla's own hover/interact pipeline (`Player.FindHoverObject`/`Interact`) renders the `[E]` prompt and dispatches Use — no input Harmony patch. The wisp is parented OUTSIDE the player hierarchy (vanilla skips colliders whose rigidbody is the player, `Player.cs:3929`), motion unaffected (absolute world-position writes).
 
-## 6. Pin-by-look (M4) — as built
+## 6. Pin-by-use (M4) — as built (re-locked 2026-06-27)
 
-- **Input:** a `Player.Update` postfix; while the stone is worn, **Alt+E** raycasts the camera
-  forward (50 m). Hit → resolve to Pickable or Location.
-- **Decision:** `SeersStonePinDecision.Decide` (engine-free) — re-checks eligibility (defense in
-  depth), cleans the label (**strips any count**), checks **merge-radius dedup** (same-name pin
-  within 15 m → no duplicate), defaults **private**. Unit-tested across all branches.
-- **Placement:** Pickable → `Minimap.AddPin(pos, Icon3, label, save:true, isChecked:false)` (the
-  abundance pin — one pin for the patch). Location → `Minimap.DiscoverLocation(pos, Icon3, label)`.
+- **Gesture:** the wisp is a vanilla **`Hoverable`+`Interactable`** (`WispBehaviour`). Walk within interact range (~5 m) and a native **`[E] <name>`** prompt appears; **Use (E)** pins. No camera-raycast, no `Player.Update` patch — vanilla's `FindHoverObject`/`Interact` drive it (the wisp carries a trigger collider on `piece_nonsolid`, parented outside the player so the hover ray sees it).
+- **Decision:** `SeersStonePinDecision.Decide` (engine-free, unchanged) — re-checks eligibility, cleans the label (**strips any count**), merge-radius dedup (same-name within 15 m → no duplicate), defaults **private**. The wisp already carries the source identity (`WispBehaviour.Source*`), so `Interact()` feeds the decision directly — no resolution step.
+- **Placement:** Pickable → `Minimap.AddPin(pos, Icon3, label, save:true, isChecked:false)` (the abundance pin — one pin per patch). Location → `Minimap.DiscoverLocation(pos, Icon3, label)`.
+- **Feedback:** on a successful pin the wisp **dims** (`IsPinned` → dimmed re-style) so the player sees it's recorded. Client-only.
+- **Retired:** the v0.2.39 ranged **Alt+E look-to-pin** (`PinByLookInput` `Player.Update` postfix) is removed — it pinned the ray's SOURCE object, not the off-source wisp the player aimed at (the playtest defect). Pin-by-use on the wisp resolves it at the source.
 
 ## 7. Tier reconciliation (the corpus mis-tiered it)
 
@@ -127,7 +128,9 @@ Black Forest / copper and are corrected to point here:
 - [ ] **AT-WISP-HELIX:** a wisp orbits the patch perimeter (radius = bounds+margin) and bobs vertically; it rides above local ground on a slope. *(render-verified on Prime 2026-06-25.)*
 - [ ] **AT-WISP-PERSONAL:** a second player without a stone sees no wisps.
 - [ ] **AT-WISP-LIFECYCLE:** a wisp persists after the patch is picked bare; leaves when the object is destroyed or the stone is removed.
-- [ ] **AT-PIN-LOOK:** Alt+E while looking at a wisp's source pins it ("Blueberries", no count); a second look within 15 m does not double-pin.
+- [ ] **AT-WISP-E-PROMPT:** walking up to a wisp (within ~5 m) shows a native `[E] <name>` hover prompt.
+- [ ] **AT-WISP-E-PIN:** pressing Use (E) on a wisp drops the pin ("Blueberries", no count); a second pin of the same patch within 15 m does not double-pin.
+- [ ] **AT-WISP-DIM-ON-PIN:** after a successful pin the wisp's glow visibly dims.
 - [ ] **AT-OWNER-EDIT:** editing the config whitelist (add/remove a prefab) changes what wisps; deleting the file re-seeds the default.
 - [ ] logs-green ≠ playable: every AT closes only on Daniel's in-game check.
 
