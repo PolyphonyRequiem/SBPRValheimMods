@@ -29,36 +29,43 @@ namespace SBPR.Trailborne.Features.Portals
     ///   1. A DISTINCT CLASS <see cref="SBPR_TwistedPortal"/> — it does NOT inherit
     ///      vanilla <see cref="TeleportWorld"/> (card AC#1: tag-collision avoidance). It
     ///      reimplements the small slice of teleport it needs, omitting the NoPortals gate.
-    ///   2. NoPortals BYPASS (card AC#2) — our <see cref="SBPR_TwistedPortal.Teleport"/>
+    ///   2. NoPortals BYPASS (card AC#2) — our <see cref="SBPR_TwistedPortal.CommitTravel"/>
     ///      simply does NOT check <c>ZoneSystem.GetGlobalKey(GlobalKeys.NoPortals)</c>
     ///      (vanilla TeleportWorld.Teleport hard-blocks on it, decomp :123008). We are
     ///      independent code, so we just don't write that check.
-    ///   3. RUNE-NAME PAIRING (Q3 = Model A, locked) — pairing is a NAME MATCH on our
-    ///      <c>sbpr_rune_name</c> slot, resolved SERVER-SIDE over our own ZDO walk
-    ///      (<see cref="SBPR_TwistedPortal.ResolveDestination"/>), NOT vanilla's 1:1
-    ///      ConnectionType.Portal channel. We deliberately keep our hash OUT of
-    ///      <c>Game.PortalPrefabHash</c> (the §4.3 option-(b) decision, see below) so
-    ///      vanilla <c>Game.ConnectPortals</c> never touches our portals (AT-NO-VANILLA-PAIR
-    ///      passes by construction).
+    ///   3. LOOK-TO-AIM TRAVEL (Q3 superseded 2026-06-27, card t_f4d0d5e1 / L1) — the
+    ///      destination is the portal the player AIMS the crosshair at (angular pick,
+    ///      <see cref="AimPickMath"/>), committed on tap-[Use]/E (<see cref="TwistedPortalCommitInput"/>),
+    ///      NOT a same-rune name match (Model A, RETIRED) and NOT vanilla's 1:1
+    ///      ConnectionType.Portal channel. Rune names survive as human-readable AIM LABELS,
+    ///      not the pairing key. We deliberately keep our hash OUT of <c>Game.PortalPrefabHash</c>
+    ///      (the §4.3 option-(b) decision, see below) so vanilla <c>Game.ConnectPortals</c>
+    ///      never touches our portals (AT-NO-VANILLA-PAIR passes by construction).
     ///
     /// 🔴 §4.3 DECISION — option (b), NOT (a). The spec flagged the #1 build-time choice:
     /// register our hash in <c>Game.PortalPrefabHash</c> and play <c>s_tag</c> games to
-    /// stop vanilla auto-pairing (a), OR keep our hash out entirely and resolve pairing in
-    /// our own server-side ZDO walk (b). We chose (b): it fully decouples us from vanilla's
-    /// portal-pairing machinery, never writes <c>s_tag</c>, and makes the spurious-vanilla-
-    /// pair failure mode (AT-NO-VANILLA-PAIR) impossible rather than merely tested. The
-    /// cost is doing our own <c>ZDOMan.GetAllZDOsWithPrefabIterative</c> walk instead of
-    /// reusing the engine's <c>m_portalObjects</c> list — cheap and explicit. (Architect
-    /// lean in spec §4.3 was option (b).)
+    /// stop vanilla auto-pairing (a), OR keep our hash out entirely and resolve the
+    /// candidate set in our own ZDO walk (b). We chose (b): it fully decouples us from
+    /// vanilla's portal-pairing machinery, never writes <c>s_tag</c>, and makes the
+    /// spurious-vanilla-pair failure mode (AT-NO-VANILLA-PAIR) impossible rather than
+    /// merely tested. The cost is doing our own <c>ZDOMan.GetAllZDOsWithPrefabIterative</c>
+    /// walk (now in <see cref="TwistedPortalCandidates"/>) instead of reusing the engine's
+    /// <c>m_portalObjects</c> list — cheap and explicit. (Architect lean in spec §4.3 was (b).)
     ///
-    /// 🔴 MULTIPLAYER (spec §2): the destination walk runs on the OWNER (the host owns world
-    /// ZDOs in the common dedicated-server case), where the full Twisted-Portal ZDO set
-    /// exists — so it is NOT subject to the client's ~64–128 m sector window. The 300 m
-    /// proximity OVERLAY (card C3, t_e732bd8b) is the only thing that degrades to the held
-    /// window, and that is an accepted cosmetic shortfall (AT-OVERLAY), not a travel bug.
+    /// 🔴 MULTIPLAYER (spec §2 — look-to-aim makes server-authoritative reach REQUIRED): the
+    /// candidate-set walk in <see cref="TwistedPortalCandidates.Gather"/> runs on the LOCAL
+    /// CLIENT and currently sees only the ZDOs THIS PEER HOLDS — on a dedicated server, the
+    /// ~64–128 m sector window, NOT a guaranteed 300 m. That is the L1 STAGING state (enough
+    /// for the in-game aim/feel accept). L2 (card t_ccb454f8) MUST swap that walk for the
+    /// owner-routed RPC candidate set (the <c>SurveyorTableTag</c> precedent) so travel reaches
+    /// destinations past the client window (AT-PICK-LONGRANGE). The old "runs on the OWNER /
+    /// not subject to the sector window" claim that used to sit here was FALSE — there is no
+    /// RPC in the path yet; this comment states the real (client-window-limited) state.
     ///
     /// Q1 = COEXIST (locked): vanilla + Ancient portals stay craftable; we disable nothing.
-    /// Patch-free by construction (component wiring + an on-demand ZDO read). All registration
+    /// The cost model + travel are patch-free (component wiring + an on-demand ZDO read); the
+    /// only Harmony patch in the look-to-aim surface is the client-only commit-input
+    /// <c>Player.Update</c> postfix (<see cref="TwistedPortalCommitInput"/>). All registration
     /// gated behind ServerContext.OnSBServer via the Registrar fan-out.
     /// </summary>
     public static class TwistedPortal
@@ -195,8 +202,8 @@ namespace SBPR.Trailborne.Features.Portals
                 piece.m_name = "Twisted Portal";
                 piece.m_description =
                     "An endgame portal woven from twisted swamp-magic. Place it on solid earth with the " +
-                    "Hammer, then name it with a rune and name a second portal the SAME rune to pair them. " +
-                    "Jump up into the ring to travel — it works even where ordinary portals are sealed. " +
+                    "Hammer, then stand on it and aim at another Twisted Portal in the world to travel — " +
+                    "it works even where ordinary portals are sealed. " +
                     "Travel burns the food in your belly; a long jump leaves you depleted. " +
                     // Lore breadcrumb (spec §5.7 — the ONLY advertisement for the Bukeberry emergency reserve).
                     // Plain English, NOT a $sbpr_* token: this repo has no localization-registration layer, so a
@@ -223,19 +230,16 @@ namespace SBPR.Trailborne.Features.Portals
             }
 
             // ── The portal BRAIN: our distinct teleporter class (NO TeleportWorld). It owns the
-            //    teleport (NoPortals omitted), the rune-name ZDO discipline, the destination walk,
-            //    and the Hoverable/Interactable/TextReceiver surfaces. ────────────────────────
+            //    look-to-aim CommitTravel (NoPortals omitted), the rune-name ZDO discipline, and the
+            //    Hoverable/Interactable/TextReceiver surfaces. Travel is the aim+tap-E commit owned by
+            //    the client-only TwistedPortalCommitInput Player.Update postfix — there is NO overhead
+            //    jump-through trigger under look-to-aim (the L1 supersession retired it, spec §4.5). ──
             go.AddComponent<SBPR_TwistedPortal>();
 
-            // ── Overhead jump-through trigger: a flat trigger box at the ring whose OnTriggerEnter
-            //    calls OUR SBPR_TwistedPortal.Teleport (we have no vanilla TeleportWorld, so we use
-            //    our own SBPR_TwistedPortalTrigger that resolves SBPR_TwistedPortal in its parent).
-            //    Active immediately — Twisted has no grow gate (spec §4.6). ────────────────────
-            BuildOverheadTrigger(go);
-
-            // ── ROOT collider: collapse the shell's unit box to a THIN GROUND PAD so the player
-            //    can walk in, stand under the overhead ring, and jump up into it. The 3 SOLID leg
-            //    colliders carry the axe/deconstruct hit surface up the structure (Ancient precedent).
+            // ── ROOT collider: collapse the shell's unit box to a THIN GROUND PAD so the player can
+            //    walk onto / stand on the portal foundation (the Beat-1 proximity-active "stand on it"
+            //    state). The 3 SOLID leg colliders carry the axe/deconstruct hit surface up the
+            //    structure (Ancient precedent). No overhead trigger box — travel is aim+E, not jump.
             var rootBox = go.GetComponent<BoxCollider>();
             if (rootBox != null)
             {
@@ -246,7 +250,7 @@ namespace SBPR.Trailborne.Features.Portals
             Assets.RegisterPrefabInZNetScene(go);
             Plugin.Log.LogInfo(
                 $"[Trailborne/TwistedPortal] Registered piece: {PortalPieceName} (Hammer, solid-earth, HP {PortalHealth}, " +
-                "distinct SBPR_TwistedPortal teleporter + overhead trigger; NoPortals-bypass; rune-name pairing).");
+                "distinct SBPR_TwistedPortal teleporter; NoPortals-bypass; look-to-aim travel (aim + tap-E commit)).");
         }
 
         /// <summary>Re-tint a grafted renderer toward the swamp emission via a per-renderer
@@ -317,35 +321,6 @@ namespace SBPR.Trailborne.Features.Portals
             }
         }
 
-        /// <summary>
-        /// Build the overhead horizontal teleport trigger (spec §4.5 — the main novel-geometry
-        /// risk). A child GameObject under the piece root with a flat trigger BoxCollider +
-        /// <see cref="SBPR_TwistedPortalTrigger"/>, positioned at the ring (~3 m up).
-        ///
-        /// 🔴 SIZE IS DESK-ESTIMATED, FLAGGED FOR IN-GAME TUNING (AT-JUMP-ACTIVATE): ~2.6 m
-        /// across (ring footprint) × ~0.9 m tall centered at ring height, reused VERBATIM from the
-        /// Ancient Portal so the two activate identically. The exact numbers depend on the player
-        /// capsule + jump impulse and CANNOT be locked from the desk — the engineer tunes them on a
-        /// joined client and Daniel verifies. Unlike the Ancient Portal the trigger is LIVE
-        /// immediately (no grow gate, §4.6); the only travel gate is the food-as-fuel check at
-        /// teleport time (§5, card C2).
-        /// </summary>
-        private static void BuildOverheadTrigger(GameObject pieceRoot)
-        {
-            var trig = new GameObject("SBPR_TwistedPortalTrigger");
-            trig.transform.SetParent(pieceRoot.transform, worldPositionStays: false);
-            trig.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
-
-            var box = trig.AddComponent<BoxCollider>();
-            box.isTrigger = true;
-            box.size = new Vector3(2.6f, 0.9f, 2.6f);   // wide ring footprint, ~0.9 m vertical slack
-            box.center = Vector3.zero;                   // centered on the ring height (trig is at ~3 m)
-
-            // Our own trigger MonoBehaviour: SBPR_TwistedPortalTrigger.Awake does
-            // GetComponentInParent<SBPR_TwistedPortal>(); OnTriggerEnter → portal.Teleport(player).
-            trig.AddComponent<SBPR_TwistedPortalTrigger>();
-        }
-
         // ════════════════════════════════════════════════════════════════════════════════
         // OBJECTDB WIRING — authoritative portal cost rebuild + Hammer menu add.
         // Runs AFTER SunstoneLens (so SBPR_Sunstone is in ObjectDB for the recipe BuildReq).
@@ -386,35 +361,6 @@ namespace SBPR.Trailborne.Features.Portals
         private static Piece.Requirement BuildReq(string resourcePrefabName, int amount, bool warn = true)
         {
             return Assets.BuildReq(resourcePrefabName, amount, "TwistedPortal", warn);
-        }
-    }
-
-    /// <summary>
-    /// The overhead jump-through trigger for the Twisted Portal — our analogue of vanilla
-    /// <c>TeleportWorldTrigger</c> (decomp :123135). Because the Twisted Portal does NOT carry a
-    /// vanilla <see cref="TeleportWorld"/>, we cannot reuse <c>TeleportWorldTrigger</c> (its Awake
-    /// does <c>GetComponentInParent&lt;TeleportWorld&gt;()</c> and would find none). This trigger
-    /// resolves <see cref="SBPR_TwistedPortal"/> in its parent instead and routes the jump there.
-    ///
-    /// Same gate vanilla uses (decomp :123146): only the LOCAL player triggers a teleport, so a
-    /// remote player's capsule entering the trigger on another client never fires it here.
-    /// </summary>
-    public class SBPR_TwistedPortalTrigger : MonoBehaviour
-    {
-        private SBPR_TwistedPortal? portal;
-
-        private void Awake()
-        {
-            portal = GetComponentInParent<SBPR_TwistedPortal>();
-        }
-
-        private void OnTriggerEnter(Collider colliderIn)
-        {
-            if (portal == null) return;
-            var player = colliderIn.GetComponent<Player>();
-            // Mirror vanilla TeleportWorldTrigger: act only for the local player (:123147).
-            if (player == null || Player.m_localPlayer != player) return;
-            portal.Teleport(player);
         }
     }
 }
