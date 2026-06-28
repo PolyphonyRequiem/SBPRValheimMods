@@ -86,6 +86,7 @@ namespace SBPR.Trailborne.Features.Portals
 
         // Reused across refreshes to avoid per-frame allocation.
         private readonly List<ZDO> _zdoScratch = new List<ZDO>();
+        private readonly List<TwistedDestination> _candScratch = new List<TwistedDestination>();
         private readonly List<PortalRow> _rows = new List<PortalRow>();
         private readonly List<OverlayCandidate> _candidates = new List<OverlayCandidate>();
         private readonly List<int> _selected = new List<int>();
@@ -198,35 +199,19 @@ namespace SBPR.Trailborne.Features.Portals
         }
 
         /// <summary>
-        /// Walk the Twisted-Portal ZDO set THIS PEER HOLDS and fill <see cref="_rows"/> with each
-        /// one's (position, censored rune, hasRune). Uses the same paged
-        /// <c>GetAllZDOsWithPrefabIterative</c> drain idiom the core's destination walk uses
-        /// (SBPR_TwistedPortal.ResolveDestination) — drain it fully (returns false until exhausted).
-        /// 🔴 On a dedicated server this is only the ~64–128 m client window (§2) — best-effort.
+        /// Walk the Twisted-Portal candidate set (the SHARED <see cref="TwistedPortalCandidates.Gather"/>
+        /// source, also used by the commit input — so the label you aim at IS the portal you travel to,
+        /// no drift between the two surfaces) and fill <see cref="_rows"/> with each one's (position,
+        /// censored rune, hasRune). 🔴 On a dedicated server this is only the ~64–128 m client window
+        /// (§2) — the L1 STAGING set L2 (t_ccb454f8) swaps for the server-authoritative RPC set.
         /// </summary>
         private void BuildRows(Vector3 here)
         {
             _rows.Clear();
 
-            var zdoMan = ZDOMan.instance;
-            if (zdoMan == null) return;
-
-            _zdoScratch.Clear();
-            int index = 0;
-            while (!zdoMan.GetAllZDOsWithPrefabIterative(TwistedPortal.PortalPieceName, _zdoScratch, ref index)) { }
-
-            foreach (var z in _zdoScratch)
-            {
-                if (z == null) continue;
-                string raw = z.GetString(SBPR_TwistedPortal.ZdoRuneName, string.Empty);
-                // Censor on read (the core's ReadRuneName precedent) so a label can never show
-                // un-filtered UGC even if a legacy ZDO stored raw bytes.
-                string rune = string.IsNullOrEmpty(raw)
-                    ? string.Empty
-                    : CensorShittyWords.FilterUGC(raw, UGCType.Text, 0L);
-                bool hasRune = !string.IsNullOrEmpty(rune);
-                _rows.Add(new PortalRow(z.GetPosition(), rune, hasRune));
-            }
+            TwistedPortalCandidates.Gather(here, _zdoScratch, _candScratch);
+            foreach (var c in _candScratch)
+                _rows.Add(new PortalRow(c.Position, c.Rune, c.HasRune));
         }
 
         // Diagnostic: on the FIRST populated frame, log how many labels were drawn so a client

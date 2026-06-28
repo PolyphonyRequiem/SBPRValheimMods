@@ -70,6 +70,110 @@ namespace SBPR.Trailborne.Features.Portals
             public static JumpResult Spent(int burnedBerries) => new JumpResult { Ok = true, Reason = string.Empty, BurnedBerries = burnedBerries };
         }
 
+        /// <summary>
+        /// 🟥 LOOK-TO-AIM (card t_f4d0d5e1 / L1): the READ-ONLY food-impact preview for the pre-commit
+        /// readout (spec §5 "Look-to-aim addition" / Beat 3). Daniel's model shows the player the food
+        /// cost of the AIMED jump BEFORE committing — so this is a NON-MUTATING sibling of the result:
+        /// the same belly snapshot + the same non-mutating <see cref="PortalEnergyMath.SolveJump"/>, but
+        /// it STOPS before any debit (no <c>m_time</c> drain, no berry burn, no <c>SE_Puke</c>).
+        ///
+        /// L1 SHIPS THIS SEAM (the L3 dependency line names "the PreviewJump seam"); L3 (t_d9ea1b2c)
+        /// RENDERS it on the aimed destination label. The fields mirror what the overlay shows: belly
+        /// range vs the jump distance, the shortfall, the berries the shortfall would need, and whether
+        /// the player actually holds enough Bukeberries to make the jump (so the preview can read
+        /// "reachable" vs "need N more berries"). Read-only — calling this spends nothing (AT-FOOD-PREVIEW).
+        /// </summary>
+        public readonly struct JumpPreview
+        {
+            /// <summary>The aimed jump distance (metres) this preview was computed for.</summary>
+            public readonly float DistanceMeters;
+            /// <summary>belly_range in metres (the distance the belly food alone can cover).</summary>
+            public readonly float BellyRangeMeters;
+            /// <summary>True when the belly alone covers the jump (zero berries needed).</summary>
+            public readonly bool BellyCovers;
+            /// <summary>Distance past belly_range (0 when the belly covers it).</summary>
+            public readonly float ShortfallMeters;
+            /// <summary>Bukeberries the shortfall would need (0 when the belly covers it).</summary>
+            public readonly int BerriesNeeded;
+            /// <summary>Bukeberries the player currently holds (so the preview can show "have N of M").</summary>
+            public readonly int BerriesHeld;
+            /// <summary>True when the jump is makeable right now (belly covers it, OR the player holds
+            /// enough berries for the shortfall). The overlay reads green vs red off this.</summary>
+            public readonly bool Reachable;
+
+            public JumpPreview(float distanceMeters, float bellyRangeMeters, bool bellyCovers,
+                float shortfallMeters, int berriesNeeded, int berriesHeld, bool reachable)
+            {
+                DistanceMeters = distanceMeters;
+                BellyRangeMeters = bellyRangeMeters;
+                BellyCovers = bellyCovers;
+                ShortfallMeters = shortfallMeters;
+                BerriesNeeded = berriesNeeded;
+                BerriesHeld = berriesHeld;
+                Reachable = reachable;
+            }
+        }
+
+        /// <summary>
+        /// READ-ONLY food-impact preview of a jump of <paramref name="distanceMeters"/> for
+        /// <paramref name="player"/> (spec §5 Beat 3) — the non-mutating sibling of
+        /// <see cref="TrySpendForJump"/>. Snapshots the belly + Bukeberry count and solves the jump
+        /// with the SAME pure <see cref="PortalEnergyMath.SolveJump"/>, then returns a
+        /// <see cref="JumpPreview"/> and STOPS — no debit, no berry burn, no SE_Puke. Calling this
+        /// spends nothing (AT-FOOD-PREVIEW). L3 renders the result on the aimed destination label.
+        /// </summary>
+        public static JumpPreview PreviewJump(Player player, float distanceMeters)
+        {
+            if (player == null)
+                return new JumpPreview(distanceMeters, 0f, false, distanceMeters, 0, 0, false);
+
+            PortalEnergyKnobs knobs = ResolveKnobs();
+            PeSlot[] slots = SnapshotBelly(player.GetFoods());
+            JumpSolution sol = PortalEnergyMath.SolveJump(slots, distanceMeters, knobs);
+
+            int berriesNeeded = sol.BerriesNeeded;
+            int berriesHeld = berriesNeeded > 0 ? CountBukeberries(player) : 0;
+            bool reachable = berriesNeeded == 0 || berriesHeld >= berriesNeeded;
+
+            return new JumpPreview(
+                distanceMeters,
+                sol.BellyRangeMeters,
+                sol.BellyCovers,
+                sol.ShortfallMeters,
+                berriesNeeded,
+                berriesHeld,
+                reachable);
+        }
+
+        /// <summary>
+        /// Build the engine-free <see cref="PeSlot"/>[] snapshot off the live belly (spec §5.1). Reads
+        /// each slot's BASE stat budget (<c>m_food + m_foodStamina + m_foodEitr</c> — NOT the decayed
+        /// live stat, the §5.1 🔴 double-count trap) + remaining minutes (<c>m_time/60</c>) + the feast
+        /// flag. Shared by the debit (<see cref="TrySpendForJump"/>) and the read-only preview
+        /// (<see cref="PreviewJump"/>) so the two can never compute a different belly.
+        /// </summary>
+        private static PeSlot[] SnapshotBelly(List<Player.Food>? foods)
+        {
+            int slotCount = foods?.Count ?? 0;
+            var slots = new PeSlot[slotCount];
+            for (int i = 0; i < slotCount; i++)
+            {
+                Player.Food f = foods![i];
+                ItemDrop.ItemData? item = f?.m_item;
+                ItemDrop.ItemData.SharedData? shared = item?.m_shared;
+
+                // BASE stat budget (NOT the decayed live f.m_health/m_stamina/m_eitr — spec §5.1 🔴).
+                float baseStats = shared != null
+                    ? shared.m_food + shared.m_foodStamina + shared.m_foodEitr
+                    : 0f;
+                float realMinutes = (f?.m_time ?? 0f) / 60f;
+                bool isFeast = IsFeastFood(item);
+
+                slots[i] = new PeSlot(baseStats, realMinutes, isFeast);
+            }
+            return slots;
+        }
+
         /// <summary>Resolve the live cost-model knobs from BepInEx config (Plugin.*), falling back to the
         /// locked baselines (<see cref="PortalEnergyMath"/> Default* consts) in a no-Plugin unit context —
         /// the Sunstone Lens "?.Value ?? Default" idiom, single source of truth in the engine-free core.</summary>
@@ -105,23 +209,7 @@ namespace SBPR.Trailborne.Features.Portals
             // ── 1) Snapshot the live belly (the PE read surface, decomp :17598). The Food list is the
             //       AUTHORITATIVE per-slot remaining-time + base-stat source; we read, never patch. ──
             List<Player.Food> foods = player.GetFoods();
-            int slotCount = foods?.Count ?? 0;
-            var slots = new PeSlot[slotCount];
-            for (int i = 0; i < slotCount; i++)
-            {
-                Player.Food f = foods![i];
-                ItemDrop.ItemData? item = f?.m_item;
-                ItemDrop.ItemData.SharedData? shared = item?.m_shared;
-
-                // BASE stat budget (NOT the decayed live f.m_health/m_stamina/m_eitr — spec §5.1 🔴).
-                float baseStats = shared != null
-                    ? shared.m_food + shared.m_foodStamina + shared.m_foodEitr
-                    : 0f;
-                float realMinutes = (f?.m_time ?? 0f) / 60f;
-                bool isFeast = IsFeastFood(item);
-
-                slots[i] = new PeSlot(baseStats, realMinutes, isFeast);
-            }
+            PeSlot[] slots = SnapshotBelly(foods);
 
             // ── 2) Solve the jump (pure math — AT-PE-MATH gates this in CI). ──
             JumpSolution sol = PortalEnergyMath.SolveJump(slots, distanceMeters, knobs);

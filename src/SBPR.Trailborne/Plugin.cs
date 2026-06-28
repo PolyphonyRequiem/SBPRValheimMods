@@ -239,6 +239,14 @@ namespace SBPR.Trailborne
         // bake to false once Daniel confirms the labels render in-game.
         internal static ConfigEntry<bool>?  TwistedOverlayDebugMount      = null;
 
+        // ── v3 Swamp: Twisted Portal LOOK-TO-AIM travel (card t_f4d0d5e1, L1) ──
+        // The aim-cone half-angle (degrees): a destination portal must lie within this many degrees of
+        // the crosshair to be aim-selectable (spec §4.4a, the angular pick). LIVE config so Daniel tunes
+        // the aim feel on a joined client without a rebuild (the Sunstone "?.Value ?? Default" idiom — a
+        // no-Plugin context falls back to AimPickMath.DefaultAimConeDegrees). Generous default (35°) so
+        // sweeping the crosshair across a horizon of labels feels forgiving; lower it for a tighter pick.
+        internal static ConfigEntry<float>? TwistedAimConeDegrees = null;
+
         // ── v3 Swamp: Twisted Portal FOOD-AS-FUEL cost model (card t_6e992a30, C2) ──
         // The six Portal Energy knobs (design doc §6 — architecture fixed, numbers are playtest dials).
         // All LIVE config so Daniel retunes the travel economy on a joined client without a rebuild (the
@@ -886,6 +894,22 @@ namespace SBPR.Trailborne
                 + "portals held' (line absent) from 'labels drawn but invisible' (line present with a count). Default "
                 + "ON for the diagnostic cut; bake false once Daniel confirms the labels render in-game.");
 
+            // v3 Swamp — Twisted Portal LOOK-TO-AIM travel (card t_f4d0d5e1, L1). The aim-cone half-angle:
+            // a destination portal must lie within this many degrees of the crosshair to be aim-selectable
+            // (spec §4.4a, the angular pick — NOT a collider raycast, so a portal behind a hill is
+            // selectable by aiming at its through-terrain label). LIVE config so Daniel tunes the aim feel
+            // on a joined client; default mirrors AimPickMath.DefaultAimConeDegrees.
+            TwistedAimConeDegrees = Config.Bind(
+                "TwistedPortal", "AimConeDegrees",
+                SBPR.Trailborne.Features.Portals.AimPickMath.DefaultAimConeDegrees,
+                new ConfigDescription(
+                    "LOOK-TO-AIM: the aim-cone HALF-ANGLE (degrees) within which a destination Twisted Portal is "
+                    + "selectable by aiming the crosshair at it. Stand on a portal, aim within this many degrees of "
+                    + "another portal's direction, and tap [Use]/E to travel. Wider = more forgiving sweep across a "
+                    + "horizon of labels; tighter = a more deliberate pick. Angular (direction-to-the-label), not a "
+                    + "line-of-sight raycast, so a portal behind a hill is still selectable (impl-spec §4.4a).",
+                    new AcceptableValueRange<float>(2f, 90f)));
+
             // v3 Swamp — Twisted Portal FOOD-AS-FUEL cost model (card t_6e992a30, C2). All six PE knobs
             // are LIVE config so Daniel retunes the travel economy on a joined client without a rebuild
             // (the design doc §6 marks the architecture fixed but every NUMBER a playtest dial; the
@@ -1197,6 +1221,16 @@ namespace SBPR.Trailborne
             //    ships dead and PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
             //    Never fires on the dedicated server (no Hud).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Portals.TwistedPortalOverlay.HudBootstrap));
+
+            // v3 Swamp — Twisted Portal LOOK-TO-AIM commit input (card t_f4d0d5e1, L1). A client-only
+            //   Player.Update postfix (the SeersStone PinByLookInput precedent): while the local player
+            //   stands on a Twisted Portal, it aim-picks the destination portal the crosshair points at
+            //   (angular pick, AimPickMath) and commits travel on tap-[Use]/E; hold-[Use]/E opens the
+            //   rune rename (the demoted gesture, Daniel's locked E-key fork). Publishes the per-frame
+            //   aim state for the L3 overlay highlight + food preview. No-op off-portal and on the
+            //   dedicated server (no local player). MUST be registered here or it ships dead and
+            //   PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Portals.TwistedPortalCommitInput));
 
             // v4 Mountains — Seer's Stone (Daniel 2026-06-25; pin gesture re-locked 2026-06-27).
             // ONE client-only patch now:
