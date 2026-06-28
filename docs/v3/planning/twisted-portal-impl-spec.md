@@ -908,6 +908,42 @@ the per-slot label material (the reachable seam), the **food-impact preview** re
 builds NO picker; a picker is a Model B scope expansion, BLOCK + flag" — is **RETIRED**: Daniel chose the picker
 (option A, gaze-selected), so building the selection surface is now in scope, not a violation.
 
+### 7.5 L3 build notes (card t_d9ea1b2c — what shipped: selection-highlight + food preview)
+
+> 🟢 **SHIPPED (L3, on `main` after PR — selection-highlight + food-impact preview render).** The overlay is now the
+> interactive picker surface (Beat 3). What landed, grounded against the L1 seams it consumes:
+>
+> - **Aimed-label highlight (AT-AIM-HIGHLIGHT).** `TwistedPortalOverlay.Update` was split into a THROTTLED selection
+>   pass (the ~0.5 s ZDO walk + nearest-N) and a PER-FRAME draw pass, so the highlight tracks the crosshair smoothly as
+>   you sweep (a per-frame redraw against the cached selection — portals are static, only the *aim* moves). The draw
+>   reads the aim state L1 publishes (`TwistedPortalCommitInput.OnPortal` / `.HasAim` / `.AimedDestination`) and matches
+>   it to a drawn label by **ZDO id** (a new `ZDOID Id` on the render `PortalRow`, carried from the shared
+>   `TwistedDestination.Id`), so the highlight is provably the same portal the angular pick chose and tap-E will travel
+>   to — no drift between aim, highlight, and commit. The highlight is the **reachable per-slot seam** (§7.4 note): a
+>   brighter tint (`AimedColor`) **and** a size bump (`DrawLabel(..., aimed, scaleBump)`).
+>   🔴 **Colourblind-safe (Daniel is colourblind):** the cue does NOT rely on hue — the bump is a LUMINANCE (near-white)
+>   + SIZE change, and the food-preview block appears on exactly one label, so "which is selected" reads without colour.
+> - **Food-impact preview (AT-FOOD-PREVIEW).** Renders under the aimed label via the **read-only**
+>   `TwistedPortalEnergy.PreviewJump` (the non-mutating sibling L1 shipped) → a new engine-free, CI-gated
+>   `TwistedPortalPreviewText.BuildFoodPreview` formatter (`tests/TwistedPortalPreviewTextTests.cs`, 11 cases). Two short
+>   lines: `belly <range>` + a verdict (`in range` / `need N berries (have M)` / `too far: N berries (have M)`). The
+>   preview distance is the SAME `player → destination` `Vector3.Distance` the commit path debits, so **committing
+>   matches the preview**. Recompute is bounded: immediate on a new aim target, else ≤ every 0.25 s on a held one.
+>   NON-MUTATING — `PreviewJump` spends nothing; the food/berry debit happens only on tap-E commit (L1, C2). Legible,
+>   not a tutorial wall (no per-slot drain dump — just range + the berry gate).
+> - **Server-authoritative candidate set (§2).** The overlay already reads the **shared** `TwistedPortalCandidates.Gather`
+>   seam (not a private client walk), so when L2 (`t_ccb454f8`) swaps `Gather`'s body for the owner-routed RPC set, the
+>   highlight + preview reach long-range destinations automatically — no change here. Today it's the L1 ~64–128 m
+>   staging window (AT-OVERLAY local case; AT-PICK-LONGRANGE is L2's accept).
+> - **Live config (3 new knobs, `[TwistedPortalOverlay]`):** `HighlightAimed` (master on/off — off falls back to the
+>   informational render), `ShowFoodPreview` (the Beat-3 readout, independent), `HighlightScaleBump` (the size cue,
+>   1.0–2.5, default 1.25). Banner-windsock convergence on a joined client.
+> - **Scope held:** render-only, client-only (no Hud on the server), SpecCheck +0, no new prefab (ADR-0006 N/A), no new
+>   Harmony patch (the draw is the existing `Hud.Awake`-mounted pump). Clean-side (ADR-0001): base-game + own classes only.
+> - **logs-green ≠ playable:** the build is 0/0 and 525/525 tests pass, but AT-AIM-HIGHLIGHT (the highlight visibly
+>   tracks the sweep) and AT-FOOD-PREVIEW (the readout shows pre-commit and commit matches it) are **Daniel's in-game
+>   joined-client eyeball** — GPU-client pixels can't be asserted headless.
+
 ---
 
 ## 8. Registration + wiring order (Registrar, PatchCheck, server-gating) — the patch surface COLLAPSES

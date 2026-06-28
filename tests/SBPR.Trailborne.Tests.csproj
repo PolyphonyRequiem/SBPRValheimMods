@@ -72,6 +72,7 @@
     <Compile Include="../src/SBPR.Trailborne/Features/Portals/TwistedPortalLabelScale.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Portals/PortalEnergyMath.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Portals/AimPickMath.cs" />
+    <Compile Include="../src/SBPR.Trailborne/Features/Portals/TwistedPortalPreviewText.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/SeersStoneEligibility.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/WhitelistDocument.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/WispMotion.cs" />

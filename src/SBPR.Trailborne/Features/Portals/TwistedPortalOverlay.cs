@@ -9,23 +9,30 @@
 //             unnamed-skip / distance-format policy — CI-gated in
 //             tests/TwistedPortalOverlayModelTests.cs).
 //
-//  WHAT THIS DRAWS (Model A — INFORMATIONAL, card scope). When the local player
-//  stands on / near a Twisted Portal, a floating world-space label appears over
-//  every nearby Twisted Portal showing its RUNE NAME (+ optional distance),
-//  rendered THROUGH TERRAIN (a ZTest-Always material on the label so it's legible
-//  behind hills — the design's "visible through terrain" reading; the
+//  WHAT THIS DRAWS (LOOK-TO-AIM — the INTERACTIVE selection surface, L3 t_d9ea1b2c).
+//  When the local player stands on / near a Twisted Portal, a floating world-space
+//  label appears over every nearby Twisted Portal showing its RUNE NAME (+ optional
+//  distance), rendered THROUGH TERRAIN (a ZTest-Always material on the label so it's
+//  legible behind hills — the design's "visible through terrain" reading; the
 //  BugattiBoys/PortalIndicator behaviour reproduced from uGUI primitives only).
-//  It is a READ-OUT, NOT a destination picker — travel is the server-side
-//  rune-name match the core card (C1) owns. (Model B's selectable directory is
-//  explicitly OUT of v3.0 scope.)
 //
-//  🔴 MULTIPLAYER (spec §2 / §7.2): the label set is populated from the Twisted
-//  Portal ZDOs THIS CLIENT HOLDS (ZDOMan.GetAllZDOsWithPrefabIterative filtered to
-//  our hash). On a dedicated server a client holds only ~64–128 m of ZDOs, NOT a
-//  guaranteed 300 m — so the overlay is BEST-EFFORT CLIENT COSMETIC: it shows the
-//  portals the client currently has, which may be fewer than the true 300 m set on
-//  a far-flung world. This is an ACCEPTED v3.0 limitation (AT-OVERLAY), documented,
-//  not a bug — travel itself (C1) resolves server-side and is correct.
+//  🟥 LOOK-TO-AIM (spec §7, superseded 2026-06-27): the labels are also the AIM
+//  TARGETS. The destination the crosshair is pointing at (the angular pick L1's
+//  TwistedPortalCommitInput publishes) gets a SELECTED-HIGHLIGHT — a brighter
+//  (luminance, NOT hue — Daniel is colourblind) tint + a size bump — and the read-only
+//  FOOD-IMPACT PREVIEW (TwistedPortalEnergy.PreviewJump → TwistedPortalPreviewText)
+//  renders under that one label: belly range vs the jump distance, and the berries the
+//  shortfall would need ("the impact to food"). The preview is NON-MUTATING (PreviewJump
+//  spends nothing); the debit happens only on tap-E commit (L1). The overlay is no
+//  longer informational — it IS the picker surface; travel is the aim + tap-E the
+//  commit input owns.
+//
+//  🔴 MULTIPLAYER (spec §2 / §7.2): the label set is populated from the SHARED
+//  TwistedPortalCandidates.Gather seam (the SAME source the commit input aims at, so the
+//  highlighted label IS the portal you travel to). On a dedicated server that staging set
+//  is only the ~64–128 m client window today; L2 (t_ccb454f8) swaps Gather's body for the
+//  server-authoritative RPC set so the picker reaches long-range destinations — this
+//  overlay inherits that automatically (it reads the seam, not a private walk).
 //
 //  ARCHITECTURE (the SunstoneLensHudOverlay / SunstoneWorldRing precedent, #209):
 //    • The PUMP is a MonoBehaviour mounted ONCE under Hud.m_rootObject by a
@@ -75,6 +82,13 @@ namespace SBPR.Trailborne.Features.Portals
         //    client and is invisible to the eye (the Sunstone Lens sweep cadence). ──
         public const float DefaultRefreshInterval = 0.5f;
 
+        // The aimed-label highlight grows the selected label by this factor on top of its distance-
+        // compensated scale (the colourblind-safe size cue — Daniel is colourblind, so the highlight
+        // can NEVER lean on hue alone; a visible size bump + the food-preview block that appears on
+        // exactly one label carry the "this is selected" signal independent of colour). Live-tunable
+        // via Plugin.TwistedOverlayHighlightScaleBump; eyeball-converged like the other label dials.
+        public const float DefaultHighlightScaleBump = 1.25f;
+
         private static TwistedPortalOverlay? _instance;
 
         // The world-space label field — lives in its OWN scene root (NOT under Hud.m_rootObject),
@@ -83,6 +97,22 @@ namespace SBPR.Trailborne.Features.Portals
 
         private float _nextRefresh;
         private bool _loggedFirstPopulate;
+
+        // Cached across frames: the throttled ZDO-walk + selection result is computed on the refresh
+        // cadence, but the DRAW + aimed-highlight runs EVERY FRAME against this cache so the highlight
+        // tracks the crosshair smoothly (AT-AIM-HIGHLIGHT) without re-walking ZDOs each frame.
+        private bool _nearAPortal;
+
+        // ── Food-impact preview recompute cache (L3, Beat 3). The per-frame work is just the highlight
+        //    transform/colour (zero alloc); the PreviewJump belly+inventory read is bounded: it
+        //    recomputes IMMEDIATELY when the aim moves to a new label (so a sweep shows the right cost at
+        //    once) and at most every PreviewRefreshInterval while the aim stays on ONE label (the
+        //    belly/berry numbers change slowly). ──
+        private const float PreviewRefreshInterval = 0.25f;
+        private ZDOID _previewAimedId;
+        private bool _hasPreview;
+        private string _previewText = string.Empty;
+        private float _nextPreviewRefresh;
 
         // Reused across refreshes to avoid per-frame allocation.
         private readonly List<ZDO> _zdoScratch = new List<ZDO>();
@@ -98,7 +128,12 @@ namespace SBPR.Trailborne.Features.Portals
             public readonly Vector3 Pos;
             public readonly string Rune;
             public readonly bool HasRune;
-            public PortalRow(Vector3 pos, string rune, bool hasRune) { Pos = pos; Rune = rune; HasRune = hasRune; }
+            // The portal's ZDO id — the stable identity used to match the aimed destination (published
+            // by TwistedPortalCommitInput) to its drawn label, so the highlight + food preview land on
+            // the SAME portal the aim-pick selected and tap-E will travel to (no drift, L3).
+            public readonly ZDOID Id;
+            public PortalRow(Vector3 pos, string rune, bool hasRune, ZDOID id)
+            { Pos = pos; Rune = rune; HasRune = hasRune; Id = id; }
         }
 
         // Diagnostic-logging gate (the Iron Compass / Sunstone self-deactivating-host pump lesson).
@@ -125,50 +160,64 @@ namespace SBPR.Trailborne.Features.Portals
             if (player == null)
             {
                 _field.Hide();
+                _nearAPortal = false;
+                ClearPreview();
                 return;
             }
 
-            if (Time.time < _nextRefresh) return;
-            _nextRefresh = Time.time + Mathf.Max(0.1f,
-                Plugin.TwistedOverlayRefreshInterval?.Value ?? DefaultRefreshInterval);
+            // ── THROTTLED (refresh cadence): re-walk the held Twisted-Portal ZDOs + re-run the
+            //    nearest-N selection. Portals are static, so the expensive walk doesn't need per-frame
+            //    work — but the DRAW + aimed-highlight below DOES, so it runs every frame against the
+            //    cached selection (AT-AIM-HIGHLIGHT: the highlight tracks the crosshair as you sweep). ──
+            if (Time.time >= _nextRefresh)
+            {
+                _nextRefresh = Time.time + Mathf.Max(0.1f,
+                    Plugin.TwistedOverlayRefreshInterval?.Value ?? DefaultRefreshInterval);
+                RefreshSelection(player);
+            }
 
+            // Off-portal (Beat 1 inactive) → hide the field + drop any stale preview, and stop.
+            if (!_nearAPortal)
+            {
+                _field.Hide();
+                ClearPreview();
+                return;
+            }
+
+            // ── EVERY FRAME: draw the cached selection with the aimed-label highlight + food-impact
+            //    preview, so both track the crosshair smoothly between ZDO refreshes. ──
+            DrawSelection(player);
+        }
+
+        /// <summary>
+        /// THROTTLED pass: gather the held Twisted-Portal ZDOs, compute the proximity trigger
+        /// (Beat 1), and run the engine-free nearest-N selection into <see cref="_selected"/>. Caches
+        /// <see cref="_nearAPortal"/> + the parallel <see cref="_rows"/> / <see cref="_candidates"/> /
+        /// <see cref="_selected"/> lists for the per-frame <see cref="DrawSelection"/> to consume.
+        /// </summary>
+        private void RefreshSelection(Player player)
+        {
             float proximity = Plugin.TwistedOverlayProximityRange?.Value ?? TwistedPortalOverlayModel.DefaultProximityRange;
             float radius    = Plugin.TwistedOverlayRadius?.Value         ?? TwistedPortalOverlayModel.DefaultOverlayRadius;
             int   maxLabels = Plugin.TwistedOverlayMaxLabels?.Value      ?? TwistedPortalOverlayModel.DefaultMaxLabels;
-            bool  showUnnamed   = Plugin.TwistedOverlayShowUnnamed?.Value   ?? TwistedPortalOverlayModel.DefaultShowUnnamed;
-            bool  showDistance  = Plugin.TwistedOverlayShowDistance?.Value  ?? TwistedPortalOverlayModel.DefaultShowDistance;
-            bool  throughTerrain = Plugin.TwistedOverlayThroughTerrain?.Value ?? TwistedPortalOverlayModel.DefaultThroughTerrain;
-            float labelScale  = Plugin.TwistedOverlayLabelScale?.Value   ?? TwistedPortalOverlayModel.DefaultLabelScale;
-            float labelHeight = Plugin.TwistedOverlayLabelHeight?.Value  ?? TwistedPortalOverlayModel.DefaultLabelHeight;
+            bool  showUnnamed = Plugin.TwistedOverlayShowUnnamed?.Value  ?? TwistedPortalOverlayModel.DefaultShowUnnamed;
 
-            // ── FIX 3c distance-compensated scale policy (live config; banner-windsock eyeball) ──
-            LabelScaleMode scaleMode = Plugin.TwistedOverlayLabelScaleMode?.Value ?? TwistedPortalLabelScale.DefaultMode;
-            float scaleRefDist = Plugin.TwistedOverlayLabelScaleRefDist?.Value ?? TwistedPortalLabelScale.DefaultRefDist;
-            float scaleMinMul  = Plugin.TwistedOverlayLabelScaleMinMul?.Value  ?? TwistedPortalLabelScale.DefaultMinMul;
-            float scaleMaxMul  = Plugin.TwistedOverlayLabelScaleMaxMul?.Value  ?? TwistedPortalLabelScale.DefaultMaxMul;
-            float scaleKnee    = Plugin.TwistedOverlayLabelScaleKnee?.Value    ?? TwistedPortalLabelScale.DefaultKnee;
-            float scaleFloor   = Plugin.TwistedOverlayLabelScaleFloor?.Value   ?? TwistedPortalLabelScale.DefaultFloor;
-
-            // ── Gather every Twisted Portal ZDO this peer holds (the §2 client window) and turn it
-            //    into rows of (position, rune, hasRune, distance). ──
+            // ── Gather every Twisted Portal ZDO this peer holds (the §2 client window — or, once L2
+            //    lands, the server-authoritative set, since BuildRows reads the SHARED candidate seam)
+            //    and turn it into rows of (position, rune, hasRune, id). ──
             Vector3 here = player.transform.position;
             BuildRows(here);
 
-            // ── Proximity TRIGGER (spec §7.3): the overlay shows only while the player is within
-            //    ~proximity m of SOME Twisted Portal (you're standing on / near one). Off-portal it
-            //    hides entirely. Reuse the row set we already built (nearest distance). ──
+            // ── Proximity TRIGGER (spec §7.3 / Beat 1): the overlay shows only while the player is
+            //    within ~proximity m of SOME Twisted Portal (you're standing on / near one). ──
             float nearestSqr = float.MaxValue;
             for (int i = 0; i < _rows.Count; i++)
             {
                 float d = (_rows[i].Pos - here).sqrMagnitude;
                 if (d < nearestSqr) nearestSqr = d;
             }
-            bool nearAPortal = _rows.Count > 0 && nearestSqr <= proximity * proximity;
-            if (!nearAPortal)
-            {
-                _field.Hide();
-                return;
-            }
+            _nearAPortal = _rows.Count > 0 && nearestSqr <= proximity * proximity;
+            if (!_nearAPortal) return;
 
             // ── Pure selection: nearest-N within radius, unnamed skipped unless asked (the model). ──
             _candidates.Clear();
@@ -178,8 +227,52 @@ namespace SBPR.Trailborne.Features.Portals
                 _candidates.Add(new OverlayCandidate(dist, _rows[i].HasRune));
             }
             TwistedPortalOverlayModel.SelectNearest(_candidates, radius, maxLabels, showUnnamed, _selected);
+        }
 
-            // ── Hand the chosen rows to the world-space field as (worldPos, labelText, hasRune). ──
+        /// <summary>
+        /// PER-FRAME pass: draw the cached selection, highlighting the AIMED destination's label and
+        /// rendering the read-only food-impact preview on it (L3, Beat 3). Reads the aim state L1
+        /// publishes (<see cref="TwistedPortalCommitInput.OnPortal"/> / <see cref="TwistedPortalCommitInput.HasAim"/>
+        /// / <see cref="TwistedPortalCommitInput.AimedDestination"/>) and matches it to a drawn label by
+        /// ZDO id, so the highlight + preview land on exactly the portal tap-E will travel to (no drift).
+        /// Render config is read here (not on the throttle) so live-config edits apply immediately
+        /// (the banner-windsock pattern).
+        /// </summary>
+        private void DrawSelection(Player player)
+        {
+            bool  showDistance   = Plugin.TwistedOverlayShowDistance?.Value  ?? TwistedPortalOverlayModel.DefaultShowDistance;
+            bool  throughTerrain = Plugin.TwistedOverlayThroughTerrain?.Value ?? TwistedPortalOverlayModel.DefaultThroughTerrain;
+            float labelScale  = Plugin.TwistedOverlayLabelScale?.Value   ?? TwistedPortalOverlayModel.DefaultLabelScale;
+            float labelHeight = Plugin.TwistedOverlayLabelHeight?.Value  ?? TwistedPortalOverlayModel.DefaultLabelHeight;
+            float radius      = Plugin.TwistedOverlayRadius?.Value       ?? TwistedPortalOverlayModel.DefaultOverlayRadius;
+
+            // ── FIX 3c distance-compensated scale policy (live config; banner-windsock eyeball) ──
+            LabelScaleMode scaleMode = Plugin.TwistedOverlayLabelScaleMode?.Value ?? TwistedPortalLabelScale.DefaultMode;
+            float scaleRefDist = Plugin.TwistedOverlayLabelScaleRefDist?.Value ?? TwistedPortalLabelScale.DefaultRefDist;
+            float scaleMinMul  = Plugin.TwistedOverlayLabelScaleMinMul?.Value  ?? TwistedPortalLabelScale.DefaultMinMul;
+            float scaleMaxMul  = Plugin.TwistedOverlayLabelScaleMaxMul?.Value  ?? TwistedPortalLabelScale.DefaultMaxMul;
+            float scaleKnee    = Plugin.TwistedOverlayLabelScaleKnee?.Value    ?? TwistedPortalLabelScale.DefaultKnee;
+            float scaleFloor   = Plugin.TwistedOverlayLabelScaleFloor?.Value   ?? TwistedPortalLabelScale.DefaultFloor;
+
+            // ── L3 look-to-aim render knobs (live config). HighlightAimed gates the whole interactive
+            //    surface (off → the overlay falls back to the informational render); ShowFoodPreview
+            //    gates the Beat-3 readout independently. ──
+            bool  highlightAimed = Plugin.TwistedOverlayHighlightAimed?.Value  ?? true;
+            bool  showFoodPreview = Plugin.TwistedOverlayShowFoodPreview?.Value ?? true;
+            float highlightBump  = Plugin.TwistedOverlayHighlightScaleBump?.Value ?? DefaultHighlightScaleBump;
+
+            // ── Read the published aim state (L1's commit input). The aimed destination's ZDO id is
+            //    what a drawn label is matched against to highlight it + carry the food preview. ──
+            bool aimActive = highlightAimed
+                             && TwistedPortalCommitInput.OnPortal
+                             && TwistedPortalCommitInput.HasAim;
+            ZDOID aimedId = aimActive ? TwistedPortalCommitInput.AimedDestination.Id : default;
+
+            // ── Food-impact preview (bounded recompute; spec §5 / Beat 3). Read-only PreviewJump on
+            //    the aimed destination — recomputed immediately when the aim moves to a new label and
+            //    at most every PreviewRefreshInterval while it stays on one. ──
+            UpdateFoodPreview(player, aimActive, showFoodPreview);
+
             _field.BeginFrame(throughTerrain, labelScale,
                 scaleMode, scaleRefDist, scaleMinMul, scaleMaxMul, radius, scaleKnee, scaleFloor);
             int drawn = 0;
@@ -189,13 +282,63 @@ namespace SBPR.Trailborne.Features.Portals
                 PortalRow row = _rows[idx];
                 float dist = _candidates[idx].Distance;
                 string text = TwistedPortalOverlayModel.BuildLabel(row.Rune, row.HasRune, dist, showDistance);
+
+                // The aimed label: highlight it (brighter colour + a size bump — the colourblind-safe
+                // cue) and append the food-impact preview block under the rune (Beat 3). Match by stable
+                // ZDO id so the highlight is provably the portal the aim-pick chose + tap-E will travel to.
+                bool isAimed = aimActive && row.Id != default && row.Id == aimedId;
+                if (isAimed && showFoodPreview && _hasPreview)
+                    text = text + "\n" + _previewText;
+
                 Vector3 labelPos = row.Pos + Vector3.up * labelHeight;
-                _field.DrawLabel(drawn, labelPos, text, row.HasRune);
+                _field.DrawLabel(drawn, labelPos, text, row.HasRune, isAimed, isAimed ? highlightBump : 1f);
                 drawn++;
             }
             _field.EndFrame(drawn);
 
             LogFirstPopulate(drawn);
+        }
+
+        /// <summary>
+        /// Recompute the read-only food-impact preview for the aimed destination (spec §5 / Beat 3),
+        /// bounded so the per-frame draw stays cheap: recomputes IMMEDIATELY when the aim moves to a
+        /// new label (so a crosshair sweep shows the right cost at once) and at most every
+        /// <see cref="PreviewRefreshInterval"/> while the aim holds on ONE label (belly/berry numbers
+        /// drift slowly). NON-MUTATING — <see cref="TwistedPortalEnergy.PreviewJump"/> spends nothing.
+        /// </summary>
+        private void UpdateFoodPreview(Player player, bool aimActive, bool showFoodPreview)
+        {
+            if (!aimActive || !showFoodPreview)
+            {
+                ClearPreview();
+                return;
+            }
+
+            TwistedDestination aimed = TwistedPortalCommitInput.AimedDestination;
+            ZDOID aimedId = aimed.Id;
+
+            bool aimChanged = !_hasPreview || aimedId != _previewAimedId;
+            if (!aimChanged && Time.time < _nextPreviewRefresh) return;
+
+            _nextPreviewRefresh = Time.time + PreviewRefreshInterval;
+            _previewAimedId = aimedId;
+
+            // The jump distance is PLAYER → destination — the SAME Vector3.Distance the commit path
+            // debits (SBPR_TwistedPortal.CommitTravel: player.transform.position → selected.Position),
+            // so the preview equals what committing will charge (AT-FOOD-PREVIEW: commit matches preview).
+            float distance = Vector3.Distance(player.transform.position, aimed.Position);
+            TwistedPortalEnergy.JumpPreview p = TwistedPortalEnergy.PreviewJump(player, distance);
+            _previewText = TwistedPortalPreviewText.BuildFoodPreview(
+                p.DistanceMeters, p.BellyRangeMeters, p.BellyCovers, p.BerriesNeeded, p.BerriesHeld, p.Reachable);
+            _hasPreview = true;
+        }
+
+        /// <summary>Drop any cached food preview (off-portal, no aim, or preview disabled).</summary>
+        private void ClearPreview()
+        {
+            _hasPreview = false;
+            _previewText = string.Empty;
+            _previewAimedId = default;
         }
 
         /// <summary>
@@ -211,7 +354,7 @@ namespace SBPR.Trailborne.Features.Portals
 
             TwistedPortalCandidates.Gather(here, _zdoScratch, _candScratch);
             foreach (var c in _candScratch)
-                _rows.Add(new PortalRow(c.Position, c.Rune, c.HasRune));
+                _rows.Add(new PortalRow(c.Position, c.Rune, c.HasRune, c.Id));
         }
 
         // Diagnostic: on the FIRST populated frame, log how many labels were drawn so a client
@@ -268,6 +411,13 @@ namespace SBPR.Trailborne.Features.Portals
             // Named portals read warm/white; unnamed read a dim grey (informational, can't pair).
             private static readonly Color NamedColor   = new Color(0.96f, 0.92f, 0.78f, 1f);
             private static readonly Color UnnamedColor = new Color(0.62f, 0.66f, 0.62f, 0.85f);
+
+            // The AIMED-label highlight colour (L3). 🔴 COLOURBLIND-SAFE: Daniel is colourblind, so the
+            // highlight must be distinguishable by LUMINANCE, not hue — this is a near-white at full
+            // alpha (brighter than BOTH NamedColor and UnnamedColor), so the selected label reads as
+            // "lit up" regardless of hue perception. It is the SECONDARY cue; the PRIMARY cues are the
+            // size bump (DrawLabel scaleBump) + the food-preview block that appears on only this label.
+            private static readonly Color AimedColor   = new Color(1f, 0.98f, 0.86f, 1f);
 
             // unity_GUIZTestMode is the per-material ZTest the UI/Default shader honours
             // (`ZTest [unity_GUIZTestMode]`). Setting it to Always (CompareFunction.Always = 8) makes
@@ -349,8 +499,14 @@ namespace SBPR.Trailborne.Features.Portals
 
             /// <summary>Place + fill the <paramref name="index"/>-th pooled label at
             /// <paramref name="worldPos"/> with <paramref name="text"/>. Named vs unnamed tints the
-            /// text; the slot is scaled to <c>labelScale</c> world-metres.</summary>
-            public void DrawLabel(int index, Vector3 worldPos, string text, bool hasRune)
+            /// text; the slot is scaled to <c>labelScale</c> world-metres. When <paramref name="aimed"/>
+            /// is set (the look-to-aim selected label, L3) the label is tinted the brighter
+            /// <see cref="AimedColor"/> (a LUMINANCE cue, colourblind-safe) and grown by
+            /// <paramref name="scaleBump"/> on top of its distance-compensated scale — the size bump +
+            /// the food-preview block (folded into <paramref name="text"/> by the caller) are the
+            /// primary hue-independent "this is selected" signal (AT-AIM-HIGHLIGHT).</summary>
+            public void DrawLabel(int index, Vector3 worldPos, string text, bool hasRune,
+                bool aimed = false, float scaleBump = 1f)
             {
                 if (_disposed || _root == null) return;
 
@@ -360,14 +516,17 @@ namespace SBPR.Trailborne.Features.Portals
                 // size across the overlay range (clamped near/far) instead of shrinking with raw
                 // perspective. The multiplier is the engine-free, CI-gated TwistedPortalLabelScale curve
                 // (AT-LABEL-SCALE-MATH) — the same SCALE-carries-range move as the Sunstone trophy halo.
+                // L3: the aimed label multiplies in an extra scaleBump so the selected destination reads
+                // visibly larger (the colourblind-safe size cue), independent of the highlight tint.
                 float camDist = Vector3.Distance(_frameCameraPos, worldPos);
                 float mul = TwistedPortalLabelScale.ScaleMul(
                     _frameScaleMode, camDist, _frameRefDist, _frameMinMul, _frameMaxMul,
                     _frameOverlayRadius, _frameKnee, _frameFloor);
-                slot.Go.transform.localScale = Vector3.one * (_frameScale / ReferencePx) * mul;
+                float bump = scaleBump > 0f ? scaleBump : 1f;
+                slot.Go.transform.localScale = Vector3.one * (_frameScale / ReferencePx) * mul * bump;
 
                 slot.Label.text = text;
-                slot.Label.color = hasRune ? NamedColor : UnnamedColor;
+                slot.Label.color = aimed ? AimedColor : (hasRune ? NamedColor : UnnamedColor);
                 ApplyMaterial(slot);
                 slot.Go.SetActive(true);
             }
