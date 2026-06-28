@@ -1198,13 +1198,16 @@ namespace SBPR.Trailborne
             //    Never fires on the dedicated server (no Hud).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Portals.TwistedPortalOverlay.HudBootstrap));
 
-            // v4 Mountains — Seer's Stone (Daniel 2026-06-25). Two client-only patches:
+            // v4 Mountains — Seer's Stone (Daniel 2026-06-25; pin gesture re-locked 2026-06-27).
+            // ONE client-only patch now:
             //   • LocalPlayerAttach — adds the SeersStoneFieldHost (owns the personal wisp field)
-            //     to the local Player on spawn.
-            //   • PinByLookInput — Alt+E camera-raycast pin-by-look. Both no-op unless the local
-            //     player wears the stone. Wisps are personal/client-only (no networking, no ZDO).
+            //     to the local Player on spawn. No-op unless the local player wears the stone.
+            // Pinning is NO LONGER a Player.Update input patch: the wisp itself is a vanilla
+            // Hoverable+Interactable (WispBehaviour), so walk-up + Use (E) pins via the engine's own
+            // FindHoverObject/Interact pipeline. The retired Alt+E PinByLookInput postfix is gone
+            // (it pinned the ray's SOURCE, not the off-source wisp — the playtest defect).
+            // Wisps are personal/client-only (no networking, no ZDO).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.SeersStone.LocalPlayerAttach));
-            harmony.PatchAll(typeof(SBPR.Trailborne.Features.SeersStone.PinByLookInput));
 
             Log.LogInfo($"[Trailborne] Harmony patches applied (DebugCairnDamage={DebugCairnDamage.Value}).");
 
