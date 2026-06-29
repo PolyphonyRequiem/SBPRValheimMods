@@ -239,6 +239,13 @@ namespace SBPR.Trailborne
         // bake to false once Daniel confirms the labels render in-game.
         internal static ConfigEntry<bool>?  TwistedOverlayDebugMount      = null;
 
+        // ── v3 Swamp: Twisted Portal LOOK-TO-AIM overlay selection-highlight + food preview (card
+        //    t_d9ea1b2c, L3). The overlay is now the interactive picker surface: the aimed label gets a
+        //    highlight + a read-only food-impact preview. All LIVE config (banner-windsock convergence). ──
+        internal static ConfigEntry<bool>?  TwistedOverlayHighlightAimed     = null;  // highlight the aimed destination's label (the selection cue)
+        internal static ConfigEntry<bool>?  TwistedOverlayShowFoodPreview    = null;  // render the read-only food-impact preview under the aimed label (Beat 3)
+        internal static ConfigEntry<float>? TwistedOverlayHighlightScaleBump = null;  // size multiplier the aimed label grows by (colourblind-safe cue)
+
         // ── v3 Swamp: Twisted Portal LOOK-TO-AIM travel (card t_f4d0d5e1, L1) ──
         // The aim-cone half-angle (degrees): a destination portal must lie within this many degrees of
         // the crosshair to be aim-selectable (spec §4.4a, the angular pick). LIVE config so Daniel tunes
@@ -893,6 +900,36 @@ namespace SBPR.Trailborne
                 + "and the first frame it draws N labels — so one client LogOutput.log splits 'pump never ran / no "
                 + "portals held' (line absent) from 'labels drawn but invisible' (line present with a count). Default "
                 + "ON for the diagnostic cut; bake false once Daniel confirms the labels render in-game.");
+
+            // v3 Swamp — Twisted Portal LOOK-TO-AIM overlay selection-highlight + food preview (card
+            // t_d9ea1b2c, L3). The overlay flips from informational to the interactive picker surface:
+            // the aimed destination's label highlights and carries a read-only food-impact preview. All
+            // LIVE config so Daniel converges the look on a joined client (the banner-windsock pattern).
+            TwistedOverlayHighlightAimed = Config.Bind(
+                "TwistedPortalOverlay", "HighlightAimed",
+                true,
+                "LOOK-TO-AIM: highlight the label of the destination you're aiming at (the angular pick). "
+                + "The aimed label is tinted brighter AND grown (HighlightScaleBump) so it reads as selected "
+                + "by LUMINANCE + SIZE, not hue (colourblind-safe). false = no highlight (the overlay renders "
+                + "as the older informational read-out). Live-tunable.");
+            TwistedOverlayShowFoodPreview = Config.Bind(
+                "TwistedPortalOverlay", "ShowFoodPreview",
+                true,
+                "LOOK-TO-AIM: render the read-only FOOD-IMPACT PREVIEW under the aimed destination's label "
+                + "(spec §5 / Beat 3 — 'the impact to food'): the belly range vs the jump distance and the "
+                + "Bukeberries the shortfall would need ('in range' / 'need N berries (have M)' / 'too far'). "
+                + "NON-MUTATING — the preview spends nothing; the food/berry debit happens only on tap-E "
+                + "commit. false = highlight the aimed label but show no cost readout. Live-tunable.");
+            TwistedOverlayHighlightScaleBump = Config.Bind(
+                "TwistedPortalOverlay", "HighlightScaleBump",
+                SBPR.Trailborne.Features.Portals.TwistedPortalOverlay.DefaultHighlightScaleBump,
+                new ConfigDescription(
+                    "LOOK-TO-AIM: the size multiplier the AIMED label grows by, on top of its distance-"
+                    + "compensated scale — the colourblind-safe 'this is selected' size cue (Daniel is "
+                    + "colourblind, so the highlight can't lean on tint alone). 1.0 = no size change (tint + "
+                    + "the food-preview block alone carry the cue); higher = a bigger pop on the aimed label. "
+                    + "Eyeball tunable.",
+                    new AcceptableValueRange<float>(1f, 2.5f)));
 
             // v3 Swamp — Twisted Portal LOOK-TO-AIM travel (card t_f4d0d5e1, L1). The aim-cone half-angle:
             // a destination portal must lie within this many degrees of the crosshair to be aim-selectable
