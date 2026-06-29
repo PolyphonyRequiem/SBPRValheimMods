@@ -27,12 +27,15 @@
 //  longer informational — it IS the picker surface; travel is the aim + tap-E the
 //  commit input owns.
 //
-//  🔴 MULTIPLAYER (spec §2 / §7.2): the label set is populated from the SHARED
-//  TwistedPortalCandidates.Gather seam (the SAME source the commit input aims at, so the
-//  highlighted label IS the portal you travel to). On a dedicated server that staging set
-//  is only the ~64–128 m client window today; L2 (t_ccb454f8) swaps Gather's body for the
-//  server-authoritative RPC set so the picker reaches long-range destinations — this
-//  overlay inherits that automatically (it reads the seam, not a private walk).
+//  🟢 MULTIPLAYER (spec §2 / §7.2 — L2 LANDED): the label set comes from the
+//  SHARED TwistedPortalCandidates.Gather source, which is now SERVER-AUTHORITATIVE
+//  (card t_ccb454f8): the client asks the SERVER for the within-range slice of the
+//  FULL Twisted-Portal set and caches the reply, so the overlay shows portals PAST
+//  the client's ~64-128 m ZDO sync window (the local-window walk is kept only as the
+//  immediate-vicinity anchor + the pre-first-reply / singleplayer / host fallback).
+//  The overlay is the look-to-aim SELECTION SURFACE, so this reach is REQUIRED, not
+//  cosmetic — a far destination must be aimable (AT-PICK-LONGRANGE). Travel itself
+//  resolves through the same server-authoritative set and is correct.
 //
 //  ARCHITECTURE (the SunstoneLensHudOverlay / SunstoneWorldRing precedent, #209):
 //    • The PUMP is a MonoBehaviour mounted ONCE under Hud.m_rootObject by a
@@ -345,8 +348,9 @@ namespace SBPR.Trailborne.Features.Portals
         /// Walk the Twisted-Portal candidate set (the SHARED <see cref="TwistedPortalCandidates.Gather"/>
         /// source, also used by the commit input — so the label you aim at IS the portal you travel to,
         /// no drift between the two surfaces) and fill <see cref="_rows"/> with each one's (position,
-        /// censored rune, hasRune). 🔴 On a dedicated server this is only the ~64–128 m client window
-        /// (§2) — the L1 STAGING set L2 (t_ccb454f8) swaps for the server-authoritative RPC set.
+        /// censored rune, hasRune). 🟢 L2 (t_ccb454f8): Gather is now SERVER-AUTHORITATIVE — it returns the
+        /// local window UNION the far portals the server directory reports, so on a dedicated server this
+        /// reaches PAST the ~64-128 m client window (§2, AT-PICK-LONGRANGE), not just the synced slice.
         /// </summary>
         private void BuildRows(Vector3 here)
         {
@@ -367,8 +371,8 @@ namespace SBPR.Trailborne.Features.Portals
             _loggedFirstPopulate = true;
             Plugin.Log.LogInfo(
                 $"[Trailborne/TwistedPortal] Overlay populated: {drawn} nearby Twisted Portal label(s) drawn "
-                + "(best-effort from the ZDOs this client holds — on a dedicated server this is the ~64–128 m "
-                + "window, §2, NOT a guaranteed 300 m; AT-OVERLAY).");
+                + "(server-authoritative candidate set, L2/§2 — the local window UNION the far portals the "
+                + "server directory reports, so this reaches past the ~64-128 m client window; AT-PICK-LONGRANGE).");
         }
 
         private void OnDestroy()

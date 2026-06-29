@@ -1269,6 +1269,18 @@ namespace SBPR.Trailborne
             //   PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
             harmony.PatchAll(typeof(SBPR.Trailborne.Features.Portals.TwistedPortalCommitInput));
 
+            // v3 Swamp — Twisted Portal SERVER-AUTHORITATIVE DIRECTORY bootstrap (card t_ccb454f8, L2).
+            //   A Game.Start postfix that registers the directory's GLOBAL routed RPCs (request +
+            //   response) once per session, on BOTH sides: the response handler on every peer, the
+            //   request handler only where IsServer() (the ZoneSystem.RPC_Discover* precedent, decomp
+            //   :84126). This is what lets the look-to-aim picker reach destinations past the client's
+            //   ~64-128 m ZDO sync window (spec §2, AT-PICK-LONGRANGE) — the client asks the SERVER for
+            //   the within-range slice of the FULL portal set and caches the reply. UNLIKE the overlay /
+            //   commit-input patches this one MUST run on the dedicated server (the server answers the
+            //   requests), and Game.Start fires there. MUST be registered here or it ships dead and
+            //   PatchCheck ERRORs at boot (the t_564f695a unregistered-patch lesson).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Portals.TwistedPortalDirectoryBootstrap));
+
             // v4 Mountains — Seer's Stone (Daniel 2026-06-25; pin gesture re-locked 2026-06-27).
             // ONE client-only patch now:
             //   • LocalPlayerAttach — adds the SeersStoneFieldHost (owns the personal wisp field)

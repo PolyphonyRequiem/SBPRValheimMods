@@ -52,15 +52,21 @@ namespace SBPR.Trailborne.Features.Portals
     /// walk (now in <see cref="TwistedPortalCandidates"/>) instead of reusing the engine's
     /// <c>m_portalObjects</c> list — cheap and explicit. (Architect lean in spec §4.3 was (b).)
     ///
-    /// 🔴 MULTIPLAYER (spec §2 — look-to-aim makes server-authoritative reach REQUIRED): the
-    /// candidate-set walk in <see cref="TwistedPortalCandidates.Gather"/> runs on the LOCAL
-    /// CLIENT and currently sees only the ZDOs THIS PEER HOLDS — on a dedicated server, the
-    /// ~64–128 m sector window, NOT a guaranteed 300 m. That is the L1 STAGING state (enough
-    /// for the in-game aim/feel accept). L2 (card t_ccb454f8) MUST swap that walk for the
-    /// owner-routed RPC candidate set (the <c>SurveyorTableTag</c> precedent) so travel reaches
-    /// destinations past the client window (AT-PICK-LONGRANGE). The old "runs on the OWNER /
-    /// not subject to the sector window" claim that used to sit here was FALSE — there is no
-    /// RPC in the path yet; this comment states the real (client-window-limited) state.
+    /// 🟢 MULTIPLAYER (spec §2 — look-to-aim makes server-authoritative reach REQUIRED; L2 LANDED):
+    /// the candidate-set source <see cref="TwistedPortalCandidates.Gather"/> is now SERVER-AUTHORITATIVE.
+    /// The stepping client asks the SERVER (over the routed-RPC directory <see cref="TwistedPortalDirectory"/>)
+    /// for the within-range slice of the FULL Twisted-Portal set; the server walks its complete ZDO set
+    /// (it loads every ZDO in the world — ZDOMan.Load, decomp :64701-64713) and replies, so the picker
+    /// reaches destinations PAST the client's ~64-128 m sync window (AT-PICK-LONGRANGE). The local-window
+    /// <c>GetAllZDOsWithPrefabIterative</c> walk is KEPT only as the immediate-vicinity anchor + the
+    /// fallback before the first server reply / in singleplayer / on a host (where the local peer already
+    /// IS the server and holds the full set). 🔴 HISTORY: a comment that used to sit here claimed the walk
+    /// "runs on the OWNER / not subject to the sector window" — that was FALSE under L1 (no RPC existed;
+    /// the walk ran client-side, window-limited). L2 (card t_ccb454f8) added the real server-authoritative
+    /// resolution and this comment now describes it truthfully (AT-COMMENT-SWEPT). NOTE: resolution routes
+    /// to the SERVER peer, NOT a ZDO owner — on a dedicated server a near portal's owner is often the
+    /// stepping client itself (the limited window), so the world-global query must hit the one peer that
+    /// holds the whole world; see <see cref="TwistedPortalDirectory"/> for the grounded routing rationale.
     ///
     /// Q1 = COEXIST (locked): vanilla + Ancient portals stay craftable; we disable nothing.
     /// The cost model + travel are patch-free (component wiring + an on-demand ZDO read); the
