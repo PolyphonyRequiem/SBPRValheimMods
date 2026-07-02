@@ -6,7 +6,7 @@ purpose: >
   work merges (no reliance on memory). When a playtest is prepped, scripts/gen-playtest-guide.py
   rolls the PENDING section + git-derived code changes into a numbered Playtest #N testers guide,
   then the shipped items move to the ARCHIVE section under that playtest number.
-playtest_counter: 6            # next playtest is #6 (human-facing series; DISTINCT from vX.Y.Z-playtest tags)
+playtest_counter: 7            # next playtest is #7 (human-facing series; DISTINCT from vX.Y.Z-playtest tags)
 last_playtest_tag: v0.2.40-playtest
 ---
 
@@ -36,7 +36,89 @@ markers; the **Playtest #N** counter here is the *human-facing* testing series.
 
 ---
 
-## PENDING — accrues for the next playtest (Playtest #6)
+## PENDING — accrues for the next playtest (Playtest #7)
+
+> Build target: **next `-playtest` tag** (SBPR Trailborne 0.2.41+; the first #7 build). Test **local solo** on a
+> fresh client build unless an item says otherwise. These are the `src/**/*.cs` changes merged to `main`
+> **after** `v0.2.40-playtest` (the tag that shipped all of Playtest #6) — Daniel's Niflheim-feedback rework of
+> the look-to-aim Twisted Portal + the Seer's Stone interaction re-lock + two cartography/wisp fixes. **NONE are
+> in-game verified yet** — "logs-green ≠ playable" applies to every row.
+>
+> **Twisted Portal — Model A → look-to-aim (items 29, 31, 32):** Daniel's `v0.2.40` feedback retired the
+> Model A nearest-same-rune pairing + overhead jump-through trigger (spec supersession #288). The new model:
+> stand on a Twisted Portal, **aim the crosshair** at any destination portal (selectable through terrain via its
+> label), **tap [Use]/E to travel**; hold-E still renames. Shipped in three layers — L1 core aim-pick+commit
+> (#289), L2 server-authoritative long-range candidate set over RPC (#291, the multiplayer-correct reach past the
+> active-zone window), L3 overlay selection-highlight + read-only food-impact preview (#292). Test as one
+> connected surface.
+>
+> **Seer's Stone — pin-by-USE re-lock + wisp clustering (items 30, 34):** Daniel's `v0.2.40` re-lock made the
+> wisp a **vanilla interactable** — walk up, press **[E]** to pin, wisp dims to confirm; the buggy Alt+E
+> raycast path (#279 item 26, #6) is **retired** (#290). Separately, wisps now cluster **one-per-patch** instead
+> of one-per-Pickable so a berry patch shows a single wisp/pin (#286).
+>
+> **Cartography (item 33):** boss/Hildir pins now **live-derive onto the holder's own map** (#287), not just via
+> a frozen Surveyor's-Table survey — the missing capture path Daniel hit on `v0.2.40` (a boss discovered but
+> never surveyed didn't show).
+
+### 🆕 Round 1 — post-v0.2.40 `main` changes (Twisted Portal look-to-aim rework + Seer's Stone re-lock), ship in the first Playtest #7 build
+
+| # | Feature | Card | Status | What to verify in-game |
+|---|---------|------|--------|------------------------|
+| 29 | **Twisted Portal — look-to-aim travel (L1: aim-pick destination + tap-E commit; retire Model A pairing + jump-through trigger)** | t_f4d0d5e1 (#289) | ✅ merged to `main` (`e3eb529`); ships in first #7 build | 🔴 **Major model change — the whole Twisted Portal travel loop is new.** Stand ON a Twisted Portal, **aim the crosshair** at another Twisted Portal (even one behind a hill — aim at its through-terrain label), **tap [Use]/E → you travel there.** The retired paths must be gone: **(a)** no more Model A "nearest-same-rune auto-pair," **(b)** no overhead jump-through trigger — walking/falling through the ring does NOT teleport; only tap-E commits. **(c)** **hold-E** still opens the rune-rename box (tap vs hold fork — they must not double-fire). **(d)** The teleport core is UNCHANGED: NoPortals bypass still works, boss-gate + ore-ban still KEPT, food-as-fuel debit still applies. **(e)** A back-to-back commit inside the 2 s cooldown spends **no** food/berries (AT-COOLDOWN-REFUND). Aim cone default 35° (`TwistedPortal/AimConeDegrees`, live). **AT-AIM-* / AT-COOLDOWN-REFUND** per PR #289 (12 AimPickMath unit cases green; the in-game aim+commit feel is Daniel's accept). logs-green ≠ playable — closes t_f4d0d5e1. |
+| 30 | **Seer's Stone — pin-by-USE: wisp is a vanilla [E] interactable, dim-on-pin (retires the Alt+E raycast)** | t_d3768adf (#290) | ✅ merged to `main` (`570f25b`); ships in first #7 build | Daniel's 2026-06-27 re-lock, **superseding the #6 pin-by-look (Alt+E) path (item 26).** Wear the Seer's Stone, walk up to a wisp (within ~5 m), **press [Use]/E** → a map pin drops **and the wisp visibly dims** to confirm. **(a)** The wisp shows a localized **`[E] <name>`** hover prompt (no raw token leak); **(b)** after pinning it reads a muted "pinned" hover and the glow dims (light intensity/range + particle alpha down); **(c)** a wisp that dedups into an existing pin ("merged") still gives the **same** pinned feedback (E never reads as a no-op); **(d)** 🔴 **the retired path is GONE** — Alt+E no longer pins (the raycast-to-source postfix is deleted). Built on the vanilla hover pipeline (world-root re-parent so FindHoverObject sees it, `piece_nonsolid` layer, ~1.25 m trigger). **AT-WISP-E-PROMPT / AT-WISP-E-PIN / AT-DIM-ON-PIN** per PR #290. logs-green ≠ playable — closes t_d3768adf. |
+| 31 | **Twisted Portal — server-authoritative long-range candidate set (L2, RPC): aim/travel to portals past the active-zone window** | t_ccb454f8 (#291) | ✅ merged to `main` (`8713617`); ships in first #7 build | **Multiplayer-correctness for the look-to-aim picker — test on the dedicated server (joined client), not just SP.** On a dedicated server a client only syncs the ~64–128 m active-zone window, so before this a destination portal past it was **un-aimable and un-travelable**. Now a client→server→client routed RPC asks the server (which holds every world ZDO) for the within-range Twisted Portals and unions them with the always-current local window. **AT-PICK-LONGRANGE:** on a joined dedicated-server world, place portal B **>128 m away in a different sector**, stand on portal A, aim at B's through-terrain label, tap-E → **you travel** (before: nothing to aim at). **(a)** Near portals still resolve instantly (local-window union); **(b)** SP / hosted-game falls back to the local walk (no RPC needed) and is unregressed. Boot-verified: directory RPCs registered on the Niflheim server, PatchCheck + SpecCheck green. **AT-PICK-LONGRANGE / fallback** per PR #291 (12 TwistedDirectoryModel unit cases green). logs-green ≠ playable — the >128 m joined-client travel is Daniel's accept. closes t_ccb454f8. |
+| 32 | **Twisted Portal — look-to-aim overlay: aimed-label highlight + food-impact preview (L3)** | t_d9ea1b2c (#292) | ✅ merged to `main` (`5ce4489`); ships in first #7 build | Turns the through-terrain overlay from a read-out into the **interactive aim surface**. Stand on a Twisted Portal and sweep the crosshair across nearby portal labels: **(a) AT-AIM-HIGHLIGHT** — the label you're aimed at **highlights** (brighter + slightly bigger) and the highlight **tracks** as you sweep; it is provably the portal tap-E travels to (matched by ZDO id, not proximity). Highlight is **luminance + size, not hue** (colorblind-safe). **(b) AT-FOOD-PREVIEW** — under the aimed label a **read-only food cost** preview shows the jump's belly range + an in-range / need-N-berries / too-far verdict; it **spends nothing** (debit only on tap-E commit), and the previewed distance == the committed distance (preview matches outcome). 3 live knobs (`HighlightAimed`, `ShowFoodPreview`, `HighlightScaleBump`). Builds on #289/#291 seams (no re-architecture). **AT-AIM-HIGHLIGHT / AT-FOOD-PREVIEW** per PR #292 (11 TwistedPortalPreviewText cases green; the rendered highlight + preview are Daniel's in-game eyeball). logs-green ≠ playable — closes t_d9ea1b2c. |
+| 33 | **Cartography — boss/Hildir pins live-derive onto the holder's own map (§2N)** | t_2110193e (#287) | ✅ merged to `main` (`5b2e8f6`); ships in first #7 build | Daniel on `v0.2.40`: a boss discovered (boss-stone used) but **not surveyed since** never showed on the SBPR local map, and re-using the boss stone said "already pinned" yet couldn't surface it. The #6 boss-pin work (item 19) captured boss/Hildir pins **only** via a frozen Surveyor's-Table survey; this adds the **missing live capture** — `SystemPins.Collect` reads the live `Minimap.m_pins`, filters `m_save && IsSystemPin` (Boss/Hildir1–3), and renders them on the holder's own map right alongside the frozen survey (dedup so a pin that's both frozen+live renders once). Verify on an SBPR local-map surface (carry-disc + Surveyor's Table modal): **(a)** kill/discover a boss (or use its stone) **without** surveying at a Table → the boss pin **still appears** on your carried map; **(b)** it inherits the #6 vanilla icon + localized label + non-deletable behavior (item 19 untouched); **(c)** a boss that's both frozen (surveyed) and live shows **once**, not doubled. Live-derived, persists nothing (WireVersion unchanged). **AT-§2N** per PR #287. logs-green ≠ playable — closes t_2110193e. |
+| 34 | **Seer's Stone — wisps cluster one-per-patch, not one-per-Pickable** | t_9e6a0654 (#286) | ✅ merged to `main` (`c2ec36d`); ships in first #7 build | Daniel-relevant polish on the #6 wisp field (item 26): a berry patch (N same-prefab RaspberryBush Pickables placed close together) spawned **N wisps** instead of one. Spec locks the wisp as the spawn-time **group aggregate** (one wisp per patch → pinning it pins the whole patch as one pin), but the aggregate was never implemented. Fix: `PickableClustering` groups eligible Pickables by (prefab-name × XZ proximity within R=15 m, the same abundance-radius the pin-site uses) into single-linkage components and spawns **one wisp per cluster** at the centroid with the patch's aggregate bounds. Wear the stone near a dense same-berry patch: **(a)** you see **one** wisp over the whole patch, not one per bush; **(b)** a lone isolated bush is unchanged (singleton cluster → the prior 2 m single-bush behavior); **(c)** two different berry types close together stay **separate** wisps (per-prefab clustering); **(d)** pinning the patch wisp (via the item-30 [E] path) drops **one** pin. Locations are unaffected (already one wisp each). **AT-CLUSTER-*** per PR #286 (12 headless cases green). logs-green ≠ playable — closes t_9e6a0654. |
+
+### 🔁 Carried forward — not yet shipped / not yet verified
+
+Shipped **no** code change in any tag (blocked / verify-only), so it carries into #6 rather than being archived as a #5 surface.
+
+| # | Feature | Card | Status | What to verify in-game |
+|---|---------|------|--------|------------------------|
+| 14 | **Portal Seed crafting cost** | t_a6831e8e | `blocked` — verify local solo (NRE root-crash #154 shipped in #1) | At the Explorer's Bench, Portal Seed shows cost **AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2**, and crafting **consumes** exactly that. Verify **local solo on current `main`** (the per-frame tooltip NRE that masked this, t_2dd7c705/#154, shipped in #1). If correct → close t_a6831e8e; if wrong → spawn a fix card from the observed failure mode (A no cost / B wrong cost / C not craftable / D shown-but-not-consumed). |
+
+### 🧭 Ground-truth cross-check at roll time (git)
+
+- **Round 1 (items 29–34) are the `src/**/*.cs` changes in the `v0.2.40-playtest..main` window** (the tag that
+  shipped all of Playtest #6 → current `main`): **#286** (`c2ec36d`, t_9e6a0654, item 34), **#287** (`5b2e8f6`,
+  t_2110193e, item 33), **#289** (`e3eb529`, t_f4d0d5e1, item 29), **#290** (`570f25b`, t_d3768adf, item 30),
+  **#291** (`8713617`, t_ccb454f8, item 31), **#292** (`5ce4489`, t_d9ea1b2c, item 32). All **six** map to a
+  PENDING row → `python3 scripts/gen-playtest-guide.py --check` (diffs `v0.2.40-playtest..main`) is
+  **green (0 unledgered)**. Docs/tooling commits in the same window are EXEMPT: **#288** (`701f0a3`,
+  `spec(twisted-portal):` the Model A → look-to-aim supersession, docs-only), **#285** (`de5445e`, installer pin
+  auto-PR for v0.2.40, `chore(installer)`).
+- **Supersession notes:** item 29 (#289 look-to-aim) **replaces** the #6 Twisted Portal core's Model A
+  nearest-same-rune pairing + jump-through trigger (item 22, #273) — same feature, Daniel's `v0.2.40` model
+  re-lock; items 31/32 (#291/#292) **extend** the same look-to-aim surface (long-range reach + interactive
+  overlay). Item 30 (#290 pin-by-USE) **supersedes** the #6 Seer's Stone pin-by-look Alt+E path (item 26, #279);
+  item 34 (#286 wisp clustering) **refines** the same #6 wisp field. Item 33 (#287 live-derive) **extends** the
+  #6 boss-pin capture (item 19, #263) with the missing live path. The Twisted Portal food-model (item 23, #276)
+  + through-terrain label render fix (item 28, #284) are untouched by this rework — they remain #6 surfaces
+  archived under Playtest #6, and the #7 look-to-aim loop rides the same food-debit + overlay they established.
+
+### ⏳ In-flight (will join PENDING when merged)
+
+- _(none currently — no open `src/**/*.cs` PRs against `main`.)_
+
+---
+
+## ARCHIVE — shipped playtests
+
+### Playtest #6 — shipped v0.2.40-playtest (2026-06-27)
+
+Build tag: `v0.2.40-playtest` (SBPR Trailborne 0.2.40) — the **seventh and final** build of the Playtest #6
+line. The **#6 counter was deliberately HELD across seven builds** (`v0.2.34` → `v0.2.40`): each cut ledgered
+its new surfaces and re-cut the guide but did not roll the series, so all of items 1–28 (Rounds 1–7)
+accumulated under one human-facing playtest. This roll ships the whole set to the testers and opens
+**Playtest #7**. Guide: [`playtest-6-testers-guide.md`](playtest-6-testers-guide.md) (last regenerated at the
+`v0.2.39` cut → `generated_from_tag: v0.2.39-playtest`). Daniel's local-solo / joined-client runs across the
+line are the accept — logs-green ≠ playable. His Niflheim feedback on the `v0.2.39`/`v0.2.40` clients already
+drove the **Playtest #7** candidate set (the look-to-aim Twisted Portal rework, the Seer's Stone pin-by-USE
+re-lock, the wisp-per-patch clustering, and the boss/Hildir live-derive) — see the current PENDING.
+
 
 > Build target: **`v0.2.38-playtest`** (SBPR Trailborne 0.2.38) — the **fifth** build carrying Playtest #6
 > (counter HELD across the whole #6 line: `v0.2.34` first, `v0.2.35` second, `v0.2.36` third, `v0.2.37` fourth,
@@ -146,14 +228,6 @@ markers; the **Playtest #N** counter here is the *human-facing* testing series.
 | 27 | **Sunstone Lens — persistent corona aura (lens-live cue survives the minimap handoff)** | t_7416e5b9 (#255) | ✅ merged to `main` (`1c07d2e`); ships in `v0.2.40` | Re-homes the old flat-ring "pulsing aura" intent (t_acaa0190, superseded by the #254 world-space corona) onto the shipped corona by **decoupling it from the trophy halo**. Before: when a minimap won the threat feed the empty-state corona went dark with the ring, so a worn+charged Lens with a minimap up and **nothing near** showed **no "lens is live" cue at all**. Now (`CoronaPersistsOnMinimap` ON by default): the world-space sun-corona keeps **breathing** (alpha-pulse luminance, legible independent of hue) whenever the Lens is worn+charged, regardless of which surface draws threats. Equip + solar-charge the Lens with a **minimap present** (SBPR carry-disc **or** vanilla corner) and **no hostiles near**: **(a)** the corona stays lit and pulsing at your feet (FeetGlow default from #264) — the lens always reads "live"; **(b)** when a threat appears, the trophy halo rides the **same** root (one shared show/hide lifecycle, #209 host-pump invariant holds); **(c)** the cue is a luminance breath, **not** a hue change (colorblind-safe). The decoupling lives on the engine-free `LensHandoffDecision` truth table (`coronaContentVisible = ringContentVisible || persistKnob`), headless-CI-gated. **AT-CORONA-PERSIST-MINIMAP** + **AT-CORONA-DECOUPLED-FROM-TROPHIES** (8 new `LensHandoffDecisionTests` cases green; render is GPU-only — Daniel's eye is the accept). logs-green ≠ playable — closes t_7416e5b9. |
 | 28 | **Twisted Portal — through-terrain rune labels: un-mirror + de-fuzz + constant-on-screen size** | t_f66a3e37 / architect t_f739451f (#284) | ✅ merged to `main` (`efd198e`); ships in `v0.2.40` | Daniel on `v0.2.39` (Niflheim): the round-5 Twisted Portal rune labels (#274, item 24) rendered **mirrored, fuzzy, and shrank with distance** (unreadable). Route B (the shipped through-terrain overlay) is **KEPT** — all three are render-only defects fixed in place (Route A would discard shipped code + kill the through-terrain headline). **(a) UN-MIRROR:** labels read left-to-right, not back-to-front (vanilla `Billboard.m_invert=true`, decomp-grounded; upright-yaw + ZTest-Always through-terrain preserved). **(b) DE-FUZZ:** glyphs are **crisp**, not blurry (4× supersampled atlas; on-screen world size invariant by construction). **(c) CONSTANT ON-SCREEN SIZE:** labels hold ~constant angular/pixel size across the overlay range (clamped near/far) — they **no longer shrink** with raw perspective (`ConstantOnScreen` default; `KneeFloor` alt selectable, both live BepInEx config). Stand within ~3 m of one or more **named** Twisted Portals and read the floating rune labels at varied distances + through hills/walls: **(a)** text reads correctly (not mirrored), **(b)** crisp at all ranges, **(c)** stays readable far away (doesn't shrink to nothing), **(d)** still renders **through terrain** + billboards to camera (AT-LABEL-THROUGHTERRAIN-PRESERVED regression). Model untouched — pure render fix; geometry/sharpness not color (low colorblind risk). **AT-LABEL-UNMIRROR / -CRISP / -CONSTANT-SIZE / -THROUGHTERRAIN-PRESERVED** (AT-LABEL-SCALE-MATH +32 xUnit cases green; rendered pixels are Daniel's in-game accept). logs-green ≠ playable — closes the impl half of t_f66a3e37 (architect t_f739451f). |
 
-### 🔁 Carried forward — not yet shipped / not yet verified
-
-Shipped **no** code change in any tag (blocked / verify-only), so it carries into #6 rather than being archived as a #5 surface.
-
-| # | Feature | Card | Status | What to verify in-game |
-|---|---------|------|--------|------------------------|
-| 14 | **Portal Seed crafting cost** | t_a6831e8e | `blocked` — verify local solo (NRE root-crash #154 shipped in #1) | At the Explorer's Bench, Portal Seed shows cost **AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2**, and crafting **consumes** exactly that. Verify **local solo on current `main`** (the per-frame tooltip NRE that masked this, t_2dd7c705/#154, shipped in #1). If correct → close t_a6831e8e; if wrong → spawn a fix card from the observed failure mode (A no cost / B wrong cost / C not craftable / D shown-but-not-consumed). |
-
 ### 🧭 Ground-truth cross-check at roll time (git)
 
 - **Round 4 (items 15–21) are the `src/**/*.cs` changes in the `v0.2.36-playtest..main` window** (the build Daniel
@@ -201,10 +275,6 @@ Shipped **no** code change in any tag (blocked / verify-only), so it carries int
 
 > _Reconciled at the v0.2.37 cut: the Eikthyr boss-pin surface (t_5c3944cd) **merged** via #263 and is now a real
 > PENDING row (item 19) — removed from in-flight so it can't mask the guard next cycle (the check-3 trap)._
-
----
-
-## ARCHIVE — shipped playtests
 
 ### Playtest #5 — shipped v0.2.33-playtest (2026-06-21)
 
