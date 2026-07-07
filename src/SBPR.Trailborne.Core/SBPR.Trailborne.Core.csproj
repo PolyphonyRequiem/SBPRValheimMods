@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       SBPR.Trailborne.Core — the engine-free domain core (arch review P0).
+
+       WHAT THIS IS
+       The pure, engine-free tier of the mod: rules and data that are a function of
+       plain values, with NO reference to UnityEngine, Valheim (assembly_valheim),
+       BepInEx, or HarmonyX. The Unity/Harmony shell (src/SBPR.Trailborne) depends
+       DOWN on this; the boundary is enforced by the BUILD (this project references
+       none of those assemblies, so a stray `using UnityEngine` fails to compile),
+       not by discipline. See docs/design/architecture-review.md §2.
+
+       WHY MULTI-TARGET (net48 AND net8.0)
+       - net48: the shipping shell is net48, so the Core must be net48-consumable to
+         be referenced by it.
+       - net8.0: the test suite (tests/, xUnit) runs headless on net8.0 in CI with no
+         Valheim SDK, so the Core must also compile there to be referenced by tests.
+       Both TFMs compile the SAME source; keep the code to the lowest-common-denominator
+       C# that both accept (no net8-only BCL APIs).
+
+       P0 SCOPE (this phase, no behavior change)
+       Holds exactly one relocated file so far — BoundedMapMath.cs — moved verbatim
+       from src/SBPR.Trailborne/Features/Cartography/ with its namespace UNCHANGED
+       (SBPR.Trailborne.Features.Cartography), so not one of its ~14 shell callers
+       nor the test suite changes a single `using`. Reversible: deleting this project
+       and moving the file back restores today exactly. Later phases (P1 ZdoAccess,
+       P2 RecipeDef, etc.) add the domain models behind this same seam.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFrameworks>net48;net8.0</TargetFrameworks>
+    <AssemblyName>SBPR.Trailborne.Core</AssemblyName>
+    <RootNamespace>SBPR.Trailborne.Core</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <!-- Match the repo bar: 0 warnings, durably. Any warning fails the build. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <DebugType>none</DebugType>
+    <!-- Deterministic: nothing here needs the implicit global usings; keep the
+         surface explicit so an accidental engine dependency can't sneak in via a
+         using that some SDK default pulled in. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- No ItemGroup of references BY DESIGN: the engine-free boundary is that this
+       project references no Unity / Valheim / BepInEx / Harmony assemblies. Do not
+       add any. If a type here needs an engine fact, the SHELL passes it in as a
+       primitive or through a Core-defined interface the shell implements. -->
+
+</Project>

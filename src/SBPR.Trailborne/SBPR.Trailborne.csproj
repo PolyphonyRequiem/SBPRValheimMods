@@ -43,6 +43,13 @@ namespace SBPR.Trailborne { public partial class Plugin { public const string Ge
     </ItemGroup>
   </Target>
 
+  <!-- The engine-free domain core (arch review P0). The shell depends DOWN on the
+       Core; the Core references nothing here. BoundedMapMath and (later) the domain
+       models live there and are consumed via this reference. -->
+  <ItemGroup>
+    <ProjectReference Include="..\SBPR.Trailborne.Core\SBPR.Trailborne.Core.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="assembly_valheim"><HintPath>$(ValheimManaged)/assembly_valheim.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="assembly_utils"><HintPath>$(ValheimManaged)/assembly_utils.dll</HintPath><Private>false</Private></Reference>

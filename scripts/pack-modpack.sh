@@ -96,6 +96,18 @@ PLUGDIR="$TREE/BepInEx/plugins/$PLUGIN_DIRNAME"
 mkdir -p "$PLUGDIR"
 cp "$DLL" "$PLUGDIR/SBPR.Trailborne.dll"
 
+# 2-i) Overlay the engine-free domain-core DLL (arch review P0). The shell references
+#      SBPR.Trailborne.Core (BoundedMapMath + the domain models), so its net48 DLL MUST
+#      ship alongside the plugin or BepInEx throws FileNotFoundException at load ("logs-
+#      green ≠ playable" — the shell builds 0/0 but a joined client crashes on start).
+#      MSBuild's ProjectReference already copies it next to $DLL in bin/Release/, so we
+#      take it from there (same net48 flavour the shell was linked against). REQUIRED, not
+#      best-effort: a missing Core DLL is a hard, silent break, so fail loudly if absent.
+CORE_DLL="$(dirname "$DLL")/SBPR.Trailborne.Core.dll"
+[ -f "$CORE_DLL" ] || fail "engine-free Core DLL not found next to the plugin DLL: $CORE_DLL  (build the shell -c Release first; its ProjectReference copies the Core DLL into bin/Release/)"
+cp "$CORE_DLL" "$PLUGDIR/SBPR.Trailborne.Core.dll"
+ok "Core DLL bundled: SBPR.Trailborne.Core.dll"
+
 ICON_SRC="$REPO_ROOT/assets/icons/items"
 shopt -s nullglob
 icons=("$ICON_SRC"/*.png)

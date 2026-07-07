@@ -1,0 +1,17 @@
+<Project>
+  <!-- Deliberately does NOT import the repo-root Directory.Build.props.
+       MSBuild walks up and stops at the FIRST Directory.Build.props it finds, so
+       this file shields SBPR.Trailborne.Core from the root's SbprValidateSdkPaths
+       target, which hard-errors unless the Valheim managed-assembly + BepInEx paths
+       are set.
+
+       The Core is engine-free BY DESIGN (arch review P0): it references no Valheim /
+       BepInEx / Unity / Harmony assemblies, so it must NOT inherit the SDK-path
+       requirement — it has to compile headless in CI and on any dev box without the
+       Valheim SDK fetched (exactly like the tests/ subtree, which uses the same
+       shielding trick). The shipping shell at src/SBPR.Trailborne/ is a SIBLING
+       subtree and still finds the root props unchanged, so this override does not
+       affect the mod build.
+
+       This file is intentionally near-empty: its mere PRESENCE is the shield. -->
+</Project>

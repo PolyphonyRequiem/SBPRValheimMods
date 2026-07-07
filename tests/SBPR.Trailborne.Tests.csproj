@@ -52,6 +52,16 @@
     </PackageReference>
   </ItemGroup>
 
+  <!-- The engine-free domain core (arch review P0). BoundedMapMath was relocated here
+       from src/SBPR.Trailborne/Features/Cartography/ (namespace unchanged), so the test
+       now references the Core PROJECT instead of link-compiling the file — the exact
+       "swap <Compile Include> for <ProjectReference>" forward-path this suite documented.
+       The test LOGIC is unchanged; only the source-under-test's provenance moved. As more
+       pure logic migrates to the Core, more <Compile Include> entries below become this. -->
+  <ItemGroup>
+    <ProjectReference Include="../src/SBPR.Trailborne.Core/SBPR.Trailborne.Core.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- ── Source under test: SHIPPED, engine-free files (link-compiled, not copied) ──
          Every file here MUST be free of UnityEngine / HarmonyLib / Valheim refs so it
@@ -59,7 +69,7 @@
          logic; as the gated Core extraction lands, entries migrate to a ProjectReference. -->
     <Compile Include="../src/SBPR.Trailborne/Features/Signs/SignHoverHintText.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Signs/SignPaintDelta.cs" />
-    <Compile Include="../src/SBPR.Trailborne/Features/Cartography/BoundedMapMath.cs" />
+    <!-- BoundedMapMath.cs MOVED to the Core (P0) — now via the ProjectReference above, not link-compiled here. -->
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/MinimapThreatMetrics.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/MapCaptionText.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/Cartography/DiscRingGeometry.cs" />
