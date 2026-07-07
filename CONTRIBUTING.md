@@ -118,8 +118,7 @@ don't add new ones. See [`.env.example`](.env.example).
 
 ## Pull requests
 
-- **Daniel gates every merge.** Open the PR; don't self-merge feature work.
-- Keep PRs scoped to one concern. Reference the spec section you're satisfying.
+- Keep PRs (or direct commits) scoped to one concern. Reference the spec section you're satisfying.
 - **Delivery is incremental + milestone-based.** M0 = "plugin of nothing"; each
   milestone has named acceptance tests Daniel signs off. Don't jump ahead.
 - State what you verified and — honestly — what you did **not**. "Logs green ≠

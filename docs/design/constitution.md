@@ -50,8 +50,8 @@ existing SDD roles. Use these words in cards, PRs, and discussion:
 5. **Writer ≠ verifier.** The agent that verifies a spec or an implementation is a **different
    agent** (often a stronger model) from the one that wrote it. Spec Kit's same-agent `analyze`
    does not satisfy this.
-6. **Daniel gates every merge.** Open a PR; never self-merge feature work. Spec Kit automation
-   must never auto-merge. ([ADR-0004](../decisions/0004-deterministic-publish-then-pr-releases.md).)
+6. **Daniel decides how work lands.** Merge directly or via PR at his discretion; Spec Kit
+   automation must never auto-merge without his say-so. ([ADR-0004](../decisions/0004-deterministic-publish-then-pr-releases.md).)
 7. **Incremental delivery.** Milestone (M0→Mₙ) ladder with **named acceptance tests**. Don't jump
    milestones. "Logs green ≠ playable" — distinguish built / deployed / playtested.
 8. **Semver docs tree.** `docs/vX.Y.Z/`, never date-stamped dirs. Every `docs/` subfolder keeps

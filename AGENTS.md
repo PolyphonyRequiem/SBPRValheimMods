@@ -55,7 +55,6 @@ If spec and code disagree, **the spec wins** unless Daniel explicitly overrides.
   `dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release` →
   0 errors, **0 warnings (clean build)**. `<TreatWarningsAsErrors>` is ON, so
   any new nullable (or other) warning fails the build — keep it clean.
-- **Daniel gates every merge.** Open a PR; never self-merge feature work.
 - **Incremental delivery.** Milestone-based with named acceptance tests. Don't
   jump milestones.
 
