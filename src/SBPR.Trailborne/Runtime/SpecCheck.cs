@@ -60,171 +60,38 @@ namespace SBPR.Trailborne.Runtime
             public Req[]  Resources = null!;  // always set by each manifest initializer
         }
 
-        // The complete v0.1.0 locked manifest.
-        private static readonly RecipeSpec[] Manifest = new[]
+        // ── The declarative recipe/piece manifest — arch review Model B (sliced P2) ─────────────
+        // WAS a hand-copied RecipeSpec[] literal here that duplicated every feature's live
+        // DoObjectDBWiring (the exact drift the 2026-06-03 meta-bug came from). It is now PROJECTED
+        // from the single engine-free source of truth, SbprContentManifest.Registry, which is built
+        // from the same feature name+cost consts the live wiring uses. SpecCheck and the intended
+        // shape therefore read ONE list and can no longer disagree.
+        //
+        // The projection preserves the exact RecipeSpec shape the rest of Run() consumes (Item xor
+        // Piece, Station, Amount, Resources), so the ObjectDB walk + CompareResources + CheckIcon +
+        // CheckAttack + the cairn/marker loops + the Portal-Energy manifest are ALL unchanged. Only
+        // the SOURCE of the declarative rows moved from a local literal to the shared registry.
+        private static readonly RecipeSpec[] Manifest = BuildManifestFromRegistry();
+
+        private static RecipeSpec[] BuildManifestFromRegistry()
         {
-            // ── Build pieces ───────────────────────────────────────────
-            new RecipeSpec {
-                Piece = "piece_sbpr_explorers_bench", Station = null,
-                Resources = new[] { R("Wood", 10), R("Stone", 4), R("TrophyDeer", 1) }
-            },
-            new RecipeSpec {
-                Piece = "piece_sbpr_path_lamp", Station = null,
-                Resources = new[] { R("Wood", 3), R("Resin", 2) }
-            },
-            // Single Painted Sign (§A2.6, re-lock 2026-06-05): ONE buildable piece,
-            // placed UNPAINTED, then painted via the combined Paint+Text panel which
-            // consumes one pigment per CHANGED color slot (delta vs the sign's current
-            // ZDO color — §A2.6 per-changed, LOCKED Daniel 2026-06-21 / card t_6df12ca8;
-            // unchanged slots + clears free) at paint time. Pigment is NOT a build
-            // ingredient — the build recipe stays Wood x2. This replaced the four tinted
-            // sign buildables (each Wood + ink). NOTE: this manifest asserts only the
-            // BUILD recipe (Wood x2); the consume-cost rule is enforced by SignPaintDelta
-            // + tests/SignPaintDeltaTests.cs, not by a SpecCheck runtime assert.
-            new RecipeSpec {
-                Piece = "piece_sbpr_sign", Station = null,
-                Resources = new[] { R("Wood", 2) }
-            },
+            var reg = SbprContentManifest.Registry;
+            var list = new List<RecipeSpec>();
 
-            // ── v2 Black-Forest cartography (impl spec §0 row 1; card t_2715661d) ──
-            // Surveyor's Table — placed station, NO bench-in-range to place
-            // (m_craftingStation = null). Black-Forest tier. LOCKED per
-            // docs/v2/planning/requirements.md §1 + cartography-impl-spec.md §0/§1.2.
-            new RecipeSpec {
-                Piece = "piece_sbpr_surveyors_table", Station = null,
-                Resources = new[] { R("FineWood", 10), R("Bronze", 2), R("DeerHide", 4), R("BoneFragments", 8) }
-            },
-
-            // ── Trailside Camp — Bear Hide Tent (docs/design/trailside-camp.md) ──
-            // Black-Forest tier (bear Bjorn is a BF creature → BjornHide is a BF material).
-            // Placeholder art = vanilla TraderTent mesh shipped in SBPR's first custom
-            // AssetBundle. NO bench-in-range to place (Pillar 1, m_craftingStation = null).
-            // Recipe PROVISIONAL pending the design doc's lock; must equal BearHideTent.BuildResources().
-            new RecipeSpec {
-                Piece = "piece_sbpr_bearhide_tent", Station = null,
-                Resources = new[] { R("BjornHide", 4), R("FineWood", 6), R("LeatherScraps", 4) }
-            },
-
-            // ── Item recipes ───────────────────────────────────────────
-            new RecipeSpec {
-                Item = "SBPR_TrailblazersSpade", Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] { R("Wood", 5), R("Flint", 2), R("LeatherScraps", 2) }
-            },
-            new RecipeSpec {
-                Item = Pigments.PigmentRedName, Station = "piece_sbpr_explorers_bench", Amount = 2,
-                Resources = new[] { R("Raspberry", 1) }
-            },
-            new RecipeSpec {
-                Item = Pigments.PigmentWhiteName, Station = "piece_sbpr_explorers_bench", Amount = 2,
-                Resources = new[] { R("BoneFragments", 1) }
-            },
-            new RecipeSpec {
-                Item = Pigments.PigmentBlueName, Station = "piece_sbpr_explorers_bench", Amount = 2,
-                Resources = new[] { R("Blueberries", 1) }
-            },
-            new RecipeSpec {
-                Item = Pigments.PigmentBlackName, Station = "piece_sbpr_explorers_bench", Amount = 2,
-                Resources = new[] { R("Coal", 1) }
-            },
-
-            // ── v2 Black-Forest cartography (impl spec §0 row 2; card t_cb831069) ──
-            // Local Map — TwoHandedWeapon item, crafted blank at the Explorer's Bench,
-            // imprinted at a Surveyor's Table. LOCKED per docs/v2/planning/requirements.md §2
-            // + cartography-impl-spec.md §0/§2A.1: DeerHide ×2 + FineWood ×4, amount 1.
-            // Issue 9 (Daniel, 2026-06-11 playtest): bumped from 1+1 to 2+4.
-            new RecipeSpec {
-                Item = "SBPR_LocalMap", Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] { R("DeerHide", 2), R("FineWood", 4) }
-            },
-
-            // ── v2 Black-Forest cartography (impl spec §0 row 3; card t_65fcfe5c) ──
-            // Cartographer's Kit — Utility-slot accessory that GATES auto-mapping. The
-            // 40-pigment recipe IS the gate (no discovery flag). LOCKED per
-            // docs/v2/planning/requirements.md §3 + cartography-impl-spec.md §0/§3.1.
-            // Pigment resource names are the SBPR_Ink* wire values via Pigments.*Name.
-            new RecipeSpec {
-                Item = CartographersKit.KitName, Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] {
-                    R(Pigments.PigmentRedName,   10),
-                    R(Pigments.PigmentWhiteName, 10),
-                    R(Pigments.PigmentBlueName,  10),
-                    R(Pigments.PigmentBlackName, 10),
-                    R("FineWood", 4),
-                }
-            },
-            // ── v2 Black-Forest Ancient Portal (ancient-portal-impl-spec.md §0; card t_bafc1e57) ──
-            // Portal Seed — additive item recipe, crafted at the Explorer's Bench from
-            // AncientSeed ×1 + GreydwarfEye ×20 + SurtlingCore ×2, amount 1, 25 kg / stack 1.
-            // Item-only shape (Station set, Amount set; Piece null). LOCKED per spec §0/§2.3.
-            new RecipeSpec {
-                Item = Portals.SeedItemName, Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] {
-                    R("AncientSeed", Portals.SeedAncientSeedCost),
-                    R(MarkerSigns.EyeResource, Portals.SeedGreydwarfEyeCost),  // "GreydwarfEye" — shared const
-                    R("SurtlingCore", Portals.SeedSurtlingCoreCost),
-                }
-            },
-            // Ancient Portal — Hammer-placed build piece (m_craftingStation = null), sole
-            // build cost is one Portal Seed (so break→seed is free via Piece.DropResources).
-            // Piece-only shape (no Item, no Station). LOCKED per spec §0/§3.4.
-            new RecipeSpec {
-                Piece = Portals.PortalPieceName, Station = null,
-                Resources = new[] { R(Portals.SeedItemName, 1) }
-            },
-            // ── v3 Swamp: Sunstone Lens (card t_2fd7bc7f) ──
-            // NOTE: the Sunstone MATERIAL has NO recipe row — it is loot-sourced only (swamp
-            // surface chests + rare Draugr Elite, SunstoneLoot.cs / PR #183). DropTables and
-            // CharacterDrops are not modelled by SpecCheck, so the material contributes 0 manifest
-            // rows. The earlier provisional Iron×1+Crystal×2 craft was a bridge until the drops
-            // shipped; Daniel locked REMOVE once they did (card t_8f39b5fc → t_c27f985e, impl spec §6).
-            // Sunstone Lens — additive Trinket accessory, crafted at the Explorer's Bench from
-            // Sunstone ×2 + Iron ×1 + Guck ×3, amount 1. Sunstone referenced via the const so a
-            // rename can't drift the recipe; it registers into ODB earlier in the same wiring pass.
-            // Item-only shape (Station + Amount set; Piece null). LOCKED per docs/v3 spec §0/§6.
-            new RecipeSpec {
-                Item = SunstoneLens.LensName, Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] {
-                    R(SunstoneLens.SunstoneName, SunstoneLens.LensSunstoneCost),
-                    R("Iron", SunstoneLens.LensIronCost),
-                    R("Guck", SunstoneLens.LensGuckCost),
-                }
-            },
-            // ── v3 Swamp: Iron Compass (card t_ee61472f) ──
-            // Iron Compass — additive Trinket accessory, crafted at the Explorer's Bench from
-            // Iron ×4 + Ooze ×2 + Red Pigment ×1, amount 1. Daniel's Q1 LOCK (2026-06-17). Iron
-            // is the Swamp tier gate; Ooze is the Swamp Blob/Oozer drop; Red Pigment is the
-            // SBPR_InkRed pigment item, referenced via Pigments.PigmentRedName so a rename can't
-            // drift the recipe (it registers into ODB earlier in the same wiring pass, before
-            // IronCompass.DoObjectDBWiring). Item-only shape (Station + Amount set; Piece null).
-            // LOCKED per docs/v3/planning/iron-compass-impl-spec.md §0/§3.2.
-            new RecipeSpec {
-                Item = IronCompass.CompassName, Station = "piece_sbpr_explorers_bench", Amount = 1,
-                Resources = new[] {
-                    R("Iron", IronCompass.IronCost),
-                    R("Ooze", IronCompass.OozeCost),
-                    R(Pigments.PigmentRedName, IronCompass.RedPigmentCost),
-                }
-            },
-            // ── v3 Swamp: Twisted Portal (card t_2b388cd5) ──
-            // Twisted Portal — Hammer-placed build piece (m_craftingStation = null), the endgame
-            // no-restriction portal. Build cost FineWood ×20 + GreydwarfEye ×10 + SurtlingCore ×4
-            // + SBPR_Sunstone ×1 (Q1 = coexist shape). Sunstone referenced via SunstoneLens.SunstoneName
-            // and GreydwarfEye via MarkerSigns.EyeResource so a rename can't drift the recipe; both
-            // register into ODB earlier in the same wiring pass (Sunstone via SunstoneLens, before
-            // TwistedPortal.DoObjectDBWiring). Piece-only shape (no Item, no Station). Under
-            // food-as-fuel there is NO key item row (the trinket was removed in the t_c15411b2
-            // reconciliation) — this is the feature's only manifest row. LOCKED per
-            // docs/v3/planning/twisted-portal-impl-spec.md §0.
-            new RecipeSpec {
-                Piece = TwistedPortal.PortalPieceName, Station = null,
-                Resources = new[] {
-                    R("FineWood", TwistedPortal.PortalFineWoodCost),
-                    R(MarkerSigns.EyeResource, TwistedPortal.PortalGreydwarfEyeCost),  // "GreydwarfEye" — shared const
-                    R("SurtlingCore", TwistedPortal.PortalSurtlingCoreCost),
-                    R(SunstoneLens.SunstoneName, TwistedPortal.PortalSunstoneCost),    // "SBPR_Sunstone" — shared const
-                }
-            },
-        };
+            foreach (var r in reg.Recipes)
+            {
+                var reqs = new Req[r.Resources.Count];
+                for (int i = 0; i < reqs.Length; i++) reqs[i] = R(r.Resources[i].Resource, r.Resources[i].Amount);
+                list.Add(new RecipeSpec { Item = r.Item, Station = r.Station, Amount = r.Amount, Resources = reqs });
+            }
+            foreach (var p in reg.Pieces)
+            {
+                var reqs = new Req[p.Resources.Count];
+                for (int i = 0; i < reqs.Length; i++) reqs[i] = R(p.Resources[i].Resource, p.Resources[i].Amount);
+                list.Add(new RecipeSpec { Piece = p.Piece, Station = p.Station, Resources = reqs });
+            }
+            return list.ToArray();
+        }
 
         public static void Run()
         {
