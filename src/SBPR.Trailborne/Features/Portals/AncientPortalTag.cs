@@ -1,5 +1,5 @@
-using System;
 using UnityEngine;
+using SBPR.Trailborne.Core.Portals;
 using SBPR.Trailborne.Runtime;
 
 namespace SBPR.Trailborne.Features.Portals
@@ -12,9 +12,12 @@ namespace SBPR.Trailborne.Features.Portals
     /// network wall-clock so the grow resumes correctly after a relog mid-grow (it's
     /// absolute world-time, not session-relative).
     ///
-    /// Mirrors the cairn's <see cref="SBPR.Trailborne.Features.Cairns.CairnTag"/> owner-write
-    /// ZDO discipline: every ZDO read/write guards on a live ZDO so the placement GHOST
-    /// (no ZDO) is a no-op, and the first owner write claims ownership.
+    /// ARCH REVIEW P1 (Model A — ZDO-component seam): this tag now derives from
+    /// <see cref="ZdoComponent"/> for the ghost-guarded, owner-gated ZDO access it used to
+    /// hand-roll, and its grow-progress rule is the engine-free Core <see cref="PortalGrow"/>
+    /// (unit-tested: unstamped / clock-not-up / mid-grow relog / past-window). The class keeps
+    /// ONLY its feature state — the trigger-collider gate + the scale-lerp visual. The
+    /// <c>SBPR_PortalPlantTime</c> ZDO key is UNCHANGED (R3 wire-contract).
     ///
     /// 🔴 THE GROW GATE (spec §3.6/§3.7 — the load-bearing detail): while growing we keep
     /// the teleport DISABLED by toggling the TeleportWorldTrigger child's COLLIDER, NOT the
@@ -29,7 +32,7 @@ namespace SBPR.Trailborne.Features.Portals
     /// the owner-write plant-stamp are the load-bearing parts and run wherever the ZDO is
     /// owned. Inert on the ghost (no ZDO).
     /// </summary>
-    public class AncientPortalTag : MonoBehaviour
+    public class AncientPortalTag : ZdoComponent
     {
         // 🔒 LOCKED ZDO key (save/wire contract — never rename; a rename re-grows every
         // placed portal from scratch because the old stamp orphans). Stores the plant time
@@ -49,16 +52,14 @@ namespace SBPR.Trailborne.Features.Portals
         // owner-write of the plant stamp happens ONCE on first wake, not per poll.
         private const float PollSeconds = 0.1f;
 
-        private ZNetView? nview;
         private Transform? triggerColliderHost;   // the TeleportWorldTrigger child whose collider we gate
         private Collider? triggerCollider;         // its BoxCollider (isTrigger) — toggled by grow state
         private bool activated;                    // latched true once grow completes (stops further work)
         private bool warnedNoTrigger;              // log-once guard if the trigger child is missing
 
-        private void Awake()
+        // Runs AFTER ZdoComponent.Awake resolves the ZNetView (NView). Feature setup only.
+        protected override void OnZdoAwake()
         {
-            nview = GetComponent<ZNetView>();
-
             // Resolve the overhead trigger child + its collider (built by Portals.cs). We gate
             // teleport by enabling/disabling THIS collider — see the class summary.
             var triggerTag = GetComponentInChildren<TeleportWorldTrigger>(includeInactive: true);
@@ -69,8 +70,8 @@ namespace SBPR.Trailborne.Features.Portals
             }
 
             // GHOST (no ZDO): leave everything inert — the placement preview must not stamp a
-            // plant time or run the grow. The cairn discipline (CairnTag guards on a live ZDO).
-            if (nview == null || nview.GetZDO() == null)
+            // plant time or run the grow. (ZdoComponent.HasZdo is the ghost guard.)
+            if (!HasZdo)
             {
                 // Keep the trigger OFF on the ghost so a preview can never teleport.
                 SetTeleportEnabled(false);
@@ -78,15 +79,15 @@ namespace SBPR.Trailborne.Features.Portals
             }
 
             // Stamp plant time on FIRST owner wake (no stamp yet). Owner-write only; a
-            // non-owner reads the stamp the owner wrote and grows in lockstep.
-            long stamp = nview.GetZDO().GetLong(ZdoPlantTime, 0L);
-            if (stamp == 0L && nview.IsOwner())
+            // non-owner reads the stamp the owner wrote and grows in lockstep. TryGetLong
+            // returns false when unstamped (the sentinel-free read replacing "== 0L").
+            if (!TryGetLong(ZdoPlantTime, out _) && IsOwner)
             {
-                stamp = CurrentTicks();
+                long stamp = CurrentTicks();
                 if (stamp != 0L)
                 {
-                    if (!nview.IsOwner()) nview.ClaimOwnership();
-                    nview.GetZDO().Set(ZdoPlantTime, stamp);
+                    // WriteLong claims ownership first if needed (ZdoComponent → ZdoAccess policy).
+                    WriteLong(ZdoPlantTime, stamp);
                 }
             }
 
@@ -108,7 +109,7 @@ namespace SBPR.Trailborne.Features.Portals
         private void GrowTick()
         {
             if (activated) { CancelInvoke(nameof(GrowTick)); return; }
-            if (nview == null || nview.GetZDO() == null) return;   // zone-unloaded mid-grow → wait
+            if (!HasZdo) return;   // zone-unloaded mid-grow → wait
 
             float t = ComputeProgress();
             ApplyGrowVisual(t);
@@ -123,24 +124,17 @@ namespace SBPR.Trailborne.Features.Portals
         }
 
         /// <summary>
-        /// Grow progress in [0,1] from the ZDO-stamped plant time vs the current network
-        /// clock. An UNSTAMPED portal reads as freshly-planted (0 → seed-scaled + inert): the
-        /// owner stamps the time in its own Awake, and a non-owner momentarily sees stamp==0
-        /// only until the stamp propagates, so it must wait — NOT prematurely activate. A
-        /// clock that isn't up yet also returns 0 (stay seed, never activate on a bad read).
-        /// Because the placer always owns a freshly-placed piece and always writes the stamp,
-        /// "unstamped forever" can't happen, so failing toward 0 here never strands a portal.
+        /// Grow progress in [0,1] — delegates to the engine-free Core <see cref="PortalGrow.Progress"/>,
+        /// reading the ZDO-stamped plant time (ghost-guarded) and the current network clock. All the
+        /// edge-case discipline (unstamped → 0, clock-not-up → 0, mid-grow relog, past-window clamp)
+        /// lives in the Core rule and is unit-tested there; this shell method just supplies the two
+        /// live longs.
         /// </summary>
         private float ComputeProgress()
         {
-            if (nview == null || nview.GetZDO() == null) return 0f;
-            long stamp = nview.GetZDO().GetLong(ZdoPlantTime, 0L);
-            if (stamp == 0L) return 0f;       // not stamped yet (non-owner before owner write) — wait, don't activate
-            long now = CurrentTicks();
-            if (now == 0L) return 0f;         // clock not up — stay seed-scaled, don't activate
-            double elapsedSec = (now - stamp) / (double)TimeSpan.TicksPerSecond;
-            if (elapsedSec <= 0d) return 0f;
-            return Mathf.Clamp01((float)(elapsedSec / GrowSeconds));
+            long stamp = ReadLong(ZdoPlantTime, 0L);   // ghost-guarded; 0 when ghost or unstamped
+            long now = CurrentTicks();                 // 0 when ZNet clock isn't up
+            return PortalGrow.Progress(stamp, now, GrowSeconds);
         }
 
         /// <summary>
