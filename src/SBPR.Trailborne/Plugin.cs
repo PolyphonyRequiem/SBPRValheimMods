@@ -156,7 +156,7 @@ namespace SBPR.Trailborne
         // Two LIVE enums so Daniel converges the feel on a joined client without a rebuild (the
         // banner-windsock pattern). MinimapHandoffMode: where Lens threats render when a minimap is
         // present (DiscWhenBound = ring hides + minimap shows threats, default; RingOnly = escape hatch;
-        // Both = supplement). MinimapBlipStyle: dots+tint (default) vs trophy art on the minimap surfaces.
+        // Both = supplement). MinimapBlipStyle: trophy art (default) vs dots+tint on the minimap surfaces.
         internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.MinimapHandoffMode>? LensMinimapHandoffMode = null;
         internal static ConfigEntry<SBPR.Trailborne.Features.Sunstone.BlipStyle>?          LensMinimapBlipStyle   = null;
         // On-minimap threat-blip size (px), LIVE so Daniel converges the exact magnitude on a joined
@@ -698,9 +698,9 @@ namespace SBPR.Trailborne
             LensMinimapBlipStyle = Config.Bind(
                 "SunstoneLens", "MinimapBlipStyle",
                 SBPR.Trailborne.Features.Sunstone.BlipStyle.Trophy,
-                "How a threat draws on the minimap surfaces (the SBPR disc + the vanilla corner map). Dots "
-                + "(default): a small aggro-tinted dot, legible at the disc's tight inner threat zone. Trophy: "
-                + "the creature trophy sprite + aggro tint (richer, smaller-read). The screen-space RING is "
+                "How a threat draws on the minimap surfaces (the SBPR disc + the vanilla corner map). Trophy "
+                + "(default): the creature trophy sprite + aggro tint (richer, smaller-read). Dots: "
+                + "a small aggro-tinted dot, legible at the disc's tight inner threat zone. The screen-space RING is "
                 + "unaffected — it always shows the full trophy art. Live-tunable.");
             LensMinimapBlipPx = Config.Bind(
                 "SunstoneLens", "MinimapBlipPx",
