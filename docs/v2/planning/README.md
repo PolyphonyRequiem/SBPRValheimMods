@@ -143,10 +143,13 @@ Planning artifacts for the Black Forest tier. Same role as
   - [`homestead-stone-progression-contracts.md`](homestead-stone-progression-contracts.md) — authenticated
     revisioned commands, evidence/receipt/read contracts, provider boundaries, and stable rejections;
   - [`homestead-stone-progression-plan.md`](homestead-stone-progression-plan.md) — constitution check,
-    dependency-linked Gate A + Tracers 1–9, named acceptance, and the pre-tasks approval stop.
-  **Status: accepted.** Daniel approved the reconciled package after independent verification. This remains
-  specification/plan work only; `tasks.md` and implementation are intentionally withheld pending separate
-  authorization, per ADR-0005.
+    dependency-linked Gate A + Tracers 1–9, named acceptance, and the implementation stop;
+  - [`homestead-stone-progression-tasks.md`](homestead-stone-progression-tasks.md) — the separately authorized,
+    dependency-ordered vertical-slice decomposition with exact paths, named acceptance, paired independent
+    verification, and an explicit no-implementation gate.
+  **Status: accepted package; proposed tasks.** Daniel approved the reconciled package after independent
+  verification and separately authorized task authoring. The decomposition is now proposed for review. No Kanban
+  cards or runtime implementation were created; implementation remains separately unauthorized per ADR-0005.
 
 - **`bear-hide-tent-collider-fit-impl-spec.md`** — the buildable *how* for the **Bear Hide
   Tent collider fix** (BUG card `t_439f2351` defect 1, Daniel 2026-06-26 in-game playtest:
