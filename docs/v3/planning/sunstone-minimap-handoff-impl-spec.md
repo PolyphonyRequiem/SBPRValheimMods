@@ -29,7 +29,7 @@ implementation** so the doc and the code agree (repo AGENTS.md: spec and code mo
 | Knob | 🟢 Locked value | Build consequence |
 |---|---|---|
 | `MinimapHandoffMode` | **`DiscWhenBound`** (default; enum live-tunable) | Ring hides when a minimap is present; renders only as the no-minimap fallback. |
-| Blip representation | **dots + aggro-tint** (default; `BlipStyle` enum) | Every minimap surface draws a tinted dot, not trophy art, by default. The screen-space ring always shows full trophy art. |
+| Blip representation | **trophy art + aggro-tint** (default; `BlipStyle` enum) — #238 (`t_aab051ae`) richened the original dots-default | Every minimap surface draws the aggro-tinted trophy sprite (with star pips + off-edge rim) by default; `Dots` stays selectable. The screen-space ring always shows full trophy art. |
 | nomap-OFF case | **draw on the vanilla minimap** (universal rule) | A custom overlay on `Minimap.instance` — NOT `Minimap.AddPin`. |
 
 > **AS-BUILT — minimap blip SIZE (card `t_bc017af4`, Daniel 2026-06-24: "minimap icons
@@ -285,7 +285,7 @@ a dedicated server).
 LensMinimapHandoffMode = Config.Bind("SunstoneLens", "MinimapHandoffMode",
     MinimapHandoffMode.DiscWhenBound, "…DiscWhenBound (default): ring hides, threats move onto the minimap…");
 LensMinimapBlipStyle = Config.Bind("SunstoneLens", "MinimapBlipStyle",
-    BlipStyle.Dots, "…Dots (default): a small aggro-tinted dot…Trophy: the creature trophy sprite + tint…");
+    BlipStyle.Trophy, "…Trophy (default): the creature trophy sprite + tint…Dots: a small aggro-tinted dot…");
 ```
 
 The enums live in `LensHandoffDecision.cs` (engine-free) so the Config bind and the unit
