@@ -212,7 +212,8 @@ namespace SBPR.Trailborne.Tests
 
             var query = new GetStoneProgressionView();
             var ownerView = query.Execute(stone, owner, authority);
-            var otherView = query.Execute(stone, other, authority);
+            var otherView = query.Execute(stone, other,
+                BuildAuthority(OtherAccount, OtherChar, RelationshipKind.None));
 
             // Same Stone-identity section...
             Assert.Equal(ownerView.StoneId, otherView.StoneId);
@@ -228,6 +229,27 @@ namespace SBPR.Trailborne.Tests
             Assert.True(ownerView.NodeStatuses[0].Purchased);
             Assert.False(otherView.NodeStatuses[0].Purchased);
             Assert.Equal(DerivedNodeState.Offered, otherView.NodeStatuses[0].State);
+        }
+
+        [Fact]
+        public void AT_READMODEL_STONE_ID_RejectsAuthorityForAnotherAccountOrStone()
+        {
+            var stone = BuildStone();
+            var caller = BuildCharacter(OwnerAccount, OwnerChar);
+            var wrongAccount = BuildAuthority(OtherAccount, OwnerChar, RelationshipKind.Bond);
+            var wrongStone = new AccountStoneAuthorityIndex(
+                OwnerAccount,
+                StoneId.FromHostZone(World, 99, 99),
+                revision: 1,
+                activeCharacter: OwnerChar,
+                activeKind: RelationshipKind.Bond,
+                activeRelationshipId: "rel-wrong-stone",
+                activationReceiptId: "receipt:wrong-stone",
+                releaseReceiptId: "");
+
+            var query = new GetStoneProgressionView();
+            Assert.Throws<System.ArgumentException>(() => query.Execute(stone, caller, wrongAccount));
+            Assert.Throws<System.ArgumentException>(() => query.Execute(stone, caller, wrongStone));
         }
 
         // ── AT-NO-ACTIVE-LEDGER ───────────────────────────────────────────────

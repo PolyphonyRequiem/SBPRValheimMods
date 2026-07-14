@@ -81,6 +81,15 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Activation
             if (character == null) throw new ArgumentNullException(nameof(character));
             if (authority == null) throw new ArgumentNullException(nameof(authority));
 
+            // The authority index is keyed by (AccountId, StoneId). Refuse a mismatched row rather
+            // than projecting another account's/Stone's relationship onto this caller. The query
+            // boundary supplies authenticated aggregates; a key mismatch is an invariant failure,
+            // never an inactive relationship that can be silently tolerated.
+            if (!authority.Account.Equals(character.Account))
+                throw new ArgumentException("Authority account does not match the caller aggregate.", nameof(authority));
+            if (!authority.StoneId.Equals(stone.StoneId))
+                throw new ArgumentException("Authority Stone does not match the Stone aggregate.", nameof(authority));
+
             // Caller relationship eligibility: this account/character actively holds a relationship to
             // this Stone. Delivery of any Character/Permanent effect requires it (dormant otherwise).
             bool callerActive =
