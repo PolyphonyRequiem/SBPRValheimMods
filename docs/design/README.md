@@ -88,6 +88,23 @@ impl-spec. Each carries its open questions inline.
   (visual-only). Six open knobs. Owns the *sleep mechanic*;
   `trailside-beautification.md` owns the tent's *aura*.
 
+- **[`tobi-tutorial-mascot.md`](tobi-tutorial-mascot.md)** — LIVING (Daniel,
+  2026-07-07 Matrix #design thread). **Tobi the Tutorial 'Tiel**: a distinct
+  *third* guide-bird — a whiteface cockatiel — who delivers SBPR's own onboarding
+  hints, **additive** to vanilla's Hugin/Munin (untouched). His different look is
+  the signal ("pay attention, not your regular tutorial"). Grounded hard against
+  the decompiled `Tutorial`/`Raven`/`Player` chain: the registration chokepoint,
+  the save-persisted seen-set, the two vanilla trigger classes, and the
+  **binary** `m_isMunin` identity flag — which is *why* a genuine third bird needs
+  its own routing seam (a parallel SBPR guide-bird driver), not a "reskin the
+  flag." Decided: own mesh on a copy of Hugin's skeleton (animations retarget
+  free), a **required articulated crest** (Hugin has none — crest-up *is* the
+  signal), and a strict **whiteface palette — no yellow/orange/red anywhere**
+  (Daniel-corrected hard constraint). A two-op API (`Register` + `Show`); the
+  library patches no vanilla gameplay method. Two open forks: version placement +
+  crest drive. Memorializes Luna's cockatiel. Net-new onboarding, not in
+  requirements.md v1, not yet version-slotted.
+
 - **[`travellers-cache.md`](travellers-cache.md)** — a trailside chest with a
   shared public shelf plus a per-player private drawer. Architecture is grounded
   on the in-tree Surveyor's Table ZDO-blob pattern; five design knobs (tier,
