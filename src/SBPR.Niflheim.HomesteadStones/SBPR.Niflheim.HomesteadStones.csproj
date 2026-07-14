@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>SBPR.Niflheim.HomesteadStones</AssemblyName>
+    <RootNamespace>SBPR.Niflheim.HomesteadStones</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Version>0.0.1</Version>
+    <Nullable>enable</Nullable>
+    <!-- Clean-build guard, mirroring SBPR.Trailborne: warnings are errors so
+         0-warnings stays durable. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <DebugType>none</DebugType>
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+    <!-- The stable runtime AssetBundle is a hard output contract: build fails if it is absent,
+         then copies it beside the DLL where Plugin.PluginFolder resolves it. -->
+    <HomesteadBundle>$(MSBuildProjectDirectory)/Assets/Bundles/sbpr_niflheim_homestead_stones.unity3d</HomesteadBundle>
+    <HomesteadBundleChecksum>$(HomesteadBundle).sha256</HomesteadBundleChecksum>
+  </PropertyGroup>
+
+  <!-- $(ValheimManaged) and $(BepInExCore) resolve from environment / repo-root .env
+       via the repo-root Directory.Build.props (shared with SBPR.Trailborne). No
+       machine-specific absolute paths live here. -->
+
+  <!-- Version constant codegen, same pattern as SBPR.Trailborne: [BepInPlugin] needs
+       a compile-time const, so bake <Version> into a generated GeneratedModVersion. -->
+  <Target Name="GenerateVersionConstant" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <GeneratedVersionFile>$(IntermediateOutputPath)GeneratedVersion.cs</GeneratedVersionFile>
+      <GeneratedVersionContent>// &lt;auto-generated&gt; by the GenerateVersionConstant MSBuild target.
+// Source of truth: &lt;Version&gt; in SBPR.Niflheim.HomesteadStones.csproj. Do not edit by hand.
+namespace SBPR.Niflheim.HomesteadStones { public partial class Plugin { public const string GeneratedModVersion = "$(Version)"%3B } }</GeneratedVersionContent>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(GeneratedVersionFile)" Lines="$(GeneratedVersionContent)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(GeneratedVersionFile)" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <!-- Unity Editor-only reproducible bundle builder: source-controlled with the owning mod,
+         copied into the Preview Lab for execution, never compiled into the runtime plugin. -->
+    <Compile Remove="Assets/Editor/**/*.cs" />
+
+    <!-- Game + Unity assemblies (read-only, Private=false — never shipped). Minimal set
+         for this slice: the plugin bootstrap, prefab construction, and the area-of-influence
+         physics query. UI / TMP / cloth deliberately omitted until a slice needs them. -->
+    <Reference Include="assembly_valheim"><HintPath>$(ValheimManaged)/assembly_valheim.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_utils"><HintPath>$(ValheimManaged)/assembly_utils.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(ValheimManaged)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ValheimManaged)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(ValheimManaged)/UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AnimationModule"><HintPath>$(ValheimManaged)/UnityEngine.AnimationModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(ValheimManaged)/UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="netstandard"><HintPath>$(ValheimManaged)/netstandard.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="mscorlib"><HintPath>$(ValheimManaged)/mscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System"><HintPath>$(ValheimManaged)/System.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Core"><HintPath>$(ValheimManaged)/System.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx"><HintPath>$(BepInExCore)/BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExCore)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <Target Name="CopyHomesteadBundle" AfterTargets="Build">
+    <Error Condition="!Exists('$(HomesteadBundle)')" Text="Required Homestead Stone AssetBundle missing: $(HomesteadBundle)" />
+    <Error Condition="!Exists('$(HomesteadBundleChecksum)')" Text="Required Homestead Stone AssetBundle checksum missing: $(HomesteadBundleChecksum)" />
+    <Copy SourceFiles="$(HomesteadBundle);$(HomesteadBundleChecksum)" DestinationFolder="$(OutputPath)" />
+  </Target>
+</Project>

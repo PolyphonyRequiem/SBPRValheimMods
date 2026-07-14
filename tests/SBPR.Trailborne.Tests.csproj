@@ -89,6 +89,9 @@
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/WispMotion.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/SeersStonePinDecision.cs" />
     <Compile Include="../src/SBPR.Trailborne/Features/SeersStone/PickableClustering.cs" />
+    <!-- Production Homestead assignment/seating domain logic is engine-free and link-compiled
+         into this net8 test project while the shipping mod consumes the same source under net48. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadPlacement.cs" />
   </ItemGroup>
 
 </Project>
