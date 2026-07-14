@@ -30,7 +30,7 @@
   |   PersonalAP:     1
   |   CumulativeAP:   1
   |   MirroredStoneAP:1
-  | 
+  |
   => AT-P0-RECOVERY-REPORT: PASS
 
 
