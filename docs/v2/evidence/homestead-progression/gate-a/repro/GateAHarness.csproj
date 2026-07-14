@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>GateAHarness</AssemblyName>
+    <RootNamespace>GateAHarness</RootNamespace>
+    <Deterministic>true</Deterministic>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Link-compile the SHIPPED T002 slice from its worktree — no copy, no fork. -->
+    <Compile Include="$(SrcRoot)/Domain/Identity/ProgressionIdentity.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Stone/MirroredStoneApStore.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Characters/CharacterProgressionStore.cs" />
+    <Compile Include="$(SrcRoot)/Application/Receipts/OperationReceiptStore.cs" />
+    <Compile Include="$(SrcRoot)/Application/Commands/ProgressionCommandPipeline.cs" />
+    <Compile Include="$(SrcRoot)/Adapters/Activities/FoundationalPlacementAdapter.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Recovery/ReceiptRecovery.cs" />
+  </ItemGroup>
+</Project>
