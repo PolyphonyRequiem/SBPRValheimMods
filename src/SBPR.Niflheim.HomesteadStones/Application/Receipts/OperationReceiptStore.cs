@@ -114,6 +114,16 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
             _journalPath = journalPath ?? throw new ArgumentNullException(nameof(journalPath));
             _stoneStore = stoneStore ?? throw new ArgumentNullException(nameof(stoneStore));
             _characterStore = characterStore ?? throw new ArgumentNullException(nameof(characterStore));
+
+            // Rehydrate the server-owned Stone/character projections from durable journal truth at
+            // construction (== server boot / fresh process). The injected sinks come up EMPTY; without
+            // this replay a fresh process reports every balance and every optimistic-concurrency
+            // revision as 0, so two separate processes could each commit a distinct operation against
+            // expected revision 0 and the authoritative read state could report Mirrored AP 0 while the
+            // durable journal truth is non-zero (the verified Gate-A defects). The journal remains the
+            // single authority — this reconciles the projections onto it, it does not create a second
+            // source of truth. Idempotent (set-to-total per operationId), so re-running it is a no-op.
+            RehydrateFromJournal();
         }
 
         public string JournalPath => _journalPath;
@@ -180,7 +190,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
 
             if (phase < ReceiptBoundary.IntentJournaled)
             {
-                Append(Record(opId, ReceiptBoundary.IntentJournaled, bindingDigest, payloadDigest, 0, 0, 0));
+                Append(Record(opId, ReceiptBoundary.IntentJournaled, bindingDigest, payloadDigest, 0, 0, 0, stoneId, principal));
                 crash.AfterBoundary(ReceiptBoundary.IntentJournaled);
                 phase = ReceiptBoundary.IntentJournaled;
             }
@@ -188,20 +198,20 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
             {
                 // Mirrored Stone AP: +1. Journaled BEFORE the aggregate write, so the Stone write is a
                 // replayable projection of the durable journal, not the transaction itself.
-                Append(Record(opId, ReceiptBoundary.StoneApplied, bindingDigest, payloadDigest, 0, 0, 1));
+                Append(Record(opId, ReceiptBoundary.StoneApplied, bindingDigest, payloadDigest, 0, 0, 1, stoneId, principal));
                 crash.AfterBoundary(ReceiptBoundary.StoneApplied);
                 phase = ReceiptBoundary.StoneApplied;
             }
             if (phase < ReceiptBoundary.CharacterApplied)
             {
                 // Personal +1, Cumulative +1 (character aggregate).
-                Append(Record(opId, ReceiptBoundary.CharacterApplied, bindingDigest, payloadDigest, 1, 1, 0));
+                Append(Record(opId, ReceiptBoundary.CharacterApplied, bindingDigest, payloadDigest, 1, 1, 0, stoneId, principal));
                 crash.AfterBoundary(ReceiptBoundary.CharacterApplied);
                 phase = ReceiptBoundary.CharacterApplied;
             }
             if (phase < ReceiptBoundary.Committed)
             {
-                Append(Record(opId, ReceiptBoundary.Committed, bindingDigest, payloadDigest, 0, 0, 0));
+                Append(Record(opId, ReceiptBoundary.Committed, bindingDigest, payloadDigest, 0, 0, 0, stoneId, principal));
                 crash.AfterBoundary(ReceiptBoundary.Committed);
             }
 
@@ -371,25 +381,41 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
             public string BindingDigest = string.Empty;
             public string PayloadDigest = string.Empty;
             public int DPersonal, DCumulative, DMirrored;
+
+            // Spec-mandated receipt identity fields (data-model.md OperationReceiptStore: "authenticated
+            // AccountId, acting CharacterId, StoneId"). Recorded so a fresh process can rebuild the
+            // keyed Stone/character projections from journal truth. Empty on legacy records written
+            // before this field group existed (rehydration skips those keys — see RehydrateFromJournal).
+            public string StoneId = string.Empty;
+            public string AccountId = string.Empty;
+            public string CharacterId = string.Empty;
         }
 
         private static string Record(string opId, ReceiptBoundary phase, string binding, string payloadDigest,
-            int dPersonal, int dCumulative, int dMirrored)
+            int dPersonal, int dCumulative, int dMirrored, StoneId stoneId, AuthoritativePrincipal principal)
         {
             return string.Join("|", new[]
             {
                 "REC", opId, ((int)phase).ToString(CultureInfo.InvariantCulture), binding, payloadDigest,
                 dPersonal.ToString(CultureInfo.InvariantCulture),
                 dCumulative.ToString(CultureInfo.InvariantCulture),
-                dMirrored.ToString(CultureInfo.InvariantCulture)
+                dMirrored.ToString(CultureInfo.InvariantCulture),
+                // Base64-encode identity values so an embedded '|' (StoneId is "world|zoneX|zoneZ")
+                // cannot break the pipe-delimited framing.
+                Encode(stoneId.Value),
+                Encode(principal.Account.Value),
+                Encode(principal.Character.Value)
             });
         }
 
         private static RecordData? ParseRecord(string line)
         {
             var parts = line.Split('|');
-            if (parts.Length != 8 || parts[0] != "REC") return null;
-            return new RecordData
+            // 8 fields = legacy pre-identity record; 11 fields = identity-bearing record. Both parse;
+            // legacy records simply carry empty identity (rehydration cannot key them and skips them).
+            if (parts[0] != "REC") return null;
+            if (parts.Length != 8 && parts.Length != 11) return null;
+            var rec = new RecordData
             {
                 OperationId = parts[1],
                 Phase = (ReceiptBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
@@ -399,6 +425,73 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
                 DCumulative = int.Parse(parts[6], CultureInfo.InvariantCulture),
                 DMirrored = int.Parse(parts[7], CultureInfo.InvariantCulture)
             };
+            if (parts.Length == 11)
+            {
+                rec.StoneId = Decode(parts[8]);
+                rec.AccountId = Decode(parts[9]);
+                rec.CharacterId = Decode(parts[10]);
+            }
+            return rec;
+        }
+
+        private static string Encode(string s) =>
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(s ?? string.Empty));
+
+        private static string Decode(string s) =>
+            Encoding.UTF8.GetString(Convert.FromBase64String(s));
+
+        /// <summary>Rebuild the server-owned Stone and character projections from durable journal truth.
+        /// Called once at construction (server boot). Only COMMITTED operations (terminal record durable)
+        /// contribute — a partial, non-terminal op is quarantined, not projected, so it never inflates a
+        /// balance or the optimistic-concurrency revision. Idempotent set-to-total keying means this
+        /// converges to exactly one credit per operation regardless of how many boundary records exist.</summary>
+        private void RehydrateFromJournal()
+        {
+            // Group durable records by operationId, keeping the identity + per-boundary deltas, and note
+            // which operations reached the terminal (Committed) boundary.
+            var byOp = new Dictionary<string, OpAccumulator>(StringComparer.Ordinal);
+            foreach (var line in ReadDurable(out _))
+            {
+                var rec = ParseRecord(line);
+                if (rec == null) continue;
+                if (!byOp.TryGetValue(rec.OperationId, out var acc))
+                {
+                    acc = new OpAccumulator();
+                    byOp[rec.OperationId] = acc;
+                }
+                if (acc.SeenPhases.Add(rec.Phase))
+                {
+                    acc.Personal += rec.DPersonal;
+                    acc.Cumulative += rec.DCumulative;
+                    acc.Mirrored += rec.DMirrored;
+                }
+                if (rec.Phase == ReceiptBoundary.Committed) acc.HasTerminal = true;
+                // Identity is stamped on every boundary record; keep the last non-empty seen.
+                if (!string.IsNullOrEmpty(rec.StoneId)) acc.StoneId = rec.StoneId;
+                if (!string.IsNullOrEmpty(rec.AccountId)) acc.AccountId = rec.AccountId;
+                if (!string.IsNullOrEmpty(rec.CharacterId)) acc.CharacterId = rec.CharacterId;
+            }
+
+            foreach (var kv in byOp)
+            {
+                var acc = kv.Value;
+                if (!acc.HasTerminal) continue;                 // only committed ops project
+                if (string.IsNullOrEmpty(acc.StoneId)) continue; // legacy record without identity: cannot key
+                var stone = new StoneId(acc.StoneId);
+                _stoneStore.ApplyMirroredApProjection(stone, kv.Key, acc.Mirrored);
+                _characterStore.ApplyApProjection(new AccountId(acc.AccountId), new CharacterId(acc.CharacterId),
+                    stone, kv.Key, acc.Personal, acc.Cumulative);
+            }
+        }
+
+        private sealed class OpAccumulator
+        {
+            public readonly HashSet<ReceiptBoundary> SeenPhases = new HashSet<ReceiptBoundary>();
+            public int Personal, Cumulative, Mirrored;
+            public bool HasTerminal;
+            public string StoneId = string.Empty;
+            public string AccountId = string.Empty;
+            public string CharacterId = string.Empty;
         }
 
         public static string Digest(string s)

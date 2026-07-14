@@ -211,6 +211,18 @@ other mechanism only after Gate A proves recovery behavior.
 - Same operation ID with any conflicting binding rejects as `OperationConflict`.
 - A result is acknowledged only when replay after process death can converge to that exact terminal result.
 
+### Boot rehydration invariant
+
+- The store persists the receipt identity fields (authenticated `AccountId`, acting `CharacterId`, `StoneId`)
+  on every durable boundary record, not only the payload/binding digests.
+- At construction (server boot / fresh process) the store replays the durable journal and rebuilds every
+  Stone and character projection balance AND its optimistic-concurrency revision from journal truth, before
+  any new operation is admitted. Only committed (terminal-bearing) operations project; a partial, non-terminal
+  operation is quarantined, never counted, so it cannot inflate a balance or a revision.
+- Consequently two separate processes cannot both commit distinct operations against expected revision 0, and
+  the authoritative read state never reports Mirrored AP 0 while durable journal truth is non-zero. The journal
+  remains the single authority; the projections are reconciled onto it and never become a second source of truth.
+
 ## DerivedActivationView
 
 A read-only projection derived from current aggregate snapshots and registry definitions.
