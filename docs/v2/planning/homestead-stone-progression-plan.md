@@ -10,8 +10,9 @@ purpose: Plan the dependency-ordered technical proof after specification approva
 **Date:** 2026-07-13
 **Spec:** [`homestead-stone-progression-spec.md`](homestead-stone-progression-spec.md)
 
-> **Stop gate:** Daniel approved this package after cluster review and independent verification. This pass still
-> stops at `analyze`: no implementation tasks or runtime changes may begin without separate authorization.
+> **Stop gate:** Daniel approved this package after cluster review and independent verification, then separately
+> authorized `tasks` authoring. The resulting decomposition is proposed beside this plan for review. No runtime
+> implementation may begin without separate authorization.
 
 ## Summary
 
@@ -73,7 +74,7 @@ docs/v2/planning/
 ├── homestead-stone-progression-data-model.md    # aggregates, identities, invariants, transitions
 ├── homestead-stone-progression-contracts.md     # commands, receipts, reads, rejection vocabulary
 ├── homestead-stone-progression-plan.md          # this dependency/tracer plan
-└── homestead-stone-progression-tasks.md         # NOT CREATED; separate task-authoring authorization required
+└── homestead-stone-progression-tasks.md         # proposed dependency map; not execution authorization
 ```
 
 The existing [`homestead-stone-v1-impl-spec.md`](homestead-stone-v1-impl-spec.md) remains the
@@ -339,7 +340,7 @@ Every tracer's code PR also updates:
 Implementation must not silently promote provisional values into compatibility guarantees. Final lock waits for
 the pre-release playtest.
 
-## Analyze gate passed; tasks separately gated
+## Analyze passed; tasks proposed; implementation separately gated
 
 A separate verifier must check:
 
@@ -352,9 +353,10 @@ A separate verifier must check:
 6. no raw Spec Kit layout/CLI artifacts were introduced.
 
 The first independent verifier found six stale consequences; all were corrected, and a second fresh-context
-review returned PASS. Daniel then approved the corrected package. No `homestead-stone-progression-tasks.md` or
-Kanban implementation card was created by this pass. Task decomposition and implementation each require a
-separate explicit authorization; this accepted plan authorizes neither by itself.
+review returned PASS. Daniel then approved the corrected package and later separately authorized task authoring.
+The resulting decomposition is proposed in
+[`homestead-stone-progression-tasks.md`](homestead-stone-progression-tasks.md). No Kanban card or runtime
+implementation was created. The task list is an execution map, not implementation authorization.
 
 ## Complexity tracking
 
