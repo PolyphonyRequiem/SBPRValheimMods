@@ -37,5 +37,13 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
         /// <summary>Reserved WorldZones RegionKey metadata. It does not gate/refuse MVP assignment.</summary>
         internal const string RegionKeyKey = ZdoKeyPrefix + "region_key";
+
+        /// <summary>
+        /// Mirrored Stone AP durable projection (T002, Gate A). This ZDO int is a receipt-derived
+        /// PROJECTION of the durable operation-receipt journal — not a second source of truth. It
+        /// equals the sum of accepted mirrored deltas after receipt reconciliation and is written
+        /// owner-only; it is never debited in this proof (data-model.md StoneProgression invariants).
+        /// </summary>
+        internal const string MirroredStoneApKey = ZdoKeyPrefix + "mirrored_stone_ap";
     }
 }
