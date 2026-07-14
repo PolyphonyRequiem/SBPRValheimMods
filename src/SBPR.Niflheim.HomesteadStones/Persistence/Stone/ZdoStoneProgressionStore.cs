@@ -24,6 +24,16 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Stone
         // resident in the local scene, and so replay stays idempotent per operation.
         private readonly InMemoryMirroredStoneApStore _cache = new InMemoryMirroredStoneApStore();
 
+        // The durable journal is the single authority. This sink is a projection of it: at construction
+        // (server boot) the OperationReceiptStore replays committed operations back through
+        // ApplyMirroredApProjection, which warms _cache AND re-stamps the world Stone ZDO. That replay is
+        // the warm-up path — this store therefore never reports a stale in-memory 0 while the durable
+        // journal truth is non-zero, provided it is the SAME instance handed to the receipt store's
+        // constructor (production wiring: construct this, pass it to `new OperationReceiptStore(...)`,
+        // whose ctor rehydrates it before the first command). Do NOT read the ZDO as a second authority
+        // to warm the cache — that would create a competing source of truth; the journal replay is the
+        // one warm-up.
+
         public void ApplyMirroredApProjection(StoneId stoneId, string operationId, int mirroredApTotal)
         {
             _cache.ApplyMirroredApProjection(stoneId, operationId, mirroredApTotal);
