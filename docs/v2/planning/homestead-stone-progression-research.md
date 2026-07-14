@@ -219,6 +219,6 @@ The package's **specification approval gate** required:
 - Gate A is represented as a blocking first tracer rather than hidden setup work;
 - no implementation file changed by this specification pass.
 
-The approval gate is satisfied. Daniel separately authorized task authoring; the resulting decomposition is
-proposed for review in [`homestead-stone-progression-tasks.md`](homestead-stone-progression-tasks.md). Runtime
-implementation remains separately unauthorized.
+The approval gate is satisfied. Daniel separately authorized task authoring and accepted the resulting
+[`homestead-stone-progression-tasks.md`](homestead-stone-progression-tasks.md) by merging PR #297 after independent
+review passed with no blockers. Runtime implementation remains separately unauthorized.

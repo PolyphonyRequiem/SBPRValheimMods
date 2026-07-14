@@ -8,7 +8,7 @@ purpose: Normative product and acceptance contract for the confirmed Niflheim Ho
 
 **Feature branch:** `feat/niflheim-homestead-stone`
 **Created:** 2026-07-13
-**Status:** Accepted by Daniel after cluster review and independent verification; the separately authorized task decomposition is proposed for review, while implementation still requires separate authorization
+**Status:** Accepted by Daniel after cluster review and independent verification; the separately authorized task decomposition was accepted via PR #297, while implementation still requires separate authorization
 **Input:** Confirmed Niflheim Stone-progression Wayfinder handoff, especially ticket 0011's corrected representative-slice contract and ticket 0012's ratified framework handoff.
 
 > **Maturity:** This is a buildable technical-proof contract and playtest hypothesis. It is not final
