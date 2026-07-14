@@ -104,6 +104,15 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/ProgressionCommandPipeline.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Activities/FoundationalPlacementAdapter.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Recovery/ReceiptRecovery.cs" />
+    <!-- Homestead progression Tracer 1 (T004): versioned aggregate envelopes, derived activation
+         view, and the Stone progression read model. Engine-free (snapshot codec + value objects),
+         so link-compiled here exactly like the Gate-A slice above. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Snapshots/AggregateSnapshot.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneProgressionAggregate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/CharacterProgressionAggregate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Identity/AccountStoneAuthorityIndex.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Activation/DerivedActivationView.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Queries/GetStoneProgressionView.cs" />
   </ItemGroup>
 
 </Project>
