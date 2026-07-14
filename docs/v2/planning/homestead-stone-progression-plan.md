@@ -11,8 +11,8 @@ purpose: Plan the dependency-ordered technical proof after specification approva
 **Spec:** [`homestead-stone-progression-spec.md`](homestead-stone-progression-spec.md)
 
 > **Stop gate:** Daniel approved this package after cluster review and independent verification, then separately
-> authorized `tasks` authoring. The resulting decomposition is proposed beside this plan for review. No runtime
-> implementation may begin without separate authorization.
+> authorized `tasks` authoring and accepted the audited decomposition via PR #297. No runtime implementation may
+> begin without separate authorization.
 
 ## Summary
 
@@ -74,7 +74,7 @@ docs/v2/planning/
 ├── homestead-stone-progression-data-model.md    # aggregates, identities, invariants, transitions
 ├── homestead-stone-progression-contracts.md     # commands, receipts, reads, rejection vocabulary
 ├── homestead-stone-progression-plan.md          # this dependency/tracer plan
-└── homestead-stone-progression-tasks.md         # proposed dependency map; not execution authorization
+└── homestead-stone-progression-tasks.md         # accepted dependency map; not execution authorization
 ```
 
 The existing [`homestead-stone-v1-impl-spec.md`](homestead-stone-v1-impl-spec.md) remains the
@@ -340,7 +340,7 @@ Every tracer's code PR also updates:
 Implementation must not silently promote provisional values into compatibility guarantees. Final lock waits for
 the pre-release playtest.
 
-## Analyze passed; tasks proposed; implementation separately gated
+## Analyze and tasks passed; implementation separately gated
 
 A separate verifier must check:
 
@@ -354,9 +354,9 @@ A separate verifier must check:
 
 The first independent verifier found six stale consequences; all were corrected, and a second fresh-context
 review returned PASS. Daniel then approved the corrected package and later separately authorized task authoring.
-The resulting decomposition is proposed in
-[`homestead-stone-progression-tasks.md`](homestead-stone-progression-tasks.md). No Kanban card or runtime
-implementation was created. The task list is an execution map, not implementation authorization.
+The resulting [`homestead-stone-progression-tasks.md`](homestead-stone-progression-tasks.md) passed a fresh-context
+audit with no blockers and was accepted by merging PR #297. No Kanban card or runtime implementation was created.
+The task list is an execution map, not implementation authorization.
 
 ## Complexity tracking
 

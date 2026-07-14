@@ -1,6 +1,6 @@
 ---
 title: "Homestead Stone progression S2 — implementation task decomposition"
-status: proposed
+status: accepted
 purpose: Dependency-ordered, test-first implementation tasks for the accepted Homestead progression technical proof; this artifact does not authorize implementation.
 ---
 
@@ -13,9 +13,9 @@ purpose: Dependency-ordered, test-first implementation tasks for the accepted Ho
 [`homestead-stone-progression-contracts.md`](homestead-stone-progression-contracts.md), and
 [`homestead-stone-progression-plan.md`](homestead-stone-progression-plan.md).
 
-**Stage:** Daniel separately authorized **tasks** authoring after accepting the S2 package. This proposed
-decomposition is published for review; implementation remains a separate gate. The checklist is a map of future
-work, not permission to execute it.
+**Stage:** Daniel separately authorized **tasks** authoring after accepting the S2 package, then accepted the
+decomposition by merging PR #297 after its fresh-context audit passed with no blockers. Implementation remains a
+separate gate. The checklist is a map of future work, not permission to execute it.
 
 **Organization:** Tasks follow the plan's blocking Gate A and Tracers 1–9. Each implementation task is a
 vertical slice: write a failing test, cross the domain/application/persistence-or-adapter seam needed for one
