@@ -113,6 +113,12 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Identity/AccountStoneAuthorityIndex.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Activation/DerivedActivationView.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Queries/GetStoneProgressionView.cs" />
+    <!-- Homestead progression Tracer 1 (T005): immutable current-build content registry, roster/
+         mismatch validator, and disposable-fixture quarantine/reset. Engine-free (value objects +
+         snapshot codec + the pure DerivedActivationView), link-compiled like the rest of Tracer 1. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/HomesteadProgressionCatalog.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/ContentRegistryValidator.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Recovery/ProgressionStateRepair.cs" />
   </ItemGroup>
 
 </Project>

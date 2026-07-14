@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using SBPR.Niflheim.HomesteadStones.Application.Queries;
 using SBPR.Niflheim.HomesteadStones.Domain.Activation;
 using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
+using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
 using SBPR.Niflheim.HomesteadStones.Domain.Snapshots;
 using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
@@ -302,6 +303,144 @@ namespace SBPR.Trailborne.Tests
             Assert.Null(t.GetMethod("Serialize"));
             Assert.Null(t.GetMethod("Persist"));
             Assert.Null(t.GetMethod("Save"));
+        }
+    }
+
+    // ========================================================================
+    //  Homestead progression — CONTENT REGISTRY roster + mismatch tests
+    //  (T005, Tracer 1). Exercises the SHIPPED, engine-free immutable catalog
+    //  and its validator (link-compiled from ../src).
+    //
+    //  Named acceptance closed here:
+    //    AT-CONTENT-MISMATCH-REJECT  stale/unknown same-build references reject
+    //                                without misbinding to a "closest" definition.
+    //    (roster arithmetic invariant: 20 authored = 13 executable + 7 unavailable,
+    //     12 executable Level-1 + 1 executable Level-2 (Swift Preparation).)
+    // ========================================================================
+    public sealed class NiflheimContentRegistryTests
+    {
+        private static readonly HomesteadProgressionCatalog Catalog = new HomesteadProgressionCatalog();
+        private static readonly ContentRegistryValidator Validator = new ContentRegistryValidator(Catalog);
+        private static int RegVer => Catalog.ContentRegistryVersion;
+
+        [Fact]
+        public void Roster_Asserts_20_Authored_13_Executable_7_Unavailable()
+        {
+            var r = Validator.CountRoster();
+            Assert.Equal(20, r.Authored);
+            Assert.Equal(13, r.Executable);
+            Assert.Equal(7, r.Unavailable);
+            Assert.Equal(20, r.Executable + r.Unavailable);
+        }
+
+        [Fact]
+        public void Roster_Executable_Is_12_Level1_Plus_1_Level2_SwiftPreparation()
+        {
+            var r = Validator.CountRoster();
+            Assert.Equal(12, r.ExecutableLevel1);
+            Assert.Equal(1, r.ExecutableLevel2);
+
+            // The sole executable Level-2 node is Swift Preparation.
+            NodeDefinition? soleL2 = null;
+            foreach (var n in Catalog.Nodes)
+                if (n.IsExecutable && n.TreeLevel == 2) { Assert.Null(soleL2); soleL2 = n; }
+            Assert.NotNull(soleL2);
+            Assert.Equal("SwiftPreparation", soleL2!.Node.Key);
+        }
+
+        [Fact]
+        public void Roster_Invariant_Holds_And_NodeKeys_Are_Unique()
+        {
+            // Drift guard: throws if the authored roster ever diverges from the spec arithmetic.
+            Validator.AssertRosterInvariant();
+
+            var seen = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (var n in Catalog.Nodes)
+                Assert.True(seen.Add(n.Node.Key), "duplicate node key: " + n.Node.Key);
+        }
+
+        [Fact]
+        public void Roster_Every_Node_Has_Exact_Stable_Identity_And_Status()
+        {
+            // Exact identities/status per the fixed first-build roster (data-model.md). Spot the
+            // status boundary: exactly the seven authored "unavailable" nodes.
+            var unavailable = new HashSet<string>(System.StringComparer.Ordinal)
+            {
+                "WatchfulCook", "MeasuredCuts", "ArtisansCounter",
+                "SteadyAim", "BowyersLore", "ShrugItOffI", "HeavyHands",
+            };
+            int unavailableSeen = 0;
+            foreach (var n in Catalog.Nodes)
+            {
+                if (unavailable.Contains(n.Node.Key))
+                {
+                    Assert.Equal(NodeFirstBuildStatus.Unavailable, n.Status);
+                    Assert.Equal(NodeOwnership.NoneWhileUnavailable, n.Ownership);
+                    unavailableSeen++;
+                }
+                else
+                {
+                    Assert.Equal(NodeFirstBuildStatus.Executable, n.Status);
+                    Assert.NotEqual(NodeOwnership.NoneWhileUnavailable, n.Ownership);
+                }
+            }
+            Assert.Equal(7, unavailableSeen);
+        }
+
+        // ── AT-CONTENT-MISMATCH-REJECT ────────────────────────────────────────
+
+        [Fact]
+        public void AT_CONTENT_MISMATCH_REJECT_KnownReference_Validates()
+        {
+            var res = Validator.ValidateNodeReference(RegVer,
+                HomesteadProgressionCatalog.CookingTree, new VersionedId("FieldPrep", 1));
+            Assert.True(res.IsValid);
+            Assert.Equal("", res.RejectionCode);
+        }
+
+        [Fact]
+        public void AT_CONTENT_MISMATCH_REJECT_UnknownNodeKey_Rejects_NoMisbind()
+        {
+            var res = Validator.ValidateNodeReference(RegVer,
+                HomesteadProgressionCatalog.CookingTree, new VersionedId("GhostNode", 1));
+            Assert.False(res.IsValid);
+            Assert.Equal(ContentMismatchReason.UnknownNodeKey, res.Reason);
+            Assert.Equal("ContentVersionMismatch", res.RejectionCode);
+            // It must NOT resolve to any real node.
+            Assert.Null(Catalog.TryResolveNode(new VersionedId("GhostNode", 1)));
+        }
+
+        [Fact]
+        public void AT_CONTENT_MISMATCH_REJECT_StaleNodeVersion_Rejects_NoMisbind()
+        {
+            // FieldPrep exists at v1; a v2 claim is a version mismatch, never a rebind to v1.
+            var stale = new VersionedId("FieldPrep", 2);
+            var res = Validator.ValidateNodeReference(RegVer,
+                HomesteadProgressionCatalog.CookingTree, stale);
+            Assert.False(res.IsValid);
+            Assert.Equal(ContentMismatchReason.NodeVersionMismatch, res.Reason);
+            Assert.True(Catalog.HasNodeKey(stale));          // key known...
+            Assert.Null(Catalog.TryResolveNode(stale));       // ...but version does not resolve.
+        }
+
+        [Fact]
+        public void AT_CONTENT_MISMATCH_REJECT_WrongTree_Rejects()
+        {
+            // FieldPrep belongs to Cooking; claiming it under Warrior is a tree mismatch.
+            var res = Validator.ValidateNodeReference(RegVer,
+                HomesteadProgressionCatalog.WarriorTree, new VersionedId("FieldPrep", 1));
+            Assert.False(res.IsValid);
+            Assert.Equal(ContentMismatchReason.TreeMismatch, res.Reason);
+        }
+
+        [Fact]
+        public void AT_CONTENT_MISMATCH_REJECT_StaleRegistryVersion_Rejects()
+        {
+            var res = Validator.ValidateNodeReference(RegVer + 1,
+                HomesteadProgressionCatalog.CookingTree, new VersionedId("FieldPrep", 1));
+            Assert.False(res.IsValid);
+            Assert.Equal(ContentMismatchReason.RegistryVersionMismatch, res.Reason);
+            Assert.Equal("ContentVersionMismatch", res.RejectionCode);
         }
     }
 }

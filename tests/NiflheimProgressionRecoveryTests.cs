@@ -23,9 +23,15 @@
 //  suite.
 // ============================================================================
 
+using System.Collections.Generic;
 using System.IO;
 using SBPR.Niflheim.HomesteadStones.Application.Receipts;
+using SBPR.Niflheim.HomesteadStones.Domain.Activation;
+using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
+using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Domain.Snapshots;
+using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
 using SBPR.Niflheim.HomesteadStones.Persistence.Characters;
 using SBPR.Niflheim.HomesteadStones.Persistence.Recovery;
 using SBPR.Niflheim.HomesteadStones.Persistence.Stone;
@@ -168,6 +174,197 @@ namespace SBPR.Trailborne.Tests
             var recovery = new ReceiptRecovery(reopened);
             Assert.Equal(RecoveryStatus.Recoverable, recovery.Inspect("op-clean").Status);
             Assert.Equal(1, recovery.Inspect("op-clean").MirroredStoneAp);
+        }
+    }
+
+    // ========================================================================
+    //  Homestead progression — QUARANTINE + DISPOSABLE-FIXTURE RESET tests
+    //  (T005, Tracer 1). Exercises the SHIPPED, engine-free ProgressionStateRepair
+    //  against the versioned aggregates and the immutable current-build catalog.
+    //
+    //  Named acceptance closed here:
+    //    AT-INVARIANT-QUARANTINE   contradictory/unknown state is isolated with a
+    //                              reason and never silently repaired or guessed.
+    //    AT-UNRELEASED-DATA-RESET  an incompatible unreleased fixture is explicitly
+    //                              reset to a clean current-build baseline and the
+    //                              derived view is rebuilt.
+    // ========================================================================
+    public sealed class NiflheimProgressionRepairTests
+    {
+        private static readonly WorldId World = new WorldId("uid:repair");
+        private static readonly StoneId Stone = StoneId.FromHostZone(World, 5, 5);
+        private static readonly AccountId Account = new AccountId("acct-r");
+        private static readonly CharacterId Character = new CharacterId("char-r");
+        private static readonly HomesteadProgressionCatalog Catalog = new HomesteadProgressionCatalog();
+
+        private static StoneProgressionAggregate BuildStone(
+            int contentRegistryVersion = HomesteadProgressionCatalog.CurrentContentRegistryVersion,
+            int historical = 2, int active = 2, long mirroredAp = 0,
+            IReadOnlyList<NodeDevelopmentRecord>? nodes = null)
+        {
+            return new StoneProgressionAggregate(
+                Stone, revision: 3,
+                historicalStoneLevel: historical, activeStoneLevel: active,
+                foundationalTree: Catalog.FoundationalTree,
+                foundationalCatalog: Catalog.FoundationalCatalog,
+                contentRegistryVersion: contentRegistryVersion,
+                createdProvenance: "receipt:create", updatedProvenance: "receipt:update",
+                mirroredStoneAp: mirroredAp, lastAppliedReceiptId: "receipt:last",
+                nodeDevelopment: nodes);
+        }
+
+        private static CharacterProgressionAggregate BuildCharacter(
+            IReadOnlyList<NodePurchaseRecord>? purchases = null,
+            int personalAp = 3, int personalBp = 5)
+        {
+            var sr = new CharacterStoneRecord(Stone, personalAp, personalAp, personalBp,
+                purchases: purchases);
+            return new CharacterProgressionAggregate(Account, Character, "world/prod",
+                revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "receipt:c",
+                stoneRecords: new[] { sr });
+        }
+
+        private static AccountStoneAuthorityIndex BuildAuthority(
+            StoneId? stone = null, AccountId? account = null) =>
+            new AccountStoneAuthorityIndex(account ?? Account, stone ?? Stone, revision: 2,
+                activeCharacter: Character, activeKind: RelationshipKind.Bond,
+                activeRelationshipId: "rel", activationReceiptId: "receipt:act", releaseReceiptId: "");
+
+        // ── AT-INVARIANT-QUARANTINE ───────────────────────────────────────────
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_CleanState_ProducesNoNotices()
+        {
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(), BuildCharacter(), BuildAuthority());
+            Assert.True(report.IsClean);
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_BadStoneLevel_IsIsolatedWithReason()
+        {
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(historical: 2, active: 5), BuildCharacter(), BuildAuthority());
+            Assert.False(report.IsClean);
+            Assert.True(report.Has(QuarantineReason.StoneLevelInvariant));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_NegativeMirroredAp_IsIsolated()
+        {
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(mirroredAp: -1), BuildCharacter(), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.NegativeMirroredAp));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_UnknownDevelopedNode_IsIsolated_NotGuessed()
+        {
+            var nodes = new[]
+            {
+                new NodeDevelopmentRecord(new VersionedId("GhostNode", 1), 5, 10, true, false, "op-x"),
+            };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(nodes: nodes), BuildCharacter(), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.UnknownNodeDevelopment));
+            // The offending record is reported with its stable key, not silently dropped or rebound.
+            var notice = report.Notices;
+            Assert.Contains(notice, n => n.SubjectId == "GhostNode");
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_LocalNodePurchased_IsIsolated()
+        {
+            // SavorTheHearth is a Stone-cultivated Local Node; it must never be a personal purchase.
+            var purchases = new[]
+            {
+                new NodePurchaseRecord(HomesteadProgressionCatalog.CookingTree,
+                    new VersionedId("SavorTheHearth", 1), "PersonalAP", "LocalEffect",
+                    new VersionedId("Cooking-L1", 1), "op-buy"),
+            };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(), BuildCharacter(purchases), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.LocalNodePurchased));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_NegativeBalance_IsIsolated()
+        {
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(), BuildCharacter(personalBp: -3), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.NegativeCharacterBalance));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_AuthorityKeyedToAnotherStoneOrAccount_IsIsolated()
+        {
+            var repair = new ProgressionStateRepair(Catalog);
+            var wrongStone = repair.Scan(BuildStone(), BuildCharacter(),
+                BuildAuthority(stone: StoneId.FromHostZone(World, 9, 9)));
+            Assert.True(wrongStone.Has(QuarantineReason.AuthorityMismatch));
+
+            var wrongAccount = repair.Scan(BuildStone(), BuildCharacter(),
+                BuildAuthority(account: new AccountId("acct-other")));
+            Assert.True(wrongAccount.Has(QuarantineReason.AuthorityMismatch));
+        }
+
+        // ── AT-UNRELEASED-DATA-RESET ──────────────────────────────────────────
+
+        [Fact]
+        public void AT_UNRELEASED_DATA_RESET_IncompatibleFixture_IsExplicitlyResetAndViewRebuilt()
+        {
+            // A fixture stamped with an OLDER unreleased content-registry version carrying stale
+            // developed nodes. Reset discards the disposable selected/developed state, stamps the
+            // current build, and rebuilds the derived view.
+            var staleNodes = new[]
+            {
+                new NodeDevelopmentRecord(new VersionedId("LegacyNode", 1), 9, 9, true, true, "op-legacy"),
+            };
+            var stone = BuildStone(contentRegistryVersion: 0, mirroredAp: 42, nodes: staleNodes);
+            var character = BuildCharacter();
+            var authority = BuildAuthority();
+
+            var repair = new ProgressionStateRepair(Catalog);
+            var result = repair.ResetIncompatibleFixture(stone, character, authority, "reset:test");
+
+            Assert.True(result.WasReset);
+            Assert.Equal(0, result.ContentRegistryVersionBefore);
+            Assert.Equal(HomesteadProgressionCatalog.CurrentContentRegistryVersion, result.ContentRegistryVersionAfter);
+            Assert.Equal(HomesteadProgressionCatalog.CurrentContentRegistryVersion, result.Stone.ContentRegistryVersion);
+
+            // Disposable state was explicitly cleared, not migrated.
+            Assert.Empty(result.Stone.NodeDevelopment);
+            Assert.Empty(result.Stone.CommittedTrees);
+            Assert.Equal(0, result.Stone.MirroredStoneAp);
+            // Proof levels restored to the preconfigured 2/2 baseline.
+            Assert.Equal(2, result.Stone.HistoricalStoneLevel);
+            Assert.Equal(2, result.Stone.ActiveStoneLevel);
+            // The derived view is rebuilt from the clean baseline (no developed nodes -> no rows).
+            Assert.Empty(result.RebuiltView.Nodes);
+
+            // Reset is auditable and the state is now clean under the quarantine scan.
+            Assert.True(repair.Scan(result.Stone, character, authority).IsClean);
+        }
+
+        [Fact]
+        public void AT_UNRELEASED_DATA_RESET_CompatibleFixture_IsNotDiscarded()
+        {
+            var nodes = new[]
+            {
+                new NodeDevelopmentRecord(new VersionedId("FieldPrep", 1), 12, 12, true, true, "op-dev"),
+            };
+            var stone = BuildStone(nodes: nodes);
+            var character = BuildCharacter();
+            var authority = BuildAuthority();
+
+            var repair = new ProgressionStateRepair(Catalog);
+            var result = repair.ResetIncompatibleFixture(stone, character, authority, "reset:test");
+
+            // Current build == fixture version -> no reset; state preserved and view still rebuilt.
+            Assert.False(result.WasReset);
+            Assert.Same(stone, result.Stone);
+            Assert.Single(result.Stone.NodeDevelopment);
+            Assert.Single(result.RebuiltView.Nodes);
         }
     }
 }
