@@ -26,6 +26,12 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Characters
 
         int GetPersonalAp(AccountId account, CharacterId character, StoneId stoneId);
         int GetCumulativeAp(AccountId account, CharacterId character, StoneId stoneId);
+
+        /// <summary>Current character-at-Stone aggregate revision = count of distinct operations that
+        /// have credited this (account, character, Stone). Deterministic and recovery-stable
+        /// (re-derivable from the durable journal), so it is a valid optimistic-concurrency (CAS)
+        /// token for expectedCharacterRevision. Monotonically non-decreasing.</summary>
+        long GetCharacterRevision(AccountId account, CharacterId character, StoneId stoneId);
     }
 
     /// <summary>Engine-free in-memory reference sink used by the contract/recovery tests and as the
@@ -74,6 +80,14 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Characters
             int sum = 0;
             foreach (var d in ops.Values) sum += d.Cumulative;
             return sum;
+        }
+
+        public long GetCharacterRevision(AccountId account, CharacterId character, StoneId stoneId)
+        {
+            // Revision = number of distinct operations credited. Set-to-total keying means replay of
+            // the same operationId does not advance it, so the counter is recovery-stable.
+            if (!_byCharacterStone.TryGetValue(Key(account, character, stoneId), out var ops)) return 0;
+            return ops.Count;
         }
     }
 }

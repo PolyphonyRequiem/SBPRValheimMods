@@ -33,6 +33,8 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Stone
 
         public int GetMirroredStoneAp(StoneId stoneId) => _cache.GetMirroredStoneAp(stoneId);
 
+        public long GetStoneRevision(StoneId stoneId) => _cache.GetStoneRevision(stoneId);
+
         /// <summary>Write the current Mirrored AP total onto the world Stone ZDO owner-only. Best
         /// effort: if the ZDO is not resident (Stone unloaded) the authoritative cache still holds the
         /// value and a later reconciliation re-stamps it. Returns true when the ZDO was stamped.</summary>

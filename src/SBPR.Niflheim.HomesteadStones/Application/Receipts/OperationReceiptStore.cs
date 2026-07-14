@@ -40,14 +40,16 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
         Applied,
         Replayed,
         PrincipalRejected,
-        OperationConflict
+        OperationConflict,
+        StaleStoneRevision,
+        StaleCharacterRevision
     }
 
     /// <summary>The terminal result of a Foundational AP submission.</summary>
     public readonly struct ApReceiptResult
     {
         public ApReceiptResult(ReceiptOutcome outcome, string resultCode, int personalAp, int cumulativeAp,
-            int mirroredStoneAp, string receiptId)
+            int mirroredStoneAp, string receiptId, long stoneRevision = 0, long characterRevision = 0)
         {
             Outcome = outcome;
             ResultCode = resultCode;
@@ -55,6 +57,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
             CumulativeAp = cumulativeAp;
             MirroredStoneAp = mirroredStoneAp;
             ReceiptId = receiptId;
+            StoneRevision = stoneRevision;
+            CharacterRevision = characterRevision;
         }
 
         public ReceiptOutcome Outcome { get; }
@@ -63,6 +67,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
         public int CumulativeAp { get; }
         public int MirroredStoneAp { get; }
         public string ReceiptId { get; }
+
+        /// <summary>Stone aggregate revision committed by (or observed at) this operation. On a
+        /// stale-revision rejection this carries the current revision the caller must refetch.</summary>
+        public long StoneRevision { get; }
+
+        /// <summary>Character-at-Stone aggregate revision committed by (or observed at) this operation.</summary>
+        public long CharacterRevision { get; }
     }
 
     /// <summary>Re-derived aggregate projection for one operation, rebuilt from durable records only.</summary>
@@ -118,7 +129,9 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
             StoneId stoneId,
             AuthoritativePrincipal principal,
             string evidenceDigest,
-            ICrashInjector? crash = null)
+            ICrashInjector? crash = null,
+            long? expectedStoneRevision = null,
+            long? expectedCharacterRevision = null)
         {
             crash = crash ?? NoCrash.Instance;
             string opId = operationId.Value;
@@ -131,16 +144,34 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
             if (view.HasTerminal)
             {
                 // Idempotent replay. A conflicting binding/payload under a committed op is a conflict.
+                // NOTE: an expected-revision that no longer matches is NOT a stale conflict on replay —
+                // the operation already committed exactly once; we return the one recorded result so a
+                // retry/reconnect converges (contracts.md: replay returns the recorded result).
                 if (view.BindingDigest != bindingDigest || view.PayloadDigest != payloadDigest)
                     return Conflict(opId);
                 ApplyProjections(opId, stoneId, principal, view.Projection);
-                return Terminal(view.Projection, opId, ReceiptOutcome.Replayed);
+                return Terminal(view.Projection, opId, ReceiptOutcome.Replayed, stoneId, principal);
             }
             if (view.SawAnyRecord && view.BindingDigest != bindingDigest)
             {
                 // A partial (non-terminal) record exists under this operationId with a DIFFERENT
                 // binding -> ambiguous. Reject; never guess (data-model.md idempotency invariant).
                 return Conflict(opId);
+            }
+
+            // Optimistic-concurrency (CAS) gate. Validation completes BEFORE any journal write, so a
+            // stale-revision command changes nothing (contracts.md: failure changes nothing). Only a
+            // brand-new operation is gated; a resumed partial (same binding) has already passed CAS,
+            // so re-gating it against an advanced revision would wrongly strand a recoverable op.
+            if (!view.SawAnyRecord)
+            {
+                long currentStoneRev = _stoneStore.GetStoneRevision(stoneId);
+                if (expectedStoneRevision.HasValue && expectedStoneRevision.Value != currentStoneRev)
+                    return StaleStone(opId, currentStoneRev);
+
+                long currentCharRev = _characterStore.GetCharacterRevision(principal.Account, principal.Character, stoneId);
+                if (expectedCharacterRevision.HasValue && expectedCharacterRevision.Value != currentCharRev)
+                    return StaleCharacter(opId, currentCharRev);
             }
 
             // Drive forward from wherever the last crash left us. Each phase writes only the boundary
@@ -176,7 +207,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
 
             var final = InspectJournal(opId);
             ApplyProjections(opId, stoneId, principal, final.Projection);
-            return Terminal(final.Projection, opId, ReceiptOutcome.Applied);
+            return Terminal(final.Projection, opId, ReceiptOutcome.Applied, stoneId, principal);
         }
 
         /// <summary>Idempotently project a committed operation's re-derived balances into the
@@ -192,8 +223,23 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
         private static ApReceiptResult Conflict(string opId) =>
             new ApReceiptResult(ReceiptOutcome.OperationConflict, "OperationConflict", 0, 0, 0, string.Empty);
 
-        private static ApReceiptResult Terminal(ApProjection p, string operationId, ReceiptOutcome outcome) =>
-            new ApReceiptResult(outcome, "Applied", p.PersonalAp, p.CumulativeAp, p.MirroredStoneAp, Digest("receipt|" + operationId));
+        private static ApReceiptResult StaleStone(string opId, long currentStoneRevision) =>
+            new ApReceiptResult(ReceiptOutcome.StaleStoneRevision, "StaleStoneRevision", 0, 0, 0, string.Empty,
+                stoneRevision: currentStoneRevision);
+
+        private static ApReceiptResult StaleCharacter(string opId, long currentCharacterRevision) =>
+            new ApReceiptResult(ReceiptOutcome.StaleCharacterRevision, "StaleCharacterRevision", 0, 0, 0, string.Empty,
+                characterRevision: currentCharacterRevision);
+
+        /// <summary>Build the terminal result, stamping the committed aggregate revisions read back
+        /// from the stores AFTER the idempotent projections were applied (so a replay reports the same
+        /// revisions the original commit produced).</summary>
+        private ApReceiptResult Terminal(ApProjection p, string operationId, ReceiptOutcome outcome,
+            StoneId stoneId, AuthoritativePrincipal principal) =>
+            new ApReceiptResult(outcome, "Applied", p.PersonalAp, p.CumulativeAp, p.MirroredStoneAp,
+                Digest("receipt|" + operationId),
+                _stoneStore.GetStoneRevision(stoneId),
+                _characterStore.GetCharacterRevision(principal.Account, principal.Character, stoneId));
 
         // ---- Journal inspection / recovery ----
 

@@ -85,7 +85,9 @@ namespace SBPR.Niflheim.HomesteadStones.Adapters.Activities
         public PlacementAdmissionResult Admit(
             FoundationalPlacementEvidence evidence,
             AuthenticatedConnection connection,
-            ClaimedPrincipal claim)
+            ClaimedPrincipal claim,
+            long? expectedStoneRevision = null,
+            long? expectedCharacterRevision = null)
         {
             if (!evidence.PlacementSucceeded)
                 return Rejected(PlacementAdmission.PlacementFailed);
@@ -99,7 +101,9 @@ namespace SBPR.Niflheim.HomesteadStones.Adapters.Activities
                 evidence.StoneId,
                 connection,
                 claim,
-                BuildEvidenceDigest(evidence));
+                BuildEvidenceDigest(evidence),
+                expectedStoneRevision,
+                expectedCharacterRevision);
             return new PlacementAdmissionResult(PlacementAdmission.Admitted, command);
         }
 

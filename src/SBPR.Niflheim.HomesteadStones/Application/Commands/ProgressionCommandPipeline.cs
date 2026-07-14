@@ -35,13 +35,17 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             StoneId stoneId,
             AuthenticatedConnection connection,
             ClaimedPrincipal claim,
-            string evidenceDigest)
+            string evidenceDigest,
+            long? expectedStoneRevision = null,
+            long? expectedCharacterRevision = null)
         {
             OperationId = operationId;
             StoneId = stoneId;
             Connection = connection;
             Claim = claim;
             EvidenceDigest = evidenceDigest;
+            ExpectedStoneRevision = expectedStoneRevision;
+            ExpectedCharacterRevision = expectedCharacterRevision;
         }
 
         public OperationId OperationId { get; }
@@ -49,6 +53,17 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         public AuthenticatedConnection Connection { get; }
         public ClaimedPrincipal Claim { get; }
         public string EvidenceDigest { get; }
+
+        /// <summary>Optimistic-concurrency token: the Stone aggregate revision the caller observed.
+        /// The handler commits only if it still matches current, else rejects StaleStoneRevision with
+        /// no mutation (contracts.md common envelope: expectedStoneRevision required for Stone
+        /// mutations). Null means the caller supplied no expectation (compare-any) — the transport
+        /// layer supplies it for real client commands.</summary>
+        public long? ExpectedStoneRevision { get; }
+
+        /// <summary>Optimistic-concurrency token for the character-at-Stone aggregate. Rejects
+        /// StaleCharacterRevision on mismatch with no mutation.</summary>
+        public long? ExpectedCharacterRevision { get; }
     }
 
     public enum CommandOutcome
@@ -63,7 +78,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
     public readonly struct FoundationalPlacementResult
     {
         public FoundationalPlacementResult(CommandOutcome outcome, string resultCode,
-            int personalApDelta, int cumulativeApDelta, int mirroredStoneApDelta, string receiptId)
+            int personalApDelta, int cumulativeApDelta, int mirroredStoneApDelta, string receiptId,
+            long stoneRevision = 0, long characterRevision = 0)
         {
             Outcome = outcome;
             ResultCode = resultCode;
@@ -71,6 +87,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             CumulativeApDelta = cumulativeApDelta;
             MirroredStoneApDelta = mirroredStoneApDelta;
             ReceiptId = receiptId;
+            StoneRevision = stoneRevision;
+            CharacterRevision = characterRevision;
         }
 
         public CommandOutcome Outcome { get; }
@@ -79,6 +97,14 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         public int CumulativeApDelta { get; }
         public int MirroredStoneApDelta { get; }
         public string ReceiptId { get; }
+
+        /// <summary>Stone aggregate revision after this operation (contracts.md result.stoneRevision).
+        /// On a stale-revision rejection this carries the current revision the caller must refetch.</summary>
+        public long StoneRevision { get; }
+
+        /// <summary>Character-at-Stone aggregate revision after this operation
+        /// (contracts.md result.characterRevision).</summary>
+        public long CharacterRevision { get; }
     }
 
     public sealed class ProgressionCommandPipeline
@@ -111,17 +137,27 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 return Rejected("RelationshipRequired");
 
             // 5-8. Reserve/find operation result, commit/journal deltas recoverably, acknowledge.
+            // Revisioned command: the caller's expected Stone/character revisions are validated (CAS)
+            // before any durable write, so a stale command from a losing concurrent client changes
+            // nothing (contracts.md common envelope + StaleStoneRevision/StaleCharacterRevision).
             var receipt = _receipts.SubmitFoundationalAp(
-                command.OperationId, command.StoneId, principal, command.EvidenceDigest, crash);
+                command.OperationId, command.StoneId, principal, command.EvidenceDigest, crash,
+                command.ExpectedStoneRevision, command.ExpectedCharacterRevision);
 
             switch (receipt.Outcome)
             {
                 case ReceiptOutcome.Applied:
                     return new FoundationalPlacementResult(CommandOutcome.Applied, "Applied",
-                        receipt.PersonalAp, receipt.CumulativeAp, receipt.MirroredStoneAp, receipt.ReceiptId);
+                        receipt.PersonalAp, receipt.CumulativeAp, receipt.MirroredStoneAp, receipt.ReceiptId,
+                        receipt.StoneRevision, receipt.CharacterRevision);
                 case ReceiptOutcome.Replayed:
                     return new FoundationalPlacementResult(CommandOutcome.Replayed, "Replayed",
-                        receipt.PersonalAp, receipt.CumulativeAp, receipt.MirroredStoneAp, receipt.ReceiptId);
+                        receipt.PersonalAp, receipt.CumulativeAp, receipt.MirroredStoneAp, receipt.ReceiptId,
+                        receipt.StoneRevision, receipt.CharacterRevision);
+                case ReceiptOutcome.StaleStoneRevision:
+                    return RejectedWithRevisions("StaleStoneRevision", receipt.StoneRevision, receipt.CharacterRevision);
+                case ReceiptOutcome.StaleCharacterRevision:
+                    return RejectedWithRevisions("StaleCharacterRevision", receipt.StoneRevision, receipt.CharacterRevision);
                 default:
                     return Rejected("OperationConflict");
             }
@@ -129,6 +165,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 
         private static FoundationalPlacementResult Rejected(string code) =>
             new FoundationalPlacementResult(CommandOutcome.Rejected, code, 0, 0, 0, string.Empty);
+
+        private static FoundationalPlacementResult RejectedWithRevisions(string code, long stoneRevision, long characterRevision) =>
+            new FoundationalPlacementResult(CommandOutcome.Rejected, code, 0, 0, 0, string.Empty,
+                stoneRevision, characterRevision);
     }
 
     /// <summary>Explicit preconfigured-test authorizer: an allow-list of (account, Stone) pairs. This

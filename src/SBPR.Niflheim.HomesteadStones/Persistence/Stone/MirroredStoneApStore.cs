@@ -26,6 +26,12 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Stone
 
         /// <summary>Current Mirrored Stone AP total = sum of distinct accepted per-operation deltas.</summary>
         int GetMirroredStoneAp(StoneId stoneId);
+
+        /// <summary>Current Stone aggregate revision = count of distinct operations that have applied
+        /// a mirrored projection to this Stone. Deterministic and recovery-stable (re-derivable from
+        /// the durable journal), so it is a valid optimistic-concurrency (CAS) token. Accumulate-only:
+        /// this is a monotonically non-decreasing counter, never a debit.</summary>
+        long GetStoneRevision(StoneId stoneId);
     }
 
     /// <summary>Engine-free in-memory reference sink used by the contract/recovery tests and as the
@@ -55,6 +61,14 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Stone
             int sum = 0;
             foreach (var v in ops.Values) sum += v;
             return sum;
+        }
+
+        public long GetStoneRevision(StoneId stoneId)
+        {
+            // Revision = number of distinct operations applied. Set-to-total keying means replay of
+            // the same operationId does not advance it, so the counter is recovery-stable.
+            if (!_byStone.TryGetValue(stoneId.Value, out var ops)) return 0;
+            return ops.Count;
         }
     }
 }

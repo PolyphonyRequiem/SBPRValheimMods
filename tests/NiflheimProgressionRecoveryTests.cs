@@ -5,15 +5,22 @@
 //  OperationReceiptStore + ReceiptRecovery (link-compiled from ../src).
 //
 //  Named acceptance covered here:
-//    AT-P0-REPLAY   retry / reconnect / RESTART returns the recorded result
-//                   with no duplicate state, INCLUDING process death after every
+//    AT-P0-REPLAY   retry / reconnect returns the recorded result with no
+//                   duplicate state, including a SIMULATED restart after every
 //                   one of the four durable boundaries.
 //    (recovery report: RECOVERABLE vs QUARANTINE vs CLEAN classification.)
 //
-//  Process death is modelled by a crash injector that throws after the Nth
-//  durable boundary. Because the journal is fsync'd on disk, a brand-new store
-//  constructed over the same journal path is exactly a "restarted process":
-//  re-submitting the same operationId must converge to one terminal result.
+//  HONEST SCOPE — what "restart" means here vs. what it does NOT:
+//  A crash injector THROWS in-process after the Nth durable boundary, then a
+//  brand-new store is constructed over the SAME fsync'd journal path. Because the
+//  journal is the only durable truth, that fresh store is behaviourally a
+//  restarted process for the purpose of journal replay: re-submitting the same
+//  operationId must converge to one terminal result. This is NOT a real OS
+//  process kill — the exception unwinds a live process and file handles close
+//  normally. Real child-PROCESS death at every durable write was already proven
+//  by the T001 Gate-A spike (AT-P0-CRASH-EACH-WRITE, accepted); a real
+//  child-process in-world reproduction is scoped to T003, not claimed by this
+//  suite.
 // ============================================================================
 
 using System.IO;
@@ -43,7 +50,9 @@ namespace SBPR.Trailborne.Tests
             if (File.Exists(_journalPath)) File.Delete(_journalPath);
         }
 
-        // Throws after boundary == TargetBoundary to simulate hard process death mid-operation.
+        // Throws after boundary == TargetBoundary to SIMULATE a mid-operation crash (in-process,
+        // not a real OS kill — see the honest-scope note in the file header). Recovery is proven by
+        // replaying the fsync'd journal in a fresh store.
         private sealed class CrashAfter : ICrashInjector
         {
             private readonly ReceiptBoundary _target;
@@ -58,8 +67,9 @@ namespace SBPR.Trailborne.Tests
 
         private OperationReceiptStore NewStore(out InMemoryMirroredStoneApStore stone, out InMemoryCharacterApStore character)
         {
-            // Fresh in-memory aggregates == a restarted process with empty caches; the journal on
-            // disk is the only durable truth carried across the "restart".
+            // Fresh in-memory aggregates + a fresh store over the SAME on-disk journal == a restarted
+            // process for the purpose of journal replay (the journal is the only durable truth carried
+            // across the simulated restart). Not a real OS process boundary — that is T001/T003 scope.
             stone = new InMemoryMirroredStoneApStore();
             character = new InMemoryCharacterApStore();
             return new OperationReceiptStore(_journalPath, stone, character);
@@ -70,11 +80,11 @@ namespace SBPR.Trailborne.Tests
         [InlineData(ReceiptBoundary.StoneApplied)]
         [InlineData(ReceiptBoundary.CharacterApplied)]
         [InlineData(ReceiptBoundary.Committed)]
-        public void AtP0Replay_CrashAfterEveryBoundary_RecoversExactlyOneResult(ReceiptBoundary crashAt)
+        public void AtP0Replay_SimulatedCrashAfterEveryBoundary_RecoversExactlyOneResult(ReceiptBoundary crashAt)
         {
             const string opId = "op-crash";
 
-            // First "process": submit and die right after boundary crashAt.
+            // First "process": submit and simulate a crash right after boundary crashAt.
             var store1 = NewStore(out _, out _);
             Assert.Throws<SimulatedProcessDeath>(() =>
                 store1.SubmitFoundationalAp(new OperationId(opId), _stone, _owner, "evi", new CrashAfter(crashAt)));
