@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Disposable Gate-A spike harness (T001). Not shipped in the mod; proves the
+       identity + durable-receipt mechanism selection before any gameplay work.
+
+       The HARNESS runs net8.0 (headless CI, like tools/niflheim-homestead-selector).
+       The MECHANISM CORE (DurableJournal.cs, PrincipalResolver.cs, OperationPipeline.cs)
+       is written against the net48-safe API subset only, so the selected mechanism is
+       consumable by the net48 SBPR.Niflheim.HomesteadStones runtime that T002 will build.
+       The net48 audit for each file is in its header comment. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AssemblyName>SBPR.Niflheim.ProgressionSpike</AssemblyName>
+    <RootNamespace>SBPR.Niflheim.ProgressionSpike</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

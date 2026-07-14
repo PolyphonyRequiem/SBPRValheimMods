@@ -154,8 +154,44 @@ Prove all of the following before any gameplay node work:
 5. Conflicting operation-ID reuse, stale revisions, and concurrent submissions fail without partial state.
 6. Operator inspection can explain and repair/quarantine an ambiguous injected state without inventing facts.
 
-**Decision still open:** the concrete authenticated account provider and durable transaction store. This is an
-implementation spike, not a product-design question. Any candidate must satisfy the observable contract above.
+**Decision RESOLVED by the T001 executable spike** (`tools/niflheim-progression-spike/`, all of
+`AT-P0-IDENTITY`, `AT-P0-CRASH-EACH-WRITE`, `AT-P0-RECOVERY-REPORT` pass):
+
+- **Authenticated principal — SELECTED: server-derived platform id (candidate A) over a server-owned
+  platform-id → AccountId map (candidate E).** The transport attributes the peer out-of-band (`sender`
+  in the routed-RPC handler, set from the authenticated socket, mirroring the in-tree
+  `TwistedPortalDirectory` pattern); the payload's `claimed*Id` fields are a *claim to compare*, never
+  authority. The spike proves a hostile client whose authenticated socket is `attacker` but whose payload
+  claims `owner` is rejected as `PrincipalMismatch`, and that a payload with no authenticated connection
+  is `UnauthenticatedPeer` — payload identity can never become authority. Candidate E (the server-owned
+  map) is favored as the standing choice because R-003 already mandates an account exclusivity index, so
+  the mapping table is scope the gate pays for regardless; candidate A is the un-indirected fallback.
+- **Durable transaction/receipt — SELECTED: append-only write-ahead journal with `FileStream.Flush(true)`
+  fsync at every durable boundary (candidate 1).** The journal *is* the transaction; the Stone-ZDO and
+  character aggregate writes are idempotent projections rebuilt from the durable journal, so a crash
+  between the two separately-saved aggregates (R-004) cannot leave a partial result. The spike kills a
+  **real child process** (`Environment.Exit(137)`) after every one of the four durable boundaries and
+  proves recovery converges to exactly one terminal result (+1 Personal AP, +1 Cumulative AP, +1 Mirrored
+  Stone AP), that re-submission returns `Replayed` with identical balances, that a conflicting
+  `operationId` binding rejects as `OperationConflict`, and that a torn tail from a partial write is
+  truncated (not "repaired" with invented data). A partial-durable state with no terminal record is
+  reported as `QUARANTINE` for operator decision.
+
+- **Rejected on grounded facts (not spiked):** identity B (`m_uid` session id — ephemeral, not
+  reconnect-stable), C (character ZDOID as account — portable, not account authority), D
+  (`serverSyncedPlayerData` — client-asserted claim); receipt 3 (whole-JSON rewrite — re-imports the
+  "saves are atomic" assumption the gate exists to reject), 4 (ZDO piggyback — ZDO is a *participant*
+  aggregate, not the transaction substrate).
+- **Held in reserve:** receipt candidate 2 (SQLite). Escalate only if the journal exposes a
+  recovery/lookup-scaling gap under load; the deploy burden and net48 native-interop risk both favor the
+  journal for the first proof.
+- **net48 audit:** the mechanism core (`DurableJournal.cs`, `PrincipalResolver.cs`,
+  `OperationPipeline.cs`) is written against the net48-safe API subset only (per-file header audits), so
+  T002 can consume it directly in `SBPR.Niflheim.HomesteadStones`. The harness itself targets net8.0 as a
+  headless CI utility, like the sibling `tools/` projects.
+
+This was an implementation spike, not a product-design question; the selected candidates satisfy the
+observable contract above.
 
 ### P1 unreleased content-mismatch/reset drill
 

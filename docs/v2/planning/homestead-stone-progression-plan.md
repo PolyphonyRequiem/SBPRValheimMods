@@ -184,6 +184,19 @@ world actions.
 **Named acceptance:** `AT-P0-IDENTITY`, `AT-P0-AP-ATOMIC`, `AT-P0-REPLAY`, `AT-P0-CRASH-EACH-WRITE`,
 `AT-P0-HOSTILE-PRINCIPAL`, `AT-P0-MIRRORED-ACCUMULATES-ONLY`, `AT-P0-RECOVERY-REPORT`.
 
+**T001 spike result (SELECTED mechanisms):** the executable spike at
+`tools/niflheim-progression-spike/` proved and selected — **principal:** server-derived platform id
+(candidate A) over a server-owned platform-id → AccountId map (candidate E), payload identity compared
+never trusted; **durable transaction/receipt:** append-only write-ahead journal with per-boundary
+`FileStream.Flush(true)` fsync (candidate 1), where the journal is the transaction and both aggregate
+writes are idempotent projections replayed from it. Proven under **real child-process death after every
+one of the four durable boundaries** (`AT-P0-IDENTITY`, `AT-P0-CRASH-EACH-WRITE`,
+`AT-P0-RECOVERY-REPORT` all pass). Rejected: identity B/C/D, receipt 3/4; SQLite (candidate 2) held in
+reserve for load escalation only. Full rationale + net48 audit in
+`homestead-stone-progression-research.md` (Gate A section). T002 builds the real vertical slice on this
+substrate; `AT-P0-AP-ATOMIC` / `AT-P0-HOSTILE-PRINCIPAL` / `AT-P0-MIRRORED-ACCUMULATES-ONLY` are T002's
+to close against the shipped `Application/Receipts/OperationReceiptStore.cs`.
+
 **Exit:** exactly N Personal AP, N Cumulative AP, and N Mirrored Stone AP under every retry/crash case. This
 phase blocks all remaining work.
 

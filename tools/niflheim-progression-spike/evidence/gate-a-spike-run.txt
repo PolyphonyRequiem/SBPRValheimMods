@@ -1,0 +1,37 @@
+## AT-P0-IDENTITY
+  honest-claim-bound: PASS (account=acct-OWNER)
+  hostile-substitution-rejected: PASS (PrincipalMismatch)
+  payload-without-connection-rejected: PASS (UnauthenticatedPeer)
+  hostile-op-non-mutating: PASS (outcome=PrincipalRejected, journal-absent=True)
+  => AT-P0-IDENTITY: PASS
+
+## AT-P0-CRASH-EACH-WRITE
+  crash-after-boundary-1: PASS (child-exit=137, recover=Applied P/C/M=1/1/1, replay=Replayed)
+  crash-after-boundary-2: PASS (child-exit=137, recover=Applied P/C/M=1/1/1, replay=Replayed)
+  crash-after-boundary-3: PASS (child-exit=137, recover=Applied P/C/M=1/1/1, replay=Replayed)
+  crash-after-boundary-4: PASS (child-exit=137, recover=Replayed P/C/M=1/1/1, replay=Replayed)
+  conflicting-opid-rejected: PASS (OperationConflict)
+  => AT-P0-CRASH-EACH-WRITE: PASS
+
+## AT-P0-RECOVERY-REPORT
+  partial-state-reports-quarantine: PASS
+  recovered-state-reports-single-result: PASS
+
+  --- sample operator report (post-recovery) ---
+  | === Gate-A Recovery Report ===
+  | journal: /tmp/sbpr-spike-report-partial-f56f172e82fe42c982410a3b7353a9aa.wal
+  | operationId: op-crash
+  | durable_records_total: 4
+  | torn_tail_bytes_truncated: 0
+  | last_durable_boundary: Committed
+  | terminal_result_present: yes
+  | recovery_status: RECOVERABLE (terminal result durable; replay converges)
+  | re-derived balances (from journal only):
+  |   PersonalAP:     1
+  |   CumulativeAP:   1
+  |   MirroredStoneAP:1
+  |
+  => AT-P0-RECOVERY-REPORT: PASS
+
+
+GATE-A SPIKE: ALL ACCEPTANCE TESTS PASS
