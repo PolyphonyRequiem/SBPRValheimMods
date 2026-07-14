@@ -131,6 +131,23 @@ Planning artifacts for the Black Forest tier. Same role as
   `RENDER` + `AT-INGEST-1` / `REBUILD`. **status: proposed** — Daniel's design is already locked;
   this is the spec half, gated for doc-review. SpecCheck delta = **+0** (behavior-only).
 
+- **Homestead Stone progression S2 Spec Kit package** — the owning-repository translation of the
+  confirmed Niflheim Stone-progression Wayfinder handoff, beside (and without replacing)
+  `homestead-stone-v1-impl-spec.md`. The package consists of:
+  - [`homestead-stone-progression-spec.md`](homestead-stone-progression-spec.md) — normative user
+    journeys, 27 functional requirements, 20-node/13-executable acceptance, lifecycle, and exclusions;
+  - [`homestead-stone-progression-research.md`](homestead-stone-progression-research.md) — current-code
+    reality, grounded vanilla/repository seams, and the mandatory identity+atomic-receipt P0 gate;
+  - [`homestead-stone-progression-data-model.md`](homestead-stone-progression-data-model.md) — separate
+    Stone, account-authority, and character aggregates; content, receipts, invariants, and transitions;
+  - [`homestead-stone-progression-contracts.md`](homestead-stone-progression-contracts.md) — authenticated
+    revisioned commands, evidence/receipt/read contracts, provider boundaries, and stable rejections;
+  - [`homestead-stone-progression-plan.md`](homestead-stone-progression-plan.md) — constitution check,
+    dependency-linked Gate A + Tracers 1–9, named acceptance, and the pre-tasks approval stop.
+  **Status: accepted.** Daniel approved the reconciled package after independent verification. This remains
+  specification/plan work only; `tasks.md` and implementation are intentionally withheld pending separate
+  authorization, per ADR-0005.
+
 - **`bear-hide-tent-collider-fit-impl-spec.md`** — the buildable *how* for the **Bear Hide
   Tent collider fix** (BUG card `t_439f2351` defect 1, Daniel 2026-06-26 in-game playtest:
   *"the collision mesh has no relationship to the tent mesh"* / *"I am not finding a spot
