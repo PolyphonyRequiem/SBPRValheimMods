@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using SBPR.Niflheim.HomesteadStones.Domain.Snapshots;
 
 namespace SBPR.Niflheim.HomesteadStones.Domain.Content
@@ -105,12 +106,14 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
         public static readonly VersionedId ArcherTree = new VersionedId("Archer", 1);
         public static readonly VersionedId WarriorTree = new VersionedId("Warrior", 1);
 
-        private readonly List<NodeDefinition> _nodes;
+        // Immutable snapshot exposed to callers. Backed by a ReadOnlyCollection wrapper so a caller
+        // cannot downcast the exposed Nodes to List<T> and mutate the supposedly immutable registry.
+        private readonly ReadOnlyCollection<NodeDefinition> _nodes;
         private readonly Dictionary<string, NodeDefinition> _byNodeKey;
 
         public HomesteadProgressionCatalog()
         {
-            _nodes = BuildRoster();
+            _nodes = new ReadOnlyCollection<NodeDefinition>(BuildRoster());
             _byNodeKey = new Dictionary<string, NodeDefinition>(StringComparer.Ordinal);
             foreach (var n in _nodes)
             {

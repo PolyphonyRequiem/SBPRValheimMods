@@ -34,7 +34,10 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
         UnknownPurchaseNode,        // a character purchase references an unknown/stale node
         NegativeCharacterBalance,   // Personal/Cumulative AP or BP negative
         LocalNodePurchased,         // a Local Node appears as a personal purchase (never allowed)
-        AuthorityMismatch           // authority index keyed to another account/Stone than the caller
+        AuthorityMismatch,          // authority index keyed to another account/Stone than the caller
+        InvalidRevision,            // an aggregate revision is negative (revisions are non-negative)
+        UnsupportedSchemaVersion,   // an aggregate schema version is not one the current build supports
+        ContentVersionMismatch      // the Stone's content-registry version is not the current build's
     }
 
     public readonly struct QuarantineNotice
@@ -78,12 +81,15 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
     public readonly struct FixtureResetResult
     {
         public FixtureResetResult(bool wasReset, int contentRegistryVersionBefore, int contentRegistryVersionAfter,
-            StoneProgressionAggregate stone, DerivedActivationView rebuiltView)
+            StoneProgressionAggregate stone, CharacterProgressionAggregate character,
+            AccountStoneAuthorityIndex authority, DerivedActivationView rebuiltView)
         {
             WasReset = wasReset;
             ContentRegistryVersionBefore = contentRegistryVersionBefore;
             ContentRegistryVersionAfter = contentRegistryVersionAfter;
             Stone = stone;
+            Character = character;
+            Authority = authority;
             RebuiltView = rebuiltView;
         }
 
@@ -91,6 +97,16 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
         public int ContentRegistryVersionBefore { get; }
         public int ContentRegistryVersionAfter { get; }
         public StoneProgressionAggregate Stone { get; }
+
+        /// <summary>The disposable character state after reset. On an incompatible reset the affected
+        /// Stone record is cleared to a clean baseline (no stale purchases/balances survive); on a
+        /// compatible no-op the caller's character is returned unchanged.</summary>
+        public CharacterProgressionAggregate Character { get; }
+
+        /// <summary>The disposable authority state after reset. On an incompatible reset the authority
+        /// is released (vacant) so no stale active relationship survives the rebuilt projection.</summary>
+        public AccountStoneAuthorityIndex Authority { get; }
+
         public DerivedActivationView RebuiltView { get; }
     }
 
@@ -116,6 +132,41 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
             if (authority == null) throw new ArgumentNullException(nameof(authority));
 
             var notices = new List<QuarantineNotice>();
+
+            // Envelope validation (data-model.md §"Validation and recovery": validate aggregate revisions
+            // and schema versions on load). Revisions are non-negative monotone counters; a negative one
+            // is a corrupt/interrupted envelope. Schema versions must be ones this build understands —
+            // an unsupported (future/unknown) schema is quarantined, never blindly reinterpreted.
+            if (stone.Revision < 0)
+                notices.Add(new QuarantineNotice(QuarantineReason.InvalidRevision, stone.StoneId.Value,
+                    "Stone revision=" + stone.Revision + " is negative"));
+            if (character.Revision < 0)
+                notices.Add(new QuarantineNotice(QuarantineReason.InvalidRevision, character.Account.Value,
+                    "character revision=" + character.Revision + " is negative"));
+            if (authority.Revision < 0)
+                notices.Add(new QuarantineNotice(QuarantineReason.InvalidRevision, authority.Account.Value,
+                    "authority revision=" + authority.Revision + " is negative"));
+
+            if (stone.SchemaVersion != StoneProgressionAggregate.CurrentSchemaVersion)
+                notices.Add(new QuarantineNotice(QuarantineReason.UnsupportedSchemaVersion, stone.StoneId.Value,
+                    "Stone schema version " + stone.SchemaVersion + " != supported "
+                    + StoneProgressionAggregate.CurrentSchemaVersion));
+            if (character.SchemaVersion != CharacterProgressionAggregate.CurrentSchemaVersion)
+                notices.Add(new QuarantineNotice(QuarantineReason.UnsupportedSchemaVersion, character.Account.Value,
+                    "character schema version " + character.SchemaVersion + " != supported "
+                    + CharacterProgressionAggregate.CurrentSchemaVersion));
+            if (authority.SchemaVersion != AccountStoneAuthorityIndex.CurrentSchemaVersion)
+                notices.Add(new QuarantineNotice(QuarantineReason.UnsupportedSchemaVersion, authority.Account.Value,
+                    "authority schema version " + authority.SchemaVersion + " != supported "
+                    + AccountStoneAuthorityIndex.CurrentSchemaVersion));
+
+            // Content-registry version: a Stone stamped with a content build other than the current one
+            // is an incompatible fixture. Scan REPORTS it (the operator then chooses explicit reset via
+            // ResetIncompatibleFixture); it never silently reinterprets stale content.
+            if (stone.ContentRegistryVersion != _catalog.ContentRegistryVersion)
+                notices.Add(new QuarantineNotice(QuarantineReason.ContentVersionMismatch, stone.StoneId.Value,
+                    "Stone content-registry version " + stone.ContentRegistryVersion
+                    + " != current build " + _catalog.ContentRegistryVersion));
 
             // Stone-level invariant: 0 <= Active <= Historical.
             if (!(stone.ActiveStoneLevel >= 0 && stone.ActiveStoneLevel <= stone.HistoricalStoneLevel))
@@ -193,15 +244,17 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
             if (before == _catalog.ContentRegistryVersion)
             {
                 // Compatible: keep the fixture as-is, just rebuild the derived projection.
-                return new FixtureResetResult(false, before, before, stone,
+                return new FixtureResetResult(false, before, before, stone, character, authority,
                     DerivedActivationView.Derive(stone, character, authority));
             }
+
+            string prov = resetProvenance ?? "reset:incompatible-fixture";
 
             // Incompatible unreleased fixture: EXPLICITLY discard the disposable selected/developed
             // state and rebuild a clean current-build baseline. We preserve only stable identity and
             // the preconfigured proof levels (data-model.md: proof begins at Historical/Active 2). No
             // production migration/grandfathering is attempted.
-            var reset = new StoneProgressionAggregate(
+            var resetStone = new StoneProgressionAggregate(
                 stone.StoneId,
                 revision: stone.Revision + 1,
                 historicalStoneLevel: 2,
@@ -210,16 +263,52 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
                 foundationalCatalog: _catalog.FoundationalCatalog,
                 contentRegistryVersion: _catalog.ContentRegistryVersion,
                 createdProvenance: stone.CreatedProvenance,
-                updatedProvenance: resetProvenance ?? "reset:incompatible-fixture",
+                updatedProvenance: prov,
                 mirroredStoneAp: 0,
-                lastAppliedReceiptId: resetProvenance ?? "reset:incompatible-fixture",
+                lastAppliedReceiptId: prov,
                 committedTrees: Array.Empty<CommittedTreeRecord>(),
                 nodeDevelopment: Array.Empty<NodeDevelopmentRecord>(),
                 family: _catalog.Family,
                 variant: _catalog.Variant);
 
-            var view = DerivedActivationView.Derive(reset, character, authority);
-            return new FixtureResetResult(true, before, _catalog.ContentRegistryVersion, reset, view);
+            // The disposable Homestead/character test state is reset too (research.md: "reset the
+            // disposable Homestead/character test state explicitly"). A stale character purchase or
+            // balance keyed to this Stone must NOT survive a claimed clean reset, so we drop this
+            // Stone's record entirely and rebuild it as a clean 0/0/0 baseline with no purchases. Other
+            // Stones' records are untouched. This is disposable-fixture reset, not production migration.
+            var resetStoneRecords = new List<CharacterStoneRecord>();
+            foreach (var sr in character.StoneRecords)
+            {
+                if (sr.StoneId.Equals(stone.StoneId))
+                    continue; // stale disposable record dropped; rebuilt clean below
+                resetStoneRecords.Add(sr);
+            }
+            resetStoneRecords.Add(new CharacterStoneRecord(stone.StoneId, personalAp: 0, cumulativeAp: 0, personalBp: 0));
+
+            var resetCharacter = new CharacterProgressionAggregate(
+                character.Account,
+                character.Character,
+                character.WorldProductScope,
+                revision: character.Revision + 1,
+                bondSlots: character.BondSlots,
+                attunementSlots: character.AttunementSlots,
+                lastAppliedReceiptId: prov,
+                stoneRecords: resetStoneRecords);
+
+            // Release the authority: no stale active relationship may survive the rebuilt projection.
+            var resetAuthority = new AccountStoneAuthorityIndex(
+                authority.Account,
+                authority.StoneId,
+                revision: authority.Revision + 1,
+                activeCharacter: new CharacterId(string.Empty),
+                activeKind: RelationshipKind.None,
+                activeRelationshipId: string.Empty,
+                activationReceiptId: string.Empty,
+                releaseReceiptId: prov);
+
+            var view = DerivedActivationView.Derive(resetStone, resetCharacter, resetAuthority);
+            return new FixtureResetResult(true, before, _catalog.ContentRegistryVersion,
+                resetStone, resetCharacter, resetAuthority, view);
         }
     }
 }

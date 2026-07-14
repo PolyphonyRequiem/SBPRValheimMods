@@ -362,29 +362,81 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Roster_Every_Node_Has_Exact_Stable_Identity_And_Status()
         {
-            // Exact identities/status per the fixed first-build roster (data-model.md). Spot the
-            // status boundary: exactly the seven authored "unavailable" nodes.
-            var unavailable = new HashSet<string>(System.StringComparer.Ordinal)
+            // Full table-driven drift guard: the EXACT authored 20-row mapping (data-model.md §"Fixed
+            // first-build roster"). Each row pins stable node key + version, owning Tree key + version,
+            // Tree level, outcome, ownership, and first-build status. A single edit to the roster that
+            // changes any cell fails here — this is the real per-node drift guard (AGENTS.md).
+            var expected = new (string tree, int treeVer, string node, int nodeVer, int level,
+                NodeOutcomeType outcome, NodeOwnership ownership, NodeFirstBuildStatus status)[]
             {
-                "WatchfulCook", "MeasuredCuts", "ArtisansCounter",
-                "SteadyAim", "BowyersLore", "ShrugItOffI", "HeavyHands",
+                // Cooking
+                ("Cooking", 1, "SavorTheHearth", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
+                ("Cooking", 1, "FieldPrep", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Cooking", 1, "IronStomach", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Cooking", 1, "SwiftPreparation", 1, 2, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Cooking", 1, "WatchfulCook", 1, 2, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                // Crafting
+                ("Crafting", 1, "RefinedWorkshop", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
+                ("Crafting", 1, "Masterwork", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Crafting", 1, "BuiltToLast", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Crafting", 1, "MeasuredCuts", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                ("Crafting", 1, "ArtisansCounter", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                // Archer
+                ("Archer", 1, "PracticeRange", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
+                ("Archer", 1, "FieldFletchingI", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Archer", 1, "FletchersHabit", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Archer", 1, "SteadyAim", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                ("Archer", 1, "BowyersLore", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                // Warrior
+                ("Warrior", 1, "TwigTraining", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
+                ("Warrior", 1, "ReadyHands", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Warrior", 1, "WeaponDiscipline", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
+                ("Warrior", 1, "ShrugItOffI", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                ("Warrior", 1, "HeavyHands", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
             };
-            int unavailableSeen = 0;
-            foreach (var n in Catalog.Nodes)
+
+            // Exact count and exact ordered mapping — no extra rows, no missing rows, no drift.
+            Assert.Equal(20, Catalog.Nodes.Count);
+            Assert.Equal(expected.Length, Catalog.Nodes.Count);
+            for (int i = 0; i < expected.Length; i++)
             {
-                if (unavailable.Contains(n.Node.Key))
-                {
-                    Assert.Equal(NodeFirstBuildStatus.Unavailable, n.Status);
-                    Assert.Equal(NodeOwnership.NoneWhileUnavailable, n.Ownership);
-                    unavailableSeen++;
-                }
-                else
-                {
-                    Assert.Equal(NodeFirstBuildStatus.Executable, n.Status);
-                    Assert.NotEqual(NodeOwnership.NoneWhileUnavailable, n.Ownership);
-                }
+                var want = expected[i];
+                var got = Catalog.Nodes[i];
+                Assert.Equal(want.node, got.Node.Key);
+                Assert.Equal(want.nodeVer, got.Node.Version);
+                Assert.Equal(want.tree, got.Tree.Key);
+                Assert.Equal(want.treeVer, got.Tree.Version);
+                Assert.Equal(want.level, got.TreeLevel);
+                Assert.Equal(want.outcome, got.Outcome);
+                Assert.Equal(want.ownership, got.Ownership);
+                Assert.Equal(want.status, got.Status);
             }
-            Assert.Equal(7, unavailableSeen);
+        }
+
+        [Fact]
+        public void Roster_ExposedNodes_CannotBeMutatedByDowncast()
+        {
+            // The immutable registry must not be mutable through the exposed Nodes collection. A caller
+            // that downcasts to List<T>/ICollection<T> must NOT be able to alter the catalog.
+            var nodes = Catalog.Nodes;
+            Assert.False(nodes is List<NodeDefinition>, "Nodes must not expose the backing List directly");
+
+            if (nodes is ICollection<NodeDefinition> mutable)
+            {
+                Assert.True(mutable.IsReadOnly, "exposed collection must be read-only");
+                Assert.Throws<System.NotSupportedException>(() => mutable.Clear());
+                Assert.Throws<System.NotSupportedException>(() =>
+                    mutable.Add(new NodeDefinition(HomesteadProgressionCatalog.CookingTree,
+                        new VersionedId("Injected", 1), 1, NodeOutcomeType.LocalEffect,
+                        NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable, "Injected")));
+            }
+            if (nodes is IList<NodeDefinition> list)
+            {
+                Assert.Throws<System.NotSupportedException>(() => list.RemoveAt(0));
+            }
+
+            // Catalog still intact after the attempted mutations.
+            Assert.Equal(20, Catalog.Nodes.Count);
         }
 
         // ── AT-CONTENT-MISMATCH-REJECT ────────────────────────────────────────

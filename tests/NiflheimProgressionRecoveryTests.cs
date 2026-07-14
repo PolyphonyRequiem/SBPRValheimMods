@@ -308,6 +308,77 @@ namespace SBPR.Trailborne.Tests
             Assert.True(wrongAccount.Has(QuarantineReason.AuthorityMismatch));
         }
 
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_NegativeAggregateRevision_IsIsolated()
+        {
+            var repair = new ProgressionStateRepair(Catalog);
+
+            // Stone with a negative revision (corrupt/interrupted envelope).
+            var badStone = new StoneProgressionAggregate(
+                Stone, revision: -1, historicalStoneLevel: 2, activeStoneLevel: 2,
+                foundationalTree: Catalog.FoundationalTree, foundationalCatalog: Catalog.FoundationalCatalog,
+                contentRegistryVersion: HomesteadProgressionCatalog.CurrentContentRegistryVersion,
+                createdProvenance: "receipt:create", updatedProvenance: "receipt:update",
+                mirroredStoneAp: 0, lastAppliedReceiptId: "receipt:last");
+            var stoneReport = repair.Scan(badStone, BuildCharacter(), BuildAuthority());
+            Assert.True(stoneReport.Has(QuarantineReason.InvalidRevision));
+
+            // Character with a negative revision.
+            var badChar = new CharacterProgressionAggregate(Account, Character, "world/prod",
+                revision: -5, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "receipt:c",
+                stoneRecords: new[] { new CharacterStoneRecord(Stone, 3, 3, 5) });
+            var charReport = repair.Scan(BuildStone(), badChar, BuildAuthority());
+            Assert.True(charReport.Has(QuarantineReason.InvalidRevision));
+
+            // Authority with a negative revision.
+            var badAuth = new AccountStoneAuthorityIndex(Account, Stone, revision: -2,
+                activeCharacter: Character, activeKind: RelationshipKind.Bond,
+                activeRelationshipId: "rel", activationReceiptId: "receipt:act", releaseReceiptId: "");
+            var authReport = repair.Scan(BuildStone(), BuildCharacter(), badAuth);
+            Assert.True(authReport.Has(QuarantineReason.InvalidRevision));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_UnsupportedSchemaVersion_IsIsolated()
+        {
+            var repair = new ProgressionStateRepair(Catalog);
+
+            // A future/unknown Stone schema version is quarantined, never blindly reinterpreted.
+            var futureStone = new StoneProgressionAggregate(
+                Stone, revision: 3, historicalStoneLevel: 2, activeStoneLevel: 2,
+                foundationalTree: Catalog.FoundationalTree, foundationalCatalog: Catalog.FoundationalCatalog,
+                contentRegistryVersion: HomesteadProgressionCatalog.CurrentContentRegistryVersion,
+                createdProvenance: "receipt:create", updatedProvenance: "receipt:update",
+                mirroredStoneAp: 0, lastAppliedReceiptId: "receipt:last",
+                schemaVersion: StoneProgressionAggregate.CurrentSchemaVersion + 1);
+            Assert.True(repair.Scan(futureStone, BuildCharacter(), BuildAuthority())
+                .Has(QuarantineReason.UnsupportedSchemaVersion));
+
+            var futureChar = new CharacterProgressionAggregate(Account, Character, "world/prod",
+                revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "receipt:c",
+                stoneRecords: new[] { new CharacterStoneRecord(Stone, 3, 3, 5) },
+                schemaVersion: CharacterProgressionAggregate.CurrentSchemaVersion + 1);
+            Assert.True(repair.Scan(BuildStone(), futureChar, BuildAuthority())
+                .Has(QuarantineReason.UnsupportedSchemaVersion));
+
+            var futureAuth = new AccountStoneAuthorityIndex(Account, Stone, revision: 2,
+                activeCharacter: Character, activeKind: RelationshipKind.Bond,
+                activeRelationshipId: "rel", activationReceiptId: "receipt:act", releaseReceiptId: "",
+                schemaVersion: AccountStoneAuthorityIndex.CurrentSchemaVersion + 1);
+            Assert.True(repair.Scan(BuildStone(), BuildCharacter(), futureAuth)
+                .Has(QuarantineReason.UnsupportedSchemaVersion));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_StoneContentVersionMismatch_IsIsolated()
+        {
+            // A Stone stamped with a content-registry version other than the current build is an
+            // incompatible fixture; Scan reports it (operator then chooses explicit reset).
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(contentRegistryVersion: 0), BuildCharacter(), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.ContentVersionMismatch));
+        }
+
         // ── AT-UNRELEASED-DATA-RESET ──────────────────────────────────────────
 
         [Fact]
@@ -343,7 +414,48 @@ namespace SBPR.Trailborne.Tests
             Assert.Empty(result.RebuiltView.Nodes);
 
             // Reset is auditable and the state is now clean under the quarantine scan.
-            Assert.True(repair.Scan(result.Stone, character, authority).IsClean);
+            Assert.True(repair.Scan(result.Stone, result.Character, result.Authority).IsClean);
+        }
+
+        [Fact]
+        public void AT_UNRELEASED_DATA_RESET_StaleCharacterPurchase_DoesNotSurviveReset()
+        {
+            // The disposable character state must be reset too: a stale purchase keyed to this Stone
+            // must NOT survive a claimed clean reset (research.md §"reset the disposable Homestead/
+            // character test state explicitly"). Here the character carries a purchase and non-zero
+            // balances on the incompatible-version Stone.
+            var stalePurchases = new[]
+            {
+                new NodePurchaseRecord(HomesteadProgressionCatalog.CookingTree,
+                    new VersionedId("FieldPrep", 1), "PersonalAP", "CharacterEffect",
+                    new VersionedId("Cooking-L1", 1), "op-stale-buy"),
+            };
+            var stone = BuildStone(contentRegistryVersion: 0);
+            var character = BuildCharacter(stalePurchases, personalAp: 7, personalBp: 9);
+            var authority = BuildAuthority();
+
+            var repair = new ProgressionStateRepair(Catalog);
+            var result = repair.ResetIncompatibleFixture(stone, character, authority, "reset:test");
+
+            Assert.True(result.WasReset);
+
+            // The character's record for this Stone is rebuilt clean: no purchases, zeroed balances.
+            CharacterStoneRecord? rec = null;
+            foreach (var sr in result.Character.StoneRecords)
+                if (sr.StoneId.Equals(stone.StoneId)) rec = sr;
+            Assert.NotNull(rec);
+            Assert.Empty(rec!.Purchases);
+            Assert.Equal(0, rec.PersonalAp);
+            Assert.Equal(0, rec.CumulativeAp);
+            Assert.Equal(0, rec.PersonalBp);
+
+            // The authority was released — no stale active relationship survives.
+            Assert.True(result.Authority.IsVacant);
+
+            // The rebuilt projection carries no active node from the stale purchase, and the reset
+            // state is clean under the quarantine scan.
+            Assert.Empty(result.RebuiltView.Nodes);
+            Assert.True(repair.Scan(result.Stone, result.Character, result.Authority).IsClean);
         }
 
         [Fact]
