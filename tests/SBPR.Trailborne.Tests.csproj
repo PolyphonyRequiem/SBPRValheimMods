@@ -92,6 +92,18 @@
     <!-- Production Homestead assignment/seating domain logic is engine-free and link-compiled
          into this net8 test project while the shipping mod consumes the same source under net48. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadPlacement.cs" />
+    <!-- Homestead progression Gate-A (T002) engine-free CLEAN-side slice. Each file below is
+         deliberately free of UnityEngine/Valheim/BepInEx refs (net48-safe subset) so it compiles
+         under net8 here AND net48 in the mod. The ZDO-backed sink
+         (Persistence/Stone/ZdoStoneProgressionStore.cs) references Valheim and is intentionally
+         NOT link-compiled — only its engine-free InMemory counterpart is exercised. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Identity/ProgressionIdentity.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Stone/MirroredStoneApStore.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Characters/CharacterProgressionStore.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Receipts/OperationReceiptStore.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/ProgressionCommandPipeline.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Activities/FoundationalPlacementAdapter.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Recovery/ReceiptRecovery.cs" />
   </ItemGroup>
 
 </Project>
