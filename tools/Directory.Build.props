@@ -1,0 +1,12 @@
+<Project>
+  <!-- Shields everything under tools/ from the repo-root Directory.Build.props
+       SbprValidateSdkPaths target, which hard-errors unless the Valheim managed-
+       assembly path is configured. MSBuild walks up and stops at the FIRST
+       Directory.Build.props it finds, so this override intercepts before the root.
+
+       The tool projects here (niflheim-homestead-selector, cartography-ui-preview,
+       niflheim-progression-spike) are headless net8.0 utilities that reference no
+       game/BepInEx assemblies and must build on any box / in CI without the Valheim
+       SDK fetched. The shipping mod at src/SBPR.Niflheim.HomesteadStones/ lives in a
+       sibling subtree and still finds the root props unchanged. -->
+</Project>
