@@ -5,7 +5,7 @@ status: current
 # T003 re-verify — CRASH/recovery transcript (PASS)
 
 ```
-journal dir: /tmp/tmp.0YeKSmDjKK
+journal dir: [temporary-directory]
 === Boundary 1 (IntentJournaled) ===
 child exit code: 137 (137 == 128+SIGKILL expected)
 child stdout: CHILD_FSYNCED_BOUNDARY=1
@@ -58,6 +58,6 @@ RECEIPT=99e8c99e2fc716ee
 STONE_REV=1
   => recovered mirrored=1 personal=1 cumulative=1 (pre-status=Recoverable)
 
-TMP retained at /tmp/tmp.0YeKSmDjKK
+TMP retained at [temporary-directory]
 ALL CHILDREN DIED BY REAL SIGKILL
 ```

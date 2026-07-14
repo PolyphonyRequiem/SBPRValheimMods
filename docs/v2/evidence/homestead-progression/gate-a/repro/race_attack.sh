@@ -4,17 +4,19 @@
 # a distinct op expecting stone revision 0. This probes whether CAS is sound when the aggregate is
 # NOT rehydrated from the journal at process boot — the real multiplayer server-restart condition.
 set -u
-HARNESS="dotnet /home/polyphonyrequiem/.hermes/kanban/workspaces/t_11ce6067/gatea-harness/bin/Release/net8.0/GateAHarness.dll"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+HARNESS_DLL="${GATE_A_HARNESS_DLL:-$SCRIPT_DIR/bin/Release/net8.0/GateAHarness.dll}"
+HARNESS=(dotnet "$HARNESS_DLL")
 TMP=$(mktemp -d)
 J="$TMP/race.journal"
 echo "journal: $J"
 echo "=== Client A commits expecting stoneRev 0 ==="
-$HARNESS race-child "$J" "op-A" 0
+"${HARNESS[@]}" race-child "$J" "op-A" 0
 echo "=== Client B (SEPARATE fresh process) also commits expecting stoneRev 0 ==="
-$HARNESS race-child "$J" "op-B" 0
+"${HARNESS[@]}" race-child "$J" "op-B" 0
 echo
 echo "=== Client B2 (fresh process) refetches stoneRev 1 and commits ==="
-$HARNESS race-child "$J" "op-B2" 1
+"${HARNESS[@]}" race-child "$J" "op-B2" 1
 echo "journal frames:"
 ls -l "$J"
 echo "TMP=$TMP"

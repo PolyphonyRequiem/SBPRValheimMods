@@ -105,5 +105,5 @@ not baked into Homestead progression. PASS unblocks T004+; it does not authorize
 
 - Under review: `main` @ `45a30b41` (PR #302 merged), fix commit `d4e1ddc`.
 - Parent T002 landed via PR #301, merge `a184f93` (independently confirmed present on `main`).
-- Harness built against the remediated `SrcRoot`; binary at
-  `~/.hermes/kanban/workspaces/t_11ce6067/gatea-harness/bin/Release/net8.0/GateAHarness.dll`.
+- Harness built against the remediated `SrcRoot`; the documented build emits
+  `repro/bin/Release/net8.0/GateAHarness.dll`.
