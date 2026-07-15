@@ -354,11 +354,8 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
                 authority.Account,
                 authority.StoneId,
                 revision: authority.Revision + 1,
-                activeCharacter: new CharacterId(string.Empty),
-                activeKind: RelationshipKind.None,
-                activeRelationshipId: string.Empty,
-                activationReceiptId: string.Empty,
-                releaseReceiptId: prov);
+                reservations: null,
+                lastReleaseReceiptId: prov);
 
             var view = DerivedActivationView.Derive(resetStone, resetCharacter, resetAuthority);
             return new FixtureResetResult(true, before, _catalog.ContentRegistryVersion,

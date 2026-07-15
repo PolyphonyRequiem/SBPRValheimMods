@@ -84,13 +84,10 @@ namespace SBPR.Trailborne.Tests
         private static AccountStoneAuthorityIndex BuildAuthority(
             AccountId account, CharacterId active, RelationshipKind kind, long revision = 2)
         {
-            return new AccountStoneAuthorityIndex(
-                account, Stone, revision,
-                activeCharacter: active,
-                activeKind: kind,
-                activeRelationshipId: kind == RelationshipKind.None ? "" : "rel-1",
-                activationReceiptId: kind == RelationshipKind.None ? "" : "receipt:activate-1",
-                releaseReceiptId: "");
+            var reservations = kind == RelationshipKind.None
+                ? null
+                : new[] { new AuthorityReservation(active, kind, "rel-1", "receipt:activate-1") };
+            return new AccountStoneAuthorityIndex(account, Stone, revision, reservations, lastReleaseReceiptId: "");
         }
 
         // ── AT-STATE-ROUNDTRIP ────────────────────────────────────────────────
@@ -163,10 +160,11 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(OwnerAccount, reloaded.Account);
             Assert.Equal(Stone, reloaded.StoneId);
             Assert.Equal(4, reloaded.Revision);
-            Assert.Equal(OwnerChar, reloaded.ActiveCharacter);
-            Assert.Equal(RelationshipKind.Bond, reloaded.ActiveKind);
-            Assert.Equal("rel-1", reloaded.ActiveRelationshipId);
-            Assert.Equal("receipt:activate-1", reloaded.ActivationReceiptId);
+            var res = Assert.Single(reloaded.Reservations);
+            Assert.Equal(OwnerChar, res.Character);
+            Assert.Equal(RelationshipKind.Bond, res.Kind);
+            Assert.Equal("rel-1", res.RelationshipId);
+            Assert.Equal("receipt:activate-1", res.ActivationReceiptId);
             Assert.False(reloaded.IsVacant);
         }
 
@@ -242,11 +240,8 @@ namespace SBPR.Trailborne.Tests
                 OwnerAccount,
                 StoneId.FromHostZone(World, 99, 99),
                 revision: 1,
-                activeCharacter: OwnerChar,
-                activeKind: RelationshipKind.Bond,
-                activeRelationshipId: "rel-wrong-stone",
-                activationReceiptId: "receipt:wrong-stone",
-                releaseReceiptId: "");
+                reservations: new[] { new AuthorityReservation(OwnerChar, RelationshipKind.Bond, "rel-wrong-stone", "receipt:wrong-stone") },
+                lastReleaseReceiptId: "");
 
             var query = new GetStoneProgressionView();
             Assert.Throws<System.ArgumentException>(() => query.Execute(stone, caller, wrongAccount));

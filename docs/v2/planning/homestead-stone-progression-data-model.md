@@ -85,19 +85,32 @@ One server-owned authority record per `(AccountId, StoneId)`.
 
 ### State
 
-- current active `CharacterId`, or none;
-- active `RelationshipId` and type (Bond or Attunement), or none;
-- revision and activation/release receipt provenance;
+- a set of active reservations, each holding one character's active relationship at this Stone:
+  - reserving `CharacterId`;
+  - relationship type (Bond or Attunement);
+  - active `RelationshipId`;
+  - activation receipt provenance;
+- index revision and last-release receipt provenance;
 - audit metadata for rejected sibling attempts.
+
+The index is a single authoritative account–Stone active-character reservation index that MAY hold
+multiple character entries, governed by variant-authored cardinality policy (design call 2026-07-15).
 
 ### Invariants
 
-- For Homesteads, at most one character from an account may actively hold either relationship to one Stone.
-- This index is policy-driven: Community Attunement does not use sibling-character exclusivity; Community Bond
-  remains account-exclusive for now.
-- A character cannot evade the invariant by holding Bond and Attunement simultaneously through separate rows.
-- Ordinary release clears the active index only after the relationship mutation is durably recoverable.
-- Retained purchases, AP/BP, Permanent Effects, Progression Keys, or dormant history do not keep this index occupied.
+- For Homesteads, at most one character from an account may actively hold either relationship to one
+  Stone: the reservation set holds at most one entry.
+- This index is policy-driven. Community Stone Attunement does NOT use sibling-character exclusivity:
+  multiple sibling characters on the same account may be simultaneously active, each represented as its
+  own reservation entry in this authoritative index and in derived activation. Community Bond remains
+  account-exclusive for now (no sibling of any kind may hold a Community Bond reservation).
+- Community activation is derived ONLY from this index — never through a second authority path outside it.
+- A character cannot evade the invariant by holding Bond and Attunement simultaneously through separate
+  rows; the single index is the one gate for both.
+- Ordinary release removes ONLY that character's reservation, and only after the relationship mutation is
+  durably recoverable; sibling reservations are untouched.
+- Retained purchases, AP/BP, Permanent Effects, Progression Keys, or dormant history do not keep a
+  reservation occupied.
 - This index owns no gameplay balance or outcome.
 
 ## Aggregate 3 — CharacterProgressionAggregate

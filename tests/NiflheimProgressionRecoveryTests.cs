@@ -231,8 +231,8 @@ namespace SBPR.Trailborne.Tests
         private static AccountStoneAuthorityIndex BuildAuthority(
             StoneId? stone = null, AccountId? account = null) =>
             new AccountStoneAuthorityIndex(account ?? Account, stone ?? Stone, revision: 2,
-                activeCharacter: Character, activeKind: RelationshipKind.Bond,
-                activeRelationshipId: "rel", activationReceiptId: "receipt:act", releaseReceiptId: "");
+                reservations: new[] { new AuthorityReservation(Character, RelationshipKind.Bond, "rel", "receipt:act") },
+                lastReleaseReceiptId: "");
 
         // ── AT-INVARIANT-QUARANTINE ───────────────────────────────────────────
 
@@ -431,8 +431,8 @@ namespace SBPR.Trailborne.Tests
 
             // Authority with a negative revision.
             var badAuth = new AccountStoneAuthorityIndex(Account, Stone, revision: -2,
-                activeCharacter: Character, activeKind: RelationshipKind.Bond,
-                activeRelationshipId: "rel", activationReceiptId: "receipt:act", releaseReceiptId: "");
+                reservations: new[] { new AuthorityReservation(Character, RelationshipKind.Bond, "rel", "receipt:act") },
+                lastReleaseReceiptId: "");
             var authReport = repair.Scan(BuildStone(), BuildCharacter(), badAuth);
             Assert.True(authReport.Has(QuarantineReason.InvalidRevision));
         }
@@ -461,8 +461,8 @@ namespace SBPR.Trailborne.Tests
                 .Has(QuarantineReason.UnsupportedSchemaVersion));
 
             var futureAuth = new AccountStoneAuthorityIndex(Account, Stone, revision: 2,
-                activeCharacter: Character, activeKind: RelationshipKind.Bond,
-                activeRelationshipId: "rel", activationReceiptId: "receipt:act", releaseReceiptId: "",
+                reservations: new[] { new AuthorityReservation(Character, RelationshipKind.Bond, "rel", "receipt:act") },
+                lastReleaseReceiptId: "",
                 schemaVersion: AccountStoneAuthorityIndex.CurrentSchemaVersion + 1);
             Assert.True(repair.Scan(BuildStone(), BuildCharacter(), futureAuth)
                 .Has(QuarantineReason.UnsupportedSchemaVersion));
