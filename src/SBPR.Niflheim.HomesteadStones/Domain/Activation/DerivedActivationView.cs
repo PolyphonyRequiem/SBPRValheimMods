@@ -92,9 +92,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Activation
 
             // Caller relationship eligibility: this account/character actively holds a relationship to
             // this Stone. Delivery of any Character/Permanent effect requires it (dormant otherwise).
-            bool callerActive =
-                authority.ActiveKind != RelationshipKind.None
-                && authority.ActiveCharacter.Equals(character.Character);
+            // With the multi-active reservation index, "active" == this character holds a reservation.
+            bool callerActive = authority.HasActive(character.Character);
 
             // Collect this caller's purchases at this Stone (provenance state), keyed by node identity.
             var purchasedNodes = new HashSet<string>(StringComparer.Ordinal);

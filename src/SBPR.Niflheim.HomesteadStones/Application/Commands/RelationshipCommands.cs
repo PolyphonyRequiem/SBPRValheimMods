@@ -118,6 +118,21 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         bool TryGetClassification(StoneId stoneId, out string family, out string variant);
     }
 
+    /// <summary>Server-owned Bond authority policy (contracts.md CreateBond: "requested Responsibility
+    /// Range is authored and available" + "authored owner/governor role"). The Bond's owner/governor
+    /// role and Responsibility Range are NEVER client-authored: the client may REQUEST a range, but the
+    /// server validates it against authored content and supplies the authoritative role. A request for
+    /// an unauthored/unavailable range is rejected. Kept as a seam so the handler stays engine-free;
+    /// production wiring sources it from the Stone/content policy.</summary>
+    public interface IBondAuthorityPolicy
+    {
+        /// <summary>Validate a Bond authority request for one Stone. On success, emits the server-authored
+        /// <paramref name="grantedRange"/> (the validated available range) and <paramref name="grantedRole"/>.
+        /// Returns false when the requested range is not authored/available for this Stone.</summary>
+        bool TryAuthorizeBond(StoneId stoneId, string requestedResponsibilityRange,
+            out string grantedRange, out string grantedRole);
+    }
+
     public sealed class RelationshipCommandHandler
     {
         private readonly string _journalPath;
@@ -125,19 +140,26 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private readonly ICharacterAggregateStore _characterStore;
         private readonly IAccountStoneAuthorityStore _authorityStore;
         private readonly IStoneFamilyResolver _familyResolver;
+        private readonly IBondAuthorityPolicy _bondAuthority;
 
         public RelationshipCommandHandler(
             string journalPath,
             PrincipalResolver resolver,
             ICharacterAggregateStore characterStore,
             IAccountStoneAuthorityStore authorityStore,
-            IStoneFamilyResolver familyResolver)
+            IStoneFamilyResolver familyResolver,
+            IBondAuthorityPolicy? bondAuthority = null)
         {
             _journalPath = journalPath ?? throw new ArgumentNullException(nameof(journalPath));
             _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
             _characterStore = characterStore ?? throw new ArgumentNullException(nameof(characterStore));
             _authorityStore = authorityStore ?? throw new ArgumentNullException(nameof(authorityStore));
             _familyResolver = familyResolver ?? throw new ArgumentNullException(nameof(familyResolver));
+            // Default policy: accept the caller's requested range as the authored range only when it is
+            // non-empty, and always supply the server-authored "Governor" role. Production wiring injects
+            // a real content-backed policy; the default keeps the proof honest that the SERVER (not the
+            // client) is the one that stamps the role and validates the range is present.
+            _bondAuthority = bondAuthority ?? new DefaultBondAuthorityPolicy();
 
             // Rehydrate the character/authority projections from durable journal truth at construction
             // (server boot). Only committed operations project; a partial op is quarantined, never
@@ -157,6 +179,9 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 return Reject("PrincipalMismatch");
 
             string opId = command.OperationId.Value;
+
+            // Binding digest = the identity/command binding (op + type + Stone + principal). A committed
+            // op replayed with a DIFFERENT binding is OperationConflict (data-model.md idempotency).
             string bindingDigest = Digest(string.Join("|", new[]
             {
                 opId,
@@ -167,12 +192,27 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 command.RelationshipId
             }));
 
+            // Payload digest = the FULL mutable intent (data-model.md lines 229-234: "same payload
+            // digest returns the recorded terminal result; same operation ID with any conflicting
+            // binding rejects"). Includes responsibilityRange, ownerGovernorRole, expected
+            // status/revisions so a reused operation ID with a CHANGED payload conflicts instead of
+            // replaying stale intent.
+            string payloadDigest = Digest(string.Join("|", new[]
+            {
+                command.ResponsibilityRange,
+                command.OwnerGovernorRole,
+                ((int)command.ExpectedStatus).ToString(CultureInfo.InvariantCulture),
+                command.ExpectedCharacterRevision?.ToString(CultureInfo.InvariantCulture) ?? "-",
+                command.ExpectedAuthorityRevision?.ToString(CultureInfo.InvariantCulture) ?? "-"
+            }));
+
             // Idempotency: a committed record for this op returns the one recorded terminal result; a
-            // conflicting binding under a committed op is OperationConflict.
+            // conflicting binding OR payload under a committed op is OperationConflict.
             var existing = FindCommitted(opId);
             if (existing != null)
             {
-                if (!string.Equals(existing.BindingDigest, bindingDigest, StringComparison.Ordinal))
+                if (!string.Equals(existing.BindingDigest, bindingDigest, StringComparison.Ordinal)
+                    || !string.Equals(existing.PayloadDigest, payloadDigest, StringComparison.Ordinal))
                     return Reject("OperationConflict");
                 // Re-apply the recorded post-state idempotently and return the recorded result.
                 ApplyProjections(opId, existing);
@@ -190,6 +230,19 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 return Reject("StoneNotFound");
             var policy = RelationshipPolicy.For(family, variant);
 
+            // Bond authority is SERVER-authored, never client-authored (contracts.md CreateBond;
+            // defect 5). For a Bond the handler validates the requested Responsibility Range against
+            // the server-owned Bond authority policy and substitutes the server-granted range + role.
+            // Attunement grants no cultivation authority, so its range/role stay empty.
+            string effectiveRange = string.Empty;
+            string effectiveRole = string.Empty;
+            if (command.CommandType == RelationshipCommandType.CreateBond)
+            {
+                if (!_bondAuthority.TryAuthorizeBond(command.StoneId, command.ResponsibilityRange,
+                        out effectiveRange, out effectiveRole))
+                    return Reject("OutsideResponsibilityRange");
+            }
+
             // 3-4. Run the PURE transition. Validation completes before any journal write, so a
             // rejection changes nothing durable.
             string activationProvenance = "relreceipt:" + opId;
@@ -198,7 +251,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             {
                 case RelationshipCommandType.CreateBond:
                     transition = Relationships.CreateBond(character, authority, command.StoneId, policy,
-                        command.RelationshipId, command.ResponsibilityRange, command.OwnerGovernorRole,
+                        command.RelationshipId, effectiveRange, effectiveRole,
                         activationProvenance, command.ExpectedCharacterRevision, command.ExpectedAuthorityRevision);
                     break;
                 case RelationshipCommandType.CreateAttunement:
@@ -224,6 +277,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             {
                 OperationId = opId,
                 BindingDigest = bindingDigest,
+                PayloadDigest = payloadDigest,
+                AccountId = principal.Account.Value,
+                CharacterId = principal.Character.Value,
+                StoneId = command.StoneId.Value,
                 ResultCode = "Applied",
                 RelationshipId = transition.RelationshipId,
                 CharacterRevision = transition.Character.Revision,
@@ -266,6 +323,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         {
             public string OperationId = string.Empty;
             public string BindingDigest = string.Empty;
+            public string PayloadDigest = string.Empty;
+            // Explicit authenticated identity on every durable boundary record (data-model.md
+            // lines 236-243 boot-rehydration invariant): not only the payload/binding digests.
+            public string AccountId = string.Empty;
+            public string CharacterId = string.Empty;
+            public string StoneId = string.Empty;
             public string ResultCode = string.Empty;
             public string RelationshipId = string.Empty;
             public long CharacterRevision;
@@ -328,6 +391,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 r.OperationId,
                 ((int)boundary).ToString(CultureInfo.InvariantCulture),
                 r.BindingDigest,
+                r.PayloadDigest,
+                Encode(r.AccountId),
+                Encode(r.CharacterId),
+                Encode(r.StoneId),
                 r.ResultCode,
                 Encode(r.RelationshipId),
                 r.CharacterRevision.ToString(CultureInfo.InvariantCulture),
@@ -340,17 +407,21 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
-            if (parts.Length != 10 || parts[0] != "RELREC") return null;
+            if (parts.Length != 14 || parts[0] != "RELREC") return null;
             var rec = new CommittedRelationship
             {
                 OperationId = parts[1],
                 BindingDigest = parts[3],
-                ResultCode = parts[4],
-                RelationshipId = Decode(parts[5]),
-                CharacterRevision = long.Parse(parts[6], CultureInfo.InvariantCulture),
-                AuthorityRevision = long.Parse(parts[7], CultureInfo.InvariantCulture),
-                CharacterSnapshot = Decode(parts[8]),
-                AuthoritySnapshot = Decode(parts[9])
+                PayloadDigest = parts[4],
+                AccountId = Decode(parts[5]),
+                CharacterId = Decode(parts[6]),
+                StoneId = Decode(parts[7]),
+                ResultCode = parts[8],
+                RelationshipId = Decode(parts[9]),
+                CharacterRevision = long.Parse(parts[10], CultureInfo.InvariantCulture),
+                AuthorityRevision = long.Parse(parts[11], CultureInfo.InvariantCulture),
+                CharacterSnapshot = Decode(parts[12]),
+                AuthoritySnapshot = Decode(parts[13])
             };
             return new ParsedRecord
             {
@@ -435,6 +506,28 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             for (int i = 0; i < data.Length; i++)
                 crc = CrcTable[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
             return crc ^ 0xFFFFFFFFu;
+        }
+    }
+
+    /// <summary>Default engine-free Bond authority policy for the proof. The client REQUESTS a
+    /// Responsibility Range; the SERVER validates it is present (non-empty) and stamps the authoritative
+    /// owner/governor role. An empty/whitespace request is rejected as OutsideResponsibilityRange, so a
+    /// Bond can never install client-authored authority out of thin air. Production wiring replaces this
+    /// with a real content/Stone-backed policy that checks the range against authored availability.</summary>
+    public sealed class DefaultBondAuthorityPolicy : IBondAuthorityPolicy
+    {
+        public bool TryAuthorizeBond(StoneId stoneId, string requestedResponsibilityRange,
+            out string grantedRange, out string grantedRole)
+        {
+            grantedRange = string.Empty;
+            grantedRole = string.Empty;
+            if (string.IsNullOrWhiteSpace(requestedResponsibilityRange))
+                return false;
+            // Server-authored outputs: the validated range is echoed as the granted (available) range,
+            // and the role is ALWAYS the server's "Governor" — never taken from the client payload.
+            grantedRange = requestedResponsibilityRange;
+            grantedRole = "Governor";
+            return true;
         }
     }
 }

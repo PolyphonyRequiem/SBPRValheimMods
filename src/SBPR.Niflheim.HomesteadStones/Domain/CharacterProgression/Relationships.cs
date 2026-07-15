@@ -237,32 +237,35 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             if (expectedAuthorityRevision.HasValue && expectedAuthorityRevision.Value != authority.Revision)
                 return RelationshipTransition.Reject("StaleAuthorityRevision", character, authority);
 
-            // Sibling exclusivity (policy-driven). If the index is occupied by a DIFFERENT character on
-            // this account and the kind is sibling-exclusive for this variant, reject with no mutation.
-            // A character cannot evade the invariant by holding Bond and Attunement via separate rows:
-            // the single index is the one gate for both (data-model.md Aggregate 2 invariants).
-            if (!authority.IsVacant && !authority.ActiveCharacter.Equals(character.Character))
-            {
-                if (policy.SiblingExclusiveFor(kind))
-                    return RelationshipTransition.Reject("SiblingCharacterActive", character, authority);
-            }
+            // Sibling exclusivity (policy-driven, multi-active reservation index). The account–Stone
+            // index may hold MULTIPLE character reservations (design call 2026-07-15). If the kind is
+            // sibling-exclusive for this variant and ANY DIFFERENT character on this account already
+            // holds a reservation here, reject with no mutation. A character cannot evade the invariant
+            // by holding Bond and Attunement via separate rows: the single index is the one gate for
+            // both (data-model.md Aggregate 2 invariants). Community Attunement is NOT sibling-exclusive,
+            // so multiple siblings may reserve simultaneously; Community Bond stays account-exclusive and
+            // is blocked by any sibling reservation of any kind (policy.SiblingExclusiveFor(Bond)==true).
+            if (policy.SiblingExclusiveFor(kind) && authority.HasSiblingOtherThan(character.Character))
+                return RelationshipTransition.Reject("SiblingCharacterActive", character, authority);
 
             // This character already actively holds a relationship here -> conflict, not a second grant.
-            if (!authority.IsVacant && authority.ActiveCharacter.Equals(character.Character))
+            if (authority.HasActive(character.Character))
                 return RelationshipTransition.Reject("RelationshipConflict", character, authority);
 
             var stoneRecord = FindStoneRecord(character, stoneId);
 
-            // Slot capacity: count this character's ACTIVE relationships of this kind at this Stone
-            // against the aggregate's slot capacity (contracts.md CreateBond "Bond Slot capacity").
-            int activeOfKind = CountActive(stoneRecord, kind);
+            // Slot capacity is the CHARACTER-WIDE relationship scarcity mechanism (FR-003; data-model.md
+            // Aggregate 3 "Capacity"): count this character's ACTIVE relationships of this kind ACROSS
+            // EVERY Stone against the aggregate's slot capacity, not just this Stone. Bonding a second
+            // Stone with a single Bond Slot must be rejected.
+            int activeOfKind = CountActiveCharacterWide(character, kind);
             int capacity = kind == RelationshipKind.Bond ? character.BondSlots : character.AttunementSlots;
             if (activeOfKind >= capacity)
                 return RelationshipTransition.Reject("RelationshipCapacityExceeded", character, authority);
 
-            // A still-Active record for this kind is a conflict (defensive; the index check above
-            // normally catches it, but the record is the character-owned source of truth).
-            if (activeOfKind > 0)
+            // A still-Active record for this kind AT THIS STONE is a conflict (defensive; the index
+            // check above normally catches it, but the record is the character-owned source of truth).
+            if (CountActive(stoneRecord, kind) > 0)
                 return RelationshipTransition.Reject("RelationshipConflict", character, authority);
 
             var newRecord = new RelationshipRecord(relationshipId, kind, RelationshipStatus.Active,
@@ -271,13 +274,10 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             var newCharacter = WithRelationship(character, stoneId, stoneRecord, newRecord,
                 appendOnly: true, character.Revision + 1);
 
-            var newAuthority = new AccountStoneAuthorityIndex(
-                authority.Account, authority.StoneId, authority.Revision + 1,
-                activeCharacter: character.Character,
-                activeKind: kind,
-                activeRelationshipId: relationshipId,
-                activationReceiptId: activationProvenance,
-                releaseReceiptId: string.Empty);
+            // Add this character's reservation to the multi-active index (does not disturb siblings).
+            var newAuthority = authority.WithReservationAdded(
+                new AuthorityReservation(character.Character, kind, relationshipId, activationProvenance),
+                authority.Revision + 1);
 
             return RelationshipTransition.Accept("Applied", newCharacter, newAuthority, relationshipId);
         }
@@ -323,30 +323,29 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 }
             }
 
-            // No active relationship of that id, or the caller does not currently hold the active index:
-            // there is nothing to release (contracts.md RelationshipRequired).
+            // No active relationship of that id, or the caller does not currently hold a matching
+            // reservation: there is nothing to release (contracts.md RelationshipRequired).
             if (active == null)
                 return RelationshipTransition.Reject("RelationshipRequired", character, authority);
             if (expectedStatus != RelationshipStatus.Active)
                 return RelationshipTransition.Reject("RelationshipConflict", character, authority);
-            if (authority.IsVacant || !authority.ActiveCharacter.Equals(character.Character) ||
-                !string.Equals(authority.ActiveRelationshipId, relationshipId, StringComparison.Ordinal))
+
+            // This character must hold the exact reservation being released. Releasing another
+            // character's reservation is never permitted (each release removes only its own entry).
+            var reservation = authority.ReservationByRelationship(relationshipId);
+            if (reservation == null || !reservation.Character.Equals(character.Character))
                 return RelationshipTransition.Reject("RelationshipConflict", character, authority);
 
             var released = active.AsReleased(releaseProvenance);
             var newCharacter = WithRelationship(character, stoneId, stoneRecord, released,
                 appendOnly: false, character.Revision + 1);
 
-            // Clear the active index in the SAME logical operation (data-model.md §"Release
-            // relationship": clear index after the mutation is durably recoverable). Preserve the
-            // activation receipt provenance; stamp the release receipt.
-            var newAuthority = new AccountStoneAuthorityIndex(
-                authority.Account, authority.StoneId, authority.Revision + 1,
-                activeCharacter: new CharacterId(string.Empty),
-                activeKind: RelationshipKind.None,
-                activeRelationshipId: string.Empty,
-                activationReceiptId: authority.ActivationReceiptId,
-                releaseReceiptId: releaseProvenance ?? string.Empty);
+            // Remove ONLY this character's reservation from the multi-active index in the SAME logical
+            // operation (data-model.md §"Release relationship": clear index after the mutation is
+            // durably recoverable). Sibling reservations (e.g. a simultaneously active Community sibling)
+            // are preserved untouched.
+            var newAuthority = authority.WithReservationReleased(
+                relationshipId, releaseProvenance ?? string.Empty, authority.Revision + 1);
 
             return RelationshipTransition.Accept("Applied", newCharacter, newAuthority, relationshipId);
         }
@@ -364,6 +363,18 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             int n = 0;
             foreach (var rel in stoneRecord.Relationships)
                 if (rel.IsActive && rel.Kind == kind) n++;
+            return n;
+        }
+
+        /// <summary>Count this character's ACTIVE relationships of one kind across EVERY Stone. Bond and
+        /// Attunement Slots are the character-wide relationship scarcity mechanism (FR-003), so slot
+        /// capacity is measured against the whole aggregate, not a single Stone.</summary>
+        private static int CountActiveCharacterWide(CharacterProgressionAggregate character, RelationshipKind kind)
+        {
+            int n = 0;
+            foreach (var sr in character.StoneRecords)
+                foreach (var rel in sr.Relationships)
+                    if (rel.IsActive && rel.Kind == kind) n++;
             return n;
         }
 

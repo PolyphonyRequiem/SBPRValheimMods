@@ -225,8 +225,9 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
                 foreach (var fc in sr.FacetCredits) facetCredit += fc.Amount;
             }
 
+            var callerReservation = authority.ReservationFor(caller.Character);
             RelationshipKind callerRelationship =
-                authority.ActiveCharacter.Equals(caller.Character) ? authority.ActiveKind : RelationshipKind.None;
+                callerReservation != null ? callerReservation.Kind : RelationshipKind.None;
 
             var view = DerivedActivationView.Derive(stone, caller, authority);
 

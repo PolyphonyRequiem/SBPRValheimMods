@@ -132,9 +132,10 @@ namespace SBPR.Trailborne.Tests
             // Index now occupied by this character, kind Bond.
             var idx = _authority.GetAuthority(_account, _homestead);
             Assert.False(idx.IsVacant);
-            Assert.Equal(RelationshipKind.Bond, idx.ActiveKind);
-            Assert.Equal(_charA1, idx.ActiveCharacter);
-            Assert.Equal("rel-bond-1", idx.ActiveRelationshipId);
+            var idxRes = Assert.Single(idx.Reservations);
+            Assert.Equal(RelationshipKind.Bond, idxRes.Kind);
+            Assert.Equal(_charA1, idxRes.Character);
+            Assert.Equal("rel-bond-1", idxRes.RelationshipId);
 
             // Character record carries an Active Bond with the authored role/range; balances UNCHANGED.
             var after = _characters.GetCharacter(_account, _charA1)!;
@@ -142,7 +143,8 @@ namespace SBPR.Trailborne.Tests
             var rel = Assert.Single(rec.Relationships);
             Assert.Equal(RelationshipKind.Bond, rel.Kind);
             Assert.True(rel.IsActive);
-            Assert.Equal("Owner", rel.OwnerGovernorRole);
+            // Server-authored role (never client "Owner"): the Bond authority policy stamps "Governor".
+            Assert.Equal("Governor", rel.OwnerGovernorRole);
             Assert.Equal("Homestead:All", rel.ResponsibilityRange);
             Assert.Equal(FindStone(before, _homestead).PersonalAp, rec.PersonalAp);
             Assert.Equal(FindStone(before, _homestead).PersonalBp, rec.PersonalBp);
@@ -168,7 +170,7 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(RelationshipCommandOutcome.Applied, result.Outcome);
 
             var idx = _authority.GetAuthority(_accountB, _homestead);
-            Assert.Equal(RelationshipKind.Attunement, idx.ActiveKind);
+            Assert.Equal(RelationshipKind.Attunement, Assert.Single(idx.Reservations).Kind);
 
             var after = _characters.GetCharacter(_accountB, _charB1)!;
             var rel = Assert.Single(FindStone(after, _homestead).Relationships);
@@ -192,7 +194,7 @@ namespace SBPR.Trailborne.Tests
 
             // No mutation: the index still points at A1's Bond, and A2 has no relationship.
             var idx = _authority.GetAuthority(_account, _homestead);
-            Assert.Equal(_charA1, idx.ActiveCharacter);
+            Assert.Equal(_charA1, Assert.Single(idx.Reservations).Character);
             var a2 = _characters.GetCharacter(_account, _charA2)!;
             Assert.Empty(FindStone(a2, _homestead).Relationships);
         }
@@ -210,7 +212,7 @@ namespace SBPR.Trailborne.Tests
             Assert.True(_authority.GetAuthority(_account, _homestead).IsVacant);
             var a2Bond = _handler.Handle(Bond(_charA2, _homestead, "rel-bond-a2"));
             Assert.Equal(RelationshipCommandOutcome.Applied, a2Bond.Outcome);
-            Assert.Equal(_charA2, _authority.GetAuthority(_account, _homestead).ActiveCharacter);
+            Assert.Equal(_charA2, Assert.Single(_authority.GetAuthority(_account, _homestead).Reservations).Character);
         }
 
         // ── AT-COMMUNITY-ATTUNEMENT-EXCEPTION ───────────────────────────────────
@@ -369,13 +371,142 @@ namespace SBPR.Trailborne.Tests
             // Rehydrated: the index and the character relationship are restored from journal truth.
             var idx = authority2.GetAuthority(_account, _homestead);
             Assert.False(idx.IsVacant);
-            Assert.Equal(_charA1, idx.ActiveCharacter);
+            Assert.Equal(_charA1, Assert.Single(idx.Reservations).Character);
             var rel = Assert.Single(FindStone(characters2.GetCharacter(_account, _charA1)!, _homestead).Relationships);
             Assert.True(rel.IsActive);
 
             // Re-submitting the same op after restart is a pure replay.
             var replay = handler2.Handle(Bond(_charA1, _homestead, "rel-bond-1"));
             Assert.Equal(RelationshipCommandOutcome.Replayed, replay.Outcome);
+        }
+
+        // ── AT-COMMUNITY-ATTUNEMENT-EXCEPTION (multi-active, design call 2026-07-15) ──
+
+        [Fact]
+        public void Community_SiblingAttunements_AreSimultaneouslyActive_ReleaseRemovesOnlyThatSibling()
+        {
+            _characters.PutCharacter(BuildCharacter(_account, _charA1, 5, 3, true, _community));
+            _characters.PutCharacter(BuildCharacter(_account, _charA2, 1, 0, false, _community));
+            var h = NewHandler();
+
+            Assert.Equal(RelationshipCommandOutcome.Applied, h.Handle(Attune(_account, _charA1, _community, "rel-catt-1")).Outcome);
+            Assert.Equal(RelationshipCommandOutcome.Applied, h.Handle(Attune(_account, _charA2, _community, "rel-catt-2")).Outcome);
+
+            // Both siblings hold a SIMULTANEOUS reservation in the one authoritative index — not one
+            // overwriting the other (the pre-fix bug). The index carries two entries.
+            var idx = _authority.GetAuthority(_account, _community);
+            Assert.Equal(2, idx.Reservations.Count);
+            Assert.True(idx.HasActive(_charA1));
+            Assert.True(idx.HasActive(_charA2));
+
+            // Derived activation confirms A1 is active (not dormant) even while sibling A2 is also active.
+            var a1View = DeriveView(_account, _charA1, _community);
+            Assert.Equal(DerivedNodeState.Active, FindNode(a1View, "SavorTheHearth").State);
+
+            // Release A1: removes ONLY A1's reservation; A2 stays active.
+            Assert.Equal(RelationshipCommandOutcome.Applied,
+                h.Handle(Release(_charA1, _community, "rel-catt-1", "op-catt-rel-1")).Outcome);
+            var afterIdx = _authority.GetAuthority(_account, _community);
+            Assert.False(afterIdx.HasActive(_charA1));
+            Assert.True(afterIdx.HasActive(_charA2));
+        }
+
+        // ── character-wide slot scarcity (FR-003; defect: was per-Stone) ─────────
+
+        [Fact]
+        public void CharacterWideSlots_SingleBondSlot_CannotBondASecondStone()
+        {
+            // A1 has 1 Bond Slot. It bonds the Homestead, then attempts to bond a SECOND Stone. Because
+            // Bond Slots are character-wide, the second bond exceeds capacity even though the second
+            // Stone's own index is vacant.
+            var stone2 = StoneId.FromHostZone(_world, 88, 88);
+            _families.Set(stone2, "Settlement", "Homestead");
+            // Give A1 a record at stone2 as well so it has somewhere to place the bond.
+            var a1 = _characters.GetCharacter(_account, _charA1)!;
+            var records = new List<CharacterStoneRecord>(a1.StoneRecords)
+            {
+                new CharacterStoneRecord(stone2, 0, 0, 0)
+            };
+            _characters.PutCharacter(new CharacterProgressionAggregate(_account, _charA1,
+                a1.WorldProductScope, a1.Revision, a1.BondSlots, a1.AttunementSlots,
+                a1.LastAppliedReceiptId, records));
+            var h = NewHandler();
+
+            Assert.Equal(RelationshipCommandOutcome.Applied, h.Handle(Bond(_charA1, _homestead, "rel-b1")).Outcome);
+            var second = h.Handle(Bond(_charA1, stone2, "rel-b2"));
+            Assert.Equal(RelationshipCommandOutcome.Rejected, second.Outcome);
+            Assert.Equal("RelationshipCapacityExceeded", second.ResultCode);
+        }
+
+        // ── replay must not roll a newer projection backward (defect 3) ──────────
+
+        [Fact]
+        public void ReplayOfOlderOp_AfterRelease_DoesNotRestorePreReleaseState()
+        {
+            _handler.Handle(Bond(_charA1, _homestead, "rel-bond-1"));       // op1: index active
+            _handler.Handle(Release(_charA1, _homestead, "rel-bond-1", "op-rel-1")); // op2: index vacant
+            Assert.True(_authority.GetAuthority(_account, _homestead).IsVacant);
+
+            // Retry the ORIGINAL bond op (op1). It is a committed replay; it must return the recorded
+            // result WITHOUT overwriting the newer (released) projection back to the active state.
+            var replay = _handler.Handle(Bond(_charA1, _homestead, "rel-bond-1"));
+            Assert.Equal(RelationshipCommandOutcome.Replayed, replay.Outcome);
+
+            // Newer state preserved: index still vacant, relationship still Released.
+            Assert.True(_authority.GetAuthority(_account, _homestead).IsVacant);
+            var rel = Assert.Single(FindStone(_characters.GetCharacter(_account, _charA1)!, _homestead).Relationships);
+            Assert.Equal(RelationshipStatus.Released, rel.Status);
+        }
+
+        // ── operation binding covers the full payload (defect 4) ─────────────────
+
+        [Fact]
+        public void ReusedOperationId_WithChangedPayload_RejectsOperationConflict()
+        {
+            var op = new OperationId("op-payload");
+            _handler.Handle(new RelationshipCommand(op, RelationshipCommandType.CreateBond, _homestead,
+                new AuthenticatedConnection(_account.Value, _charA1.Value), default, "rel-p",
+                responsibilityRange: "Homestead:All", ownerGovernorRole: "Owner"));
+            // SAME op id, SAME binding (op/type/Stone/principal/relationshipId), but a DIFFERENT payload
+            // (responsibilityRange). Must conflict, not replay stale intent.
+            var conflict = _handler.Handle(new RelationshipCommand(op, RelationshipCommandType.CreateBond, _homestead,
+                new AuthenticatedConnection(_account.Value, _charA1.Value), default, "rel-p",
+                responsibilityRange: "Homestead:KitchenOnly", ownerGovernorRole: "Owner"));
+            Assert.Equal("OperationConflict", conflict.ResultCode);
+        }
+
+        // ── Bond authority is server-authored, not client-authored (defect 5) ────
+
+        [Fact]
+        public void CreateBond_WithNoRequestedResponsibilityRange_RejectedOutsideResponsibilityRange()
+        {
+            var cmd = new RelationshipCommand(new OperationId("op-noauth"), RelationshipCommandType.CreateBond,
+                _homestead, new AuthenticatedConnection(_account.Value, _charA1.Value), default, "rel-noauth",
+                responsibilityRange: "", ownerGovernorRole: "Owner");
+            var result = _handler.Handle(cmd);
+            Assert.Equal(RelationshipCommandOutcome.Rejected, result.Outcome);
+            Assert.Equal("OutsideResponsibilityRange", result.ResultCode);
+            // No mutation.
+            Assert.True(_authority.GetAuthority(_account, _homestead).IsVacant);
+        }
+
+        // ── explicit authenticated identity on every durable boundary (defect 6) ─
+
+        [Fact]
+        public void DurableJournalRecord_CarriesExplicitAuthenticatedIdentity_NotOnlyDigests()
+        {
+            _handler.Handle(Bond(_charA1, _homestead, "rel-id"));
+
+            // The boot-rehydration invariant (data-model.md 236-243) requires the authenticated
+            // AccountId/CharacterId/StoneId on every durable boundary record, not only payload/binding
+            // digests. The codec base64-encodes those fields, so their tokens must appear in the journal.
+            string journal = System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(_journalPath));
+            string encAccount = System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_account.Value));
+            string encChar = System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_charA1.Value));
+            string encStone = System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_homestead.Value));
+            Assert.Contains(encAccount, journal);
+            Assert.Contains(encChar, journal);
+            Assert.Contains(encStone, journal);
         }
 
         // ── helpers ─────────────────────────────────────────────────────────────

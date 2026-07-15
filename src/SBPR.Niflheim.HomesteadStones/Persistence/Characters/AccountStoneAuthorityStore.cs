@@ -56,27 +56,25 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Characters
         public AccountStoneAuthorityIndex GetAuthority(AccountId account, StoneId stoneId)
         {
             if (_byKey.TryGetValue(Key(account, stoneId), out var idx)) return idx;
-            return new AccountStoneAuthorityIndex(account, stoneId, 0,
-                activeCharacter: new CharacterId(string.Empty),
-                activeKind: RelationshipKind.None,
-                activeRelationshipId: string.Empty,
-                activationReceiptId: string.Empty,
-                releaseReceiptId: string.Empty);
+            return AccountStoneAuthorityIndex.Vacant(account, stoneId);
         }
 
         public void ApplyAuthorityProjection(string operationId, AccountStoneAuthorityIndex authority)
         {
             if (operationId == null) throw new ArgumentNullException(nameof(operationId));
             if (authority == null) throw new ArgumentNullException(nameof(authority));
-            // Set-to-state, keyed by operationId: applying the same op again is a no-op.
-            if (_appliedOps.TryGetValue(operationId, out var priorKey)
-                && string.Equals(priorKey, Key(authority.Account, authority.StoneId), StringComparison.Ordinal))
+            string key = Key(authority.Account, authority.StoneId);
+            // Revision-guarded set-to-state (replay must not roll a NEWER projection backward): apply
+            // only when the incoming snapshot is at least as new as what is stored. Journal rehydration
+            // replays in ascending order so each committed op advances the projection; a late replay of
+            // an OLDER committed op (e.g. bond-op1 after release-op2) is a no-op that keeps current state.
+            if (_byKey.TryGetValue(key, out var current) && current.Revision > authority.Revision)
             {
-                _byKey[priorKey] = authority;
+                _appliedOps[operationId] = key;
                 return;
             }
-            _appliedOps[operationId] = Key(authority.Account, authority.StoneId);
-            _byKey[Key(authority.Account, authority.StoneId)] = authority;
+            _appliedOps[operationId] = key;
+            _byKey[key] = authority;
         }
     }
 
@@ -103,8 +101,12 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Characters
         {
             if (operationId == null) throw new ArgumentNullException(nameof(operationId));
             if (character == null) throw new ArgumentNullException(nameof(character));
-            // Set-to-state: the post-state snapshot is deterministic per operation, so replay converges.
-            _byKey[Key(character.Account, character.Character)] = character;
+            string key = Key(character.Account, character.Character);
+            // Revision-guarded set-to-state: replay of an OLDER committed op must not overwrite a newer
+            // projection (defect: bond-op1 -> release-op2 -> retry-op1 must NOT restore pre-release state).
+            if (_byKey.TryGetValue(key, out var current) && current.Revision > character.Revision)
+                return;
+            _byKey[key] = character;
         }
     }
 }
