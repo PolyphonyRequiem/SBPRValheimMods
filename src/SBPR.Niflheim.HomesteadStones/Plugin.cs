@@ -17,6 +17,12 @@ namespace SBPR.Niflheim.HomesteadStones
     /// accepted V12 AssetBundle visual, current Location-zone-coordinate D3 keys, and the
     /// provisional deterministic Meadows selector/seating path. Claim/account/UI and final
     /// migration/compatibility policy remain later playtest-gated slices.
+    ///
+    /// T009 (2026-07-15): the live Foundational AP runtime seam. On the authoritative server this
+    /// plugin composes the durable FoundationalProgressionServer (Application/Runtime) and installs the
+    /// engine-bound FoundationalPlacementObserver so a real successful placement flows through the
+    /// shipped adapter → pipeline → durable receipt. Composition is server-gated and wired lazily from
+    /// ZNet start (see Features/Progression/FoundationalRuntimeBootstrap.cs).
     /// </summary>
     [BepInPlugin(ModId, ModName, ModVersion)]
     public partial class Plugin : BaseUnityPlugin
@@ -40,6 +46,11 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneRegistrar));
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneWorldPlacement));
+
+            // T009 — live Foundational AP runtime. The bootstrap Harmony patch composes the durable
+            // FoundationalProgressionServer on the authoritative server and arms the placement observer.
+            harmony.PatchAll(typeof(Features.Progression.FoundationalRuntimeBootstrap));
+            harmony.PatchAll(typeof(Features.Progression.FoundationalPlacementObserver));
 
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }

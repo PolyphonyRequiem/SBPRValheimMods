@@ -160,6 +160,20 @@ ApActivityReceipt
 
 The three deltas commit as one logical operation. Partial Personal/Cumulative/Mirrored results are invalid.
 
+**Live runtime seam (T009R, 2026-07-15).** `RecordFoundationalPlacement` is fed on the authoritative
+server by `Application/Runtime/FoundationalPlacementRuntime`, which turns one server-observed
+`FoundationalPlacementObservation` (Stone, acting account/character derived from the authenticated
+connection context — never client payload, stable piece id resolved via the version-pinned
+`FoundationalPrefabMap`, physical-instance provenance, `StoneAreaMembership` result, success state, and
+catalog version) into `FoundationalPlacementEvidence`, passes it through the hardened
+`FoundationalPlacementAdapter`, and calls the existing `ProgressionCommandPipeline`. The operation id is
+derived deterministically from the physical-instance provenance so re-observation/retry/restart converges
+on the one recorded receipt. Authorization is the relationship-backed `RelationshipPlacementAuthorizer`
+only; there is no permissive/test authorizer or client-authoritative fallback in production. The
+net48-only `Features/Progression/FoundationalPlacementObserver` (a `Player.PlacePiece` postfix, server-
+gated) supplies the observation; `FoundationalRuntimeBootstrap` composes the durable
+`FoundationalProgressionServer` under a stable world-scoped server-owned path with startup rehydration.
+
 ### `RecordAlignedActivity`
 
 Used by server adapters for eligible Cooking, Crafting, Archer, or Warrior activity.

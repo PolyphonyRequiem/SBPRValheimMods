@@ -131,6 +131,16 @@
     <!-- Homestead progression Tracer 2 (T008): the relationship-backed placement authorizer that makes
          real T007 authority the gate for the ongoing Foundational AP source. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/RelationshipPlacementAuthorizer.cs" />
+    <!-- Homestead progression Tracer 2 (T009): the engine-free LIVE-runtime seam — the server-observed
+         placement observation, the runtime service that threads it through the shipped adapter+pipeline,
+         the engine-free composition root, the prefab→stable-id map, and Stone Area membership. These are
+         deliberately free of UnityEngine/Valheim refs (the net48-only Harmony observer/bootstrap are not
+         link-compiled), so the whole live path minus engine attribution is exercised under net8. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/FoundationalPrefabMap.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneAreaMembership.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalPlacementObservation.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalPlacementRuntime.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalProgressionServer.cs" />
     <!-- Homestead progression Tracer 3 (T010): Stone Facets + revisioned Profession/Martial Tree
          commitment. Pure Facet transition, engine-free Stone aggregate store, the receipt-backed
          CommitTreeToFacet command handler, and the hints-only panel affordance. Engine-free. -->
