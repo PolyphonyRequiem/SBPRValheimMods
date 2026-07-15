@@ -131,6 +131,13 @@
     <!-- Homestead progression Tracer 2 (T008): the relationship-backed placement authorizer that makes
          real T007 authority the gate for the ongoing Foundational AP source. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/RelationshipPlacementAuthorizer.cs" />
+    <!-- Homestead progression Tracer 3 (T010): Stone Facets + revisioned Profession/Martial Tree
+         commitment. Pure Facet transition, engine-free Stone aggregate store, the receipt-backed
+         CommitTreeToFacet command handler, and the hints-only panel affordance. Engine-free. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneFacets.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Stone/StoneAggregateStore.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/FacetCommands.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/Progression/HomesteadProgressionPanel.cs" />
   </ItemGroup>
 
 </Project>
