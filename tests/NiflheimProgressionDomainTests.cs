@@ -253,6 +253,67 @@ namespace SBPR.Trailborne.Tests
             Assert.Throws<System.ArgumentException>(() => query.Execute(stone, caller, wrongStone));
         }
 
+        [Fact]
+        public void AT_READMODEL_STONE_ID_ReportsExactNodePricesAndRequirements()
+        {
+            // spec US1/US3 acceptance scenario 1 + contracts.md §"GetStoneProgressionView": the read
+            // model must report each node's exact stable identity/version, outcome, first-build status,
+            // AP/BP price, Tree/Stone level gates, prior-Offered-Set gate, and other requirements. This
+            // proves the projection surfaces the authored registry values verbatim (provisional proof
+            // data — Daniel 2026-07-14 — not final balance).
+            var stone = BuildStone();
+            var caller = BuildCharacter(OwnerAccount, OwnerChar);
+            var authority = BuildAuthority(OwnerAccount, OwnerChar, RelationshipKind.Bond);
+
+            var view = new GetStoneProgressionView().Execute(stone, caller, authority);
+
+            // The catalog section mirrors the full 20-node current-build roster in stable order.
+            Assert.Equal(20, view.NodeCatalog.Count);
+
+            NodeCatalogEntry Find(string key)
+            {
+                foreach (var e in view.NodeCatalog)
+                    if (e.Node.Key == key) return e;
+                throw new Xunit.Sdk.XunitException("missing catalog entry: " + key);
+            }
+
+            // Executable personal node: BP=1, AP=1, gates on committed Tree + content + L1 + Attunement + Offered.
+            var fieldPrep = Find("FieldPrep");
+            Assert.Equal(1, fieldPrep.DevelopmentBpPrice);
+            Assert.Equal(1, fieldPrep.PurchaseApPrice);
+            Assert.True(fieldPrep.RequiresCommittedTree);
+            Assert.True(fieldPrep.RequiresCurrentContentVersion);
+            Assert.Equal(1, fieldPrep.MinActiveStoneLevel);
+            Assert.Equal(1, fieldPrep.MinTreeLevel);
+            Assert.True(fieldPrep.RequiresActiveAttunement);
+            Assert.True(fieldPrep.RequiresOfferedStatus);
+            Assert.Empty(fieldPrep.PriorOfferedSet);
+
+            // Local node: BP=1 but NO AP price; no Attunement/Offered gate.
+            var savor = Find("SavorTheHearth");
+            Assert.Equal(1, savor.DevelopmentBpPrice);
+            Assert.Null(savor.PurchaseApPrice);
+            Assert.False(savor.RequiresActiveAttunement);
+            Assert.False(savor.RequiresOfferedStatus);
+
+            // Swift Preparation: L2 gates + the exact 2-node prior-Offered-Set.
+            var swift = Find("SwiftPreparation");
+            Assert.Equal(2, swift.MinActiveStoneLevel);
+            Assert.Equal(2, swift.MinTreeLevel);
+            Assert.Equal(2, swift.PriorOfferedSet.Count);
+            Assert.Contains(new VersionedId("FieldPrep", 1), swift.PriorOfferedSet);
+            Assert.Contains(new VersionedId("IronStomach", 1), swift.PriorOfferedSet);
+
+            // Unavailable node: no price of any kind, no authored gates.
+            var watchful = Find("WatchfulCook");
+            Assert.Equal(NodeFirstBuildStatus.Unavailable, watchful.Status);
+            Assert.Null(watchful.DevelopmentBpPrice);
+            Assert.Null(watchful.PurchaseApPrice);
+
+            // The catalog section is still not a client-authoritative ready flag.
+            Assert.False(view.HasClientAuthoritativeReadyFlag);
+        }
+
         // ── AT-NO-ACTIVE-LEDGER ───────────────────────────────────────────────
 
         [Fact]
@@ -364,35 +425,44 @@ namespace SBPR.Trailborne.Tests
         {
             // Full table-driven drift guard: the EXACT authored 20-row mapping (data-model.md §"Fixed
             // first-build roster"). Each row pins stable node key + version, owning Tree key + version,
-            // Tree level, outcome, ownership, and first-build status. A single edit to the roster that
-            // changes any cell fails here — this is the real per-node drift guard (AGENTS.md).
+            // Tree level, outcome, ownership, first-build status, AND the provisional authored AP/BP
+            // price and requirement gates (Daniel design call 2026-07-14). A single edit to the roster
+            // that changes any cell fails here — this is the real per-node drift guard (AGENTS.md).
+            //
+            // Price convention: executable BP=1; executable personal AP=1; Local nodes AP=null; every
+            // unavailable node has BP=null and AP=null. Requirement convention: executable nodes gate on
+            // committed Tree + current content + Active Stone Level>=level + Tree Level>=level; personal
+            // executable nodes additionally require active Attunement + Offered status. Unavailable nodes
+            // author no gates. Swift Preparation additionally carries a 2-node prior-Offered-Set.
             var expected = new (string tree, int treeVer, string node, int nodeVer, int level,
-                NodeOutcomeType outcome, NodeOwnership ownership, NodeFirstBuildStatus status)[]
+                NodeOutcomeType outcome, NodeOwnership ownership, NodeFirstBuildStatus status,
+                int? bp, int? ap, bool committedTree, bool currentContent, int minStone, int minTree,
+                bool attune, bool offered, int priorSet)[]
             {
                 // Cooking
-                ("Cooking", 1, "SavorTheHearth", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
-                ("Cooking", 1, "FieldPrep", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Cooking", 1, "IronStomach", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Cooking", 1, "SwiftPreparation", 1, 2, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Cooking", 1, "WatchfulCook", 1, 2, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                ("Cooking", 1, "SavorTheHearth", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable, 1, null, true, true, 1, 1, false, false, 0),
+                ("Cooking", 1, "FieldPrep", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Cooking", 1, "IronStomach", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Cooking", 1, "SwiftPreparation", 1, 2, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 2, 2, true, true, 2),
+                ("Cooking", 1, "WatchfulCook", 1, 2, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable, null, null, false, false, 0, 0, false, false, 0),
                 // Crafting
-                ("Crafting", 1, "RefinedWorkshop", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
-                ("Crafting", 1, "Masterwork", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Crafting", 1, "BuiltToLast", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Crafting", 1, "MeasuredCuts", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
-                ("Crafting", 1, "ArtisansCounter", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                ("Crafting", 1, "RefinedWorkshop", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable, 1, null, true, true, 1, 1, false, false, 0),
+                ("Crafting", 1, "Masterwork", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Crafting", 1, "BuiltToLast", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Crafting", 1, "MeasuredCuts", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable, null, null, false, false, 0, 0, false, false, 0),
+                ("Crafting", 1, "ArtisansCounter", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable, null, null, false, false, 0, 0, false, false, 0),
                 // Archer
-                ("Archer", 1, "PracticeRange", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
-                ("Archer", 1, "FieldFletchingI", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Archer", 1, "FletchersHabit", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Archer", 1, "SteadyAim", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
-                ("Archer", 1, "BowyersLore", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                ("Archer", 1, "PracticeRange", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable, 1, null, true, true, 1, 1, false, false, 0),
+                ("Archer", 1, "FieldFletchingI", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Archer", 1, "FletchersHabit", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Archer", 1, "SteadyAim", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable, null, null, false, false, 0, 0, false, false, 0),
+                ("Archer", 1, "BowyersLore", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable, null, null, false, false, 0, 0, false, false, 0),
                 // Warrior
-                ("Warrior", 1, "TwigTraining", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable),
-                ("Warrior", 1, "ReadyHands", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Warrior", 1, "WeaponDiscipline", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable),
-                ("Warrior", 1, "ShrugItOffI", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
-                ("Warrior", 1, "HeavyHands", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable),
+                ("Warrior", 1, "TwigTraining", 1, 1, NodeOutcomeType.LocalEffect, NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable, 1, null, true, true, 1, 1, false, false, 0),
+                ("Warrior", 1, "ReadyHands", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Warrior", 1, "WeaponDiscipline", 1, 1, NodeOutcomeType.PermanentEffect, NodeOwnership.PersonalOffered, NodeFirstBuildStatus.Executable, 1, 1, true, true, 1, 1, true, true, 0),
+                ("Warrior", 1, "ShrugItOffI", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable, null, null, false, false, 0, 0, false, false, 0),
+                ("Warrior", 1, "HeavyHands", 1, 1, NodeOutcomeType.CharacterEffect, NodeOwnership.NoneWhileUnavailable, NodeFirstBuildStatus.Unavailable, null, null, false, false, 0, 0, false, false, 0),
             };
 
             // Exact count and exact ordered mapping — no extra rows, no missing rows, no drift.
@@ -410,7 +480,62 @@ namespace SBPR.Trailborne.Tests
                 Assert.Equal(want.outcome, got.Outcome);
                 Assert.Equal(want.ownership, got.Ownership);
                 Assert.Equal(want.status, got.Status);
+
+                // Exact authored prices.
+                Assert.Equal(want.bp, got.Pricing.DevelopmentBpPrice);
+                Assert.Equal(want.ap, got.Pricing.PurchaseApPrice);
+
+                // Exact authored requirement gates.
+                Assert.Equal(want.committedTree, got.Requirements.RequiresCommittedTree);
+                Assert.Equal(want.currentContent, got.Requirements.RequiresCurrentContentVersion);
+                Assert.Equal(want.minStone, got.Requirements.MinActiveStoneLevel);
+                Assert.Equal(want.minTree, got.Requirements.MinTreeLevel);
+                Assert.Equal(want.attune, got.Requirements.RequiresActiveAttunement);
+                Assert.Equal(want.offered, got.Requirements.RequiresOfferedStatus);
+                Assert.Equal(want.priorSet, got.Requirements.PriorOfferedSet.Count);
             }
+        }
+
+        [Fact]
+        public void Roster_ProvisionalPricing_MatchesDanielDesignCall()
+        {
+            // Guard the pricing convention as a whole (Daniel 2026-07-14): executable node BP=1;
+            // executable personal AP=1; Local nodes have no AP price; unavailable nodes have no price.
+            foreach (var n in Catalog.Nodes)
+            {
+                if (!n.IsExecutable)
+                {
+                    Assert.Null(n.Pricing.DevelopmentBpPrice);
+                    Assert.Null(n.Pricing.PurchaseApPrice);
+                    continue;
+                }
+
+                Assert.Equal(1, n.Pricing.DevelopmentBpPrice);
+                if (n.Ownership == NodeOwnership.StoneCultivated)
+                    Assert.Null(n.Pricing.PurchaseApPrice); // Local nodes: BP-only, never AP-purchased.
+                else
+                    Assert.Equal(1, n.Pricing.PurchaseApPrice); // executable personal nodes: AP=1.
+            }
+        }
+
+        [Fact]
+        public void Roster_SwiftPreparation_PriorOfferedSet_Is_FieldPrep_And_IronStomach()
+        {
+            NodeDefinition? swift = null;
+            foreach (var n in Catalog.Nodes)
+                if (n.Node.Key == "SwiftPreparation") swift = n;
+            Assert.NotNull(swift);
+
+            var prior = swift!.Requirements.PriorOfferedSet;
+            Assert.Equal(2, prior.Count);
+            Assert.Contains(new VersionedId("FieldPrep", 1), prior);
+            Assert.Contains(new VersionedId("IronStomach", 1), prior);
+            // Local Savor the Hearth is NOT part of the personal prior-Offered Set.
+            Assert.DoesNotContain(new VersionedId("SavorTheHearth", 1), prior);
+
+            // Swift Preparation's own gates: Cooking Tree Level 2 and Active Stone Level 2.
+            Assert.Equal(2, swift.Requirements.MinTreeLevel);
+            Assert.Equal(2, swift.Requirements.MinActiveStoneLevel);
         }
 
         [Fact]
@@ -428,7 +553,9 @@ namespace SBPR.Trailborne.Tests
                 Assert.Throws<System.NotSupportedException>(() =>
                     mutable.Add(new NodeDefinition(HomesteadProgressionCatalog.CookingTree,
                         new VersionedId("Injected", 1), 1, NodeOutcomeType.LocalEffect,
-                        NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable, "Injected")));
+                        NodeOwnership.StoneCultivated, NodeFirstBuildStatus.Executable,
+                        new NodePricing(1, null),
+                        new NodeRequirements(true, true, 1, 1, false, false, null), "Injected")));
             }
             if (nodes is IList<NodeDefinition> list)
             {

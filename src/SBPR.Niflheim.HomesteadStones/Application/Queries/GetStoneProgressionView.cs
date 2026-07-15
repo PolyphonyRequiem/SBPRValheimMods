@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using SBPR.Niflheim.HomesteadStones.Domain.Activation;
 using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
+using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
 using SBPR.Niflheim.HomesteadStones.Domain.Snapshots;
 using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
@@ -18,6 +20,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
     // section but get their own AP/BP/Facet-Credit and derived node statuses. The projection NEVER
     // contains a client-authoritative ready flag; command affordances are hints only and commands
     // revalidate current state (contracts.md).
+    //
+    // T005/T006: the projection additionally reports each authored node's EXACT price and requirements
+    // from the immutable current-build registry (contracts.md §"GetStoneProgressionView": "each node's
+    // exact outcome, status, price, requirements ..."; spec US1/US3 acceptance scenario 1). These
+    // authored values are provisional proof-only playtest data (Daniel design call 2026-07-14), not
+    // final balance, but the read model reports them verbatim so an inspector sees exact values.
     //
     // net48 audit: engine-free. Link-compiles into net8 tests.
 
@@ -38,6 +46,71 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
         public int TotalFacetCredit { get; }
     }
 
+    /// <summary>One authored node's exact registry-reported identity, status, price, and requirements.
+    /// This is the current-build definition surface the read model exposes for inspection (contracts.md;
+    /// spec US1/US3 acceptance scenario 1). Values are authored provisional proof data, never a
+    /// client-authoritative outcome.</summary>
+    public sealed class NodeCatalogEntry
+    {
+        public NodeCatalogEntry(
+            VersionedId tree, VersionedId node, int treeLevel,
+            NodeOutcomeType outcome, NodeOwnership ownership, NodeFirstBuildStatus status,
+            int? developmentBpPrice, int? purchaseApPrice,
+            bool requiresCommittedTree, bool requiresCurrentContentVersion,
+            int minActiveStoneLevel, int minTreeLevel,
+            bool requiresActiveAttunement, bool requiresOfferedStatus,
+            IReadOnlyList<VersionedId> priorOfferedSet, string displayLabel)
+        {
+            Tree = tree;
+            Node = node;
+            TreeLevel = treeLevel;
+            Outcome = outcome;
+            Ownership = ownership;
+            Status = status;
+            DevelopmentBpPrice = developmentBpPrice;
+            PurchaseApPrice = purchaseApPrice;
+            RequiresCommittedTree = requiresCommittedTree;
+            RequiresCurrentContentVersion = requiresCurrentContentVersion;
+            MinActiveStoneLevel = minActiveStoneLevel;
+            MinTreeLevel = minTreeLevel;
+            RequiresActiveAttunement = requiresActiveAttunement;
+            RequiresOfferedStatus = requiresOfferedStatus;
+            PriorOfferedSet = priorOfferedSet;
+            DisplayLabel = displayLabel ?? string.Empty;
+        }
+
+        public VersionedId Tree { get; }
+        public VersionedId Node { get; }
+        public int TreeLevel { get; }
+        public NodeOutcomeType Outcome { get; }
+        public NodeOwnership Ownership { get; }
+        public NodeFirstBuildStatus Status { get; }
+
+        // Exact authored prices (null = no price of that kind).
+        public int? DevelopmentBpPrice { get; }
+        public int? PurchaseApPrice { get; }
+
+        // Exact authored requirements (accepted gates only).
+        public bool RequiresCommittedTree { get; }
+        public bool RequiresCurrentContentVersion { get; }
+        public int MinActiveStoneLevel { get; }
+        public int MinTreeLevel { get; }
+        public bool RequiresActiveAttunement { get; }
+        public bool RequiresOfferedStatus { get; }
+        public IReadOnlyList<VersionedId> PriorOfferedSet { get; }
+
+        public string DisplayLabel { get; }
+
+        internal static NodeCatalogEntry FromDefinition(NodeDefinition d) =>
+            new NodeCatalogEntry(
+                d.Tree, d.Node, d.TreeLevel, d.Outcome, d.Ownership, d.Status,
+                d.Pricing.DevelopmentBpPrice, d.Pricing.PurchaseApPrice,
+                d.Requirements.RequiresCommittedTree, d.Requirements.RequiresCurrentContentVersion,
+                d.Requirements.MinActiveStoneLevel, d.Requirements.MinTreeLevel,
+                d.Requirements.RequiresActiveAttunement, d.Requirements.RequiresOfferedStatus,
+                d.Requirements.PriorOfferedSet, d.DisplayLabel);
+    }
+
     public sealed class ProgressionReadModel
     {
         public ProgressionReadModel(
@@ -53,7 +126,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
             VersionedId foundationalTree,
             RelationshipKind callerRelationship,
             CallerBalances callerBalances,
-            IReadOnlyList<DerivedNodeStatus> nodeStatuses)
+            IReadOnlyList<DerivedNodeStatus> nodeStatuses,
+            IReadOnlyList<NodeCatalogEntry> nodeCatalog)
         {
             StoneId = stoneId;
             Family = family;
@@ -68,6 +142,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
             CallerRelationship = callerRelationship;
             CallerBalances = callerBalances;
             NodeStatuses = nodeStatuses;
+            NodeCatalog = nodeCatalog;
         }
 
         // World-scoped Homestead identity (never a display name, ZDOID, or minted GUID).
@@ -91,6 +166,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
         public CallerBalances CallerBalances { get; }
         public IReadOnlyList<DerivedNodeStatus> NodeStatuses { get; }
 
+        /// <summary>Exact authored current-build definition of every node — identity/version, outcome,
+        /// status, price, and requirements (contracts.md §"GetStoneProgressionView"; spec US1/US3
+        /// acceptance scenario 1). Reported verbatim from the immutable registry.</summary>
+        public IReadOnlyList<NodeCatalogEntry> NodeCatalog { get; }
+
         // The projection never carries a client-authoritative ready flag (data-model.md). This is a
         // constant reminder in the contract surface, not a mutable field.
         public bool HasClientAuthoritativeReadyFlag => false;
@@ -98,6 +178,16 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
 
     public sealed class GetStoneProgressionView
     {
+        private readonly HomesteadProgressionCatalog _catalog;
+
+        /// <summary>Default: build against the current-build registry.</summary>
+        public GetStoneProgressionView() : this(new HomesteadProgressionCatalog()) { }
+
+        public GetStoneProgressionView(HomesteadProgressionCatalog catalog)
+        {
+            _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        }
+
         /// <summary>Build the caller-specific read model from current aggregate snapshots. Pure
         /// projection: it derives activation on the fly and stores nothing (contracts.md: "The server
         /// must revalidate commands even if the view reported an operation as available").</summary>
@@ -126,6 +216,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
 
             var view = DerivedActivationView.Derive(stone, caller, authority);
 
+            // Exact authored node definitions (price + requirements) from the immutable current-build
+            // registry, in stable roster order. Reported verbatim for inspection.
+            var catalogEntries = new List<NodeCatalogEntry>(_catalog.Nodes.Count);
+            foreach (var def in _catalog.Nodes)
+                catalogEntries.Add(NodeCatalogEntry.FromDefinition(def));
+
             return new ProgressionReadModel(
                 stone.StoneId,
                 stone.Family,
@@ -139,7 +235,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
                 stone.FoundationalTree,
                 callerRelationship,
                 new CallerBalances(personalAp, cumulativeAp, personalBp, facetCredit),
-                view.Nodes);
+                view.Nodes,
+                new ReadOnlyCollection<NodeCatalogEntry>(catalogEntries));
         }
     }
 }

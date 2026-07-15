@@ -186,6 +186,25 @@ migration/grandfathering/retirement semantics are deferred; incompatible unrelea
 status, not a name-only placeholder: the normative capability and boundary for each unavailable node is authored
 in the feature specification's User Story 4 and remains part of its versioned content definition.
 
+### Provisional first-build prices and requirements
+
+These are **provisional proof-only playtest values** (design call 2026-07-14), explicitly configurable and
+**not** final balance or compatibility locks. They exist so the read model (`GetStoneProgressionView`) and its
+T006 verification can report *exact* prices/requirements per node without pretending the numbers are final.
+
+- Every executable node has authored BP development price = 1.
+- Every executable **personal** node (Character/Permanent Effect, personal Offered) has authored AP purchase
+  price = 1.
+- Local (Stone-cultivated) nodes have **no** AP purchase price and remain Stone-cultivated BP-only outcomes.
+- Unavailable nodes have **no** AP/BP price and continue rejecting development/purchase/Offering/activation.
+- Requirements are only the already-accepted gates: committed Tree, current content/version, Active Stone
+  Level ≥ node level, Tree Level ≥ node level, and the relevant relationship/authority/Responsibility Range;
+  personal nodes additionally require active Attunement + Offered status.
+- **Swift Preparation** additionally requires Cooking Tree Level 2, Active Stone Level 2, and acquisition of
+  both prior-Level-1 personal Cooking Offered Nodes — **Field Prep** and **Iron Stomach**. Savor the Hearth is
+  Local and is **not** part of that personal prior-Offered Set.
+- No additional objective/key/item requirements in this proof build.
+
 ## Aggregate 5 — OperationReceiptStore
 
 A server-owned durable operation/result journal. It may be implemented with a database, append-only log, or

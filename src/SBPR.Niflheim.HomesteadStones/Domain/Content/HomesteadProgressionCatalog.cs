@@ -7,7 +7,10 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
 {
     // Aggregate 4 — ContentRegistry (data-model.md §"Aggregate 4"). Immutable definitions selected by
     // the current proof build. This is the T005 authored roster: the exact 20-node first-build roster
-    // (data-model.md §"Fixed first-build roster") plus the stable Tree/Facet/Foundational identities.
+    // (data-model.md §"Fixed first-build roster") plus the stable Tree/Facet/Foundational identities
+    // AND the authored AP/BP prices and development/personal requirements (data-model.md §"Core
+    // definitions": "Node definitions: stable ID/version, Tree level, outcome type, first-build status,
+    // AP/BP price, development requirements, personal requirements ...").
     //
     // Cardinal rules this file encodes (data-model.md modeling rules 3 and 6):
     //   * Stable IDs + current-build versions prevent same-build misbinding. Display names are NEVER
@@ -18,6 +21,18 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
     //
     // Arithmetic invariant (data-model.md): 20 authored nodes = 13 executable + seven unavailable. Of
     // the executable nodes, 12 are Level 1 and Swift Preparation is the sole executable Level-2 node.
+    //
+    // PROVISIONAL proof-only prices/requirements (Daniel design call 2026-07-14, tasks.md T006 note).
+    // These are explicitly configurable playtest values, NOT final balance or compatibility locks:
+    //   * Every executable node has authored BP development price = 1.
+    //   * Every executable PERSONAL node has authored AP purchase price = 1.
+    //   * Local (Stone-cultivated) nodes have NO AP purchase price — BP-only outcomes.
+    //   * Unavailable nodes have NO AP/BP price and continue rejecting development/purchase/offering.
+    //   * Requirements are the already-accepted gates only: committed Tree, current content/version,
+    //     Active Stone Level >= node level, Tree Level >= node level, and (personal nodes) active
+    //     Attunement + Offered status. Swift Preparation additionally requires Cooking Tree Level 2,
+    //     Active Stone Level 2, and acquisition of both prior-Level-1 personal Cooking Offered Nodes
+    //     (Field Prep + Iron Stomach). No additional objective/key/item requirements in this build.
     //
     // net48 audit: only System / System.Collections.Generic + the engine-free snapshot codec. No net5+
     // surface, no UnityEngine/Valheim/BepInEx reference, so this link-compiles into the net8 tests.
@@ -46,12 +61,82 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
         Unavailable
     }
 
+    /// <summary>Authored AP/BP price for a node. PROVISIONAL playtest values (Daniel 2026-07-14), not
+    /// final balance. A null price means "no price of that kind": Local nodes have no AP purchase price;
+    /// unavailable nodes have neither an AP nor a BP price.</summary>
+    public readonly struct NodePricing
+    {
+        public NodePricing(int? developmentBpPrice, int? purchaseApPrice)
+        {
+            DevelopmentBpPrice = developmentBpPrice;
+            PurchaseApPrice = purchaseApPrice;
+        }
+
+        /// <summary>BP cost to develop this node (Stone side). Null when the node has no BP price.</summary>
+        public int? DevelopmentBpPrice { get; }
+
+        /// <summary>Personal AP cost to purchase this node. Null for Local/unavailable nodes that are
+        /// never purchased with Personal AP.</summary>
+        public int? PurchaseApPrice { get; }
+
+        /// <summary>No price of any kind (unavailable node).</summary>
+        public static readonly NodePricing None = new NodePricing(null, null);
+    }
+
+    /// <summary>Authored development/personal requirements for a node. Only the already-accepted gates
+    /// (Daniel 2026-07-14): committed Tree, current content/version, Active Stone Level, Tree Level,
+    /// and (personal nodes) active Attunement + Offered status, plus an explicit prior-Offered-Set for
+    /// Swift Preparation. No additional objective/key/item requirements in this proof build.</summary>
+    public sealed class NodeRequirements
+    {
+        private static readonly ReadOnlyCollection<VersionedId> EmptyPriorSet =
+            new ReadOnlyCollection<VersionedId>(new List<VersionedId>());
+
+        public NodeRequirements(
+            bool requiresCommittedTree,
+            bool requiresCurrentContentVersion,
+            int minActiveStoneLevel,
+            int minTreeLevel,
+            bool requiresActiveAttunement,
+            bool requiresOfferedStatus,
+            IReadOnlyList<VersionedId>? priorOfferedSet = null)
+        {
+            RequiresCommittedTree = requiresCommittedTree;
+            RequiresCurrentContentVersion = requiresCurrentContentVersion;
+            MinActiveStoneLevel = minActiveStoneLevel;
+            MinTreeLevel = minTreeLevel;
+            RequiresActiveAttunement = requiresActiveAttunement;
+            RequiresOfferedStatus = requiresOfferedStatus;
+            PriorOfferedSet = priorOfferedSet == null
+                ? EmptyPriorSet
+                : new ReadOnlyCollection<VersionedId>(new List<VersionedId>(priorOfferedSet));
+        }
+
+        public bool RequiresCommittedTree { get; }
+        public bool RequiresCurrentContentVersion { get; }
+        public int MinActiveStoneLevel { get; }
+        public int MinTreeLevel { get; }
+        public bool RequiresActiveAttunement { get; }
+        public bool RequiresOfferedStatus { get; }
+
+        /// <summary>Prior-Level same-Tree personal Offered Nodes that must already be acquired before
+        /// this node is eligible (Swift Preparation: Field Prep + Iron Stomach). Empty for all others.</summary>
+        public IReadOnlyList<VersionedId> PriorOfferedSet { get; }
+
+        /// <summary>Inert requirements for an unavailable node: it authors no purchasable/developable
+        /// gates and rejects development/purchase/offering/activation by its Unavailable status.</summary>
+        public static readonly NodeRequirements Unavailable =
+            new NodeRequirements(false, false, 0, 0, false, false, null);
+    }
+
     /// <summary>One immutable authored node definition. Identity is <see cref="Node"/> (stable key +
-    /// current-build version); everything else is authored content, not identity.</summary>
+    /// current-build version); everything else (outcome, prices, requirements, label) is authored
+    /// content, not identity.</summary>
     public sealed class NodeDefinition
     {
         public NodeDefinition(VersionedId tree, VersionedId node, int treeLevel,
-            NodeOutcomeType outcome, NodeOwnership ownership, NodeFirstBuildStatus status, string displayLabel)
+            NodeOutcomeType outcome, NodeOwnership ownership, NodeFirstBuildStatus status,
+            NodePricing pricing, NodeRequirements requirements, string displayLabel)
         {
             Tree = tree;
             Node = node;
@@ -59,6 +144,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
             Outcome = outcome;
             Ownership = ownership;
             Status = status;
+            Pricing = pricing;
+            Requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
             DisplayLabel = displayLabel ?? string.Empty;
         }
 
@@ -68,6 +155,12 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
         public NodeOutcomeType Outcome { get; }
         public NodeOwnership Ownership { get; }
         public NodeFirstBuildStatus Status { get; }
+
+        /// <summary>Authored AP/BP price (provisional proof values).</summary>
+        public NodePricing Pricing { get; }
+
+        /// <summary>Authored development/personal requirements (accepted gates only).</summary>
+        public NodeRequirements Requirements { get; }
 
         /// <summary>Human label for panels/logs. NEVER contract identity (data-model.md NodeId rule).</summary>
         public string DisplayLabel { get; }
@@ -154,35 +247,51 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
             var offered = NodeOwnership.PersonalOffered;
             var none = NodeOwnership.NoneWhileUnavailable;
 
+            // Provisional proof prices (Daniel 2026-07-14): executable node BP=1; executable personal
+            // node AP=1; Local nodes have no AP price; unavailable nodes have no price.
+            NodePricing localPrice = new NodePricing(developmentBpPrice: 1, purchaseApPrice: null);
+            NodePricing personalPrice = new NodePricing(developmentBpPrice: 1, purchaseApPrice: 1);
+            NodePricing noPrice = NodePricing.None;
+
+            // Requirement factories: accepted gates only.
+            NodeRequirements LocalReq(int level) =>
+                new NodeRequirements(true, true, level, level, false, false, null);
+            NodeRequirements PersonalReq(int level, IReadOnlyList<VersionedId>? prior = null) =>
+                new NodeRequirements(true, true, level, level, true, true, prior);
+            NodeRequirements unavailableReq = NodeRequirements.Unavailable;
+
+            // Swift Preparation's prior-Level-1 personal Cooking Offered Set: Field Prep + Iron Stomach.
+            var swiftPriorSet = new[] { new VersionedId("FieldPrep", 1), new VersionedId("IronStomach", 1) };
+
             return new List<NodeDefinition>
             {
                 // Cooking
-                new NodeDefinition(CookingTree, new VersionedId("SavorTheHearth", 1), 1, NodeOutcomeType.LocalEffect, local, e, "Savor the Hearth"),
-                new NodeDefinition(CookingTree, new VersionedId("FieldPrep", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, "Field Prep"),
-                new NodeDefinition(CookingTree, new VersionedId("IronStomach", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, "Iron Stomach"),
-                new NodeDefinition(CookingTree, new VersionedId("SwiftPreparation", 1), 2, NodeOutcomeType.CharacterEffect, offered, e, "Swift Preparation"),
-                new NodeDefinition(CookingTree, new VersionedId("WatchfulCook", 1), 2, NodeOutcomeType.CharacterEffect, none, u, "Watchful Cook"),
+                new NodeDefinition(CookingTree, new VersionedId("SavorTheHearth", 1), 1, NodeOutcomeType.LocalEffect, local, e, localPrice, LocalReq(1), "Savor the Hearth"),
+                new NodeDefinition(CookingTree, new VersionedId("FieldPrep", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, personalPrice, PersonalReq(1), "Field Prep"),
+                new NodeDefinition(CookingTree, new VersionedId("IronStomach", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, personalPrice, PersonalReq(1), "Iron Stomach"),
+                new NodeDefinition(CookingTree, new VersionedId("SwiftPreparation", 1), 2, NodeOutcomeType.CharacterEffect, offered, e, personalPrice, PersonalReq(2, swiftPriorSet), "Swift Preparation"),
+                new NodeDefinition(CookingTree, new VersionedId("WatchfulCook", 1), 2, NodeOutcomeType.CharacterEffect, none, u, noPrice, unavailableReq, "Watchful Cook"),
 
                 // Crafting
-                new NodeDefinition(CraftingTree, new VersionedId("RefinedWorkshop", 1), 1, NodeOutcomeType.LocalEffect, local, e, "Refined Workshop"),
-                new NodeDefinition(CraftingTree, new VersionedId("Masterwork", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, "Masterwork"),
-                new NodeDefinition(CraftingTree, new VersionedId("BuiltToLast", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, "Built to Last"),
-                new NodeDefinition(CraftingTree, new VersionedId("MeasuredCuts", 1), 1, NodeOutcomeType.CharacterEffect, none, u, "Measured Cuts"),
-                new NodeDefinition(CraftingTree, new VersionedId("ArtisansCounter", 1), 1, NodeOutcomeType.LocalEffect, none, u, "Artisan's Counter"),
+                new NodeDefinition(CraftingTree, new VersionedId("RefinedWorkshop", 1), 1, NodeOutcomeType.LocalEffect, local, e, localPrice, LocalReq(1), "Refined Workshop"),
+                new NodeDefinition(CraftingTree, new VersionedId("Masterwork", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, personalPrice, PersonalReq(1), "Masterwork"),
+                new NodeDefinition(CraftingTree, new VersionedId("BuiltToLast", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, personalPrice, PersonalReq(1), "Built to Last"),
+                new NodeDefinition(CraftingTree, new VersionedId("MeasuredCuts", 1), 1, NodeOutcomeType.CharacterEffect, none, u, noPrice, unavailableReq, "Measured Cuts"),
+                new NodeDefinition(CraftingTree, new VersionedId("ArtisansCounter", 1), 1, NodeOutcomeType.LocalEffect, none, u, noPrice, unavailableReq, "Artisan's Counter"),
 
                 // Archer
-                new NodeDefinition(ArcherTree, new VersionedId("PracticeRange", 1), 1, NodeOutcomeType.LocalEffect, local, e, "Practice Range"),
-                new NodeDefinition(ArcherTree, new VersionedId("FieldFletchingI", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, "Field Fletching I"),
-                new NodeDefinition(ArcherTree, new VersionedId("FletchersHabit", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, "Fletcher's Habit"),
-                new NodeDefinition(ArcherTree, new VersionedId("SteadyAim", 1), 1, NodeOutcomeType.CharacterEffect, none, u, "Steady Aim"),
-                new NodeDefinition(ArcherTree, new VersionedId("BowyersLore", 1), 1, NodeOutcomeType.PermanentEffect, none, u, "Bowyer's Lore"),
+                new NodeDefinition(ArcherTree, new VersionedId("PracticeRange", 1), 1, NodeOutcomeType.LocalEffect, local, e, localPrice, LocalReq(1), "Practice Range"),
+                new NodeDefinition(ArcherTree, new VersionedId("FieldFletchingI", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, personalPrice, PersonalReq(1), "Field Fletching I"),
+                new NodeDefinition(ArcherTree, new VersionedId("FletchersHabit", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, personalPrice, PersonalReq(1), "Fletcher's Habit"),
+                new NodeDefinition(ArcherTree, new VersionedId("SteadyAim", 1), 1, NodeOutcomeType.CharacterEffect, none, u, noPrice, unavailableReq, "Steady Aim"),
+                new NodeDefinition(ArcherTree, new VersionedId("BowyersLore", 1), 1, NodeOutcomeType.PermanentEffect, none, u, noPrice, unavailableReq, "Bowyer's Lore"),
 
                 // Warrior
-                new NodeDefinition(WarriorTree, new VersionedId("TwigTraining", 1), 1, NodeOutcomeType.LocalEffect, local, e, "T.W.I.G. Training"),
-                new NodeDefinition(WarriorTree, new VersionedId("ReadyHands", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, "Ready Hands"),
-                new NodeDefinition(WarriorTree, new VersionedId("WeaponDiscipline", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, "Weapon Discipline"),
-                new NodeDefinition(WarriorTree, new VersionedId("ShrugItOffI", 1), 1, NodeOutcomeType.CharacterEffect, none, u, "Shrug It Off I"),
-                new NodeDefinition(WarriorTree, new VersionedId("HeavyHands", 1), 1, NodeOutcomeType.CharacterEffect, none, u, "Heavy Hands"),
+                new NodeDefinition(WarriorTree, new VersionedId("TwigTraining", 1), 1, NodeOutcomeType.LocalEffect, local, e, localPrice, LocalReq(1), "T.W.I.G. Training"),
+                new NodeDefinition(WarriorTree, new VersionedId("ReadyHands", 1), 1, NodeOutcomeType.CharacterEffect, offered, e, personalPrice, PersonalReq(1), "Ready Hands"),
+                new NodeDefinition(WarriorTree, new VersionedId("WeaponDiscipline", 1), 1, NodeOutcomeType.PermanentEffect, offered, e, personalPrice, PersonalReq(1), "Weapon Discipline"),
+                new NodeDefinition(WarriorTree, new VersionedId("ShrugItOffI", 1), 1, NodeOutcomeType.CharacterEffect, none, u, noPrice, unavailableReq, "Shrug It Off I"),
+                new NodeDefinition(WarriorTree, new VersionedId("HeavyHands", 1), 1, NodeOutcomeType.CharacterEffect, none, u, noPrice, unavailableReq, "Heavy Hands"),
             };
         }
     }
