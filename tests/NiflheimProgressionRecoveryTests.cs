@@ -288,6 +288,55 @@ namespace SBPR.Trailborne.Tests
         }
 
         [Fact]
+        public void AT_INVARIANT_QUARANTINE_WrongTreePurchase_IsIsolated_NotRebound()
+        {
+            // FieldPrep belongs to Cooking; a purchase recording it under Warrior is contradictory
+            // registry state. It must be isolated with its stable key, never silently rebound.
+            var purchases = new[]
+            {
+                new NodePurchaseRecord(HomesteadProgressionCatalog.WarriorTree,
+                    new VersionedId("FieldPrep", 1), "PersonalAP", "CharacterEffect",
+                    new VersionedId("Warrior-L1", 1), "op-wrong-tree"),
+            };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(), BuildCharacter(purchases), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.WrongTreePurchase));
+            Assert.Contains(report.Notices, n => n.SubjectId == "FieldPrep");
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_UnavailableNodeDevelopment_IsIsolated()
+        {
+            // WatchfulCook is authored but first-build Unavailable; a persisted development record for
+            // it is contradictory (unavailable nodes reject development) and is isolated.
+            var nodes = new[]
+            {
+                new NodeDevelopmentRecord(new VersionedId("WatchfulCook", 1), 5, 10, true, false, "op-dev-unavail"),
+            };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(nodes: nodes), BuildCharacter(), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.UnavailableNodeDevelopment));
+            Assert.Contains(report.Notices, n => n.SubjectId == "WatchfulCook");
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_UnavailableNodePurchased_IsIsolated()
+        {
+            // WatchfulCook is first-build Unavailable; a persisted purchase for it is contradictory
+            // (unavailable nodes reject purchase/Offering) and is isolated.
+            var purchases = new[]
+            {
+                new NodePurchaseRecord(HomesteadProgressionCatalog.CookingTree,
+                    new VersionedId("WatchfulCook", 1), "PersonalAP", "CharacterEffect",
+                    new VersionedId("Cooking-L2", 1), "op-buy-unavail"),
+            };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(), BuildCharacter(purchases), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.UnavailableNodePurchased));
+            Assert.Contains(report.Notices, n => n.SubjectId == "WatchfulCook");
+        }
+
+        [Fact]
         public void AT_INVARIANT_QUARANTINE_NegativeBalance_IsIsolated()
         {
             var repair = new ProgressionStateRepair(Catalog);

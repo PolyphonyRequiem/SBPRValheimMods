@@ -59,6 +59,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
             bool requiresCommittedTree, bool requiresCurrentContentVersion,
             int minActiveStoneLevel, int minTreeLevel,
             bool requiresActiveAttunement, bool requiresOfferedStatus,
+            bool requiresDevelopmentAuthority, bool requiresResponsibilityRange,
             IReadOnlyList<VersionedId> priorOfferedSet, string displayLabel)
         {
             Tree = tree;
@@ -75,6 +76,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
             MinTreeLevel = minTreeLevel;
             RequiresActiveAttunement = requiresActiveAttunement;
             RequiresOfferedStatus = requiresOfferedStatus;
+            RequiresDevelopmentAuthority = requiresDevelopmentAuthority;
+            RequiresResponsibilityRange = requiresResponsibilityRange;
             PriorOfferedSet = priorOfferedSet;
             DisplayLabel = displayLabel ?? string.Empty;
         }
@@ -97,6 +100,16 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
         public int MinTreeLevel { get; }
         public bool RequiresActiveAttunement { get; }
         public bool RequiresOfferedStatus { get; }
+
+        /// <summary>Development requires the acting Governor's development authority over the committed
+        /// Tree (data-model.md §"Provisional first-build prices and requirements"). True for executable
+        /// nodes; false for unavailable ones. Live authority state is T007 scope.</summary>
+        public bool RequiresDevelopmentAuthority { get; }
+
+        /// <summary>Development/spend must fall within the Governor's Responsibility Range. True for
+        /// executable nodes; false for unavailable ones. Finer ranges are T007 scope.</summary>
+        public bool RequiresResponsibilityRange { get; }
+
         public IReadOnlyList<VersionedId> PriorOfferedSet { get; }
 
         public string DisplayLabel { get; }
@@ -108,6 +121,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
                 d.Requirements.RequiresCommittedTree, d.Requirements.RequiresCurrentContentVersion,
                 d.Requirements.MinActiveStoneLevel, d.Requirements.MinTreeLevel,
                 d.Requirements.RequiresActiveAttunement, d.Requirements.RequiresOfferedStatus,
+                d.Requirements.RequiresDevelopmentAuthority, d.Requirements.RequiresResponsibilityRange,
                 d.Requirements.PriorOfferedSet, d.DisplayLabel);
     }
 

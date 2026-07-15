@@ -37,7 +37,10 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
         AuthorityMismatch,          // authority index keyed to another account/Stone than the caller
         InvalidRevision,            // an aggregate revision is negative (revisions are non-negative)
         UnsupportedSchemaVersion,   // an aggregate schema version is not one the current build supports
-        ContentVersionMismatch      // the Stone's content-registry version is not the current build's
+        ContentVersionMismatch,     // the Stone's content-registry version is not the current build's
+        WrongTreePurchase,          // a purchase's claimed Tree does not own the resolved node
+        UnavailableNodeDevelopment, // a developed node is first-build Unavailable (rejects development)
+        UnavailableNodePurchased    // a purchase references a first-build Unavailable node
     }
 
     public readonly struct QuarantineNotice
@@ -182,11 +185,20 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
             // references reject clearly — here they quarantine rather than misbind).
             foreach (var dev in stone.NodeDevelopment)
             {
-                if (_catalog.TryResolveNode(dev.Node) == null)
+                var devDef = _catalog.TryResolveNode(dev.Node);
+                if (devDef == null)
+                {
                     notices.Add(new QuarantineNotice(QuarantineReason.UnknownNodeDevelopment, dev.Node.Key,
                         _catalog.HasNodeKey(dev.Node)
                             ? "developed node version " + dev.Node.Version + " is not the current build"
                             : "developed node key is unknown to the current build"));
+                    continue;
+                }
+                // A first-build Unavailable node authors no developable gate; a persisted development
+                // record for one is contradictory state and is isolated, never accepted as real.
+                if (devDef.Status == NodeFirstBuildStatus.Unavailable)
+                    notices.Add(new QuarantineNotice(QuarantineReason.UnavailableNodeDevelopment, dev.Node.Key,
+                        "developed node '" + devDef.DisplayLabel + "' is unavailable in the first build"));
             }
 
             // Authority index must key to this caller's account and this Stone.
@@ -219,6 +231,19 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
                     if (def.Ownership == NodeOwnership.StoneCultivated)
                         notices.Add(new QuarantineNotice(QuarantineReason.LocalNodePurchased, p.Node.Key,
                             "Local Node '" + def.DisplayLabel + "' cannot be a personal purchase"));
+
+                    // A first-build Unavailable node rejects purchase/Offering; a persisted purchase for
+                    // one is contradictory and is isolated, never accepted.
+                    if (def.Status == NodeFirstBuildStatus.Unavailable)
+                        notices.Add(new QuarantineNotice(QuarantineReason.UnavailableNodePurchased, p.Node.Key,
+                            "purchased node '" + def.DisplayLabel + "' is unavailable in the first build"));
+
+                    // The purchase's claimed Tree must own the resolved node (known node recorded under
+                    // the wrong Tree is contradictory registry state — isolate, never rebind).
+                    if (!def.Tree.Equals(p.Tree))
+                        notices.Add(new QuarantineNotice(QuarantineReason.WrongTreePurchase, p.Node.Key,
+                            "purchased node '" + p.Node.Key + "' belongs to tree '" + def.Tree.Key
+                            + "', not claimed tree '" + p.Tree.Key + "'"));
                 }
             }
 

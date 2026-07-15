@@ -199,7 +199,10 @@ T006 verification can report *exact* prices/requirements per node without preten
 - Unavailable nodes have **no** AP/BP price and continue rejecting development/purchase/Offering/activation.
 - Requirements are only the already-accepted gates: committed Tree, current content/version, Active Stone
   Level ≥ node level, Tree Level ≥ node level, and the relevant relationship/authority/Responsibility Range;
-  personal nodes additionally require active Attunement + Offered status.
+  personal nodes additionally require active Attunement + Offered status. The registry surfaces the
+  relationship/authority/Responsibility-Range gate as two explicit boolean flags (development authority +
+  Responsibility Range), true for every executable node and false for unavailable nodes; live authority
+  state is supplied by T007.
 - **Swift Preparation** additionally requires Cooking Tree Level 2, Active Stone Level 2, and acquisition of
   both prior-Level-1 personal Cooking Offered Nodes — **Field Prep** and **Iron Stomach**. Savor the Hearth is
   Local and is **not** part of that personal prior-Offered Set.

@@ -99,6 +99,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
             int minTreeLevel,
             bool requiresActiveAttunement,
             bool requiresOfferedStatus,
+            bool requiresDevelopmentAuthority,
+            bool requiresResponsibilityRange,
             IReadOnlyList<VersionedId>? priorOfferedSet = null)
         {
             RequiresCommittedTree = requiresCommittedTree;
@@ -107,6 +109,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
             MinTreeLevel = minTreeLevel;
             RequiresActiveAttunement = requiresActiveAttunement;
             RequiresOfferedStatus = requiresOfferedStatus;
+            RequiresDevelopmentAuthority = requiresDevelopmentAuthority;
+            RequiresResponsibilityRange = requiresResponsibilityRange;
             PriorOfferedSet = priorOfferedSet == null
                 ? EmptyPriorSet
                 : new ReadOnlyCollection<VersionedId>(new List<VersionedId>(priorOfferedSet));
@@ -119,6 +123,18 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
         public bool RequiresActiveAttunement { get; }
         public bool RequiresOfferedStatus { get; }
 
+        /// <summary>Development/commit of this node requires the acting Governor to hold development
+        /// authority over the committed Tree (data-model.md §Commit Tree / §"Provisional first-build
+        /// prices and requirements": "the relevant relationship/authority/Responsibility Range"). True
+        /// for every executable node; false for unavailable nodes that author no gates. Live authority
+        /// state is supplied by T007 — this flag only records that the gate applies.</summary>
+        public bool RequiresDevelopmentAuthority { get; }
+
+        /// <summary>This node's development/spend must fall within the Governor's Responsibility Range
+        /// (data-model.md §"Credit and spend BP on node development"). True for every executable node;
+        /// false for unavailable nodes. Finer ranges are not authored here (T007 supplies live state).</summary>
+        public bool RequiresResponsibilityRange { get; }
+
         /// <summary>Prior-Level same-Tree personal Offered Nodes that must already be acquired before
         /// this node is eligible (Swift Preparation: Field Prep + Iron Stomach). Empty for all others.</summary>
         public IReadOnlyList<VersionedId> PriorOfferedSet { get; }
@@ -126,7 +142,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
         /// <summary>Inert requirements for an unavailable node: it authors no purchasable/developable
         /// gates and rejects development/purchase/offering/activation by its Unavailable status.</summary>
         public static readonly NodeRequirements Unavailable =
-            new NodeRequirements(false, false, 0, 0, false, false, null);
+            new NodeRequirements(false, false, 0, 0, false, false, false, false, null);
     }
 
     /// <summary>One immutable authored node definition. Identity is <see cref="Node"/> (stable key +
@@ -253,11 +269,13 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Content
             NodePricing personalPrice = new NodePricing(developmentBpPrice: 1, purchaseApPrice: 1);
             NodePricing noPrice = NodePricing.None;
 
-            // Requirement factories: accepted gates only.
+            // Requirement factories: accepted gates only. Every executable node additionally gates on
+            // development authority + Responsibility Range (data-model.md §"Provisional first-build
+            // prices and requirements"); live authority state is supplied by T007.
             NodeRequirements LocalReq(int level) =>
-                new NodeRequirements(true, true, level, level, false, false, null);
+                new NodeRequirements(true, true, level, level, false, false, true, true, null);
             NodeRequirements PersonalReq(int level, IReadOnlyList<VersionedId>? prior = null) =>
-                new NodeRequirements(true, true, level, level, true, true, prior);
+                new NodeRequirements(true, true, level, level, true, true, true, true, prior);
             NodeRequirements unavailableReq = NodeRequirements.Unavailable;
 
             // Swift Preparation's prior-Level-1 personal Cooking Offered Set: Field Prep + Iron Stomach.
