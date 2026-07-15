@@ -21,7 +21,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
     {
         public CharacterStoneRecord(StoneId stoneId, int personalAp, int cumulativeAp, int personalBp,
             IReadOnlyList<FacetCreditRecord>? facetCredits = null,
-            IReadOnlyList<NodePurchaseRecord>? purchases = null)
+            IReadOnlyList<NodePurchaseRecord>? purchases = null,
+            IReadOnlyList<RelationshipRecord>? relationships = null)
         {
             StoneId = stoneId;
             PersonalAp = personalAp;
@@ -29,6 +30,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             PersonalBp = personalBp;
             FacetCredits = facetCredits ?? Array.Empty<FacetCreditRecord>();
             Purchases = purchases ?? Array.Empty<NodePurchaseRecord>();
+            Relationships = relationships ?? Array.Empty<RelationshipRecord>();
         }
 
         public StoneId StoneId { get; }
@@ -38,6 +40,11 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         public IReadOnlyList<FacetCreditRecord> FacetCredits { get; }
         public IReadOnlyList<NodePurchaseRecord> Purchases { get; }
 
+        /// <summary>Per-Stone Bond/Attunement records for this character (T007). Active and Released
+        /// records both persist here; the derived "active effect" is never stored (data-model.md
+        /// CharacterProgression: relationships/status/responsibility range/provenance).</summary>
+        public IReadOnlyList<RelationshipRecord> Relationships { get; }
+
         public string Serialize() => new SnapshotWriter()
             .Put("stoneId", StoneId.Value)
             .PutInt("personalAp", PersonalAp)
@@ -45,6 +52,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             .PutInt("personalBp", PersonalBp)
             .PutList("facetCredit", FacetCredits, f => f.Serialize())
             .PutList("purchases", Purchases, p => p.Serialize())
+            .PutList("relationships", Relationships, x => x.Serialize())
             .Build();
 
         public static CharacterStoneRecord Deserialize(string s)
@@ -56,7 +64,11 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 r.GetInt("cumulativeAp"),
                 r.GetInt("personalBp"),
                 r.GetList("facetCredit", FacetCreditRecord.Deserialize),
-                r.GetList("purchases", NodePurchaseRecord.Deserialize));
+                r.GetList("purchases", NodePurchaseRecord.Deserialize),
+                // Backward-compatible: pre-T007 snapshots carry no relationships list.
+                r.HasKey("relationships.count")
+                    ? r.GetList("relationships", RelationshipRecord.Deserialize)
+                    : null);
         }
     }
 

@@ -83,6 +83,11 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Snapshots
             return Decode(enc);
         }
 
+        /// <summary>True when <paramref name="key"/> is present. Used for backward-compatible reads of
+        /// optional field groups added in a later slice (e.g. T007 relationships) so an older snapshot
+        /// that predates the field deserializes without throwing.</summary>
+        public bool HasKey(string key) => _map.ContainsKey(key);
+
         public int GetInt(string key) => int.Parse(GetString(key), CultureInfo.InvariantCulture);
         public long GetLong(string key) => long.Parse(GetString(key), CultureInfo.InvariantCulture);
         public bool GetBool(string key) => GetString(key) == "1";
