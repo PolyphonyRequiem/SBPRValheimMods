@@ -200,7 +200,8 @@ namespace SBPR.Trailborne.Tests
         private static StoneProgressionAggregate BuildStone(
             int contentRegistryVersion = HomesteadProgressionCatalog.CurrentContentRegistryVersion,
             int historical = 2, int active = 2, long mirroredAp = 0,
-            IReadOnlyList<NodeDevelopmentRecord>? nodes = null)
+            IReadOnlyList<NodeDevelopmentRecord>? nodes = null,
+            IReadOnlyList<CommittedTreeRecord>? committedTrees = null)
         {
             return new StoneProgressionAggregate(
                 Stone, revision: 3,
@@ -210,14 +211,17 @@ namespace SBPR.Trailborne.Tests
                 contentRegistryVersion: contentRegistryVersion,
                 createdProvenance: "receipt:create", updatedProvenance: "receipt:update",
                 mirroredStoneAp: mirroredAp, lastAppliedReceiptId: "receipt:last",
+                committedTrees: committedTrees,
                 nodeDevelopment: nodes);
         }
 
         private static CharacterProgressionAggregate BuildCharacter(
             IReadOnlyList<NodePurchaseRecord>? purchases = null,
-            int personalAp = 3, int personalBp = 5)
+            int personalAp = 3, int personalBp = 5,
+            IReadOnlyList<FacetCreditRecord>? facetCredits = null)
         {
             var sr = new CharacterStoneRecord(Stone, personalAp, personalAp, personalBp,
+                facetCredits: facetCredits,
                 purchases: purchases);
             return new CharacterProgressionAggregate(Account, Character, "world/prod",
                 revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "receipt:c",
@@ -342,6 +346,52 @@ namespace SBPR.Trailborne.Tests
             var repair = new ProgressionStateRepair(Catalog);
             var report = repair.Scan(BuildStone(), BuildCharacter(personalBp: -3), BuildAuthority());
             Assert.True(report.Has(QuarantineReason.NegativeCharacterBalance));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_NegativeCommittedTreeBp_IsIsolated()
+        {
+            // CumulativeBpInvested is an accumulate-only non-negative ledger; a negative value is
+            // corrupt state and is isolated, never repaired.
+            var committed = new[]
+            {
+                new CommittedTreeRecord("Cooking", HomesteadProgressionCatalog.CookingTree,
+                    "op-commit", "actor", treeLevel: 1, cumulativeBpInvested: -4),
+            };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(committedTrees: committed), BuildCharacter(), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.NegativeLedgerValue));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_NegativeNodeBpProgressOrCost_IsIsolated()
+        {
+            // Per-node BP progress and cost are non-negative ledgers; either negative is isolated.
+            var nodesNegProgress = new[]
+            {
+                new NodeDevelopmentRecord(new VersionedId("FieldPrep", 1), -1, 1, false, false, "op-neg-prog"),
+            };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(nodes: nodesNegProgress), BuildCharacter(), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.NegativeLedgerValue));
+            Assert.Contains(report.Notices, n => n.SubjectId == "FieldPrep");
+
+            var nodesNegCost = new[]
+            {
+                new NodeDevelopmentRecord(new VersionedId("FieldPrep", 1), 0, -1, false, false, "op-neg-cost"),
+            };
+            var report2 = repair.Scan(BuildStone(nodes: nodesNegCost), BuildCharacter(), BuildAuthority());
+            Assert.True(report2.Has(QuarantineReason.NegativeLedgerValue));
+        }
+
+        [Fact]
+        public void AT_INVARIANT_QUARANTINE_NegativeFacetCredit_IsIsolated()
+        {
+            // Facet Credit is a non-negative ledger; a negative amount is corrupt state and is isolated.
+            var credits = new[] { new FacetCreditRecord("Cooking", -2, "op-revoke") };
+            var repair = new ProgressionStateRepair(Catalog);
+            var report = repair.Scan(BuildStone(), BuildCharacter(facetCredits: credits), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.NegativeLedgerValue));
         }
 
         [Fact]

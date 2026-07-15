@@ -40,7 +40,8 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
         ContentVersionMismatch,     // the Stone's content-registry version is not the current build's
         WrongTreePurchase,          // a purchase's claimed Tree does not own the resolved node
         UnavailableNodeDevelopment, // a developed node is first-build Unavailable (rejects development)
-        UnavailableNodePurchased    // a purchase references a first-build Unavailable node
+        UnavailableNodePurchased,   // a purchase references a first-build Unavailable node
+        NegativeLedgerValue         // a modeled ledger field (committed BP, node BP progress/cost, facet credit) is negative
     }
 
     public readonly struct QuarantineNotice
@@ -181,10 +182,29 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
                 notices.Add(new QuarantineNotice(QuarantineReason.NegativeMirroredAp, stone.StoneId.Value,
                     "MirroredStoneAp=" + stone.MirroredStoneAp));
 
+            // Modeled Stone-side ledgers are non-negative (data-model.md §"Validation and recovery":
+            // validate all ledger non-negativity). Committed-Tree cumulative BP invested is an
+            // accumulate-only counter; a negative value is corrupt state, isolated not repaired.
+            foreach (var ct in stone.CommittedTrees)
+            {
+                if (ct.CumulativeBpInvested < 0)
+                    notices.Add(new QuarantineNotice(QuarantineReason.NegativeLedgerValue, ct.Tree.Key,
+                        "committed tree '" + ct.Tree.Key + "' CumulativeBpInvested=" + ct.CumulativeBpInvested + " is negative"));
+            }
+
             // Every developed node must belong to the current-build registry (unknown same-build
             // references reject clearly — here they quarantine rather than misbind).
             foreach (var dev in stone.NodeDevelopment)
             {
+                // Per-node BP ledger fields are non-negative (accumulated progress toward a non-negative
+                // authored cost). Negative progress or cost is contradictory state — isolate, never repair.
+                if (dev.BpProgress < 0)
+                    notices.Add(new QuarantineNotice(QuarantineReason.NegativeLedgerValue, dev.Node.Key,
+                        "node '" + dev.Node.Key + "' BpProgress=" + dev.BpProgress + " is negative"));
+                if (dev.BpCost < 0)
+                    notices.Add(new QuarantineNotice(QuarantineReason.NegativeLedgerValue, dev.Node.Key,
+                        "node '" + dev.Node.Key + "' BpCost=" + dev.BpCost + " is negative"));
+
                 var devDef = _catalog.TryResolveNode(dev.Node);
                 if (devDef == null)
                 {
@@ -215,6 +235,15 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
                 if (sr.PersonalAp < 0 || sr.CumulativeAp < 0 || sr.PersonalBp < 0)
                     notices.Add(new QuarantineNotice(QuarantineReason.NegativeCharacterBalance, sr.StoneId.Value,
                         "PersonalAp=" + sr.PersonalAp + " CumulativeAp=" + sr.CumulativeAp + " PersonalBp=" + sr.PersonalBp));
+
+                // Facet Credit is a non-negative ledger (data-model.md §"Validation and recovery":
+                // validate all ledger non-negativity). A negative credit amount is corrupt state.
+                foreach (var fc in sr.FacetCredits)
+                {
+                    if (fc.Amount < 0)
+                        notices.Add(new QuarantineNotice(QuarantineReason.NegativeLedgerValue, sr.StoneId.Value,
+                            "facet credit '" + fc.FacetId + "' Amount=" + fc.Amount + " is negative"));
+                }
 
                 foreach (var p in sr.Purchases)
                 {
