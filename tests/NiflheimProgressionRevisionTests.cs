@@ -65,7 +65,7 @@ namespace SBPR.Trailborne.Tests
         private AuthenticatedConnection OwnerConnection() => new AuthenticatedConnection("plat-owner", "char-owner");
 
         private FoundationalPlacementCommand Command(
-            string operationId, string evidence = "piece-42",
+            string operationId, string evidence = "foundation_wood_floor",
             long? expectedStoneRevision = null, long? expectedCharacterRevision = null)
         {
             var adapter = new FoundationalPlacementAdapter();
@@ -96,12 +96,12 @@ namespace SBPR.Trailborne.Tests
         public void TwoClientRace_OnSameExpectedStoneRevision_LoserRejectsStaleWithoutMutation()
         {
             // Both clients observed revision 0. First commits and advances the Stone revision to 1.
-            var first = _pipeline.Handle(Command("op-winner", "piece-A", expectedStoneRevision: 0, expectedCharacterRevision: 0));
+            var first = _pipeline.Handle(Command("op-winner", "foundation_wood_wall", expectedStoneRevision: 0, expectedCharacterRevision: 0));
             Assert.Equal(CommandOutcome.Applied, first.Outcome);
             Assert.Equal(1, first.StoneRevision);
 
             // Second client is a DIFFERENT operation still expecting revision 0 -> it lost the race.
-            var loser = _pipeline.Handle(Command("op-loser", "piece-B", expectedStoneRevision: 0, expectedCharacterRevision: 0));
+            var loser = _pipeline.Handle(Command("op-loser", "foundation_wood_pole", expectedStoneRevision: 0, expectedCharacterRevision: 0));
 
             Assert.Equal(CommandOutcome.Rejected, loser.Outcome);
             Assert.Equal("StaleStoneRevision", loser.ResultCode);
@@ -118,12 +118,12 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void StaleCharacterRevision_RejectsWithoutMutation()
         {
-            var first = _pipeline.Handle(Command("op-c1", "piece-A", expectedStoneRevision: 0, expectedCharacterRevision: 0));
+            var first = _pipeline.Handle(Command("op-c1", "foundation_wood_wall", expectedStoneRevision: 0, expectedCharacterRevision: 0));
             Assert.Equal(CommandOutcome.Applied, first.Outcome);
             Assert.Equal(1, first.CharacterRevision);
 
             // Stale character revision (still expects 0) while the Stone revision is not asserted.
-            var loser = _pipeline.Handle(Command("op-c2", "piece-B", expectedStoneRevision: null, expectedCharacterRevision: 0));
+            var loser = _pipeline.Handle(Command("op-c2", "foundation_wood_pole", expectedStoneRevision: null, expectedCharacterRevision: 0));
 
             Assert.Equal(CommandOutcome.Rejected, loser.Outcome);
             Assert.Equal("StaleCharacterRevision", loser.ResultCode);
@@ -135,9 +135,9 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void FreshExpectedRevision_AdvancesAndPermitsNextCommit()
         {
-            _pipeline.Handle(Command("op-a", "piece-1", expectedStoneRevision: 0, expectedCharacterRevision: 0));
+            _pipeline.Handle(Command("op-a", "foundation_wood_beam", expectedStoneRevision: 0, expectedCharacterRevision: 0));
             // A well-behaved second client refetched revision 1 and commits against it.
-            var second = _pipeline.Handle(Command("op-b", "piece-2", expectedStoneRevision: 1, expectedCharacterRevision: 1));
+            var second = _pipeline.Handle(Command("op-b", "foundation_wood_roof", expectedStoneRevision: 1, expectedCharacterRevision: 1));
 
             Assert.Equal(CommandOutcome.Applied, second.Outcome);
             Assert.Equal(2, second.StoneRevision);
@@ -161,8 +161,8 @@ namespace SBPR.Trailborne.Tests
             // The original committed at revision 0->1. A retry/reconnect of the SAME operation still
             // carrying expectedStoneRevision:0 must return the recorded result (Replayed), because the
             // op already committed exactly once — it is not a fresh losing race.
-            var first = _pipeline.Handle(Command("op-replay", "piece-X", expectedStoneRevision: 0, expectedCharacterRevision: 0));
-            var replay = _pipeline.Handle(Command("op-replay", "piece-X", expectedStoneRevision: 0, expectedCharacterRevision: 0));
+            var first = _pipeline.Handle(Command("op-replay", "foundation_wood_floor", expectedStoneRevision: 0, expectedCharacterRevision: 0));
+            var replay = _pipeline.Handle(Command("op-replay", "foundation_wood_floor", expectedStoneRevision: 0, expectedCharacterRevision: 0));
 
             Assert.Equal(CommandOutcome.Applied, first.Outcome);
             Assert.Equal(CommandOutcome.Replayed, replay.Outcome);
