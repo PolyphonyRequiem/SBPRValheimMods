@@ -80,7 +80,8 @@ namespace SBPR.Trailborne.Tests
         private RelationshipCommandHandler NewHandler()
         {
             var resolver = new PrincipalResolver(platform => platform);
-            return new RelationshipCommandHandler(_journalPath, resolver, _characters, _authority, _families);
+            return new RelationshipCommandHandler(_journalPath, resolver, _characters, _authority,
+                _families, new StubBondAuthorityPolicy());
         }
 
         private static CharacterProgressionAggregate BuildCharacter(AccountId account, CharacterId character,
@@ -366,7 +367,8 @@ namespace SBPR.Trailborne.Tests
             characters2.PutCharacter(BuildCharacter(_account, _charA1, 5, 3, true)); // clean seed
             var authority2 = new InMemoryAccountStoneAuthorityStore();
             var resolver = new PrincipalResolver(platform => platform);
-            var handler2 = new RelationshipCommandHandler(_journalPath, resolver, characters2, authority2, _families);
+            var handler2 = new RelationshipCommandHandler(_journalPath, resolver, characters2, authority2,
+                _families, new StubBondAuthorityPolicy());
 
             // Rehydrated: the index and the character relationship are restored from journal truth.
             var idx = authority2.GetAuthority(_account, _homestead);
@@ -409,6 +411,23 @@ namespace SBPR.Trailborne.Tests
             var afterIdx = _authority.GetAuthority(_account, _community);
             Assert.False(afterIdx.HasActive(_charA1));
             Assert.True(afterIdx.HasActive(_charA2));
+        }
+
+        [Fact]
+        public void Community_ExistingSiblingBond_BlocksLaterAttunement()
+        {
+            _characters.PutCharacter(BuildCharacter(_account, _charA1, 5, 3, true, _community));
+            _characters.PutCharacter(BuildCharacter(_account, _charA2, 1, 0, false, _community));
+            var h = NewHandler();
+
+            Assert.Equal(RelationshipCommandOutcome.Applied,
+                h.Handle(Bond(_charA1, _community, "rel-cbond-first")).Outcome);
+            var siblingAttunement = h.Handle(Attune(_account, _charA2, _community, "rel-catt-second"));
+
+            Assert.Equal(RelationshipCommandOutcome.Rejected, siblingAttunement.Outcome);
+            Assert.Equal("SiblingCharacterActive", siblingAttunement.ResultCode);
+            var idx = _authority.GetAuthority(_account, _community);
+            Assert.Equal(_charA1, Assert.Single(idx.Reservations).Character);
         }
 
         // ── character-wide slot scarcity (FR-003; defect: was per-Stone) ─────────
@@ -475,6 +494,35 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal("OperationConflict", conflict.ResultCode);
         }
 
+        [Fact]
+        public void PartialIntent_ReusedWithConflictingBinding_RejectsOperationConflict()
+        {
+            var original = Bond(_charA1, _homestead, "rel-partial");
+            Assert.Equal(RelationshipCommandOutcome.Applied, _handler.Handle(original).Outcome);
+
+            // Keep only the first durable record (IntentJournaled), simulating death before Committed.
+            byte[] journal = File.ReadAllBytes(_journalPath);
+            int firstPayloadLength = System.BitConverter.ToInt32(journal, 0);
+            System.Array.Resize(ref journal, 8 + firstPayloadLength);
+            File.WriteAllBytes(_journalPath, journal);
+
+            var characters2 = new InMemoryCharacterAggregateStore();
+            characters2.PutCharacter(BuildCharacter(_account, _charA1, 5, 3, true));
+            var authority2 = new InMemoryAccountStoneAuthorityStore();
+            var resolver = new PrincipalResolver(platform => platform);
+            var handler2 = new RelationshipCommandHandler(_journalPath, resolver, characters2, authority2,
+                _families, new StubBondAuthorityPolicy());
+
+            var conflict = handler2.Handle(new RelationshipCommand(original.OperationId,
+                RelationshipCommandType.CreateBond, _homestead,
+                new AuthenticatedConnection(_account.Value, _charA1.Value), default,
+                relationshipId: "rel-different", responsibilityRange: "Homestead:All"));
+
+            Assert.Equal(RelationshipCommandOutcome.Rejected, conflict.Outcome);
+            Assert.Equal("OperationConflict", conflict.ResultCode);
+            Assert.True(authority2.GetAuthority(_account, _homestead).IsVacant);
+        }
+
         // ── Bond authority is server-authored, not client-authored (defect 5) ────
 
         [Fact]
@@ -487,6 +535,21 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(RelationshipCommandOutcome.Rejected, result.Outcome);
             Assert.Equal("OutsideResponsibilityRange", result.ResultCode);
             // No mutation.
+            Assert.True(_authority.GetAuthority(_account, _homestead).IsVacant);
+        }
+
+        [Fact]
+        public void CreateBond_WithUnauthoredResponsibilityRange_IsRejected()
+        {
+            var cmd = new RelationshipCommand(new OperationId("op-unauthored"),
+                RelationshipCommandType.CreateBond, _homestead,
+                new AuthenticatedConnection(_account.Value, _charA1.Value), default, "rel-unauthored",
+                responsibilityRange: "Homestead:InventedClientRange", ownerGovernorRole: "Owner");
+
+            var result = _handler.Handle(cmd);
+
+            Assert.Equal(RelationshipCommandOutcome.Rejected, result.Outcome);
+            Assert.Equal("OutsideResponsibilityRange", result.ResultCode);
             Assert.True(_authority.GetAuthority(_account, _homestead).IsVacant);
         }
 
@@ -554,6 +617,23 @@ namespace SBPR.Trailborne.Tests
             {
                 if (_map.TryGetValue(stoneId.Value, out var v)) { family = v.family; variant = v.variant; return true; }
                 family = variant = string.Empty; return false;
+            }
+        }
+
+        private sealed class StubBondAuthorityPolicy : IBondAuthorityPolicy
+        {
+            public bool TryAuthorizeBond(StoneId stoneId, string requestedResponsibilityRange,
+                out string grantedRange, out string grantedRole)
+            {
+                grantedRange = string.Empty;
+                grantedRole = string.Empty;
+                bool authored =
+                    string.Equals(requestedResponsibilityRange, "Homestead:All", System.StringComparison.Ordinal) ||
+                    string.Equals(requestedResponsibilityRange, "Community:All", System.StringComparison.Ordinal);
+                if (!authored) return false;
+                grantedRange = requestedResponsibilityRange;
+                grantedRole = "Governor";
+                return true;
             }
         }
     }

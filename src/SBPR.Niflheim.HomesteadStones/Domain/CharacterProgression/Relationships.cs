@@ -248,6 +248,12 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             if (policy.SiblingExclusiveFor(kind) && authority.HasSiblingOtherThan(character.Character))
                 return RelationshipTransition.Reject("SiblingCharacterActive", character, authority);
 
+            // The Community exception is only "multiple sibling Attunements". An existing sibling Bond
+            // remains account-exclusive, so it also blocks a later Attunement. Check this direction
+            // explicitly; the inverse (Attunement first, then Bond) is covered by the exclusive Bond path.
+            if (kind == RelationshipKind.Attunement && authority.HasSiblingBondOtherThan(character.Character))
+                return RelationshipTransition.Reject("SiblingCharacterActive", character, authority);
+
             // This character already actively holds a relationship here -> conflict, not a second grant.
             if (authority.HasActive(character.Character))
                 return RelationshipTransition.Reject("RelationshipConflict", character, authority);
