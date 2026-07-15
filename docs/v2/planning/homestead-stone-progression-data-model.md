@@ -230,6 +230,20 @@ T006 verification can report *exact* prices/requirements per node without preten
   Local and is **not** part of that personal prior-Offered Set.
 - No additional objective/key/item requirements in this proof build.
 
+### Provisional Tree tuning (T012)
+
+Data-defined per-Tree tuning consumed by `ApplyBPToNode` (`TreeTuningCatalog`, drift-pinned by
+`CurrentTuningVersion`). **Provisional proof values** (explicitly configurable, not a final balance lock):
+
+- **Escalating unlock-cost step = +1 BP per already-developed node in that Tree.** A node's effective
+  development cost = authored base BP price + step × (nodes already developed in the Tree). The effective
+  cost is fixed the first time BP is applied to a node, so mid-development escalation never moves a node's
+  own goalpost.
+- **Cumulative threshold for Tree Level 2 = 3 BP.** A Committed Tree advances to Level 2 exactly when its
+  cumulative qualifying BP investment reaches the threshold **and** the Active Stone Level permits it (the
+  Tree Level is clamped to the Active Stone Level). There is no separate Tree-level meter, spend, or command:
+  Tree Level is a pure function of cumulative investment vs the data-defined threshold.
+
 ## Aggregate 5 — OperationReceiptStore
 
 A server-owned durable operation/result journal. It may be implemented with a database, append-only log, or
