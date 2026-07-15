@@ -63,7 +63,7 @@ namespace SBPR.Trailborne.Tests
         private AuthenticatedConnection OwnerConnection() =>
             new AuthenticatedConnection("plat-owner", "char-owner");
 
-        private FoundationalPlacementCommand PlacementCommand(string operationId, ClaimedPrincipal claim, string evidence = "piece-42")
+        private FoundationalPlacementCommand PlacementCommand(string operationId, ClaimedPrincipal claim, string evidence = "foundation_wood_floor")
         {
             var adapter = new FoundationalPlacementAdapter();
             var evidenceFacts = new FoundationalPlacementEvidence(
@@ -126,9 +126,9 @@ namespace SBPR.Trailborne.Tests
         public void AtP0Replay_ConflictingBindingUnderSameOperationId_Rejects()
         {
             var claim = new ClaimedPrincipal("plat-owner", "char-owner");
-            _pipeline.Handle(PlacementCommand("op-conflict", claim, evidence: "piece-A"));
+            _pipeline.Handle(PlacementCommand("op-conflict", claim, evidence: "foundation_wood_wall"));
             // Same operationId, different placement evidence -> conflict, no mutation change.
-            var conflict = _pipeline.Handle(PlacementCommand("op-conflict", claim, evidence: "piece-B"));
+            var conflict = _pipeline.Handle(PlacementCommand("op-conflict", claim, evidence: "foundation_wood_pole"));
 
             Assert.Equal(CommandOutcome.Rejected, conflict.Outcome);
             Assert.Equal("OperationConflict", conflict.ResultCode);
@@ -166,7 +166,7 @@ namespace SBPR.Trailborne.Tests
         {
             var adapter = new FoundationalPlacementAdapter();
             var evidence = new FoundationalPlacementEvidence(
-                new OperationId("op-unauth"), _stone, "piece-x", "prov-x", true, true, "v1");
+                new OperationId("op-unauth"), _stone, "foundation_wood_door", "prov-x", true, true, "v1");
             // Empty platform id -> no authenticated connection.
             var admission = adapter.Admit(evidence, new AuthenticatedConnection("", ""), new ClaimedPrincipal("plat-owner", "char-owner"));
             var result = _pipeline.Handle(admission.Command);
@@ -186,7 +186,7 @@ namespace SBPR.Trailborne.Tests
 
             var adapter = new FoundationalPlacementAdapter();
             var evidence = new FoundationalPlacementEvidence(
-                new OperationId("op-unauthorized"), _stone, "piece-y", "prov-y", true, true, "v1");
+                new OperationId("op-unauthorized"), _stone, "foundation_wood_stakewall", "prov-y", true, true, "v1");
             var admission = adapter.Admit(evidence, new AuthenticatedConnection("plat-stranger", "char-stranger"), new ClaimedPrincipal(null, null));
             var result = pipeline.Handle(admission.Command);
 
@@ -201,9 +201,9 @@ namespace SBPR.Trailborne.Tests
         public void AtP0MirroredAccumulatesOnly_MultipleOperations_MirroredMonotonicallyAccumulates()
         {
             var claim = new ClaimedPrincipal("plat-owner", "char-owner");
-            _pipeline.Handle(PlacementCommand("op-m1", claim, "piece-1"));
-            _pipeline.Handle(PlacementCommand("op-m2", claim, "piece-2"));
-            _pipeline.Handle(PlacementCommand("op-m3", claim, "piece-3"));
+            _pipeline.Handle(PlacementCommand("op-m1", claim, "foundation_wood_beam"));
+            _pipeline.Handle(PlacementCommand("op-m2", claim, "foundation_wood_roof"));
+            _pipeline.Handle(PlacementCommand("op-m3", claim, "foundation_wood_stair"));
 
             Assert.Equal(3, _stoneStore.GetMirroredStoneAp(_stone));
             Assert.Equal(3, _characterStore.GetPersonalAp(_ownerAccount, _ownerCharacter, _stone));

@@ -111,7 +111,7 @@ namespace GateAHarness
             var pipeline = new ProgressionCommandPipeline(resolver, store, authorizer);
             var adapter = new FoundationalPlacementAdapter();
             var evidence = new FoundationalPlacementEvidence(new OperationId(opId), Stone(),
-                "piece-" + opId, "prov-" + opId, true, true, "v1");
+                "foundation_wood_floor", "prov-" + opId, true, true, "v1");
             var admission = adapter.Admit(evidence, new AuthenticatedConnection("plat-1", "char-1"),
                 new ClaimedPrincipal("plat-1", "char-1"), expectedStoneRev, expectedStoneRev);
             var r = pipeline.Handle(admission.Command);

@@ -15,6 +15,7 @@
   <ItemGroup>
     <!-- Link-compile the SHIPPED T002 slice from its worktree — no copy, no fork. -->
     <Compile Include="$(SrcRoot)/Domain/Identity/ProgressionIdentity.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Content/FoundationalPieceCatalog.cs" />
     <Compile Include="$(SrcRoot)/Persistence/Stone/MirroredStoneApStore.cs" />
     <Compile Include="$(SrcRoot)/Persistence/Characters/CharacterProgressionStore.cs" />
     <Compile Include="$(SrcRoot)/Application/Receipts/OperationReceiptStore.cs" />

@@ -160,7 +160,16 @@ migration/grandfathering/retirement semantics are deferred; incompatible unrelea
 ### Core definitions
 
 - Stone family and Homestead variant.
-- Foundational Tree and construction catalog.
+- Foundational Tree and construction catalog. The Foundational construction catalog is a stable
+  `CatalogId/version` (`HomesteadFoundationalConstruction` v1, tag `v1`) owning an authored member roster
+  of basic-piece **stable ids** plus an explicit **exclusion** set; an excluded stable id is never a
+  credit-eligible member even when placeable. Provisional proof roster (design call 2026-07-15,
+  explicitly configurable, not a final content lock): members `foundation_wood_floor`,
+  `foundation_wood_wall`, `foundation_wood_pole`, `foundation_wood_beam`, `foundation_wood_roof`,
+  `foundation_wood_stair`, `foundation_wood_door`, `foundation_wood_stakewall`; exclusions
+  `foundation_workbench`, `foundation_forge`. Membership is by exact stable id + current-build version,
+  never a display name or a "closest" rebind — a non-member, an excluded id, or a stale catalog version
+  is an out-of-build reference that earns no receipt.
 - Stone Facets and Tree palette.
 - Tree definitions: category, levels, cumulative BP thresholds, escalating unlock-cost policy, activity families.
 - Node definitions: stable ID/version, Tree level, outcome type, first-build status, AP/BP price, development

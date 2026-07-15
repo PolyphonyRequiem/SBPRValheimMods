@@ -118,6 +118,9 @@
          snapshot codec + the pure DerivedActivationView), link-compiled like the rest of Tracer 1. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/HomesteadProgressionCatalog.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/ContentRegistryValidator.cs" />
+    <!-- Homestead progression Tracer 2 (T008): the authored Foundational construction-piece catalog
+         (membership + exclusions + version) that hardens the ongoing protected AP source. Engine-free. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/FoundationalPieceCatalog.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Recovery/ProgressionStateRepair.cs" />
     <!-- Homestead progression Tracer 2 (T007): recoverable Bond/Attunement/Release lifecycle.
          Pure relationship transitions + the receipt-backed cross-aggregate command handler and its
@@ -125,6 +128,9 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/Relationships.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Characters/AccountStoneAuthorityStore.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/RelationshipCommands.cs" />
+    <!-- Homestead progression Tracer 2 (T008): the relationship-backed placement authorizer that makes
+         real T007 authority the gate for the ongoing Foundational AP source. Engine-free. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/RelationshipPlacementAuthorizer.cs" />
   </ItemGroup>
 
 </Project>
