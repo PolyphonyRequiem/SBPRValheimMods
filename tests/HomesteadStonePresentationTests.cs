@@ -55,5 +55,44 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(5.6f, HomesteadStonePresentation.ColliderHeight, precision: 4);
             Assert.Equal(HomesteadStonePresentation.VisualTopY / 2.0f, HomesteadStonePresentation.ColliderCenterY, precision: 4);
         }
+
+        // ── LOD / renderer-culling contract ──────────────────────────────────────────────
+
+        [Fact]
+        public void Lod_engine_reference_values_match_vanilla_valheim()
+        {
+            // Grounded from the shipped assembly (fair game per AGENTS.md): GameCamera.m_fov = 65,
+            // GraphicsSettings.GetLodBias level 2 (the default preset) => 2f.
+            Assert.Equal(65.0f, HomesteadStonePresentation.LodCameraFovVerticalDegrees);
+            Assert.Equal(2.0f, HomesteadStonePresentation.LodBiasReference);
+        }
+
+        [Fact]
+        public void Target_cull_distance_sits_inside_the_ninety_to_one_twenty_band()
+        {
+            Assert.Equal(90.0f, HomesteadStonePresentation.MinAcceptableCullDistanceMeters);
+            Assert.Equal(120.0f, HomesteadStonePresentation.MaxAcceptableCullDistanceMeters);
+            Assert.InRange(
+                HomesteadStonePresentation.TargetCullDistanceMeters,
+                HomesteadStonePresentation.MinAcceptableCullDistanceMeters,
+                HomesteadStonePresentation.MaxAcceptableCullDistanceMeters);
+        }
+
+        [Fact]
+        public void Cull_height_and_distance_are_exact_inverses()
+        {
+            // Round-trip the deterministic projection: compute the LOD transition height for a
+            // representative runtime world size, then invert it back to the target distance.
+            const float runtimeWorldSize = 3.6f; // ~scaled visual height (2× the 1.8 m model)
+            var h = HomesteadStonePresentation.ComputeCullScreenHeight(
+                runtimeWorldSize,
+                HomesteadStonePresentation.TargetCullDistanceMeters,
+                HomesteadStonePresentation.LodBiasReference);
+            var d = HomesteadStonePresentation.ComputeCullDistance(
+                runtimeWorldSize, h, HomesteadStonePresentation.LodBiasReference);
+            Assert.Equal(HomesteadStonePresentation.TargetCullDistanceMeters, d, precision: 2);
+            // Sanity: the seed hypothesis is 5–7% relative screen height for a stone this size.
+            Assert.InRange(h, 0.02f, 0.12f);
+        }
     }
 }

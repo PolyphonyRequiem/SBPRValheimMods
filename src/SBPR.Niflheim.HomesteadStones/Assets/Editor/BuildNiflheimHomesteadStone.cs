@@ -122,6 +122,22 @@ public static class BuildNiflheimHomesteadStone
             renderer.sharedMaterials = materials;
         }
 
+        // ── Visual LODGroup: one visual LOD (all renderers) + hard cull region ────────────
+        // Soloredis/Daniel guidance (2026-07-16): assign the WHOLE visual parent so every
+        // base/ivy/emission child renderer is one LOD group and culls together at 90–120 m.
+        // There is no authored lower-poly mesh, so this is a SINGLE visual LOD (LOD0 = every
+        // renderer) followed by Unity's implicit cull region — never a duplicated fake LOD and
+        // never destructive geometry. Only renderers cull; the additive gameplay root
+        // (ZNetView/identity/collider/placement/progression) is a separate object untouched here.
+        var lodRenderers = visual.GetComponentsInChildren<Renderer>(true);
+        var lodGroup = visual.GetComponent<LODGroup>();
+        if (lodGroup == null) lodGroup = visual.AddComponent<LODGroup>();
+        lodGroup.fadeMode = LODFadeMode.None;
+        lodGroup.animateCrossFading = false;
+        lodGroup.SetLODs(new[] { new LOD(CullTransitionHeight(lodGroup, lodRenderers), lodRenderers) });
+        lodGroup.RecalculateBounds();
+        var lodCount = lodRenderers.Length;
+
         var clip = new AnimationClip { name = "GuardianStone_Idle", frameRate = 24, wrapMode = WrapMode.Loop };
         var hover = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 0.045f), new Keyframe(2, 0), new Keyframe(3, -0.035f), new Keyframe(4, 0));
         var yaw = new AnimationCurve(new Keyframe(0, 0), new Keyframe(1, 1.5f), new Keyframe(2, 0), new Keyframe(3, -1.4f), new Keyframe(4, 0));
@@ -143,6 +159,31 @@ public static class BuildNiflheimHomesteadStone
         if (!prefab) throw new InvalidOperationException("Prefab save failed.");
         if (stoneCount < 1 || stemCount < 20 || leafCount < 100 || !stone.mainTexture || !stone.GetTexture("_EmissionMap") || !prefab.GetComponent<Animator>())
             throw new InvalidOperationException($"Asset wiring assertion failed: stone={stoneCount} stems={stemCount} leaves={leafCount}.");
+
+        // LODGroup structural assertion: exactly one visual LOD whose renderer set is byte-for-byte
+        // the complete set of visual renderers (base + ivy + emission), so nothing renders outside
+        // the cull group and no renderer is duplicated into a fake lower LOD.
+        var savedVisual = prefab.transform.Find("Visual");
+        if (savedVisual == null) throw new InvalidOperationException("Saved prefab is missing the 'Visual' presentation child.");
+        var savedGroup = savedVisual.GetComponent<LODGroup>();
+        if (savedGroup == null) throw new InvalidOperationException("Saved 'Visual' parent has no LODGroup.");
+        var savedLods = savedGroup.GetLODs();
+        if (savedLods.Length != 1)
+            throw new InvalidOperationException($"Expected exactly one visual LOD (no authored lower mesh); found {savedLods.Length}.");
+        var allVisualRenderers = new System.Collections.Generic.HashSet<Renderer>(savedVisual.GetComponentsInChildren<Renderer>(true));
+        var lod0Renderers = new System.Collections.Generic.HashSet<Renderer>(savedLods[0].renderers);
+        lod0Renderers.Remove(null);
+        if (!allVisualRenderers.SetEquals(lod0Renderers))
+            throw new InvalidOperationException(
+                $"LOD0 renderer membership must exactly cover all {allVisualRenderers.Count} visual renderers; " +
+                $"LOD0 has {lod0Renderers.Count}.");
+        if (allVisualRenderers.Count != lodCount)
+            throw new InvalidOperationException($"Renderer count drift: built {lodCount}, saved {allVisualRenderers.Count}.");
+        Debug.Log(
+            $"[Niflheim/HomesteadStones] LODGroup OK: 1 visual LOD covering {lod0Renderers.Count} renderers " +
+            $"(cullHeight={savedLods[0].screenRelativeTransitionHeight:0.0000}); runtime cull target " +
+            $"{TargetCullDistanceMeters:0} m at fov {LodFovVerticalDegrees:0}/lodBias {LodBiasReference:0}.");
+
 
         var build = new AssetBundleBuild
         {
@@ -179,6 +220,44 @@ public static class BuildNiflheimHomesteadStone
         if (manifest == null || !File.Exists(output) || new FileInfo(output).Length == 0)
             throw new InvalidOperationException("Stable bundle build failed.");
         Debug.Log($"[Niflheim/HomesteadStones] BUILT {output} ({new FileInfo(output).Length} bytes); stone={stoneCount} stems={stemCount} leaves={leafCount}");
+    }
+
+    // ── LOD constants + cull-height helper (mirror of Domain/HomesteadStonePresentation) ──
+    // This editor script is never compiled into the runtime plugin (it lives under Assets/Editor
+    // and is executed only in the Unity Preview Lab), so it cannot reference the runtime Domain
+    // assembly. These four values MUST stay in lockstep with HomesteadStonePresentation:
+    //   LodFovVerticalDegrees  ← LodCameraFovVerticalDegrees (vanilla GameCamera.m_fov = 65)
+    //   LodBiasReference       ← LodBiasReference            (vanilla default lodBias = 2)
+    //   TargetCullDistanceMeters ← TargetCullDistanceMeters  (90–120 m band midpoint)
+    //   RuntimeVisualScale     ← VisualScale                 (registrar applies 2× at runtime)
+    // A pinning test (HomesteadStonePresentationTests) guards the Domain side; the builder log
+    // prints the resulting cull distance so a reviewer can cross-check against real-client frames.
+    private const float LodFovVerticalDegrees = 65.0f;
+    private const float LodBiasReference = 2.0f;
+    private const float TargetCullDistanceMeters = 105.0f;
+    private const float RuntimeVisualScale = 2.0f;
+
+    /// <summary>
+    /// The screen-relative transition height for the single visual LOD so the group culls at
+    /// TargetCullDistanceMeters once the registrar scales the visual by RuntimeVisualScale.
+    /// worldSize is the group's authored bounds size × the runtime scale (the vertical extent
+    /// dominates for a tall stone). cullHeight = worldSize·lodBias / (2·dist·tan(fov/2)).
+    /// </summary>
+    private static float CullTransitionHeight(LODGroup group, Renderer[] renderers)
+    {
+        group.RecalculateBounds();
+        // Measure the TRUE authored world size from renderer world-space AABBs. group.size is in
+        // the group's LOCAL space and the guardian FBX bakes a large (~100×) import scale into the
+        // child transforms, so group.size alone dramatically understates the metres-tall envelope.
+        // Renderer.bounds are world-space and already include that import scale at authored (1×) size.
+        var b = new Bounds(renderers[0].bounds.center, Vector3.zero);
+        foreach (var r in renderers) b.Encapsulate(r.bounds);
+        var authoredWorldSize = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
+        // The registrar scales the presentation child by RuntimeVisualScale (2×) at runtime.
+        var runtimeWorldSize = authoredWorldSize * RuntimeVisualScale;
+        var halfFovTan = (float)System.Math.Tan(LodFovVerticalDegrees * 0.5f * System.Math.PI / 180.0);
+        var height = runtimeWorldSize * LodBiasReference / (2.0f * TargetCullDistanceMeters * halfFovTan);
+        return Mathf.Clamp01(height);
     }
 
     private static void CopyRequired(string filename, string unityPath)

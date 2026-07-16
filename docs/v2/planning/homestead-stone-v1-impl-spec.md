@@ -95,6 +95,51 @@ The builder's `ConfigureTexture` applies the policy then calls `HomesteadTexture
 which throws (failing the reproducible bundle build) on any importer drift for either texture. This is a
 **PROVISIONAL playtest style tune, not a final art lock.**
 
+### 2.2 Visual LOD and 90–120 m renderer culling (provisional performance tune)
+
+Per Daniel/Soloredis guidance (2026-07-16): add an `LODGroup` to the whole presentation visual so every
+base/ivy/emission child renderer is culled together at range, targeting a **90–120 m** maximum visibility,
+with **5–7% relative screen height** as a size-dependent starting hypothesis.
+
+The V12 model has **no authored lower-poly mesh**, so the builder authors a **single visual LOD** (LOD0 =
+every renderer) followed by Unity's implicit hard cull region — *not* a duplicated fake lower LOD and *not*
+destructive geometry. `BuildNiflheimHomesteadStone.cs` attaches one `LODGroup` to the `Visual` parent, sets
+`fadeMode = None`, and calls `SetLODs` with a single `LOD` whose renderer array is the complete
+`GetComponentsInChildren<Renderer>` set. A build-time assertion (fails the reproducible bundle build) then
+re-reads the saved prefab and verifies exactly one LOD whose renderer membership is set-equal to every visual
+renderer, so nothing renders outside the cull group.
+
+**Only renderers cull.** The additive gameplay root (`ZNetView`, `HomesteadStoneIdentity`, `CapsuleCollider`,
+placement object, and progression state) is a separate GameObject that the `LODGroup` never touches, so
+identity, collision, seating, and AP behaviour stay alive when the visual is culled.
+
+The cull distance is deterministic. Unity culls a group when its screen-relative height drops below the last
+LOD's transition height `H`:
+
+```text
+screenHeight(d) = worldSize / (d · 2 · tan(fovVertical/2)) · lodBias
+cullDistance    = worldSize · lodBias / (2 · H · tan(fovVertical/2))
+```
+
+The two engine constants are read from the shipped `assembly_valheim.dll` (vanilla is fair game per AGENTS.md):
+**vertical FOV 65** (`GameCamera.m_fov`) and **default `lodBias` 2** (`GraphicsSettings.GetLodBias`, quality
+level 2 — the default preset). `worldSize` is the runtime LOD group envelope: the authored world-space renderer
+AABB (~1.88 m, the guardian FBX bakes a large import scale) × the registrar's uniform **2×** scale = **~3.77 m**.
+The builder solves `H` from the target cull distance (`TargetCullDistanceMeters = 105 m`, the 90–120 m midpoint),
+yielding **`H ≈ 0.0563` (5.63% relative screen height)** — squarely inside Daniel's 5–7% seed. The engine-free
+`Domain/HomesteadStonePresentation` contract owns these constants (`LodCameraFovVerticalDegrees`,
+`LodBiasReference`, `TargetCullDistanceMeters`, `Min/MaxAcceptableCullDistanceMeters`) plus the
+`ComputeCullScreenHeight`/`ComputeCullDistance` formulas, pinned by `HomesteadStonePresentationTests`; the
+builder inlines the same four numbers (it cannot reference the runtime assembly) and logs the resulting cull
+distance for reviewer cross-check.
+
+Deterministic real-engine evidence (Unity 6000.0.61f1, the same engine + LOD screen-height math the live client
+runs) confirms the computed cull distance is **105.0 m** at FOV 65 / lodBias 2 with approach frames captured at
+60/90/120/150 m. The live Valheim client capture (via the MCP/GABS harness) remains gated on a gateway restart
+Daniel controls; this deterministic calibration is the strongest evidence obtainable headless.
+
+This LOD/cull tune is a **PROVISIONAL performance tune, not a final art lock.**
+
 ## 3. Stable identity and reserved data keys
 
 D3 is decided for this playtest build: the host Valheim Location's zone coordinate `(zoneX,zoneZ)`.
