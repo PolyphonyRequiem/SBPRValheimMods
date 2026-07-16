@@ -52,6 +52,13 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Progression.FoundationalRuntimeBootstrap));
             harmony.PatchAll(typeof(Features.Progression.FoundationalPlacementObserver));
 
+            // T009R2 — dedicated-server placement ingress: a joined dedicated-server client's build never
+            // runs Player.PlacePiece on the server, so the listen-host observer above cannot see it. The
+            // client fires a routed notice; the server revalidates it against its own ZDO store and
+            // credits through the SAME shared validation core.
+            harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressObserver));
+            harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressBootstrap));
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 

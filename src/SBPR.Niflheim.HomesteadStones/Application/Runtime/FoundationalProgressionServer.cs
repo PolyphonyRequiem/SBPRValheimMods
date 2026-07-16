@@ -74,6 +74,20 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
         public string DurableDirectory { get; }
 
+        /// <summary>Build the DEDICATED-server placement ingress over this server's shared validation
+        /// core. Both host shapes converge here: the listen-host observer calls <c>Runtime.Observe</c>
+        /// directly (its PlacePiece runs on the server), while a joined dedicated-server client's build
+        /// arrives as a notice this ingress revalidates against the caller-supplied server-owned ZDO
+        /// source, then routes through the SAME <see cref="Runtime"/> (adapter → pipeline → receipt) and
+        /// the SAME <see cref="StoneAreas"/>. Production supplies a ZDOMan-backed instance source; tests
+        /// supply an in-memory one. There is deliberately no client-authoritative fallback: every
+        /// credit-bearing fact is re-derived from <paramref name="instances"/>, never the notice.</summary>
+        public DedicatedPlacementIngress CreateDedicatedIngress(IServerPlacedInstanceSource instances)
+        {
+            if (instances == null) throw new ArgumentNullException(nameof(instances));
+            return new DedicatedPlacementIngress(Runtime, instances, StoneAreas, FoundationalPrefabMap.CurrentBuild);
+        }
+
         /// <summary>Compose the live runtime over a stable server-owned durable directory. The
         /// directory is created if absent; the two journals live inside it and are rehydrated at
         /// construction. Caller supplies the platform→account map (candidate E; null falls back to

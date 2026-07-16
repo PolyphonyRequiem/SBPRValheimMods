@@ -174,6 +174,38 @@ net48-only `Features/Progression/FoundationalPlacementObserver` (a `Player.Place
 gated) supplies the observation; `FoundationalRuntimeBootstrap` composes the durable
 `FoundationalProgressionServer` under a stable world-scoped server-owned path with startup rehydration.
 
+**Dedicated-server ingress (T009R2, 2026-07-15).** The T009R `Player.PlacePiece` postfix is the
+**listen-host** path only: on a listen/singleplayer host the placing player's `PlacePiece` runs on the
+server, so that seam already carries a server-authoritative placement. A joined **dedicated**-server
+client's build, however, never runs `PlacePiece` on the server — it replicates to the server as a ZDO —
+so the server-gated postfix emits **zero** receipts for it. T009R2 adds a dedicated ingress that closes
+this gap without ever trusting the client:
+
+- The placing **client** fires a routed notice (`ZRoutedRpc`, method `SBPR_Niflheim_FoundationalPlacedNotice`)
+  carrying ONLY an opaque physical-instance pointer (the placed piece's ZDOID string). The notice is a
+  pointer, never authority.
+- The **server** handler (`Features/Progression/DedicatedPlacementIngressObserver`, registered only where
+  `IsServer()`) derives the sender principal from the **authenticated** routed sender peer — never the
+  payload — and hands the opaque key to the engine-free
+  `Application/Runtime/DedicatedPlacementIngress`.
+- The ingress **independently re-derives** every credit-bearing fact from the server's own ZDO store via
+  `IServerPlacedInstanceSource` (production: `ZdoServerPlacedInstanceSource` over `ZDOMan`): authoritative
+  **existence** (a fabricated/stale key → `NoSuchInstance`), exact **prefab → stable catalog identity**
+  (re-resolved through the version-pinned `FoundationalPrefabMap`), **creator/actor binding** (the ZDO's
+  recorded creator MUST equal the authenticated sender principal, else `CreatorMismatch`), **position →
+  Stone Area** membership (from the ZDO transform), **success/current-world** state (a resolvable resident
+  ZDO is a materialized success), **exclusions/version** (enforced by the shared adapter), and the stable
+  physical-instance **repetition key** (the ZDOID). It then routes the reconstructed
+  `FoundationalPlacementObservation` through the **same** `FoundationalPlacementRuntime` — adapter →
+  relationship-backed pipeline → durable receipt — so listen-host and dedicated paths share ONE
+  server-validation core.
+- **Startup/replication safety:** ingress is notice-driven, never a ZDO scan. A booting or replicating
+  server generates no notice, so no previously-loaded piece is ever awarded — the vanilla distinction
+  between "a client just placed this" (a live notice) and "the server loaded/replicated an existing ZDO"
+  (no notice). Duplicate/replayed notices for one instance converge on the single receipt (deterministic
+  ZDOID-derived operation id); a conflicting reuse of a credited instance rejects at the receipt layer.
+  There is no client-authoritative fallback.
+
 ### `RecordAlignedActivity`
 
 Used by server adapters for eligible Cooking, Crafting, Archer, or Warrior activity.

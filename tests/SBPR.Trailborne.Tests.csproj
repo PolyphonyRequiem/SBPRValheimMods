@@ -144,6 +144,12 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalPlacementObservation.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalPlacementRuntime.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalProgressionServer.cs" />
+    <!-- Homestead progression Tracer 2 (T009R2): the engine-free DEDICATED-server placement ingress +
+         revalidation core — a joined dedicated-server client's build never runs Player.PlacePiece on the
+         server, so this revalidates a client notice against the server's own ZDO facts (existence, creator
+         binding, prefab/catalog identity, position/Stone Area) and routes through the SAME shared runtime.
+         Engine-free (the ZDOMan-backed source + routed-RPC observer are net48-only, not link-compiled). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/DedicatedPlacementIngress.cs" />
     <!-- Homestead progression Tracer 3 (T010): Stone Facets + revisioned Profession/Martial Tree
          commitment. Pure Facet transition, engine-free Stone aggregate store, the receipt-backed
          CommitTreeToFacet command handler, and the hints-only panel affordance. Engine-free. -->
