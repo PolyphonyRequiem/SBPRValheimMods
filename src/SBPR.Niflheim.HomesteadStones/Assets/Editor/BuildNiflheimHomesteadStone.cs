@@ -193,11 +193,9 @@ public static class BuildNiflheimHomesteadStone
     private static void ConfigureTexture(string path, bool srgb)
     {
         var importer = (TextureImporter)AssetImporter.GetAtPath(path);
-        importer.textureType = TextureImporterType.Default;
-        importer.sRGBTexture = srgb;
-        importer.mipmapEnabled = true;
-        importer.alphaSource = TextureImporterAlphaSource.None;
+        HomesteadTextureImportPolicy.Apply(importer, srgb);
         importer.SaveAndReimport();
+        HomesteadTextureImportPolicy.AssertMatches(path, srgb);
     }
 
     private static void ApplyAutoTangents(AnimationCurve curve)
