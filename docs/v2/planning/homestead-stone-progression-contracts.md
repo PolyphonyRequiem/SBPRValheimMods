@@ -160,6 +160,130 @@ ApActivityReceipt
 
 The three deltas commit as one logical operation. Partial Personal/Cumulative/Mirrored results are invalid.
 
+**Live runtime seam (T009R, 2026-07-15).** `RecordFoundationalPlacement` is fed on the authoritative
+server by `Application/Runtime/FoundationalPlacementRuntime`, which turns one server-observed
+`FoundationalPlacementObservation` (Stone, acting account/character derived from the authenticated
+connection context — never client payload, stable piece id resolved via the version-pinned
+`FoundationalPrefabMap`, physical-instance provenance, `StoneAreaMembership` result, success state, and
+catalog version) into `FoundationalPlacementEvidence`, passes it through the hardened
+`FoundationalPlacementAdapter`, and calls the existing `ProgressionCommandPipeline`. The operation id is
+derived deterministically from the physical-instance provenance so re-observation/retry/restart converges
+on the one recorded receipt. Authorization is the relationship-backed `RelationshipPlacementAuthorizer`
+only; there is no permissive/test authorizer or client-authoritative fallback in production. The
+net48-only `Features/Progression/FoundationalPlacementObserver` (a `Player.PlacePiece` postfix, server-
+gated) supplies the observation; `FoundationalRuntimeBootstrap` composes the durable
+`FoundationalProgressionServer` under a stable world-scoped server-owned path with startup rehydration.
+
+**Dedicated-server ingress (T009R2, 2026-07-15).** The T009R `Player.PlacePiece` postfix is the
+**listen-host** path only: on a listen/singleplayer host the placing player's `PlacePiece` runs on the
+server, so that seam already carries a server-authoritative placement. A joined **dedicated**-server
+client's build, however, never runs `PlacePiece` on the server — it replicates to the server as a ZDO —
+so the server-gated postfix emits **zero** receipts for it. T009R2 adds a dedicated ingress that closes
+this gap without ever trusting the client:
+
+- The placing **client** fires a routed notice (`ZRoutedRpc`, method `SBPR_Niflheim_FoundationalPlacedNotice`)
+  carrying ONLY an opaque physical-instance pointer (the placed piece's ZDOID string). The notice is a
+  pointer, never authority.
+- The **server** handler (`Features/Progression/DedicatedPlacementIngressObserver`, registered only where
+  `IsServer()`) derives the sender principal from the **authenticated** routed sender peer — never the
+  payload — and hands the opaque key to the engine-free
+  `Application/Runtime/DedicatedPlacementIngress`.
+- The ingress **independently re-derives** every credit-bearing fact from the server's own ZDO store via
+  `IServerPlacedInstanceSource` (production: `ZdoServerPlacedInstanceSource` over `ZDOMan`): authoritative
+  **existence** (a fabricated/stale key → `NoSuchInstance`), exact **prefab → stable catalog identity**
+  (re-resolved through the version-pinned `FoundationalPrefabMap`), **creator/actor binding** (the ZDO's
+  recorded creator MUST equal the authenticated sender principal, else `CreatorMismatch`), **position →
+  Stone Area** membership (from the ZDO transform), **success/current-world** state (a resolvable resident
+  ZDO is a materialized success), **exclusions/version** (enforced by the shared adapter), and the stable
+  physical-instance **repetition key** (the ZDOID). It then routes the reconstructed
+  `FoundationalPlacementObservation` through the **same** `FoundationalPlacementRuntime` — adapter →
+  relationship-backed pipeline → durable receipt — so listen-host and dedicated paths share ONE
+  server-validation core.
+- **Startup/replication safety:** ingress is notice-driven, never a ZDO scan. A booting or replicating
+  server generates no notice, so no previously-loaded piece is ever awarded — the vanilla distinction
+  between "a client just placed this" (a live notice) and "the server loaded/replicated an existing ZDO"
+  (no notice). Duplicate/replayed notices for one instance converge on the single receipt (deterministic
+  ZDOID-derived operation id); a conflicting reuse of a credited instance rejects at the receipt layer.
+  There is no client-authoritative fallback.
+
+**Runtime corrections (T009R3, 2026-07-16).** Three runtime blockers in the T009R2 cut are corrected;
+the revalidation core above is unchanged.
+
+- **Live placement hook.** The placed instance is captured from the private static `Player.m_placed`
+  list vanilla populates from the instantiated object, NOT the `Player.PlacePiece` `piece` argument (that
+  is the build ghost/prefab, with no world ZDO or stamped creator). `Player.PlacePiece` returns `void`, so
+  a reached postfix is itself the success signal (vanilla only calls it from `TryPlacePiece`'s success
+  branch) — there is no `bool` result. `Features/Progression/PlacedPieceCapture.cs` reads the placed
+  `Piece` from `m_placed`.
+- **Authenticated creator identity.** Vanilla stamps a placed piece's creator with
+  `Piece.SetCreator(Player.GetPlayerID())`, and `GetPlayerID()` returns the character ZDO's
+  `ZDOVars.s_playerID` — a game-minted profile id, NOT the platform id in `peer.m_characterID.UserID`. The
+  server resolves the authenticated sender's CHARACTER ZDO (from `peer.m_characterID`) and reads that same
+  server-owned `s_playerID`, rendering it into the shared `ServerCreatorIdentity` principal space the ZDO's
+  recorded creator also renders to, so the ingress's creator==sender binding compares two server-derived
+  `s_playerID` values. The acting character id is the stable character ZDOID, never the mutable player
+  name. Reconnect-stable: a new session's character ZDOID differs but the `s_playerID` is durable.
+
+**Live relationship establishment (T009R3, 2026-07-16).** `RecordFoundationalPlacement` requires an active
+Attunement (or Bond), but the live `FoundationalProgressionServer` boots with empty character/authority
+projections — nothing in a real session could establish one. `RelationshipProvisioningIngress`
+(`Application/Runtime`) is the smallest server-authoritative seam: it seeds an ABSENT character aggregate
+(never overwriting existing progression) and drives the shipped `RelationshipCommandHandler` (the same
+handler that boot-rehydrates the relationship journal) with a SERVER-DERIVED subject. It is restricted to a
+playtest path: the net48 `Features/Progression/RelationshipProvisioningAdmin` registers its routed RPC ONLY
+when the server-owned config flag `Progression.EnableAdminRelationshipProvisioning` is true (default false),
+and even then accepts only an authenticated Valheim ADMIN sender (peer host on the server admin list — the
+same gate as `RPC_Save`). The subject account (creator principal) and target Stone are re-derived from the
+sender's server-owned character ZDO; there is no permissive authorizer, client-supplied identity, or
+fabricated projection mutation. Disabled outside the playtest path (flag off ⇒ the handler is never
+registered).
+
+**Transport-bound identity, Stone Areas, and the replication race (T009R4, 2026-07-16).** An independent
+adversarial review of the T009R3 cut (PR #313, closed) found five remaining LIVE blockers. The revalidation
+core and the listen-host path are unchanged; the integration edges are corrected as follows.
+
+- **Production Stone Area registration (Blocker 1).** `FoundationalProgressionServer.StoneAreas` starts
+  EMPTY and only tests called `Register(...)`, so on a real server every placement resolved
+  `OutsideStoneArea` and nothing could be credited. The engine-free `StoneAreaRegistrar`
+  (`Domain/StoneProgression`) reconciles the membership to exactly the CURRENT resident Stone facts —
+  register new, update moved, unregister removed, idempotent per pass. The net48
+  `HomesteadStoneWorldPlacement` reconcile pass enumerates resident Stone ZDOs (each carries its host-zone
+  `StoneId` inputs + world-position center) and drives the registrar on startup and the periodic
+  realization cadence. No test-only prepopulation ships in production.
+- **Transport-bound sender identity (Blocker 2).** Vanilla `ZRoutedRpc.RoutedRPCData.m_senderPeerID` is
+  serialized by the CLIENT and `RPC_RoutedRPC` never validates it against the delivering `ZRpc`, so a routed
+  handler's `sender` is forgeable. High-value placement/provisioning authority now rides a DIRECT per-peer
+  `ZRpc` handler registered at `ZNet.OnNewConnection`; the server resolves the exact authenticated `ZNetPeer`
+  by matching `m_rpc` reference identity (vanilla's own `ZNet.GetPeer(ZRpc)` seam). From that peer it derives
+  the ACCOUNT = authenticated socket host id (platform/Gate-A subject) and the CHARACTER = the character
+  ZDO's durable `s_playerID` rendered as `player:<s_playerID>`. A placed piece's ZDO `s_creator` (stamped
+  from the placing character's `s_playerID`) binds to the CHARACTER subject, NOT the account. A client
+  payload carries only the candidate instance pointer / command discriminator; it can never choose account,
+  character, Stone, position, prefab, creator, or permissions. Hostile spoof tests prove a forged peer id /
+  admin identity cannot redirect authority.
+- **Stable reconnect semantics (Blocker 3).** The live character ZDOID changes every session and must never
+  be the durable subject. Relationships and receipts are keyed under the stable `player:<s_playerID>`
+  character subject. `ProvisioningOperationBinding` derives the provisioning operation id from ALL material
+  fields (account, stable character, Stone, command, requested range, world scope), so an exact retry
+  replays and any changed binding is a DISTINCT operation that conflicts intentionally. Reconnect/restart
+  preserves authorization rather than orphaning it.
+- **Executable, correctly admin-gated provisioning (Blocker 4).** The playtest provisioning seam is now
+  invokable via the client console command `sbpr_provision attune|bond` (registered on `Terminal.InitTerminal`),
+  which sends the command discriminator on the server connection to the transport-bound handler. It remains
+  DEFAULT OFF (`Progression.EnableAdminRelationshipProvisioning`, server-owned) and server-admin only. Admin
+  identity is matched with vanilla-normalized semantics via `VanillaAdminIdentity.ListContainsId` — a
+  clean-room reproduction of `ZNet.ListContainsId` (platform-qualified OR bare user id on the server's
+  platform) — NOT raw `GetAdminList().Contains(host)`. It drives the shipped `RelationshipCommandHandler`;
+  no permissive authorizer or projection mutation.
+- **ZDO replication race (Blocker 5).** A joined client's placement notice beats ZDO replication (ZDO
+  transmit happens later on the `ZDOMan.Update` cadence), so an inline ingest failed `NoSuchInstance`
+  permanently. The transport-bound handler now captures the authenticated identity + physical ZDOID into the
+  bounded `PendingRevalidationQueue` and defers the credit-bearing ingest. A pump on `ZDOMan.Update` retries
+  the shared revalidation ONLY until the authoritative ZDO appears or a short configured deadline expires
+  (default 30s), then runs the full revalidation once. Duplicate notices converge on one entry (keyed by
+  character subject + ZDOID); a timeout writes no credit; the queue is bounded against spam; and because it
+  is purely in-memory, a restart starts empty and never scans/awards old pieces.
+
 ### `RecordAlignedActivity`
 
 Used by server adapters for eligible Cooking, Crafting, Archer, or Warrior activity.

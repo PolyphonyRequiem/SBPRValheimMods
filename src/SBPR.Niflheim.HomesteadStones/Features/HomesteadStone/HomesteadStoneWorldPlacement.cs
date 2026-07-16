@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Domain;
+using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
+using SBPR.Niflheim.HomesteadStones.Features.Progression;
 using UnityEngine;
 
 namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
@@ -65,8 +68,51 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             while (ReferenceEquals(ZoneSystem.instance, zoneSystem))
             {
                 PlaceLoaded(zoneSystem, worldIdentity, selection.Selected, byIdentity);
+                ReconcileStoneAreas(worldIdentity);
                 yield return new WaitForSeconds(RecheckSeconds);
             }
+        }
+
+        /// <summary>T009R4 (Blocker 1) — server-authoritatively (re)register the Homestead Stone Areas from
+        /// the REAL resident/persisted Stone ZDOs into the live runtime's membership. Without this the
+        /// membership stays empty and every placement resolves OutsideStoneArea, so nothing can ever be
+        /// credited. Each resident Stone ZDO carries the host zone (its stable StoneId inputs) and a world
+        /// position (the Area center); the engine-free <see cref="StoneAreaRegistrar"/> reconciles the
+        /// membership to exactly the current resident set (add / move / remove). Idempotent per tick.</summary>
+        private static void ReconcileStoneAreas(string worldIdentity)
+        {
+            var server = FoundationalPlacementObserver.Server;
+            if (server == null) return;   // not the composed authoritative server
+            var zdoMan = ZDOMan.instance;
+            if (zdoMan == null) return;
+
+            var world = new WorldId(worldIdentity);
+            var facts = new List<StoneAreaRegistrar.StoneAreaFact>();
+
+            var found = new List<ZDO>();
+            var index = 0;
+            while (!zdoMan.GetAllZDOsWithPrefabIterative(HomesteadStoneRegistrar.PrefabName, found, ref index)) { }
+            foreach (var zdo in found)
+            {
+                if (zdo == null || !zdo.IsValid()) continue;
+                int zoneX = zdo.GetInt(HomesteadStoneData.LocationZoneXKey, int.MinValue);
+                int zoneZ = zdo.GetInt(HomesteadStoneData.LocationZoneZKey, int.MinValue);
+                if (zoneX == int.MinValue || zoneZ == int.MinValue) continue;   // unkeyed → no Area
+
+                // Only bind Areas for Stones belonging to THIS world identity (server-owned fact).
+                string zdoWorld = zdo.GetString(HomesteadStoneData.WorldIdentityKey, string.Empty);
+                if (!string.IsNullOrEmpty(zdoWorld) &&
+                    !string.Equals(zdoWorld, worldIdentity, StringComparison.Ordinal)) continue;
+
+                var stoneId = StoneId.FromHostZone(world, zoneX, zoneZ);
+                Vector3 pos = zdo.GetPosition();
+                facts.Add(new StoneAreaRegistrar.StoneAreaFact(
+                    stoneId, pos.x, pos.z, Domain.StoneProgression.StoneAreaMembership.DefaultAreaRadius));
+            }
+
+            var result = StoneAreaRegistrar.Reconcile(server.StoneAreas, facts);
+            if (result.Registered > 0 || result.Updated > 0 || result.Unregistered > 0)
+                Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + result.ToString());
         }
 
         private static List<RuntimeCandidate> BuildCandidates(ZoneSystem zoneSystem) =>

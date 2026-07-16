@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 
@@ -17,6 +18,12 @@ namespace SBPR.Niflheim.HomesteadStones
     /// accepted V12 AssetBundle visual, current Location-zone-coordinate D3 keys, and the
     /// provisional deterministic Meadows selector/seating path. Claim/account/UI and final
     /// migration/compatibility policy remain later playtest-gated slices.
+    ///
+    /// T009 (2026-07-15): the live Foundational AP runtime seam. On the authoritative server this
+    /// plugin composes the durable FoundationalProgressionServer (Application/Runtime) and installs the
+    /// engine-bound FoundationalPlacementObserver so a real successful placement flows through the
+    /// shipped adapter → pipeline → durable receipt. Composition is server-gated and wired lazily from
+    /// ZNet start (see Features/Progression/FoundationalRuntimeBootstrap.cs).
     /// </summary>
     [BepInPlugin(ModId, ModName, ModVersion)]
     public partial class Plugin : BaseUnityPlugin
@@ -40,6 +47,32 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony = new Harmony(ModId);
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneRegistrar));
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneWorldPlacement));
+
+            // T009 — live Foundational AP runtime. The bootstrap Harmony patch composes the durable
+            // FoundationalProgressionServer on the authoritative server and arms the placement observer.
+            harmony.PatchAll(typeof(Features.Progression.FoundationalRuntimeBootstrap));
+            harmony.PatchAll(typeof(Features.Progression.FoundationalPlacementObserver));
+
+            // T009R4 — dedicated-server placement ingress (transport-bound + race-safe). A joined
+            // dedicated-server client's build never runs Player.PlacePiece on the server; the client sends
+            // a DIRECT per-peer notice, the server authenticates the sender by the delivering ZRpc (never a
+            // forgeable routed id), captures it into a bounded pending-revalidation queue, and credits
+            // through the SAME shared validation core once the ZDO replicates. Registration is per-peer
+            // (ZNet.OnNewConnection) and the queue pumps on ZDOMan.Update — no separate bootstrap patch.
+            harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressObserver));
+
+            // T009R3 (Blocker 3) — admin/test relationship provisioning seam. DISABLED by default: the
+            // routed handler is only registered when this server-owned flag is ON, and even then only an
+            // authenticated Valheim ADMIN sender is accepted. It exists so a real playtest session can
+            // ESTABLISH the Bond/Attunement RecordFoundationalPlacement requires (T009L). Never a shipping
+            // gameplay command; never client-open.
+            Features.Progression.RelationshipProvisioningAdmin.EnableProvisioning = Config.Bind(
+                "Progression", "EnableAdminRelationshipProvisioning", false,
+                "Playtest ONLY. When true, server admins may provision a Bond/Attunement for themselves via "
+                + "the SBPR_Niflheim_ProvisionRelationship routed RPC so live Foundational AP can be proven. "
+                + "Server-owned; not client-settable. Leave false on any non-playtest server.");
+            harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningConsole));
 
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
