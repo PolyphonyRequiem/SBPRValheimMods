@@ -3,53 +3,73 @@ using SBPR.Niflheim.HomesteadStones.Application.Runtime;
 namespace SBPR.Niflheim.HomesteadStones.Features.Progression
 {
     /// <summary>
-    /// T009R3 (Blocker 2) — the net48-ONLY read port that resolves an authenticated routed sender (a
-    /// peer uid) into the server's own facts about that sender's CHARACTER, from ZNet's peer table and
-    /// ZDOMan. It feeds the engine-free <see cref="AuthenticatedSenderBinder"/>.
+    /// T009R4 (Blocker 2) — the net48-ONLY read port that resolves a TRANSPORT-AUTHENTICATED sender —
+    /// the actual <c>ZNetPeer</c> that delivered the packet on its own <c>ZRpc</c> — into the server's own
+    /// facts about that sender's CHARACTER + ACCOUNT. It feeds the engine-free
+    /// <see cref="AuthenticatedSenderBinder"/>.
     ///
-    /// Why this replaces the T009R2 path: T009R2 derived the sender principal from
-    /// <c>peer.m_characterID.UserID</c> — the character ZDOID's USER half, i.e. the platform/Steam id.
-    /// But vanilla stamps a placed piece's creator with <c>Player.SetCreator(GetPlayerID())</c>, and
-    /// <c>GetPlayerID()</c> returns the character ZDO's <c>ZDOVars.s_playerID</c> (a game-minted profile
-    /// id), NOT the platform id. Those are different numbers on a real dedicated server, so the old
-    /// comparison always mismatched. Here we resolve the sender's character ZDO (<c>peer.m_characterID</c>
-    /// via <c>ZDOMan</c>) and read the SAME server-owned <c>s_playerID</c> the piece's creator was stamped
-    /// from, plus the STABLE character ZDOID string as the acting character id (never <c>m_playerName</c>,
-    /// which is mutable). Reconnect-stable: a new session gives the character a new ZDOID but the same
-    /// <c>s_playerID</c>, so the creator principal is unchanged.
+    /// Why this replaces the routed-sender path (the T009R3 adversarial-review Blocker 2): vanilla
+    /// <c>ZRoutedRpc.RoutedRPCData.m_senderPeerID</c> is serialized by the CLIENT and <c>RPC_RoutedRPC</c>
+    /// never rewrites/validates it against the incoming <c>ZRpc</c>, so a routed handler's <c>long sender</c>
+    /// is forgeable. High-value placement/provisioning authority must therefore be driven from a DIRECT
+    /// per-peer <c>ZRpc</c> handler, where the server receives the real transport <c>ZRpc</c> and can find
+    /// the exact <c>ZNetPeer</c> whose <c>m_rpc</c> delivered the packet (vanilla's own
+    /// <c>ZNet.GetPeer(ZRpc)</c> seam). From that authenticated peer we read:
+    ///   * ACCOUNT   = the authenticated socket host id (<c>m_socket.GetHostName()</c>), the platform/Gate-A
+    ///     account subject (candidate A: platform id as account). Never a client claim.
+    ///   * CHARACTER = the server-owned <c>ZDOVars.s_playerID</c> off the peer's character ZDO — the durable,
+    ///     reconnect-stable id vanilla stamps as a placed piece's <c>s_creator</c>. Never the live character
+    ///     ZDOID (which changes on reconnect — Blocker 3) and never the mutable player name.
     ///
-    /// References Valheim (ZNet, ZNetPeer, ZDOMan, ZDO, ZDOID, ZDOVars) → net48-only, not link-compiled.
+    /// References Valheim (ZNet, ZNetPeer, ISocket, ZDOMan, ZDO, ZDOID, ZDOVars) → net48-only, not
+    /// link-compiled into net8. The engine-free binder it feeds is fully unit-tested.
     /// </summary>
-    internal sealed class ZdoAuthenticatedSenderSource : IAuthenticatedSenderCharacterSource
+    internal sealed class ZdoAuthenticatedSenderSource
     {
         internal static readonly ZdoAuthenticatedSenderSource Instance = new ZdoAuthenticatedSenderSource();
 
-        public bool TryResolveSender(long senderPeerUid, out AuthenticatedSenderCharacter character)
+        /// <summary>Resolve the TRUE authenticated peer that delivered a packet on <paramref name="rpc"/>.
+        /// Vanilla's <c>ZNet.GetPeer(ZRpc)</c> is private; we reproduce it over the public
+        /// <c>GetConnectedPeers()</c> table by matching <c>m_rpc</c> reference identity — the same
+        /// transport-bound match, with no client-supplied id involved.</summary>
+        internal static ZNetPeer? PeerForRpc(ZNet znet, ZRpc rpc)
+        {
+            if (znet == null || rpc == null) return null;
+            foreach (var peer in znet.GetConnectedPeers())
+            {
+                if (peer != null && ReferenceEquals(peer.m_rpc, rpc)) return peer;
+            }
+            return null;
+        }
+
+        /// <summary>Read the server-owned character + account facts off a TRANSPORT-AUTHENTICATED peer.
+        /// Returns false when the peer has no bound character, no resident character ZDO, no minted
+        /// s_playerID, or no socket host id — any of which is unbindable (the caller then rejects rather
+        /// than crediting). Nothing here is client-authored: the peer came from ZRpc reference identity,
+        /// the s_playerID off the server's own ZDO, the account off the authenticated socket.</summary>
+        internal bool TryResolveFromPeer(ZNetPeer? peer, out AuthenticatedSenderCharacter character)
         {
             character = AuthenticatedSenderCharacter.None;
-
-            var znet = ZNet.instance;
-            if (znet == null) return false;
-
-            var peer = znet.GetPeer(senderPeerUid);
             if (peer == null) return false;
 
+            // ACCOUNT: the authenticated socket host id (platform/Gate-A account subject).
+            var socket = peer.m_socket;
+            string? host = socket != null ? socket.GetHostName() : null;
+            if (string.IsNullOrEmpty(host)) return false;
+
+            // CHARACTER: the peer's character ZDO in the server's own store → durable s_playerID.
             ZDOID characterId = peer.m_characterID;
             if (characterId.IsNone()) return false;
 
             var zdoMan = ZDOMan.instance;
             if (zdoMan == null) return false;
-
-            // The sender's CHARACTER ZDO in the server's own store. Its s_playerID is the exact value
-            // vanilla stamped as the placed piece's s_creator (Player.GetPlayerID()).
             var characterZdo = zdoMan.GetZDO(characterId);
             if (characterZdo == null || !characterZdo.IsValid()) return false;
 
             long playerId = characterZdo.GetLong(ZDOVars.s_playerID, 0L);
             if (playerId == 0L) return false;   // unbindable — no minted profile id yet
 
-            // Stable character id = the character ZDOID string (server-owned, durable across renames).
-            character = new AuthenticatedSenderCharacter(playerId, characterId.ToString());
+            character = new AuthenticatedSenderCharacter(playerId, host!);
             return true;
         }
     }

@@ -53,12 +53,13 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Progression.FoundationalRuntimeBootstrap));
             harmony.PatchAll(typeof(Features.Progression.FoundationalPlacementObserver));
 
-            // T009R2 — dedicated-server placement ingress: a joined dedicated-server client's build never
-            // runs Player.PlacePiece on the server, so the listen-host observer above cannot see it. The
-            // client fires a routed notice; the server revalidates it against its own ZDO store and
-            // credits through the SAME shared validation core.
+            // T009R4 — dedicated-server placement ingress (transport-bound + race-safe). A joined
+            // dedicated-server client's build never runs Player.PlacePiece on the server; the client sends
+            // a DIRECT per-peer notice, the server authenticates the sender by the delivering ZRpc (never a
+            // forgeable routed id), captures it into a bounded pending-revalidation queue, and credits
+            // through the SAME shared validation core once the ZDO replicates. Registration is per-peer
+            // (ZNet.OnNewConnection) and the queue pumps on ZDOMan.Update — no separate bootstrap patch.
             harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressObserver));
-            harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressBootstrap));
 
             // T009R3 (Blocker 3) — admin/test relationship provisioning seam. DISABLED by default: the
             // routed handler is only registered when this server-owned flag is ON, and even then only an
@@ -71,7 +72,7 @@ namespace SBPR.Niflheim.HomesteadStones
                 + "the SBPR_Niflheim_ProvisionRelationship routed RPC so live Foundational AP can be proven. "
                 + "Server-owned; not client-settable. Leave false on any non-playtest server.");
             harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdmin));
-            harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdminBootstrap));
+            harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningConsole));
 
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }

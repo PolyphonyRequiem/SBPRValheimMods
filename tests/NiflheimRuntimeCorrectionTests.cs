@@ -40,11 +40,12 @@ namespace SBPR.Trailborne.Tests
         private const double StoneX = 100.0;
         private const double StoneZ = 100.0;
 
-        // s_playerID of the placing character (what vanilla stamps as the piece creator). This is the
-        // creator-identity space — DISTINCT from any platform id.
+        // s_playerID of the placing character (what vanilla stamps as the piece creator). The CHARACTER
+        // subject is derived from this durable id; the ACCOUNT is the distinct authenticated platform
+        // subject. Creator binding is creator == CHARACTER subject (T009R4, Blockers 2/3).
         private const long PlayerId = 424242L;
-        private readonly AccountId _account = new AccountId("player:424242");  // account = creator principal space
-        private readonly CharacterId _character = new CharacterId("777:5"); // stable character ZDOID string
+        private readonly AccountId _account = new AccountId("acct:steam-abc");   // authenticated platform account subject
+        private readonly CharacterId _character = new CharacterId("player:424242"); // stable s_playerID character subject
 
         public NiflheimRuntimeCorrectionTests()
         {
@@ -57,61 +58,62 @@ namespace SBPR.Trailborne.Tests
             if (Directory.Exists(_durableDir)) Directory.Delete(_durableDir, recursive: true);
         }
 
-        // ── Blocker 2: AuthenticatedSenderBinder reconciliation ─────────────────────
+        // ── Blocker 2: AuthenticatedSenderBinder reconciliation (corrected split) ────
 
         [Fact]
-        public void Binder_CharacterWithPlayerIdAndZdoid_BindsToCreatorPrincipal()
+        public void Binder_CharacterWithPlayerIdAndPlatform_BindsAccountAndCharacter()
         {
-            var character = new AuthenticatedSenderCharacter(PlayerId, "777:5");
-            bool ok = AuthenticatedSenderBinder.TryBind(character, out string principal, out string charId);
+            var character = new AuthenticatedSenderCharacter(PlayerId, "acct:steam-abc");
+            bool ok = AuthenticatedSenderBinder.TryBind(character, out string account, out string charSubject);
 
             Assert.True(ok);
-            // The bound principal MUST equal the principal the placed ZDO's s_creator renders to.
-            Assert.Equal(ServerCreatorIdentity.CreatorPrincipal(PlayerId), principal);
-            Assert.Equal("player:424242", principal);
-            Assert.Equal("777:5", charId);   // stable character ZDOID, never a display name
+            // Account = the authenticated platform subject; character = the stable player:<s_playerID>
+            // subject a placed ZDO's s_creator renders to.
+            Assert.Equal("acct:steam-abc", account);
+            Assert.Equal(ServerCreatorIdentity.CharacterSubject(PlayerId), charSubject);
+            Assert.Equal("player:424242", charSubject);
         }
 
         [Fact]
         public void Binder_ZeroPlayerId_IsUnbindable()
         {
-            var character = new AuthenticatedSenderCharacter(0L, "777:5");
-            bool ok = AuthenticatedSenderBinder.TryBind(character, out string principal, out _);
+            var character = new AuthenticatedSenderCharacter(0L, "acct:steam-abc");
+            bool ok = AuthenticatedSenderBinder.TryBind(character, out _, out string charSubject);
 
-            Assert.False(ok);                         // empty s_playerID → cannot bind
-            Assert.Equal(string.Empty, principal);    // never an empty principal that could "match" an empty creator
+            Assert.False(ok);                          // empty s_playerID → cannot bind a character
+            Assert.Equal(string.Empty, charSubject);   // never an empty subject that could "match" an empty creator
         }
 
         [Fact]
-        public void Binder_MissingCharacterZdoid_IsUnbindable()
+        public void Binder_MissingPlatformAccount_IsUnbindable()
         {
             var character = new AuthenticatedSenderCharacter(PlayerId, "");
-            bool ok = AuthenticatedSenderBinder.TryBind(character, out _, out string charId);
+            bool ok = AuthenticatedSenderBinder.TryBind(character, out string account, out _);
 
             Assert.False(ok);
-            Assert.Equal(string.Empty, charId);
+            Assert.Equal(string.Empty, account);
         }
 
         [Fact]
-        public void Binder_Reconnect_NewCharacterZdoidSamePlayerId_YieldsSameCreatorPrincipal()
+        public void Binder_Reconnect_SamePlayerIdSameAccount_YieldsSameCharacterSubject()
         {
-            // Session 1: character ZDOID "777:5".
-            AuthenticatedSenderBinder.TryBind(new AuthenticatedSenderCharacter(PlayerId, "777:5"),
-                out string principal1, out string char1);
-            // Session 2 (reconnect): the game mints a NEW character ZDOID but the s_playerID is durable.
-            AuthenticatedSenderBinder.TryBind(new AuthenticatedSenderCharacter(PlayerId, "999:2"),
-                out string principal2, out string char2);
+            // Session 1 and session 2 (reconnect): the live character ZDOID changes, but s_playerID and
+            // the platform account are durable, so BOTH bound subjects are reconnect-stable (Blocker 3).
+            AuthenticatedSenderBinder.TryBind(new AuthenticatedSenderCharacter(PlayerId, "acct:steam-abc"),
+                out string account1, out string char1);
+            AuthenticatedSenderBinder.TryBind(new AuthenticatedSenderCharacter(PlayerId, "acct:steam-abc"),
+                out string account2, out string char2);
 
-            Assert.Equal(principal1, principal2);     // creator principal is reconnect-stable
-            Assert.NotEqual(char1, char2);            // the character ZDOID legitimately changes
+            Assert.Equal(account1, account2);   // account subject reconnect-stable
+            Assert.Equal(char1, char2);         // character subject reconnect-stable (durable s_playerID)
         }
 
         [Fact]
-        public void Binder_BoundPrincipal_MatchesRealPlacedCreator_EarnsReceipt()
+        public void Binder_BoundCharacter_MatchesRealPlacedCreator_EarnsReceipt()
         {
             // End-to-end: a ZDO created by s_playerID=PlayerId, and an authenticated sender resolved to the
-            // SAME s_playerID, reconcile through the shipped ingress and earn a receipt. This is the exact
-            // reconciliation the T009R2 platform-id path got WRONG (it would have mismatched).
+            // SAME s_playerID, reconcile through the shipped ingress and earn a receipt. Creator binds to
+            // the CHARACTER subject, not the account.
             var stoneStore = new InMemoryMirroredStoneApStore();
             var server = NewServer(stoneStore);
             SeedAndAttune(server);
@@ -121,11 +123,11 @@ namespace SBPR.Trailborne.Tests
             var source = new FakeInstanceSource();
             source.Put("777:9", "wood_floor", zdoCreatorPrincipal, StoneX, StoneZ);
 
-            // The authenticated sender, bound from its character facts (s_playerID + ZDOID).
-            AuthenticatedSenderBinder.TryBind(new AuthenticatedSenderCharacter(PlayerId, _character.Value),
-                out string senderPrincipal, out string senderCharacter);
+            // The authenticated sender, bound from its character facts (s_playerID + platform account).
+            AuthenticatedSenderBinder.TryBind(new AuthenticatedSenderCharacter(PlayerId, _account.Value),
+                out string senderAccount, out string senderCharacter);
 
-            var outcome = server.CreateDedicatedIngress(source).Ingest(senderPrincipal, senderCharacter, "777:9");
+            var outcome = server.CreateDedicatedIngress(source).Ingest(senderAccount, senderCharacter, "777:9");
 
             Assert.True(outcome.Routed);
             Assert.Equal(RuntimePlacementDisposition.Earned, outcome.Runtime.Disposition);

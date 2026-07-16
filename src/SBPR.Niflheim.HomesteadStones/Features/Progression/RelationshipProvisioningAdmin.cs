@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using BepInEx.Configuration;
 using HarmonyLib;
@@ -10,35 +11,51 @@ using UnityEngine;
 namespace SBPR.Niflheim.HomesteadStones.Features.Progression
 {
     /// <summary>
-    /// T009R3 (Blocker 3) — the net48-ONLY admin/test provisioning seam. It is the smallest bounded,
-    /// server-authoritative ingress that lets a real session ESTABLISH the Bond/Attunement that
-    /// RecordFoundationalPlacement requires (without it, T009L cannot reach a single credited placement).
+    /// T009R4 (Blockers 2 + 4) — the net48-ONLY admin provisioning seam, rebuilt TRANSPORT-BOUND and
+    /// correctly admin-gated. It is the smallest bounded, server-authoritative invocation that lets a real
+    /// session ESTABLISH the Bond/Attunement RecordFoundationalPlacement requires, so T009L can reach a
+    /// credited placement.
     ///
-    /// It drives the engine-free <see cref="RelationshipProvisioningIngress"/> (which calls the SHIPPED
-    /// <see cref="RelationshipCommandHandler"/>) with a SERVER-DERIVED principal:
-    ///   * the subject account is the sender character's server-owned <c>s_playerID</c> (the same identity
-    ///     space the placement runtime uses as the acting platform id), and the subject character is the
-    ///     sender's STABLE character ZDOID — both read off the server's own character ZDO, never a payload;
-    ///   * the target Stone is re-derived server-side from the sender character's world position via the
-    ///     server-owned <see cref="FoundationalProgressionServer.StoneAreas"/> — the client cannot claim it.
-    /// The command type (Attunement / Bond) is the ONLY payload byte; every credit-bearing fact is
-    /// server-derived, and the shipped handler still enforces every invariant.
+    /// What T009R3 got wrong (adversarial review):
+    ///   * Blocker 2 — it was a ZRoutedRpc routed handler keyed on the forgeable client-serialized
+    ///     <c>long sender</c>. High-value provisioning authority must never ride the routed sender. This is
+    ///     now a DIRECT per-peer <c>ZRpc</c> handler: the server receives the real delivering <c>ZRpc</c>
+    ///     and resolves the exact authenticated <c>ZNetPeer</c>. Account, character, and target Stone are
+    ///     all derived from THAT peer + server-owned ZDO state; the client payload is only the command
+    ///     discriminator (Attunement / Bond).
+    ///   * Blocker 4 — the admin gate used raw <c>GetAdminList().Contains(host)</c>, which does not match
+    ///     vanilla admin semantics. It now uses <see cref="VanillaAdminIdentity.ListContainsId"/>, a
+    ///     clean-room reproduction of <c>ZNet.ListContainsId</c> (platform-qualified OR bare user id on the
+    ///     server's platform) — the same normalization vanilla's RPC_Save gate uses.
     ///
     /// Restriction (disabled by default; playtest-only):
-    ///   * a server-owned BepInEx config flag <c>Progression.EnableAdminRelationshipProvisioning</c>
-    ///     (default FALSE) must be ON, AND
-    ///   * the routed sender must be a Valheim ADMIN (its peer host id is on the server admin list, the
-    ///     same gate vanilla uses for <c>RPC_Save</c>).
-    /// Neither the flag nor admin membership is client-settable. Outside the playtest path the handler is
-    /// never registered (flag off) or rejects (non-admin sender), so this is not a shipping gameplay command.
+    ///   * the server-owned BepInEx flag <c>Progression.EnableAdminRelationshipProvisioning</c> (default
+    ///     FALSE) must be ON, AND
+    ///   * the transport-authenticated sender must be a normalized server ADMIN.
+    /// Neither is client-settable. Outside the playtest path the handler is never registered (flag off) or
+    /// rejects (non-admin sender).
     ///
-    /// References Valheim (ZNet, ZRoutedRpc, ZDOMan, ZDO) → net48-only, not link-compiled into net8.
+    /// Enable / invoke / disable / verify (T009L operator steps):
+    ///   1. ENABLE: set <c>[Progression] EnableAdminRelationshipProvisioning = true</c> in the server's
+    ///      BepInEx config (BepInEx/config/net.danielgreen.sbpr.niflheim.homesteadstones.cfg) and restart
+    ///      the dedicated server. On boot the log prints "Admin relationship provisioning ENABLED".
+    ///   2. INVOKE: join as a server ADMIN (your platform id is on adminlist.txt), stand inside a Homestead
+    ///      Stone Area, and run the client console command <c>sbpr_provision attune</c> (or
+    ///      <c>sbpr_provision bond</c>). The command sends a direct notice on the server connection.
+    ///   3. VERIFY: the server log prints "[relationship-provisioning] outcome=Applied ..."; a subsequent
+    ///      eligible placement inside that Stone Area now credits Foundational AP.
+    ///   4. DISABLE: set the flag back to false and restart; the handler is no longer registered.
+    ///
+    /// References Valheim (ZNet, ZNetPeer, ZRpc, ZDOMan, ZDO, Terminal) → net48-only, not link-compiled.
     /// </summary>
     [HarmonyPatch]
     internal static class RelationshipProvisioningAdmin
     {
-        // Routed-RPC method name (hashed by ZRoutedRpc.Register — LOCK; a rename desyncs a mixed session).
+        // Direct per-peer ZRpc method name (hashed by ZRpc.Register — LOCK; a rename desyncs a mixed session).
         internal const string RpcProvision = "SBPR_Niflheim_ProvisionRelationship";
+
+        // Client console command name.
+        internal const string ConsoleCommand = "sbpr_provision";
 
         // Payload discriminator: 2 = CreateAttunement, 1 = CreateBond (matches RelationshipCommandType).
         private const int CmdAttunement = (int)RelationshipCommandType.CreateAttunement;
@@ -47,33 +64,30 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         // Server-owned config gate (default OFF). Bound by Plugin.Awake.
         internal static ConfigEntry<bool>? EnableProvisioning;
 
-        private static ZRoutedRpc? registeredRpc;
+        // ── SERVER SIDE: register a DIRECT per-peer handler only when enabled ─────────────────────────
 
-        /// <summary>Register the provisioning RPC on the server ONLY when the config flag is enabled. A
-        /// disabled flag means the handler is never registered, so no provisioning is possible at all.</summary>
-        internal static void Register()
+        /// <summary>Register the transport-bound provisioning handler on each peer's OWN rpc as it
+        /// connects — but ONLY on the server AND only when the config flag is enabled. A disabled flag means
+        /// the handler is never registered, so provisioning is impossible.</summary>
+        [HarmonyPatch(typeof(ZNet), "OnNewConnection")]
+        [HarmonyPostfix]
+        private static void OnNewConnection(ZNetPeer peer)
         {
-            var rpc = ZRoutedRpc.instance;
-            if (rpc == null) return;
-            if (ReferenceEquals(registeredRpc, rpc)) return;
-
-            bool isServer = ZNet.instance != null && ZNet.instance.IsServer();
-            bool enabled = EnableProvisioning != null && EnableProvisioning.Value;
-            if (isServer && enabled)
+            try
             {
-                rpc.Register<int>(RpcProvision, RPC_Provision);
-                Plugin.Log.LogInfo(
-                    "[Niflheim/HomesteadStones] Admin relationship provisioning ENABLED (playtest seam) — handler registered.");
+                if (peer == null || peer.m_rpc == null) return;
+                if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
+                bool enabled = EnableProvisioning != null && EnableProvisioning.Value;
+                if (!enabled) return;
+                peer.m_rpc.Register<int>(RpcProvision, RPC_Provision);
             }
-            else if (isServer)
+            catch (Exception ex)
             {
-                Plugin.Log.LogInfo(
-                    "[Niflheim/HomesteadStones] Admin relationship provisioning disabled (config flag off) — handler NOT registered.");
+                Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Provisioning handler registration failed (ignored): " + ex.Message);
             }
-            registeredRpc = rpc;
         }
 
-        private static void RPC_Provision(long sender, int commandType)
+        private static void RPC_Provision(ZRpc rpc, int commandType)
         {
             try
             {
@@ -81,60 +95,50 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 if (server == null) return;
                 var znet = ZNet.instance;
                 if (znet == null || !znet.IsServer()) return;
-                if (EnableProvisioning == null || !EnableProvisioning.Value) return;   // flag re-checked at call time
-
+                if (EnableProvisioning == null || !EnableProvisioning.Value) return;   // re-checked at call time
                 if (commandType != CmdAttunement && commandType != CmdBond) return;
 
-                var peer = znet.GetPeer(sender);
+                // Blocker 2: the AUTHENTICATED peer is the one whose m_rpc delivered this packet.
+                var peer = ZdoAuthenticatedSenderSource.PeerForRpc(znet, rpc);
                 if (peer == null) return;
 
-                // Admin gate: the sender's peer host id must be on the server admin list (same gate vanilla
-                // uses for RPC_Save). A non-admin sender is refused — provisioning is never client-open.
+                // Blocker 4: admin gate with vanilla-normalized semantics (NOT raw Contains).
                 if (!SenderIsAdmin(znet, peer))
                 {
                     Plugin.Log.LogWarning(
-                        "[Niflheim/HomesteadStones] Rejected relationship provisioning from non-admin sender " + sender + ".");
+                        "[Niflheim/HomesteadStones] Rejected relationship provisioning from non-admin sender.");
                     return;
                 }
 
-                // Server-derive the subject identity + target Stone entirely from server-owned facts.
-                if (!ZdoAuthenticatedSenderSource.Instance.TryResolveSender(sender, out var senderCharacter))
+                // Server-derive the subject identity (account + stable character) entirely from the peer.
+                if (!ZdoAuthenticatedSenderSource.Instance.TryResolveFromPeer(peer, out var senderFacts))
                     return;
-                if (!AuthenticatedSenderBinder.TryBind(senderCharacter, out string principal, out string characterId))
+                if (!AuthenticatedSenderBinder.TryBind(senderFacts, out string account, out string character))
                     return;
 
-                if (!TryResolveSenderStone(znet, server, peer, out var stoneId))
+                if (!TryResolveSenderStone(peer, server, out var stoneId))
                 {
                     Plugin.Log.LogWarning(
                         "[Niflheim/HomesteadStones] Relationship provisioning: sender not inside a Homestead Stone Area.");
                     return;
                 }
 
-                // Account principal = the SAME identity space the dedicated placement path binds (the
-                // creator principal "player:<s_playerID>"), so a provisioned relationship authorizes the
-                // subsequent placement credit for this player. Claim is empty; the shipped handler binds
-                // from the connection alone.
-                var subject = new AuthoritativeSubject(
-                    new AccountId(principal),
-                    new CharacterId(characterId));
-
+                var subject = new AuthoritativeSubject(new AccountId(account), new CharacterId(character));
                 var ingress = server.CreateRelationshipProvisioningIngress();
 
-                // Deterministic per-(subject, stone, command) operation id so a resend converges (Replayed)
-                // rather than double-applying.
-                string opId = "op-provision-" + ((int)commandType).ToString(CultureInfo.InvariantCulture)
-                    + "-" + subject.Account.Value + "-" + stoneId.Value;
-                string relId = "rel-provision-" + ((int)commandType).ToString(CultureInfo.InvariantCulture)
-                    + "-" + subject.Character.Value;
-
+                // Blocker 3: bind the operation id + relationship id to ALL material fields (account, stable
+                // character, Stone, command, range) so an exact retry replays and a changed binding conflicts.
                 string worldScope = SafeWorldScope(znet);
                 string requestedRange = commandType == CmdBond ? "Homestead:All" : string.Empty;
+                string opId = ProvisioningOperationBinding.OperationId(
+                    account, character, stoneId, (RelationshipCommandType)commandType, requestedRange, worldScope);
+                string relId = ProvisioningOperationBinding.RelationshipId(character, (RelationshipCommandType)commandType);
 
                 var result = ingress.Provision(subject, stoneId, (RelationshipCommandType)commandType,
                     opId, relId, worldScope, requestedRange);
 
                 Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + result.ToOperatorLine()
-                    + " principal=" + principal + " stone=" + stoneId.Value);
+                    + " account=" + account + " character=" + character + " stone=" + stoneId.Value);
             }
             catch (Exception ex)
             {
@@ -142,6 +146,9 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             }
         }
 
+        /// <summary>Admin gate: the sender's authenticated socket host id must match the server admin list
+        /// under vanilla-normalized semantics (<see cref="VanillaAdminIdentity.ListContainsId"/>), the same
+        /// rule vanilla's RPC_Save uses. A non-admin sender is refused.</summary>
         private static bool SenderIsAdmin(ZNet znet, ZNetPeer peer)
         {
             try
@@ -150,14 +157,15 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 string? host = socket != null ? socket.GetHostName() : null;
                 if (string.IsNullOrEmpty(host)) return false;
                 var adminList = znet.GetAdminList();
-                return adminList != null && adminList.Contains(host);
+                if (adminList == null) return false;
+                return VanillaAdminIdentity.ListContainsId(new List<string>(adminList), host!, VanillaAdminIdentity.DefaultPlatform);
             }
             catch { return false; }
         }
 
         /// <summary>Resolve the Stone whose Area the sender character currently occupies, from the server's
         /// own character ZDO position — never a client claim.</summary>
-        private static bool TryResolveSenderStone(ZNet znet, FoundationalProgressionServer server, ZNetPeer peer, out Domain.Identity.StoneId stoneId)
+        private static bool TryResolveSenderStone(ZNetPeer peer, FoundationalProgressionServer server, out Domain.Identity.StoneId stoneId)
         {
             stoneId = default;
             var zdoMan = ZDOMan.instance;
@@ -177,19 +185,45 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
     }
 
     /// <summary>
-    /// T009R3 — registers the provisioning RPC once ZRoutedRpc is up (null at ZNet.Awake, rebuilt each
-    /// session), same seam as the dedicated ingress bootstrap. Idempotent per ZRoutedRpc instance.
+    /// T009R4 (Blocker 4) — the CLIENT console command that invokes provisioning. A joined admin runs
+    /// <c>sbpr_provision attune|bond</c>; it sends the command discriminator on the SERVER connection as a
+    /// direct notice, landing on the server's transport-bound handler. Registered once when Terminal's
+    /// command table initializes. The command is inert unless the server has the seam enabled and the
+    /// caller is an admin — the client cannot self-authorize.
     /// </summary>
-    [HarmonyPatch(typeof(Game), "Start")]
-    internal static class RelationshipProvisioningAdminBootstrap
+    [HarmonyPatch(typeof(Terminal), "InitTerminal")]
+    internal static class RelationshipProvisioningConsole
     {
+        private static bool registered;
+
         [HarmonyPostfix]
         private static void Postfix()
         {
-            try { RelationshipProvisioningAdmin.Register(); }
+            if (registered) return;
+            registered = true;
+            try
+            {
+                _ = new Terminal.ConsoleCommand(RelationshipProvisioningAdmin.ConsoleCommand,
+                    "SBPR: (playtest, admin-only) provision a Homestead relationship — usage: sbpr_provision attune|bond",
+                    args =>
+                    {
+                        int cmd = (int)RelationshipCommandType.CreateAttunement;
+                        if (args.Length >= 2 && string.Equals(args[1], "bond", StringComparison.OrdinalIgnoreCase))
+                            cmd = (int)RelationshipCommandType.CreateBond;
+
+                        var serverRpc = ZNet.instance != null ? ZNet.instance.GetServerRPC() : null;
+                        if (serverRpc == null)
+                        {
+                            args.Context?.AddString("sbpr_provision: not connected to a server.");
+                            return;
+                        }
+                        serverRpc.Invoke(RelationshipProvisioningAdmin.RpcProvision, cmd);
+                        args.Context?.AddString("sbpr_provision: request sent (server admin + seam-enabled required to take effect).");
+                    });
+            }
             catch (Exception ex)
             {
-                Plugin.Log.LogError("[Niflheim/HomesteadStones] Relationship provisioning RPC registration failed: " + ex);
+                Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Provisioning console command registration failed (ignored): " + ex.Message);
             }
         }
     }

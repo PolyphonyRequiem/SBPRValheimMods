@@ -3,87 +3,101 @@ using System.Globalization;
 
 namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 {
-    // T009R3 (Blocker 2) — the engine-free, TESTABLE creator-identity adapter.
+    // T009R4 (Blockers 2 + 3) — the engine-free, TESTABLE transport-bound identity model.
     //
-    // Why this exists (the T009R2 integration-review defect): vanilla stamps a placed piece's creator
-    // with Player.SetCreator(GetPlayerID()), and GetPlayerID() reads the placing character's
-    // ZDOVars.s_playerID — a per-character profile id minted by the game, NOT the platform/Steam id.
-    // The T009R2 dedicated ingress observer derived the sender principal from peer.m_characterID.UserID
-    // (the character ZDOID's USER half — the platform/Steam id), then compared it to the ZDO's recorded
-    // s_creator. On a real dedicated server those two are DIFFERENT numbers, so every legitimate
-    // placement failed CreatorMismatch and earned zero receipts — the exact live blocker T009L hit.
+    // Two live blockers the T009R3 adversarial review found are reconciled here, in one place:
     //
-    // The correct reconciliation is server-owned on BOTH sides:
-    //   * the placed piece's ZDO records s_creator = the placing character's s_playerID (a long);
-    //   * to bind the authenticated sender, the server resolves that sender's CHARACTER ZDO (from the
-    //     peer's m_characterID, server-owned) and reads the SAME server-owned s_playerID off it.
-    // Both values are then rendered into ONE principal space here, so the ingress's creator==sender
-    // check compares two server-derived s_playerID values that genuinely match for the real creator.
+    //   Blocker 2 (forgeable sender / wrong creator binding). Vanilla stamps a placed piece's creator
+    //   with Player.SetCreator(GetPlayerID()); GetPlayerID() reads the placing character's
+    //   ZDOVars.s_playerID — a game-minted, per-CHARACTER profile id. The correct authority split is:
+    //     * ACCOUNT  = the authenticated platform/socket identity (Gate-A account subject). This is the
+    //       account the exclusivity index / authority records are keyed under. It is NOT the piece
+    //       creator and never the character.
+    //     * CHARACTER = the server-owned s_playerID, rendered into a stable "player:<s_playerID>"
+    //       subject. This is what a placed piece's ZDO s_creator is stamped from, so the ingress's
+    //       creator==character binding compares two server-derived s_playerID values in ONE space.
+    //   The T009R2/R3 code bound the ZDO creator to the ACCOUNT principal and used the character ZDOID
+    //   string as the character id. Both are wrong: creator is a character fact, and the ZDOID is not
+    //   the account.
     //
-    // This type is pure (no UnityEngine/Valheim), so the whole conversion — including the empty/zero and
-    // reconnect (character ZDOID changes, s_playerID stable) cases — is unit-tested. The net48 layer
-    // (Features/Progression/ZdoAuthenticatedSenderSource.cs) only supplies the two raw server facts.
+    //   Blocker 3 (reconnect stability). The live character ZDOID changes every session; using it as the
+    //   durable character subject orphans a character's authority on reconnect/restart. s_playerID is
+    //   durable across sessions, renames, and restarts, so "player:<s_playerID>" is the stable character
+    //   subject that keeps relationships and receipts bound to the same character forever.
+    //
+    // The net48 layer (Features/Progression/ZdoAuthenticatedSenderSource.cs) supplies ONLY the two raw
+    // server facts — the platform/socket account subject string and the character's s_playerID — read off
+    // the server's own ZNetPeer + character ZDO. Everything derived from them lives here so every branch
+    // (empty/zero, reconnect stability, account≠character) is unit-tested. No UnityEngine/Valheim here.
     public static class ServerCreatorIdentity
     {
-        /// <summary>The shared, server-owned creator/actor principal space. Both the placed ZDO's
-        /// recorded s_creator and the authenticated sender's character s_playerID render through this,
-        /// so the ingress's creator==sender comparison is between two server-derived values in one space.
-        /// A zero/absent player id renders as empty (an unbindable identity → CreatorMismatch upstream).</summary>
-        public static string CreatorPrincipal(long playerId) =>
+        /// <summary>The shared, server-owned CHARACTER/creator principal space, keyed by the durable
+        /// s_playerID. Both a placed ZDO's recorded s_creator and the authenticated sender's character
+        /// s_playerID render through this, so the ingress's creator==character comparison is between two
+        /// server-derived values in one space. A zero/absent player id renders empty (unbindable →
+        /// CreatorMismatch upstream). Stable across reconnect: s_playerID is character-durable.</summary>
+        public static string CharacterSubject(long playerId) =>
             playerId == 0L ? string.Empty : "player:" + playerId.ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>Back-compat alias. The placed ZDO's s_creator renders into the SAME space as the
+        /// character subject (both are s_playerID), so creator binding is character binding.</summary>
+        public static string CreatorPrincipal(long playerId) => CharacterSubject(playerId);
     }
 
-    /// <summary>The two server-owned facts about the authenticated sender's character, read off the
-    /// server's own character ZDO — never from a client payload. <see cref="PlayerId"/> is the character
-    /// ZDO's ZDOVars.s_playerID (the same value vanilla stamps as a placed piece's s_creator);
-    /// <see cref="CharacterZdoId"/> is the STABLE character-ZDOID string used as the acting character id
-    /// (never the mutable player display name).</summary>
+    /// <summary>The server-owned facts about the authenticated sender, read off the server's own peer
+    /// table + character ZDO — never a client payload. <see cref="PlayerId"/> is the character ZDO's
+    /// ZDOVars.s_playerID (durable; the value vanilla stamps as a placed piece's s_creator).
+    /// <see cref="PlatformSubject"/> is the authenticated platform/socket account subject (Gate-A). The
+    /// live character ZDOID is deliberately NOT carried here: it is reconnect-unstable and must never be
+    /// the durable character subject (Blocker 3).</summary>
     public readonly struct AuthenticatedSenderCharacter
     {
-        public AuthenticatedSenderCharacter(long playerId, string characterZdoId)
+        public AuthenticatedSenderCharacter(long playerId, string platformSubject)
         {
             PlayerId = playerId;
-            CharacterZdoId = characterZdoId ?? string.Empty;
+            PlatformSubject = platformSubject ?? string.Empty;
         }
 
-        /// <summary>The character ZDO's server-owned s_playerID (== the placed piece's recorded creator).</summary>
+        /// <summary>The character ZDO's server-owned, durable s_playerID (== the placed piece's s_creator).</summary>
         public long PlayerId { get; }
 
-        /// <summary>The STABLE character ZDOID string. Used as the acting character id; never a display name.</summary>
-        public string CharacterZdoId { get; }
+        /// <summary>The authenticated platform/socket account subject (Gate-A account identity). Feeds the
+        /// AccountId via the server-owned platform→account resolver; never the piece creator.</summary>
+        public string PlatformSubject { get; }
 
         public static AuthenticatedSenderCharacter None => new AuthenticatedSenderCharacter(0L, string.Empty);
     }
 
-    /// <summary>Server-owned read port that resolves an authenticated routed sender (a peer uid) to the
-    /// server's own facts about that sender's character. The net48 layer implements it over ZNet's peer
-    /// table + ZDOMan (peer.m_characterID → character ZDO → s_playerID); tests implement it in-memory.
-    /// Nothing on it is client-authored.</summary>
+    /// <summary>Server-owned read port resolving a transport-authenticated sender to the server's own
+    /// facts about it. The net48 layer implements it over the ACTUAL transport seam (a direct per-peer
+    /// ZRpc handler → ZNetPeer → character ZDO → s_playerID + socket host), NOT the forgeable routed
+    /// sender id (Blocker 2); tests implement it in-memory. Nothing on it is client-authored.</summary>
     public interface IAuthenticatedSenderCharacterSource
     {
-        /// <summary>Resolve one authenticated sender (routed-RPC peer uid) to its server-owned character
-        /// facts. Returns false when the peer is unknown, has no bound character, or the character ZDO
-        /// carries no s_playerID (an unbindable sender → the ingress rejects rather than crediting).</summary>
-        bool TryResolveSender(long senderPeerUid, out AuthenticatedSenderCharacter character);
+        /// <summary>Resolve one authenticated sender (an opaque transport handle) to its server-owned
+        /// character facts. Returns false when the peer is unknown, has no bound character, or the
+        /// character ZDO carries no s_playerID (unbindable → the caller rejects rather than crediting).</summary>
+        bool TryResolveSender(long transportSenderHandle, out AuthenticatedSenderCharacter character);
     }
 
-    /// <summary>The engine-free binder that turns the two server-owned character facts into the shared
-    /// principal + stable character id the dedicated ingress compares against the placed ZDO's creator.
-    /// Isolated here (not inside the net48 observer) so every branch is unit-tested.</summary>
+    /// <summary>The engine-free binder that turns the two server-owned facts into the (accountSubject,
+    /// characterSubject) pair the runtime binds. The account is the platform subject; the character is the
+    /// stable "player:<s_playerID>". The placed ZDO's creator is compared against the CHARACTER subject
+    /// (both are s_playerID), never the account. Isolated here so every branch is unit-tested.</summary>
     public static class AuthenticatedSenderBinder
     {
-        /// <summary>Bind a resolved sender character to (creatorPrincipal, characterId). Returns false
-        /// when the character is unbindable — no s_playerID (0) or no stable character ZDOID — so the
-        /// caller rejects instead of comparing an empty principal (which would spuriously "match" an
-        /// empty ZDO creator). Reconnect-stable: the s_playerID is character-durable, so a new session's
-        /// different peer uid / character ZDOID still yields the same creator principal.</summary>
-        public static bool TryBind(AuthenticatedSenderCharacter character, out string creatorPrincipal, out string characterId)
+        /// <summary>Bind a resolved sender to (accountSubject, characterSubject). Returns false when the
+        /// character is unbindable — no s_playerID (0) or no platform account subject — so the caller
+        /// rejects instead of comparing empty principals (which would spuriously "match" an empty ZDO
+        /// creator). Reconnect-stable: s_playerID is character-durable, so a new session's different peer
+        /// handle / character ZDOID still yields the same account + character subjects.</summary>
+        public static bool TryBind(AuthenticatedSenderCharacter character, out string accountSubject, out string characterSubject)
         {
-            creatorPrincipal = ServerCreatorIdentity.CreatorPrincipal(character.PlayerId);
-            characterId = character.CharacterZdoId ?? string.Empty;
+            accountSubject = character.PlatformSubject ?? string.Empty;
+            characterSubject = ServerCreatorIdentity.CharacterSubject(character.PlayerId);
             return character.PlayerId != 0L
-                   && !string.IsNullOrEmpty(creatorPrincipal)
-                   && !string.IsNullOrEmpty(characterId);
+                   && !string.IsNullOrEmpty(accountSubject)
+                   && !string.IsNullOrEmpty(characterSubject);
         }
     }
 }

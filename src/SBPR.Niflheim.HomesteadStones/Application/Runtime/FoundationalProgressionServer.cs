@@ -46,6 +46,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             ICharacterApStore characterApStore,
             OperationReceiptStore receipts,
             StoneAreaMembership stoneAreas,
+            PendingRevalidationQueue pendingPlacements,
             string durableDirectory)
         {
             Runtime = runtime;
@@ -56,6 +57,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             CharacterApStore = characterApStore;
             Receipts = receipts;
             StoneAreas = stoneAreas;
+            PendingPlacements = pendingPlacements;
             DurableDirectory = durableDirectory;
         }
 
@@ -71,6 +73,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// queries per placement. Populated by the engine-bound layer from world Stone facts; empty
         /// until a Stone is registered (an empty membership resolves every position to OutsideStoneArea).</summary>
         public StoneAreaMembership StoneAreas { get; }
+
+        /// <summary>T009R4 (Blocker 5) — the bounded pending-revalidation queue that absorbs the ZDO
+        /// replication race. A dedicated-client placement notice captures the transport-authenticated
+        /// sender identity here and defers the credit-bearing ingest until the physical ZDO replicates to
+        /// the server (or a short deadline expires, writing no credit). The net48 layer pumps it on the
+        /// ZDOMan replication cadence. Purely in-memory: a restart starts empty and never re-scans.</summary>
+        public PendingRevalidationQueue PendingPlacements { get; }
 
         public string DurableDirectory { get; }
 
@@ -112,7 +121,9 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             IBondAuthorityPolicy bondAuthority,
             IMirroredStoneApStore stoneApStore,
             FoundationalPieceCatalog? catalog = null,
-            RuntimePlacementLog? log = null)
+            RuntimePlacementLog? log = null,
+            TimeSpan? pendingRevalidationDeadline = null,
+            int pendingRevalidationCapacity = PendingRevalidationQueue.DefaultCapacity)
         {
             if (string.IsNullOrEmpty(durableDirectory)) throw new ArgumentNullException(nameof(durableDirectory));
             if (familyResolver == null) throw new ArgumentNullException(nameof(familyResolver));
@@ -149,9 +160,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             var stoneAreas = new StoneAreaMembership();
 
+            var pending = new PendingRevalidationQueue(
+                pendingRevalidationDeadline ?? TimeSpan.FromSeconds(30), pendingRevalidationCapacity);
+
             return new FoundationalProgressionServer(
                 runtime, relationships, authority, characters, stoneApStore, characterApStore,
-                receipts, stoneAreas, durableDirectory);
+                receipts, stoneAreas, pending, durableDirectory);
         }
     }
 }

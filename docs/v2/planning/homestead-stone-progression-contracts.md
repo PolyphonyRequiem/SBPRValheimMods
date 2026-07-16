@@ -238,6 +238,52 @@ sender's server-owned character ZDO; there is no permissive authorizer, client-s
 fabricated projection mutation. Disabled outside the playtest path (flag off ⇒ the handler is never
 registered).
 
+**Transport-bound identity, Stone Areas, and the replication race (T009R4, 2026-07-16).** An independent
+adversarial review of the T009R3 cut (PR #313, closed) found five remaining LIVE blockers. The revalidation
+core and the listen-host path are unchanged; the integration edges are corrected as follows.
+
+- **Production Stone Area registration (Blocker 1).** `FoundationalProgressionServer.StoneAreas` starts
+  EMPTY and only tests called `Register(...)`, so on a real server every placement resolved
+  `OutsideStoneArea` and nothing could be credited. The engine-free `StoneAreaRegistrar`
+  (`Domain/StoneProgression`) reconciles the membership to exactly the CURRENT resident Stone facts —
+  register new, update moved, unregister removed, idempotent per pass. The net48
+  `HomesteadStoneWorldPlacement` reconcile pass enumerates resident Stone ZDOs (each carries its host-zone
+  `StoneId` inputs + world-position center) and drives the registrar on startup and the periodic
+  realization cadence. No test-only prepopulation ships in production.
+- **Transport-bound sender identity (Blocker 2).** Vanilla `ZRoutedRpc.RoutedRPCData.m_senderPeerID` is
+  serialized by the CLIENT and `RPC_RoutedRPC` never validates it against the delivering `ZRpc`, so a routed
+  handler's `sender` is forgeable. High-value placement/provisioning authority now rides a DIRECT per-peer
+  `ZRpc` handler registered at `ZNet.OnNewConnection`; the server resolves the exact authenticated `ZNetPeer`
+  by matching `m_rpc` reference identity (vanilla's own `ZNet.GetPeer(ZRpc)` seam). From that peer it derives
+  the ACCOUNT = authenticated socket host id (platform/Gate-A subject) and the CHARACTER = the character
+  ZDO's durable `s_playerID` rendered as `player:<s_playerID>`. A placed piece's ZDO `s_creator` (stamped
+  from the placing character's `s_playerID`) binds to the CHARACTER subject, NOT the account. A client
+  payload carries only the candidate instance pointer / command discriminator; it can never choose account,
+  character, Stone, position, prefab, creator, or permissions. Hostile spoof tests prove a forged peer id /
+  admin identity cannot redirect authority.
+- **Stable reconnect semantics (Blocker 3).** The live character ZDOID changes every session and must never
+  be the durable subject. Relationships and receipts are keyed under the stable `player:<s_playerID>`
+  character subject. `ProvisioningOperationBinding` derives the provisioning operation id from ALL material
+  fields (account, stable character, Stone, command, requested range, world scope), so an exact retry
+  replays and any changed binding is a DISTINCT operation that conflicts intentionally. Reconnect/restart
+  preserves authorization rather than orphaning it.
+- **Executable, correctly admin-gated provisioning (Blocker 4).** The playtest provisioning seam is now
+  invokable via the client console command `sbpr_provision attune|bond` (registered on `Terminal.InitTerminal`),
+  which sends the command discriminator on the server connection to the transport-bound handler. It remains
+  DEFAULT OFF (`Progression.EnableAdminRelationshipProvisioning`, server-owned) and server-admin only. Admin
+  identity is matched with vanilla-normalized semantics via `VanillaAdminIdentity.ListContainsId` — a
+  clean-room reproduction of `ZNet.ListContainsId` (platform-qualified OR bare user id on the server's
+  platform) — NOT raw `GetAdminList().Contains(host)`. It drives the shipped `RelationshipCommandHandler`;
+  no permissive authorizer or projection mutation.
+- **ZDO replication race (Blocker 5).** A joined client's placement notice beats ZDO replication (ZDO
+  transmit happens later on the `ZDOMan.Update` cadence), so an inline ingest failed `NoSuchInstance`
+  permanently. The transport-bound handler now captures the authenticated identity + physical ZDOID into the
+  bounded `PendingRevalidationQueue` and defers the credit-bearing ingest. A pump on `ZDOMan.Update` retries
+  the shared revalidation ONLY until the authoritative ZDO appears or a short configured deadline expires
+  (default 30s), then runs the full revalidation once. Duplicate notices converge on one entry (keyed by
+  character subject + ZDOID); a timeout writes no credit; the queue is bounded against spam; and because it
+  is purely in-memory, a restart starts empty and never scans/awards old pieces.
+
 ### `RecordAlignedActivity`
 
 Used by server adapters for eligible Cooking, Crafting, Archer, or Warrior activity.

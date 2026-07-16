@@ -68,16 +68,19 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             _prefabMap = prefabMap ?? FoundationalPrefabMap.CurrentBuild;
         }
 
-        /// <summary>Ingest one dedicated-server placement NOTICE. <paramref name="senderPrincipal"/> and
-        /// <paramref name="senderCharacter"/> are derived by the caller from the AUTHENTICATED RPC sender
-        /// (the server's peer table), never from the notice payload. <paramref name="candidateInstanceKey"/>
-        /// is the opaque physical-instance pointer the notice carried (a ZDOID string). The server
-        /// independently re-derives every credit-bearing fact from its own ZDO store, binds the creator to
-        /// the authenticated sender, then routes the reconstructed observation through the shared runtime.
-        /// Returns a receipt-free rejection on any revalidation failure.</summary>
-        public DedicatedIngressOutcome Ingest(string senderPrincipal, string senderCharacter, string candidateInstanceKey)
+        /// <summary>Ingest one dedicated-server placement NOTICE. <paramref name="senderAccount"/> (the
+        /// authenticated platform/socket account subject) and <paramref name="senderCharacter"/> (the
+        /// stable <c>player:&lt;s_playerID&gt;</c> character subject) are derived by the caller from the
+        /// TRANSPORT-AUTHENTICATED sender (the actual per-peer ZRpc/ZNetPeer, never the forgeable routed
+        /// sender id — Blocker 2). <paramref name="candidateInstanceKey"/> is the opaque physical-instance
+        /// pointer the notice carried (a ZDOID string). The server independently re-derives every
+        /// credit-bearing fact from its own ZDO store, binds the placed piece's CREATOR to the sender's
+        /// CHARACTER subject (both are the server-owned s_playerID), then routes the reconstructed
+        /// observation through the shared runtime. Returns a receipt-free rejection on any revalidation
+        /// failure.</summary>
+        public DedicatedIngressOutcome Ingest(string senderAccount, string senderCharacter, string candidateInstanceKey)
         {
-            senderPrincipal ??= string.Empty;
+            senderAccount ??= string.Empty;
             senderCharacter ??= string.Empty;
 
             if (string.IsNullOrEmpty(candidateInstanceKey))
@@ -88,12 +91,14 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             if (!_instances.TryResolve(candidateInstanceKey, out var facts) || !facts.Exists)
                 return DedicatedIngressOutcome.Rejected(DedicatedIngressRejection.NoSuchInstance, candidateInstanceKey);
 
-            // Creator / actor binding: the ZDO's server-recorded creator principal MUST equal the principal
-            // the server derived from the authenticated sender. Both are rendered in the same server-owned
-            // identity space by the caller; a mismatch means the sender is trying to claim a piece it did
-            // not create (or is spoofing), and earns nothing. An empty creator is unbindable → reject.
+            // Creator / actor binding (Blocker 2): vanilla stamps a placed piece's ZDO s_creator with the
+            // placing CHARACTER's s_playerID. The authoritative binding is therefore creator == the
+            // sender's CHARACTER subject (player:<s_playerID>), NOT the account. Both are server-derived and
+            // in one space; a mismatch means the sender did not create the piece (or is spoofing), and
+            // earns nothing. An empty creator is unbindable → reject.
             if (string.IsNullOrEmpty(facts.CreatorPrincipal) ||
-                !string.Equals(facts.CreatorPrincipal, senderPrincipal, StringComparison.Ordinal))
+                string.IsNullOrEmpty(senderCharacter) ||
+                !string.Equals(facts.CreatorPrincipal, senderCharacter, StringComparison.Ordinal))
                 return DedicatedIngressOutcome.Rejected(DedicatedIngressRejection.CreatorMismatch, candidateInstanceKey);
 
             // Exact prefab → stable catalog identity, re-resolved server-side (never from the notice). An
@@ -105,10 +110,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             // A resolvable resident ZDO IS a materialized successful placement; version comes from the
             // server's pinned catalog tag; provenance is the durable ZDOID so replays converge on one
-            // receipt. Identity is the AUTHENTICATED sender, not the payload.
+            // receipt. The ACCOUNT (platform subject) resolves the AccountId; the stable CHARACTER subject
+            // is the acting character (reconnect-durable — Blocker 3). Neither comes from the payload.
             var observation = new FoundationalPlacementObservation(
                 inside ? stoneId : default,
-                senderPrincipal,
+                senderAccount,
                 senderCharacter,
                 stablePieceId,
                 candidateInstanceKey,

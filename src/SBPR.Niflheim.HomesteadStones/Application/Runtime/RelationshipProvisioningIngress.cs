@@ -113,6 +113,34 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         public CharacterId Character { get; }
     }
 
+    /// <summary>T009R4 (Blocker 3) — engine-free, deterministic provisioning operation-id / relationship-id
+    /// derivation that binds ALL material fields (account, stable character, Stone, command, requested
+    /// range, world scope). Exact retries produce the SAME op id → the shipped handler replays; any changed
+    /// binding (different Stone, command, range, or world) produces a DISTINCT op id that conflicts
+    /// intentionally at the receipt layer rather than silently double-applying. Isolated here so the
+    /// binding property is unit-tested independent of the net48 admin seam that calls it.</summary>
+    public static class ProvisioningOperationBinding
+    {
+        public static string OperationId(
+            string account, string character, StoneId stoneId, RelationshipCommandType commandType,
+            string requestedRange, string worldScope) =>
+            "op-provision-" + string.Join("|", new[]
+            {
+                ((int)commandType).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                account ?? string.Empty,
+                character ?? string.Empty,
+                stoneId.Value ?? string.Empty,
+                requestedRange ?? string.Empty,
+                worldScope ?? string.Empty
+            });
+
+        /// <summary>Relationship id bound to the command + stable character (durable across reconnect, so a
+        /// reconnected character resolves to the same relationship rather than orphaning it).</summary>
+        public static string RelationshipId(string character, RelationshipCommandType commandType) =>
+            "rel-provision-" + ((int)commandType).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + "-" + (character ?? string.Empty);
+    }
+
     /// <summary>Outcome of a provisioning attempt: either a pre-command rejection (no handler call), or the
     /// shipped handler's terminal result.</summary>
     public readonly struct RelationshipProvisioningResult

@@ -49,6 +49,29 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.StoneProgression
 
         public int Count => _areas.Count;
 
+        /// <summary>Remove a Stone's Area from the membership (lifecycle: the Stone is no longer resident).
+        /// A no-op when the StoneId was not registered.</summary>
+        public void Unregister(StoneId stoneId) => _areas.RemoveAll(a => a.StoneId.Equals(stoneId));
+
+        /// <summary>The stable ids of every currently-registered Stone Area, for reconciliation.</summary>
+        public IEnumerable<string> RegisteredStoneIds()
+        {
+            foreach (var a in _areas) yield return a.StoneId.Value;
+        }
+
+        /// <summary>True when the registered Area for <paramref name="stoneId"/> has exactly this center and
+        /// radius (used by reconciliation to detect a moved/re-radiused Stone). False when unregistered.</summary>
+        public bool Matches(StoneId stoneId, double x, double z, double radius)
+        {
+            double r = radius > 0.0 ? radius : DefaultAreaRadius;
+            foreach (var a in _areas)
+            {
+                if (!a.StoneId.Equals(stoneId)) continue;
+                return a.X.Equals(x) && a.Z.Equals(z) && a.Radius.Equals(r);
+            }
+            return false;
+        }
+
         /// <summary>Resolve which registered Stone Area contains (x,z). Returns true and the owning
         /// StoneId when the position is within some Area's radius; picks the nearest center on overlap,
         /// tie-broken by stable StoneId ordinal for determinism.</summary>

@@ -158,6 +158,14 @@
          ZDO/RPC/admin seams are not link-compiled). -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/AuthenticatedSenderIdentity.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/RelationshipProvisioningIngress.cs" />
+    <!-- Homestead progression Tracer 2 (T009R4): the engine-free security corrections the T009R3 adversarial
+         review demanded — the transport-bound pending-revalidation queue that absorbs the ZDO replication
+         race (Blocker 5), the vanilla-normalized admin-identity adapter (Blocker 4), and the server-owned
+         Stone Area registrar that reconciles the membership from resident Stone facts (Blocker 1). All three
+         are engine-free (the net48 ZRpc/ZDO/admin/console seams are not link-compiled). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/PendingRevalidationQueue.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/VanillaAdminIdentity.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneAreaRegistrar.cs" />
     <!-- Homestead progression Tracer 3 (T010): Stone Facets + revisioned Profession/Martial Tree
          commitment. Pure Facet transition, engine-free Stone aggregate store, the receipt-backed
          CommitTreeToFacet command handler, and the hints-only panel affordance. Engine-free. -->

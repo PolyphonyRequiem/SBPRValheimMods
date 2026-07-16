@@ -43,8 +43,11 @@ namespace SBPR.Trailborne.Tests
         private readonly string _durableDir;
         private readonly WorldId _world = new WorldId("uid:t009r2");
         private readonly StoneId _stone;
-        private readonly AccountId _account = new AccountId("player:100");   // sender principal space
-        private readonly CharacterId _character = new CharacterId("char-owner");
+        // T009R4 corrected identity split (Blockers 2/3): the ACCOUNT is the authenticated platform/socket
+        // subject; the CHARACTER is the stable player:<s_playerID> subject a placed piece's ZDO s_creator
+        // is stamped from. The ingress binds creator == CHARACTER (not account).
+        private readonly AccountId _account = new AccountId("acct:steam-100");   // platform account subject
+        private readonly CharacterId _character = new CharacterId("player:5555"); // stable s_playerID subject
         private const double StoneX = 100.0;
         private const double StoneZ = 100.0;
 
@@ -142,7 +145,7 @@ namespace SBPR.Trailborne.Tests
             Attune(server, _character);
 
             var source = new FakeInstanceSource();
-            source.Put("100:1", "wood_floor", _account.Value, StoneX, StoneZ);
+            source.Put("100:1", "wood_floor", _character.Value, StoneX, StoneZ);
             var ingress = server.CreateDedicatedIngress(source);
 
             var outcome = ingress.Ingest(_account.Value, _character.Value, "100:1");
@@ -236,7 +239,7 @@ namespace SBPR.Trailborne.Tests
 
             var source = new FakeInstanceSource();
             // A resolvable, correctly-created instance — but the SERVER-observed prefab is not Foundational.
-            source.Put("100:4", "not_a_real_prefab", _account.Value, StoneX, StoneZ);
+            source.Put("100:4", "not_a_real_prefab", _character.Value, StoneX, StoneZ);
             var ingress = server.CreateDedicatedIngress(source);
 
             var outcome = ingress.Ingest(_account.Value, _character.Value, "100:4");
@@ -255,7 +258,7 @@ namespace SBPR.Trailborne.Tests
 
             var source = new FakeInstanceSource();
             // Server-owned position is far from every Stone Area — no claimed area can override it.
-            source.Put("100:5", "wood_floor", _account.Value, StoneX + 500.0, StoneZ + 500.0);
+            source.Put("100:5", "wood_floor", _character.Value, StoneX + 500.0, StoneZ + 500.0);
             var ingress = server.CreateDedicatedIngress(source);
 
             var outcome = ingress.Ingest(_account.Value, _character.Value, "100:5");
@@ -273,7 +276,7 @@ namespace SBPR.Trailborne.Tests
             Attune(server, _character);
 
             var source = new FakeInstanceSource();
-            source.Put("100:6", "piece_workbench", _account.Value, StoneX, StoneZ);
+            source.Put("100:6", "piece_workbench", _character.Value, StoneX, StoneZ);
             var ingress = server.CreateDedicatedIngress(source);
 
             var outcome = ingress.Ingest(_account.Value, _character.Value, "100:6");
@@ -292,7 +295,7 @@ namespace SBPR.Trailborne.Tests
             Seed(server, _character);   // seeded but NEVER attuned
 
             var source = new FakeInstanceSource();
-            source.Put("100:7", "wood_floor", _account.Value, StoneX, StoneZ);
+            source.Put("100:7", "wood_floor", _character.Value, StoneX, StoneZ);
             var ingress = server.CreateDedicatedIngress(source);
 
             var outcome = ingress.Ingest(_account.Value, _character.Value, "100:7");
@@ -314,7 +317,7 @@ namespace SBPR.Trailborne.Tests
             Attune(server, _character);
 
             var source = new FakeInstanceSource();
-            source.Put("100:8", "wood_floor", _account.Value, StoneX, StoneZ);
+            source.Put("100:8", "wood_floor", _character.Value, StoneX, StoneZ);
             var ingress = server.CreateDedicatedIngress(source);
 
             var first = ingress.Ingest(_account.Value, _character.Value, "100:8");
@@ -338,7 +341,7 @@ namespace SBPR.Trailborne.Tests
             Attune(server, _character);
 
             var source = new FakeInstanceSource();
-            source.Put("100:9", "wood_floor", _account.Value, StoneX, StoneZ);
+            source.Put("100:9", "wood_floor", _character.Value, StoneX, StoneZ);
             var ingress = server.CreateDedicatedIngress(source);
 
             Assert.Equal(RuntimePlacementDisposition.Earned,
@@ -346,7 +349,7 @@ namespace SBPR.Trailborne.Tests
 
             // The same physical instance key is mutated to a different piece (a conflicting reuse). The
             // deterministic ZDOID-derived op id collides at the receipt layer → OperationConflict, no dup.
-            source.Put("100:9", "wood_wall", _account.Value, StoneX, StoneZ);
+            source.Put("100:9", "wood_wall", _character.Value, StoneX, StoneZ);
             var conflict = ingress.Ingest(_account.Value, _character.Value, "100:9");
             Assert.False(conflict.Credited);
             Assert.Equal(RuntimePlacementDisposition.PipelineRejected, conflict.Runtime.Disposition);
@@ -366,7 +369,7 @@ namespace SBPR.Trailborne.Tests
 
             // Instances exist in the server store (loaded/replicated), but NO notice is ever ingested.
             var source = new FakeInstanceSource();
-            source.Put("100:10", "wood_floor", _account.Value, StoneX, StoneZ);
+            source.Put("100:10", "wood_floor", _character.Value, StoneX, StoneZ);
             _ = server.CreateDedicatedIngress(source);
 
             // Nothing observed => nothing credited. Ingress is notice-driven, never a ZDO scan.
@@ -392,7 +395,7 @@ namespace SBPR.Trailborne.Tests
 
             // A late dedicated notice for the SAME physical instance is a pure replay — no second credit.
             var source = new FakeInstanceSource();
-            source.Put("100:11", "wood_floor", _account.Value, StoneX, StoneZ);
+            source.Put("100:11", "wood_floor", _character.Value, StoneX, StoneZ);
             var replay = server.CreateDedicatedIngress(source).Ingest(_account.Value, _character.Value, "100:11");
             Assert.Equal(RuntimePlacementDisposition.Replayed, replay.Runtime.Disposition);
             Assert.Equal(1, stoneStore.GetMirroredStoneAp(_stone));
