@@ -42,14 +42,30 @@ root as presentation only:
 
 ```text
 piece_niflheim_homestead_stone gameplay root   <- terrain seat, ZNetView, identity, collision
-└── MeadowsHomesteadingStone visual            <- local Y +1.0 m, scale 1, Animator/renderers only
+└── MeadowsHomesteadingStone visual            <- local Y +2.0 m, uniform scale 2×, Animator/renderers only
 ```
 
-The accepted V12 visual is approximately 1.8 m, ivy-covered and cyan-emissive. The runtime supplies the
-four-second subtle hover/yaw contract procedurally when the stable Linux bundle omits its authored Animator,
-so motion remains testable without treating Unity's stripped animation module as success. Strip accidental
-`ZNetView`, `Piece`, `WearNTear`, collider, or rigidbody components from its presentation subtree. Keep the
-bundle loaded while live instances reference its assets.
+The accepted V12 visual authors at approximately 1.8 m; the current playtest tune (Daniel real-client
+manual-walk feedback, 2026-07-15, verbatim: **"Needs to be about twice as big in all directions, and
+float about a meter higher, but otherwise looks great."**) renders it at **uniform 2× scale** (approx.
+3.6 m tall about its base pivot) floating at **local Y +2.0 m** — exactly +1.0 m above the prior +1.0 m
+seat. The engine-free `Domain/HomesteadStonePresentation` contract owns these constants (scale, local Y,
+and the refit collider) and is pinned by `HomesteadStonePresentationTests`; `HomesteadStoneRegistrar`
+reads every number from it so code and this spec cannot silently diverge.
+
+The explicit gameplay-root `CapsuleCollider` is refit to the enlarged, raised envelope: **radius 1.3 m**
+(2× the prior 0.65 m), **height ≈ 5.6 m** spanning ground → the enlarged visual top, **center Y ≈ 2.8 m**
+(midpoint). This keeps collision/targeting deliberately sized to the ~3.6 m stone now floating at +2.0 m
+rather than obviously undersized or ghostly. It remains additive: no `Piece`/`WearNTear`/destruction
+policy is added.
+
+The stone is ivy-covered and cyan-emissive. The runtime supplies the four-second subtle hover/yaw contract
+procedurally when the stable Linux bundle omits its authored Animator, so motion remains testable without
+treating Unity's stripped animation module as success. Strip accidental `ZNetView`, `Piece`, `WearNTear`,
+collider, or rigidbody components from its presentation subtree. Keep the bundle loaded while live
+instances reference its assets.
+
+This scale/hover tune is a **PROVISIONAL playtest presentation tune, not a final art lock.**
 
 Promoted editable/import source and provenance live under
 `src/SBPR.Niflheim.HomesteadStones/Assets/Source/`; large binaries use Git LFS. The repository-relative
@@ -121,8 +137,9 @@ For each selected Location:
    metadata is absent from the current selected set so selector/config rerolls cannot accumulate a union.
 
 The Unity Preview Lab is the exhaustive static composition surface. It already established that compact
-`WoodHouse1` and `WoodHouse2` need attempt 3 in the accepted composition model and that the V12 visual
-must sit at local Y `+1.0 m`. Live Valheim is a smaller integration gate for real terrain, runtime
+`WoodHouse1` and `WoodHouse2` need attempt 3 in the accepted composition model. The V12 visual seat is a
+provisional playtest tune: it was first modelled at local Y `+1.0 m`, then raised to `+2.0 m` at uniform
+2× scale per Daniel's 2026-07-15 real-client feedback (see §2). Live Valheim is a smaller integration gate for real terrain, runtime
 materials/emission/animation, persistence, and generator-backed Farm/Village behavior.
 
 ## 6. Explicit cuts for this integration slice
@@ -163,7 +180,7 @@ Use a disposable/local Astley client and verify representative cases rather than
 3. generator-backed Farm/Village if runtime placement is ready.
 
 For each accepted frame verify the exact Location, ready terrain, gameplay root seated at ground, V12
-child visibly hovering at +1.0 m, host and Stone both identifiable, no wall/roof intersection, animation
+child visibly hovering at +2.0 m (uniform 2× scale, ~3.6 m tall), host and Stone both identifiable, no wall/roof intersection, animation
 advance, and correct day/night materials/emission. Reload and verify no duplicate Stone appears and the
 host zone identity persists.
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using HarmonyLib;
+using SBPR.Niflheim.HomesteadStones.Domain;
 using UnityEngine;
 
 namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
@@ -18,7 +19,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         internal const string PrefabName = "piece_niflheim_homestead_stone";
         internal const string BundleFile = "sbpr_niflheim_homestead_stones.unity3d";
         internal const string VisualAssetPath = "assets/sbpr/niflheim/homesteadstones/meadowshomesteadingstone.prefab";
-        internal const float VisualLocalY = 1.0f;
+        internal const float VisualLocalY = HomesteadStonePresentation.VisualLocalY;
 
         private static readonly GameObject Holder = CreateHolder();
         private static AssetBundle? bundle;
@@ -58,16 +59,18 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             root.AddComponent<HomesteadStoneIdentity>();
 
             // Explicit gameplay collision belongs to the additive root, never the decorative bundle.
+            // Refit to the enlarged (2×) and raised (+1 m) visual envelope so targeting is neither
+            // undersized nor ghostly against the ~3.6 m stone floating at +2.0 m.
             var collider = root.AddComponent<CapsuleCollider>();
-            collider.radius = 0.65f;
-            collider.height = 2.2f;
-            collider.center = new Vector3(0f, 1.1f, 0f);
+            collider.radius = HomesteadStonePresentation.ColliderRadius;
+            collider.height = HomesteadStonePresentation.ColliderHeight;
+            collider.center = new Vector3(0f, HomesteadStonePresentation.ColliderCenterY, 0f);
 
             var presentation = UnityEngine.Object.Instantiate(visual, root.transform, false);
             presentation.name = "MeadowsHomesteadingStone visual";
             presentation.transform.localPosition = new Vector3(0f, VisualLocalY, 0f);
             presentation.transform.localRotation = Quaternion.identity;
-            presentation.transform.localScale = Vector3.one;
+            presentation.transform.localScale = Vector3.one * HomesteadStonePresentation.VisualScale;
             RemoveGameplayComponents(presentation);
             if (presentation.GetComponentInChildren<Animator>(true) == null)
             {
@@ -80,7 +83,8 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             RegisterPrefab(scene, root);
             Plugin.Log.LogInfo(
                 $"[Niflheim/HomesteadStones] Registered {PrefabName} additively with V12 visual " +
-                $"'{VisualAssetPath}' at local Y +{VisualLocalY:0.0} m, explicit root collider, and no Piece/WearNTear policy.");
+                $"'{VisualAssetPath}' at {HomesteadStonePresentation.VisualScale:0.0}× scale, local Y +{VisualLocalY:0.0} m, " +
+                $"refit root collider (r={HomesteadStonePresentation.ColliderRadius:0.00}, h={HomesteadStonePresentation.ColliderHeight:0.0}), and no Piece/WearNTear policy.");
         }
 
         private static bool TryLoadVisual(out GameObject visual)
