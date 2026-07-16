@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Stone Content Authoring Workbench — thin CLI adapter (POC, card t_e2de37e4).
+       Owns file I/O and console presentation ONLY. All decisions come from the Core deep
+       module. Commands: validate / generate / check. `serve` is RESERVED for the UI child
+       card (t_e4d16b1c) and is not implemented here. Engine-free net8. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>StoneContent.Workbench.Cli</AssemblyName>
+    <RootNamespace>StoneContent.Workbench.Cli</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../StoneContent.Workbench.Core/StoneContent.Workbench.Core.csproj" />
+  </ItemGroup>
+
+</Project>

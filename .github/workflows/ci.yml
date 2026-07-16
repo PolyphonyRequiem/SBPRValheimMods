@@ -14,6 +14,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'scripts/**'
+      - 'tools/stone-content-workbench/**'
       - 'Directory.Build.props'
       - '.github/workflows/ci.yml'
   pull_request:
@@ -21,6 +22,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'scripts/**'
+      - 'tools/stone-content-workbench/**'
       - 'Directory.Build.props'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
@@ -200,3 +202,50 @@ jobs:
             dist/*.zip
             dist/*.sha256
           if-no-files-found: error
+
+  # ── Stone Content Authoring Workbench (POC, card t_e2de37e4) ──────────────────
+  # A fully engine-free net8 tool: it references NO game/BepInEx/Valheim assemblies,
+  # so it runs headless with NO SteamCMD fetch. Kept as an independent job (not a step
+  # of `build`) so a workbench-only change gets a fast, self-contained gate and the
+  # Valheim-dependent build path is never on its critical path.
+  workbench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-workbench-${{ hashFiles('tools/stone-content-workbench/**/*.csproj') }}
+          restore-keys: nuget-workbench-
+
+      - name: Test (Release)
+        run: |
+          dotnet test tools/stone-content-workbench/tests/StoneContent.Workbench.Tests.csproj -c Release \
+            --logger "console;verbosity=normal"
+
+      - name: CLI validate the canonical asset
+        run: |
+          dotnet run --project tools/stone-content-workbench/src/StoneContent.Workbench.Cli -c Release -- \
+            validate tools/stone-content-workbench/assets/homestead-stone.content.json
+
+      - name: Deterministic double-generation is byte-identical
+        run: |
+          set -euo pipefail
+          CLI=tools/stone-content-workbench/src/StoneContent.Workbench.Cli
+          ASSET=tools/stone-content-workbench/assets/homestead-stone.content.json
+          dotnet run --project "$CLI" -c Release -- generate "$ASSET" --output "$RUNNER_TEMP/gen1"
+          dotnet run --project "$CLI" -c Release -- generate "$ASSET" --output "$RUNNER_TEMP/gen2"
+          diff -r "$RUNNER_TEMP/gen1" "$RUNNER_TEMP/gen2"
+
+      - name: CLI check generated output for drift
+        run: |
+          dotnet run --project tools/stone-content-workbench/src/StoneContent.Workbench.Cli -c Release -- \
+            check tools/stone-content-workbench/assets/homestead-stone.content.json --generated "$RUNNER_TEMP/gen1"
