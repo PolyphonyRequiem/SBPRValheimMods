@@ -28,9 +28,11 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
     {
         internal static readonly ZdoServerPlacedInstanceSource Instance = new ZdoServerPlacedInstanceSource();
 
-        /// <summary>Render a placing-player creator id into the shared server-owned principal space.</summary>
+        /// <summary>Render a placing-player creator id into the shared server-owned principal space.
+        /// Delegates to <see cref="ServerCreatorIdentity"/> so the placed ZDO's creator and the
+        /// authenticated sender's character s_playerID are provably in ONE identity space.</summary>
         internal static string CreatorPrincipal(long creatorId) =>
-            "player:" + creatorId.ToString(CultureInfo.InvariantCulture);
+            ServerCreatorIdentity.CreatorPrincipal(creatorId);
 
         /// <summary>Parse a physical-instance key ("user:id") back into a ZDOID. Returns false on any
         /// malformed key (a fabricated/garbage notice → NoSuchInstance downstream).</summary>

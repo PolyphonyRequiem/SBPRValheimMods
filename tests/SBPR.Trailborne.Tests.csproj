@@ -150,6 +150,14 @@
          binding, prefab/catalog identity, position/Stone Area) and routes through the SAME shared runtime.
          Engine-free (the ZDOMan-backed source + routed-RPC observer are net48-only, not link-compiled). -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/DedicatedPlacementIngress.cs" />
+    <!-- Homestead progression Tracer 2 (T009R3): the engine-free, testable creator-identity binder and the
+         bounded relationship provisioning ingress. The binder reconciles the placed ZDO's s_creator with
+         the authenticated sender's character s_playerID (Blocker 2); the provisioning ingress drives the
+         shipped RelationshipCommandHandler with a server-derived subject so a real session can establish
+         the Bond/Attunement RecordFoundationalPlacement requires (Blocker 3). Engine-free (the net48
+         ZDO/RPC/admin seams are not link-compiled). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/AuthenticatedSenderIdentity.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/RelationshipProvisioningIngress.cs" />
     <!-- Homestead progression Tracer 3 (T010): Stone Facets + revisioned Profession/Martial Tree
          commitment. Pure Facet transition, engine-free Stone aggregate store, the receipt-backed
          CommitTreeToFacet command handler, and the hints-only panel affordance. Engine-free. -->

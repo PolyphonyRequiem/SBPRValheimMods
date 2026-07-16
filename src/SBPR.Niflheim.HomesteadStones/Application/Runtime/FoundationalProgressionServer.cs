@@ -88,6 +88,18 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             return new DedicatedPlacementIngress(Runtime, instances, StoneAreas, FoundationalPrefabMap.CurrentBuild);
         }
 
+        /// <summary>T009R3 (Blocker 3) — build the bounded relationship provisioning ingress over this
+        /// server's shipped <see cref="Relationships"/> handler and <see cref="Characters"/> store. It is
+        /// the smallest seam that lets a real session ESTABLISH the Bond/Attunement
+        /// RecordFoundationalPlacement requires: it seeds an absent character aggregate and drives the
+        /// SAME command handler that boot-rehydrates the relationship journal, with a server-derived
+        /// principal. There is deliberately no permissive authorizer or client identity here — the net48
+        /// admin seam (config-flag + Valheim-admin gated) supplies the server-derived subject.</summary>
+        public RelationshipProvisioningIngress CreateRelationshipProvisioningIngress()
+        {
+            return new RelationshipProvisioningIngress(Relationships, Characters);
+        }
+
         /// <summary>Compose the live runtime over a stable server-owned durable directory. The
         /// directory is created if absent; the two journals live inside it and are rehydrated at
         /// construction. Caller supplies the platform→account map (candidate E; null falls back to

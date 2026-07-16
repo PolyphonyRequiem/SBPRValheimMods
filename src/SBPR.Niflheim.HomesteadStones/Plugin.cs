@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 
@@ -58,6 +59,19 @@ namespace SBPR.Niflheim.HomesteadStones
             // credits through the SAME shared validation core.
             harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressObserver));
             harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressBootstrap));
+
+            // T009R3 (Blocker 3) — admin/test relationship provisioning seam. DISABLED by default: the
+            // routed handler is only registered when this server-owned flag is ON, and even then only an
+            // authenticated Valheim ADMIN sender is accepted. It exists so a real playtest session can
+            // ESTABLISH the Bond/Attunement RecordFoundationalPlacement requires (T009L). Never a shipping
+            // gameplay command; never client-open.
+            Features.Progression.RelationshipProvisioningAdmin.EnableProvisioning = Config.Bind(
+                "Progression", "EnableAdminRelationshipProvisioning", false,
+                "Playtest ONLY. When true, server admins may provision a Bond/Attunement for themselves via "
+                + "the SBPR_Niflheim_ProvisionRelationship routed RPC so live Foundational AP can be proven. "
+                + "Server-owned; not client-settable. Leave false on any non-playtest server.");
+            harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdminBootstrap));
 
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }

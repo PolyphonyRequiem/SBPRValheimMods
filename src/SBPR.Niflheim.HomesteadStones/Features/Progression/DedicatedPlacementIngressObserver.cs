@@ -50,6 +50,11 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         // The ZRoutedRpc instance we last registered against (rebuilt each ZNet session).
         private static ZRoutedRpc? registeredRpc;
 
+        // Blocker 2: resolves an authenticated sender peer to its server-owned character facts
+        // (s_playerID + stable character ZDOID). Overridable in principle for tests; the net48 default
+        // reads ZNet's peer table + ZDOMan.
+        private static IAuthenticatedSenderCharacterSource SenderSource = ZdoAuthenticatedSenderSource.Instance;
+
         /// <summary>Register the notice RPC. The request handler lives only on the server (it credits);
         /// the send side is armed on every peer (a client fires it for its own placements). Idempotent
         /// per ZRoutedRpc instance (a re-register within one instance throws on a duplicate method hash).</summary>
@@ -78,14 +83,20 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         /// (both paths share the same server-validation core; we never double-fire).</summary>
         [HarmonyPatch(typeof(Player), nameof(Player.PlacePiece))]
         [HarmonyPostfix]
-        private static void OnClientPlacePiece(Piece piece, bool __result)
+        private static void OnClientPlacePiece()
         {
             try
             {
-                if (!__result || piece == null) return;
                 // On the server host, the listen-host observer handles our own placement; do not also
                 // fire a redundant notice. Only a pure CLIENT peer needs this ingress.
                 if (ZNet.instance == null || ZNet.instance.IsServer()) return;
+
+                // Blocker 1: the placed instance is captured from Player.m_placed, NOT the PlacePiece
+                // `piece` argument (that is the build ghost/prefab with no world ZDO). A reached
+                // PlacePiece postfix is the success signal (vanilla's TryPlacePiece only calls it on
+                // success), so there is no bool result to test.
+                var piece = PlacedPieceCapture.PlacedPiece();
+                if (piece == null) return;
 
                 // Client-side spam guard: only notify for pieces that map to a Foundational stable id.
                 // This is NOT authority — the server re-resolves the identity authoritatively.
@@ -120,9 +131,12 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 if (server == null) return;
                 if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
 
-                // Derive the sender principal from the AUTHENTICATED sender peer (server-owned), rendered
-                // into the same space as the ZDO's recorded creator. The ingress rejects CreatorMismatch
-                // when the pointed-at instance was not created by this authenticated sender.
+                // Derive the sender principal from the AUTHENTICATED sender peer (server-owned). Blocker 2:
+                // the principal MUST be the sender's character s_playerID (what vanilla stamps as the
+                // placed ZDO's creator), NOT peer.m_characterID.UserID (the platform id). The character
+                // ZDO is resolved server-side and its s_playerID + stable character ZDOID are bound here.
+                // The ingress rejects CreatorMismatch when the pointed-at instance was not created by this
+                // authenticated sender.
                 if (!TryResolveSenderPrincipal(sender, out string senderPrincipal, out string senderCharacter))
                     return;
 
@@ -138,25 +152,22 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         }
 
         /// <summary>Resolve the authenticated routed sender peer into the shared creator-principal space.
-        /// The sender's character ZDOID user half is the placing player's stable profile id — the same id
-        /// vanilla stamps as the ZDO creator — so both render as <c>player:&lt;id&gt;</c>. The exact
-        /// peer↔creator identity reconciliation against a live client is the T009L live-integration seam.</summary>
+        /// Blocker 2: the placing player's creator identity is the character ZDO's server-owned
+        /// <c>s_playerID</c> (what vanilla stamps via <c>SetCreator(GetPlayerID())</c>), NOT the platform
+        /// id in <c>peer.m_characterID.UserID</c>. The net48 <see cref="ZdoAuthenticatedSenderSource"/>
+        /// resolves the sender's character ZDO and reads that server-owned <c>s_playerID</c> plus the
+        /// STABLE character ZDOID; the engine-free <see cref="AuthenticatedSenderBinder"/> renders both
+        /// into the principal space the placed ZDO's creator is compared in. Reconnect-stable: a new
+        /// session's different character ZDOID still yields the same <c>s_playerID</c> principal.</summary>
         private static bool TryResolveSenderPrincipal(long sender, out string principal, out string character)
         {
             principal = string.Empty;
             character = string.Empty;
-            var znet = ZNet.instance;
-            if (znet == null) return false;
 
-            var peer = znet.GetPeer(sender);
-            if (peer == null) return false;
+            if (!SenderSource.TryResolveSender(sender, out var senderCharacter))
+                return false;
 
-            long profileId = peer.m_characterID.UserID;
-            if (profileId == 0L) return false;
-
-            principal = ZdoServerPlacedInstanceSource.CreatorPrincipal(profileId);
-            character = peer.m_playerName ?? string.Empty;
-            return true;
+            return AuthenticatedSenderBinder.TryBind(senderCharacter, out principal, out character);
         }
 
         internal static string FormatInstanceKey(ZDOID id) =>

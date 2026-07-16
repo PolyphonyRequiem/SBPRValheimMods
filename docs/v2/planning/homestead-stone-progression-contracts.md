@@ -206,6 +206,38 @@ this gap without ever trusting the client:
   ZDOID-derived operation id); a conflicting reuse of a credited instance rejects at the receipt layer.
   There is no client-authoritative fallback.
 
+**Runtime corrections (T009R3, 2026-07-16).** Three runtime blockers in the T009R2 cut are corrected;
+the revalidation core above is unchanged.
+
+- **Live placement hook.** The placed instance is captured from the private static `Player.m_placed`
+  list vanilla populates from the instantiated object, NOT the `Player.PlacePiece` `piece` argument (that
+  is the build ghost/prefab, with no world ZDO or stamped creator). `Player.PlacePiece` returns `void`, so
+  a reached postfix is itself the success signal (vanilla only calls it from `TryPlacePiece`'s success
+  branch) — there is no `bool` result. `Features/Progression/PlacedPieceCapture.cs` reads the placed
+  `Piece` from `m_placed`.
+- **Authenticated creator identity.** Vanilla stamps a placed piece's creator with
+  `Piece.SetCreator(Player.GetPlayerID())`, and `GetPlayerID()` returns the character ZDO's
+  `ZDOVars.s_playerID` — a game-minted profile id, NOT the platform id in `peer.m_characterID.UserID`. The
+  server resolves the authenticated sender's CHARACTER ZDO (from `peer.m_characterID`) and reads that same
+  server-owned `s_playerID`, rendering it into the shared `ServerCreatorIdentity` principal space the ZDO's
+  recorded creator also renders to, so the ingress's creator==sender binding compares two server-derived
+  `s_playerID` values. The acting character id is the stable character ZDOID, never the mutable player
+  name. Reconnect-stable: a new session's character ZDOID differs but the `s_playerID` is durable.
+
+**Live relationship establishment (T009R3, 2026-07-16).** `RecordFoundationalPlacement` requires an active
+Attunement (or Bond), but the live `FoundationalProgressionServer` boots with empty character/authority
+projections — nothing in a real session could establish one. `RelationshipProvisioningIngress`
+(`Application/Runtime`) is the smallest server-authoritative seam: it seeds an ABSENT character aggregate
+(never overwriting existing progression) and drives the shipped `RelationshipCommandHandler` (the same
+handler that boot-rehydrates the relationship journal) with a SERVER-DERIVED subject. It is restricted to a
+playtest path: the net48 `Features/Progression/RelationshipProvisioningAdmin` registers its routed RPC ONLY
+when the server-owned config flag `Progression.EnableAdminRelationshipProvisioning` is true (default false),
+and even then accepts only an authenticated Valheim ADMIN sender (peer host on the server admin list — the
+same gate as `RPC_Save`). The subject account (creator principal) and target Stone are re-derived from the
+sender's server-owned character ZDO; there is no permissive authorizer, client-supplied identity, or
+fabricated projection mutation. Disabled outside the playtest path (flag off ⇒ the handler is never
+registered).
+
 ### `RecordAlignedActivity`
 
 Used by server adapters for eligible Cooking, Crafting, Archer, or Warrior activity.

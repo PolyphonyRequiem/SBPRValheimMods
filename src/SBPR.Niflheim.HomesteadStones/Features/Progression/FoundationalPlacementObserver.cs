@@ -44,16 +44,23 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
 
         [HarmonyPatch(typeof(Player), nameof(Player.PlacePiece))]
         [HarmonyPostfix]
-        private static void OnPlacePiece(Player __instance, Piece piece, bool __result)
+        private static void OnPlacePiece(Player __instance)
         {
             var server = Server;
             if (server == null) return;                       // not the server / not wired
             if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
-            if (piece == null) return;
+
+            // Blocker 1: the placed instance is NOT the PlacePiece `piece` argument (that is the build
+            // ghost/prefab). Vanilla instantiates a NEW object and records it into the private static
+            // Player.m_placed list before returning; the real placed Piece (with its world ZDO + stamped
+            // creator) is captured from there. A reached PlacePiece postfix is itself the success signal
+            // (vanilla only calls it from TryPlacePiece's success branch), so there is no bool result.
+            var placed = PlacedPieceCapture.PlacedPiece();
+            if (placed == null) return;
 
             try
             {
-                Observe(__instance, piece, placementSucceeded: __result, server);
+                Observe(__instance, placed, server);
             }
             catch (Exception ex)
             {
@@ -62,7 +69,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             }
         }
 
-        private static void Observe(Player actor, Piece piece, bool placementSucceeded, FoundationalProgressionServer server)
+        private static void Observe(Player actor, Piece piece, FoundationalProgressionServer server)
         {
             // Prefab identity → stable catalog id (server-observed; empty when not a Foundational piece,
             // which the adapter rejects as MissingPieceIdentity / NotCatalogMember — never a rebind).
@@ -87,10 +94,12 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             bool inside = membership.TryResolve(pos.x, pos.z, out var stoneId);
 
             // Acting identity from server context: on the authoritative host, PlacePiece runs for the
-            // host's own player, so the authenticated local player id is the acting principal. This is
-            // server-owned, not a client payload identity.
+            // host's own player. The acting principal is the local player's server-owned s_playerID (the
+            // SAME value vanilla stamps as the placed piece's creator), and the acting character is the
+            // player's STABLE character ZDOID — never the mutable display name. Both are server-owned,
+            // not a client payload identity.
             string platformId = ResolveActingPlatformId(actor);
-            string characterId = actor != null ? actor.GetPlayerName() ?? string.Empty : string.Empty;
+            string characterId = ResolveActingCharacterId(actor);
 
             var observation = new FoundationalPlacementObservation(
                 stoneId,
@@ -99,7 +108,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 stablePieceId,
                 provenance,
                 insideStoneArea: inside,
-                placementSucceeded: placementSucceeded,
+                placementSucceeded: true,
                 foundationalCatalogVersion: PrefabMap.CatalogVersionTag);
 
             var outcome = server.Runtime.Observe(observation);
@@ -111,12 +120,22 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         }
 
         /// <summary>Derive the acting platform id from server-owned facts. On the authoritative host the
-        /// acting player is the local authenticated player; its stable player id is the server-context
-        /// identity (candidate A). This is never taken from a client payload.</summary>
+        /// acting player is the local authenticated player; its server-owned s_playerID is the acting
+        /// identity (the same id vanilla stamps as the placed piece's creator). Never a client payload.</summary>
         private static string ResolveActingPlatformId(Player actor)
         {
             long id = actor != null ? actor.GetPlayerID() : 0L;
             return id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Acting character id = the local player's STABLE character ZDOID string (server-owned,
+        /// durable across renames), never the mutable display name from GetPlayerName().</summary>
+        private static string ResolveActingCharacterId(Player actor)
+        {
+            if (actor == null) return string.Empty;
+            var nview = actor.GetComponent<ZNetView>();
+            var zdo = nview != null ? nview.GetZDO() : null;
+            return zdo != null ? zdo.m_uid.ToString() : string.Empty;
         }
 
         /// <summary>Strip Unity's "(Clone)" suffix so a live instance name matches the registered prefab
