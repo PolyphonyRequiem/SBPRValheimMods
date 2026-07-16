@@ -46,5 +46,62 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         internal const float ColliderRadius = 1.3f;   // 2× prior 0.65
         internal const float ColliderHeight = VisualTopY;             // ground (0) → visual top (~5.6 m)
         internal const float ColliderCenterY = VisualTopY / 2.0f;     // midpoint of that span
+
+        // ── Visual LOD / renderer-culling contract (provisional performance tune) ──────────
+        //
+        // Daniel/Soloredis guidance (2026-07-16): add an LODGroup to the whole presentation
+        // visual so every base/ivy/emission renderer is culled together at range; target a
+        // 90–120 m maximum visibility, with 5–7% relative screen height as a size-dependent
+        // starting hypothesis. Because the model has no authored lower-poly mesh, the group is
+        // a single visual LOD (LOD0 = all renderers) followed by a hard cull region — NOT a
+        // duplicated fake lower LOD and NOT destructive geometry. Only renderers cull; the
+        // additive ZNetView/identity/collider/placement/progression state stays alive.
+        //
+        // Unity culls a renderer when its LODGroup screen-relative height drops below the last
+        // LOD's transition height H. That height maps to a camera distance deterministically:
+        //
+        //     screenHeight(d) = (worldSize) / (d * 2 * tan(fovVertical/2)) * lodBias
+        //  ⇔  cullDistance    = (worldSize * lodBias) / (2 * H * tan(fovVertical/2))
+        //
+        // worldSize is the runtime LODGroup size (authored local size × the uniform VisualScale).
+        // The two engine constants below are read from vanilla Valheim (fair game per AGENTS.md):
+        //   • GameCamera.m_fov = 65 (vertical FOV);
+        //   • GraphicsSettings.GetLodBias: quality level 2 (the default preset) → 2f.
+        // The cull threshold H is calibrated in the builder from the MEASURED runtime worldSize
+        // so the cull lands at TargetCullDistanceMeters; 5–7% is only the seed hypothesis
+        // because FOV/bounds decide the real distance. Ratified against real-client frames.
+
+        /// <summary>Vanilla Valheim vertical camera FOV (GameCamera.m_fov), in degrees.</summary>
+        internal const float LodCameraFovVerticalDegrees = 65.0f;
+
+        /// <summary>Vanilla Valheim default lodBias (GraphicsSettings quality level 2 → 2f).</summary>
+        internal const float LodBiasReference = 2.0f;
+
+        /// <summary>Target maximum visibility / cull distance for the ~3.6 m (2×) Stone, in metres.</summary>
+        internal const float TargetCullDistanceMeters = 105.0f;
+
+        /// <summary>Lower acceptance bound: the Stone must remain visible through ordinary approach past this.</summary>
+        internal const float MinAcceptableCullDistanceMeters = 90.0f;
+
+        /// <summary>Upper acceptance bound: the Stone must be culled by roughly this distance.</summary>
+        internal const float MaxAcceptableCullDistanceMeters = 120.0f;
+
+        /// <summary>tan(fovVertical / 2), the half-angle projection factor used by both formulas.</summary>
+        internal static float LodHalfFovTangent =>
+            (float)System.Math.Tan(LodCameraFovVerticalDegrees * 0.5f * System.Math.PI / 180.0);
+
+        /// <summary>
+        /// The screen-relative transition height H to stamp on the single visual LOD so the group
+        /// culls at <paramref name="cullDistanceMeters"/> for a given runtime world size and lodBias.
+        /// </summary>
+        internal static float ComputeCullScreenHeight(float runtimeWorldSize, float cullDistanceMeters, float lodBias)
+            => runtimeWorldSize * lodBias / (2.0f * cullDistanceMeters * LodHalfFovTangent);
+
+        /// <summary>
+        /// Inverse of <see cref="ComputeCullScreenHeight"/>: the camera distance at which a group of
+        /// the given runtime world size and lodBias reaches the transition height <paramref name="screenHeight"/>.
+        /// </summary>
+        internal static float ComputeCullDistance(float runtimeWorldSize, float screenHeight, float lodBias)
+            => runtimeWorldSize * lodBias / (2.0f * screenHeight * LodHalfFovTangent);
     }
 }
