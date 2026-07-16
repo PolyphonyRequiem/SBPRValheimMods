@@ -92,6 +92,9 @@
     <!-- Production Homestead assignment/seating domain logic is engine-free and link-compiled
          into this net8 test project while the shipping mod consumes the same source under net48. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadPlacement.cs" />
+    <!-- Engine-free V12 presentation-tune contract (scale/hover/collider), pinned by
+         HomesteadStonePresentationTests. Consumed under net48 by HomesteadStoneRegistrar. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadStonePresentation.cs" />
     <!-- Homestead progression Gate-A (T002) engine-free CLEAN-side slice. Each file below is
          deliberately free of UnityEngine/Valheim/BepInEx refs (net48-safe subset) so it compiles
          under net8 here AND net48 in the mod. The ZDO-backed sink
