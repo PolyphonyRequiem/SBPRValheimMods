@@ -60,6 +60,31 @@ attach without becoming an authentication root?**"
 
 ---
 
+## External landscape — what exists, and where it stops fitting
+
+Daniel explicitly asked that this discussion begin from what other systems have
+already done. The primary-source/code pass found **useful parts, but no complete
+Niflheim-shaped solution**.
+
+| System / pattern | What it proves | Where it does **not** fit Niflheim | Source |
+|---|---|---|---|
+| **Smoothbrain ServerCharacters 1.4.16** | Valheim can require a client/server mod, vault `.fch` profiles on the server, send the stored profile before play, rotate per-character backups, and bind the file namespace to the authenticated Steam connection | It is a cooperative-client profile vault, **not authoritative character state**: the client still uploads the complete next profile and inventory bytes; identity is `(platform id, client-selected character name)`, not a server-minted rename-stable `CharacterId`; current source rejects PlayFab/crossplay. Its emergency-backup signature is also not a hostile-client boundary because the server sends the derived signing material to the client. The repository declares no license | [package](https://thunderstore.io/c/valheim/p/Smoothbrain/ServerCharacters/) · [source](https://github.com/blaxxun-boop/ServerCharacters) |
+| **World of Valheim SSC** | Older independent evidence that server-profile vaulting is practical in Valheim | Deprecated (2021) and uses the same client-serialized whole-profile upload model; no stronger account or character authority | [package](https://thunderstore.io/c/valheim/p/HackShardGaming/World_of_Valheim_SSC/) · [source](https://github.com/HackShardGaming/World-of-Valheim-Public/tree/369ca2cb43465eb0abb529ca7040ddbc682324a5/WorldofValheimServerSideCharacters) |
+| **AzuAntiCheat** | Compatibility/mod-list gates and behavioral filters can reduce cooperative-client mistakes and common cheats | It explicitly cannot overcome Valheim's client-authoritative architecture and owns no character/account state; it cannot repair either SSC trust model | [package](https://thunderstore.io/c/valheim/p/Azumatt/AzuAntiCheat/) |
+| **PlayFab linked credentials** | One durable account can be reached through several separately verified provider credentials; providers supply tokens rather than passwords | Managed cloud dependency. `ForceLink` can detach a credential from another account and orphan that account, so Niflheim must keep conservative, auditable recovery/merge rules | [account-linking quickstart](https://learn.microsoft.com/en-us/xbox/playfab/identity/player-identity/login/quickstart) · [`LinkSteamAccount`](https://learn.microsoft.com/en-us/rest/api/playfab/client/account-management/link-steam-account?view=playfab-rest) |
+| **TrinityCore account/character split** | Mature MMO precedent: authentication/account state is separate from character state; each character has a stable GUID, account foreign key, slot, and mutable name; bans and realm access are account-scoped | Its username/password auth and full SQL MMO stack are unnecessary here. The reusable part is the domain boundary, not the implementation | [repository and schemas](https://github.com/TrinityCore/TrinityCore/tree/master/sql/base) |
+| **Praetoris/DiscordTools + DiscordSRV code ceremonies** | Strong two-channel association pattern: one side proves the game identity, the other proves Discord control, and a short-lived code joins them; mature implementations also expose explicit unlink and role sync | Existing Valheim flows link directly to a platform/player id, not an account with sibling characters and recovery history. DiscordSRV can make Discord membership/roles a join gate, which conflicts with Niflheim's default no-Discord path | [PraetorisClient](https://thunderstore.io/c/valheim/p/praetoris/PraetorisClient/) · [DiscordSRV linking](https://docs.discordsrv.com/installation/link-to-join-setup/) |
+| **Discord OAuth2** | Standard browser authorization-code flow can prove Discord control for a future account portal | Adds hosted callback/TLS/state/token operations. Discord documents authorization-code, implicit, client-credentials, bot, and webhook flows—**not a general OAuth device-code grant** | [official OAuth2 docs](https://docs.discord.com/developers/topics/oauth2) |
+
+**Landscape consequence.** Borrow Smoothbrain's operator UX (pre-login transfer,
+bounded backups, maintenance drain), PlayFab's linked-credential lifecycle,
+TrinityCore's account/character boundary, and the two-channel Discord code ceremony.
+Do **not** adopt any surveyed Valheim mod as the identity authority, do not treat
+centralized `.fch` storage as server-authoritative state, and do not key Niflheim
+progression to a name, raw provider id, or client-uploaded replacement profile.
+
+---
+
 ## Ubiquitous-language glossary
 
 The vocabulary this whole discussion (and the eventual spec) must use consistently.
@@ -297,7 +322,7 @@ authority.** Recovery-hint is a *maybe* (2C). Gameplay authorization stays off.
 | **In-game code → Discord** | Game shows a short-lived code; player types it to the bot in Discord; bot confirms to server | A bot + a server↔bot channel; no OAuth app | **[ARCHITECT LEAN]** simplest, no web infra, code is server-minted + short-TTL + single-use |
 | **Discord code → in-game** | Reverse: bot mints code, player enters it in-game | bot + server↔bot channel | Symmetric; fine alternative |
 | **Discord OAuth (web portal)** | Standard OAuth2 authorize → callback | a hosted web endpoint + OAuth app + secret management | Heavier; real infra to run and secure |
-| **OAuth device-code** | Device-code grant, no web callback | OAuth app; still needs bot to be useful | Middle weight |
+| **Custom device-like code** | A Niflheim/bot one-time code entered on the opposite channel; **not** a native Discord OAuth device grant | Bot + server↔bot channel | Same trust shape as the two code options above; name it honestly and keep OAuth out of the ceremony |
 | **Bot DM only** | Player DMs bot a game-issued code | bot | Same as in-game→Discord, DM transport |
 
 **[ARCHITECT LEAN]** Ship the **in-game-code → Discord-bot** ceremony: the server
@@ -384,7 +409,7 @@ ceremony. Discord is read/notify only (3D). Recovery via credential-rebind (2C).
 Candidate E **plus** Discord (via OAuth) as a *bindable credential*, not just an
 association — so "log in with Discord" could authenticate a session.
 
-- **State added:** Shape 2 + OAuth app + web/device-code flow + Discord-as-credential
+- **State added:** Shape 2 + OAuth app + web authorization-code flow + Discord-as-credential
   in the resolver.
 - **Trust boundary:** **weaker** — Discord compromise now reaches authentication, not
   just association. Directly in tension with the card's "never make Discord the sole
@@ -495,7 +520,7 @@ the trust boundaries end-to-end.
 
 ### Explicit NOT-yet scope
 
-- No OAuth app / web portal / device-code flow (defer; in-game-code ceremony suffices).
+- No OAuth app / web authorization-code portal (defer; the custom in-game-code ceremony suffices).
 - No Discord-as-credential / "log in with Discord" (Shape 3 — out unless Daniel opts in).
 - No multi-Discord or multi-account-per-Discord (one-to-one at v1).
 - No snapshot/time-travel rollback (journal replay only).
