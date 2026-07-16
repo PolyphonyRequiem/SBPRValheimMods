@@ -1,6 +1,6 @@
 ---
 title: "Homestead emergent party dynamics — brainstorm"
-status: brainstorm
+status: idea
 purpose: >
   Explore whether useful co-play emerges from existing Homestead primitives
   (relationships, permissions, Responsibility Range, beneficiary policy) before
