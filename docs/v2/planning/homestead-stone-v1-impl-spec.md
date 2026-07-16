@@ -72,6 +72,29 @@ Promoted editable/import source and provenance live under
 Unity builder is `Assets/Editor/BuildNiflheimHomesteadStone.cs` and is executed from the Unity
 6000.0.61f1 Preview Lab.
 
+### 2.1 Texture import policy (provisional Valheim pixel look)
+
+Per Daniel (2026-07-15, "Use these settings, 256–512, point no filter for the Valheim pixel look"), both
+authored 512×512 textures (`guardian_basecolor.png` RGB albedo, `guardian_emission.png` grayscale
+emission) are imported under a single data-named policy, `Assets/Editor/HomesteadTextureImportPolicy.cs`,
+called by both the repository builder and the mirrored Preview-Lab builder so they cannot drift. The
+policy pins the exact Inspector values:
+
+- Texture Type **Default**, Shape **2D**;
+- **sRGB on** for the albedo, **off** for the emission;
+- Filter Mode **Point (no filter)**;
+- Max Size **512** (authored inputs are 512; the enlarged 2× model benefits from retained source texels —
+  a 256 cap is A/B-testable by changing only `HomesteadTextureImportPolicy.MaxTextureSize`);
+- Wrap **Repeat**, Aniso **1**;
+- Mipmaps **on** (retained pending a real-client A/B at ordinary distance);
+- Alpha Source **None**;
+- platform format **Automatic**, compression **Low Quality (Compressed LQ)**, **Crunch on** at quality
+  **100**.
+
+The builder's `ConfigureTexture` applies the policy then calls `HomesteadTextureImportPolicy.AssertMatches`,
+which throws (failing the reproducible bundle build) on any importer drift for either texture. This is a
+**PROVISIONAL playtest style tune, not a final art lock.**
+
 ## 3. Stable identity and reserved data keys
 
 D3 is decided for this playtest build: the host Valheim Location's zone coordinate `(zoneX,zoneZ)`.
