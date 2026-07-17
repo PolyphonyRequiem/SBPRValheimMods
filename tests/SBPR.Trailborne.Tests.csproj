@@ -196,6 +196,14 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Accounts/PilotAccountStore.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Accounts/PersistedPiiScanner.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotAccountService.cs" />
+    <!-- IAP-005 Tracer 2 (t_afc5e5c9): minted characters + single-session admission — the transient
+         verified profile subject, opaque CharacterId/SessionId identifiers, the account-scoped profile
+         lookup index + character projections on the store, the ephemeral one-lease-per-account admission
+         index, and the character selection/creator-bridge service. Engine-free (System.* only),
+         link-compiled here and shipped under net48 exactly like the Tracer-1 slice above. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotProfileSubject.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/AccountAdmissionIndex.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotCharacterAdmissionService.cs" />
   </ItemGroup>
 
 </Project>

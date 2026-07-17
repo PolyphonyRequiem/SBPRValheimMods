@@ -69,6 +69,34 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Accounts
         public bool IsEmpty => string.IsNullOrEmpty(Value);
     }
 
+    /// <summary>Opaque, CSPRNG-minted server character identifier with ≥128 bits of entropy. Owns
+    /// gameplay progression within one account; never `s_playerID`, character ZDOID, or display-name
+    /// derived (data-model.md `CharacterId`, AIP-FR-003/AIP-FR-010). Introduced by IAP-005 Tracer 2.</summary>
+    public readonly struct PilotCharacterId : IEquatable<PilotCharacterId>
+    {
+        public PilotCharacterId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));
+        public string Value { get; }
+        public bool Equals(PilotCharacterId other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is PilotCharacterId other && Equals(other);
+        public override int GetHashCode() => Value == null ? 0 : StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value ?? string.Empty;
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+    }
+
+    /// <summary>Random in-memory process/session identifier for one active connection. NOT durable
+    /// identity: it exists only in the ephemeral admission index and is cleared on restart
+    /// (data-model.md `SessionId`). Introduced by IAP-005 Tracer 2.</summary>
+    public readonly struct SessionId : IEquatable<SessionId>
+    {
+        public SessionId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));
+        public string Value { get; }
+        public bool Equals(SessionId other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is SessionId other && Equals(other);
+        public override int GetHashCode() => Value == null ? 0 : StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value ?? string.Empty;
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+    }
+
     /// <summary>Configured HMAC-key identifier permitting bounded active/previous-key resolution and
     /// lazy re-key (data-model.md `LookupKeyVersion`).</summary>
     public readonly struct LookupKeyVersion : IEquatable<LookupKeyVersion>
@@ -99,6 +127,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Accounts
         public static CredentialBindingId NewCredentialBindingId() => new CredentialBindingId("cred-" + RandomHex());
         public static AllowlistEntryId NewAllowlistEntryId() => new AllowlistEntryId("allow-" + RandomHex());
         public static AccountReceiptId NewReceiptId() => new AccountReceiptId("rcpt-" + RandomHex());
+        public static PilotCharacterId NewCharacterId() => new PilotCharacterId("char-" + RandomHex());
+        public static SessionId NewSessionId() => new SessionId("sess-" + RandomHex());
 
         /// <summary>The raw 128-bit random core (no type tag), lowercase hex. Exposed so entropy tests
         /// can assert width/uniqueness on the identity core rather than the human tag.</summary>
