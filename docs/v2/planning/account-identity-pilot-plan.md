@@ -164,6 +164,24 @@ Deliverables after implementation authorization: executable authenticated-peer s
 
 **Exit:** two sequential sibling profiles work; concurrent sibling connection rejects; world creator evidence resolves to internal character.
 
+> **Implementation status (IAP-005, t_afc5e5c9):** Tracer 2 is IMPLEMENTED and green on top of the
+> merged IAP-003 foundation (PR #330). The engine-free CLEAN-side character/session layer adds
+> `Adapters/Identity/PilotProfileSubject.cs` (transient server-observed nonzero `s_playerID`; memory-only),
+> opaque `PilotCharacterId`/`SessionId` + 128-bit CSPRNG mints in `Domain/Accounts/PilotAccountIdentifiers.cs`,
+> `Application/Accounts/AccountAdmissionIndex.cs` (ephemeral one-pending-or-active-lease-per-account:
+> atomic reservation, idempotent same-session, matching-session release, stale-disconnect safety,
+> restart-cleared), and `Application/Accounts/PilotCharacterAdmissionService.cs` (reserve lease BEFORE
+> mint, resolve/mint an account-scoped `CharacterId` from the `profile-v1` domain-separated HMAC,
+> previous-key re-key in place with a stable `CharacterId`, activate/close, and the vanilla `s_creator`
+> creator-evidence bridge). `Persistence/Accounts/PilotAccountStore.cs` gains `PilotCharacterProjection`,
+> account character-membership, the account-scoped `ProfileLookupIndex`, the `char`/`char-status`/
+> `char-rekey`/`acct-add-char` journal deltas, and profile-HMAC version census. Evidence:
+> [`account-identity-pilot-tracer2-evidence.md`](account-identity-pilot-tracer2-evidence.md). All Tracer-2
+> acceptance IDs are green under `dotnet test` (859/859 suite) and the mod compiles clean (net48,
+> 0 warnings). This tracer mints characters and admits one session per account ONLY; it does NOT yet
+> migrate gameplay receipts or remove `PlatformId` from durable digests — the accepted Homestead
+> `AccountId`/`CharacterId` supersession still lands with Tracer 3 (receipt scrub).
+
 ### Tracer 3 — Gameplay principal and receipt migration
 
 **Goal:** route existing progression through internal session principal and remove raw platform identity from all gameplay receipt bindings/logging.
