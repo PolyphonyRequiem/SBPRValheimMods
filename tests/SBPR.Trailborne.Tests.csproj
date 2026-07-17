@@ -173,6 +173,16 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Stone/StoneAggregateStore.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/FacetCommands.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/Progression/HomesteadProgressionPanel.cs" />
+    <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
+         provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
+         operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
+         the Niflheim auth-subsystem clean-log contract + upstream raw-subject inventory. Deliberately free
+         of UnityEngine/Valheim/BepInEx refs so they compile under net8 here AND net48 in the mod; the
+         net48 transport adapter (Features/PilotIdentity/ZdoPilotProviderSubjectSource.cs, which references
+         ZNet/ZNetPeer/ISocket) is NOT link-compiled, exactly like ZdoAuthenticatedSenderSource. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotProviderGate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotProvisioningInputGate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotAuthLoggingContract.cs" />
   </ItemGroup>
 
 </Project>
