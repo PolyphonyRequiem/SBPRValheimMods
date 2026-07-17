@@ -83,6 +83,19 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Accounts
         public bool IsEmpty => string.IsNullOrEmpty(Value);
     }
 
+    /// <summary>Opaque server identifier for one bounded pilot lifecycle and closure deadline
+    /// (data-model.md `PilotId`).</summary>
+    public readonly struct PilotId : IEquatable<PilotId>
+    {
+        public PilotId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));
+        public string Value { get; }
+        public bool Equals(PilotId other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is PilotId other && Equals(other);
+        public override int GetHashCode() => Value == null ? 0 : StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value ?? string.Empty;
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+    }
+
     /// <summary>Random in-memory process/session identifier for one active connection. NOT durable
     /// identity: it exists only in the ephemeral admission index and is cleared on restart
     /// (data-model.md `SessionId`). Introduced by IAP-005 Tracer 2.</summary>
@@ -92,6 +105,32 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Accounts
         public string Value { get; }
         public bool Equals(SessionId other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
         public override bool Equals(object? obj) => obj is SessionId other && Equals(other);
+        public override int GetHashCode() => Value == null ? 0 : StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value ?? string.Empty;
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+    }
+
+    /// <summary>Opaque server identifier for one export/backup/journal/log/world-save/quarantine/reset
+    /// artifact tracked for purge evidence (data-model.md `DataArtifactId`).</summary>
+    public readonly struct DataArtifactId : IEquatable<DataArtifactId>
+    {
+        public DataArtifactId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));
+        public string Value { get; }
+        public bool Equals(DataArtifactId other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is DataArtifactId other && Equals(other);
+        public override int GetHashCode() => Value == null ? 0 : StringComparer.Ordinal.GetHashCode(Value);
+        public override string ToString() => Value ?? string.Empty;
+        public bool IsEmpty => string.IsNullOrEmpty(Value);
+    }
+
+    /// <summary>Opaque server identifier for one scoped, reasoned, expiring retention exception
+    /// (data-model.md `RetentionHoldId`).</summary>
+    public readonly struct RetentionHoldId : IEquatable<RetentionHoldId>
+    {
+        public RetentionHoldId(string value) => Value = value ?? throw new ArgumentNullException(nameof(value));
+        public string Value { get; }
+        public bool Equals(RetentionHoldId other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is RetentionHoldId other && Equals(other);
         public override int GetHashCode() => Value == null ? 0 : StringComparer.Ordinal.GetHashCode(Value);
         public override string ToString() => Value ?? string.Empty;
         public bool IsEmpty => string.IsNullOrEmpty(Value);
@@ -129,6 +168,9 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Accounts
         public static AccountReceiptId NewReceiptId() => new AccountReceiptId("rcpt-" + RandomHex());
         public static PilotCharacterId NewCharacterId() => new PilotCharacterId("char-" + RandomHex());
         public static SessionId NewSessionId() => new SessionId("sess-" + RandomHex());
+        public static PilotId NewPilotId() => new PilotId("pilot-" + RandomHex());
+        public static DataArtifactId NewDataArtifactId() => new DataArtifactId("art-" + RandomHex());
+        public static RetentionHoldId NewRetentionHoldId() => new RetentionHoldId("hold-" + RandomHex());
 
         /// <summary>The raw 128-bit random core (no type tag), lowercase hex. Exposed so entropy tests
         /// can assert width/uniqueness on the identity core rather than the human tag.</summary>

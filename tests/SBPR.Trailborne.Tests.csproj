@@ -255,13 +255,10 @@
          credit/fit/stale/replay/process-death transaction seam before any donation/withdrawal command
          exists; enables NO gameplay. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StockTransactionHarness.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- R5: real offline-extracted static host collider geometry (extract_homestead_geometry.py),
-         copied beside the test DLL so the resolver suite scores seats against actual WoodHouse
-         footprints rather than synthetic boxes. Base-game read (ADR-0001); no committed binary. -->
-    <None Include="Fixtures/homestead-static-geometry.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- IAP-012 Tracer 4 — privacy foundation: retention policy, artifact catalog, holds, closure,
+         player-safe export. Engine-free (System.* + LINQ), link-compiled here and shipped under net48. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Accounts/PilotRetentionPolicy.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotPrivacyService.cs" />
   </ItemGroup>
 
   <ItemGroup>
