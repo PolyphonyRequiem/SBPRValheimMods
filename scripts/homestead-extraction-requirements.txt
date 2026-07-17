@@ -1,0 +1,22 @@
+# Homestead static-geometry extraction — pinned Python dependencies.
+#
+# These are the deps for scripts/extract_homestead_geometry.py, the offline extractor that
+# generates the checked-in static-geometry catalog (tests/Fixtures/homestead-static-geometry.json
+# and the byte-identical embedded copy under src/SBPR.Niflheim.HomesteadStones/Assets/).
+#
+# Extraction is a DELIBERATE, asset-bearing act — it reads the dedicated-server Valheim
+# AssetBundles offline (ADR-0001) and is NOT run in CI (CI has no game assets). CI instead
+# validates the checked-in catalog via tests/HomesteadCatalogDriftGuardTests (exact host set +
+# semantic hashes + fixture/embedded byte-identity). See
+# docs/v2/planning/homestead-extraction-bootstrap.md for the full bootstrap.
+#
+# Versions pinned to the empirically-verified dedicated-server payload (UnityPy 1.25, 2026-06).
+UnityPy==1.25.0
+astc-encoder-py==0.1.12
+texture2ddecoder==1.0.6
+etcpak==0.9.15
+lz4==4.4.5
+brotli==1.2.0
+pillow==12.2.0
+attrs==26.1.0
+fsspec==2026.4.0

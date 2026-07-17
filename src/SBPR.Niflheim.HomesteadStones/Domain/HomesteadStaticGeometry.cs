@@ -173,12 +173,15 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
             double clearance,
             HomesteadSeatProvider provider,
             string contentHash,
-            int attempt)
+            int attempt,
+            string providerVersion = "",
+            long manifestGeneration = 0)
         {
             WorldIdentity = worldIdentity ?? throw new ArgumentNullException(nameof(worldIdentity));
             SelectorVersion = selectorVersion ?? throw new ArgumentNullException(nameof(selectorVersion));
             HostPrefab = hostPrefab ?? throw new ArgumentNullException(nameof(hostPrefab));
             ContentHash = contentHash ?? throw new ArgumentNullException(nameof(contentHash));
+            ProviderVersion = providerVersion ?? string.Empty;
             ZoneX = zoneX;
             ZoneZ = zoneZ;
             SeatX = seatX;
@@ -188,6 +191,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
             Clearance = clearance;
             Provider = provider;
             Attempt = attempt;
+            ManifestGeneration = manifestGeneration;
         }
 
         internal string WorldIdentity { get; }
@@ -207,13 +211,23 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         internal string ContentHash { get; }
         internal int Attempt { get; }
 
+        /// <summary>R7 (Blocker 1) — provider version stamped into provenance: the catalog digest for a
+        /// StaticGeometry seat, or the manifest provider version for a Manifest seat. Distinct from
+        /// <see cref="ContentHash"/> (geometry semantic hash / manifest document digest).</summary>
+        internal string ProviderVersion { get; }
+
+        /// <summary>R7 (Blocker 1) — manifest generation the seat was produced under (0 for static-geometry
+        /// hosts). Persisted so a reused Stone can be invalidated when a newer generation supersedes it.</summary>
+        internal long ManifestGeneration { get; }
+
         public bool Equals(ResolvedPlacementRecord? other) =>
             other != null &&
             WorldIdentity == other.WorldIdentity && SelectorVersion == other.SelectorVersion &&
             HostPrefab == other.HostPrefab && ZoneX == other.ZoneX && ZoneZ == other.ZoneZ &&
             SeatX.Equals(other.SeatX) && SeatZ.Equals(other.SeatZ) && SeatY.Equals(other.SeatY) &&
             RadialFromHost.Equals(other.RadialFromHost) && Clearance.Equals(other.Clearance) &&
-            Provider == other.Provider && ContentHash == other.ContentHash && Attempt == other.Attempt;
+            Provider == other.Provider && ContentHash == other.ContentHash && Attempt == other.Attempt &&
+            ProviderVersion == other.ProviderVersion && ManifestGeneration == other.ManifestGeneration;
 
         public override bool Equals(object? obj) => Equals(obj as ResolvedPlacementRecord);
 

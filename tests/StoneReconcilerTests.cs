@@ -18,11 +18,22 @@ namespace SBPR.Trailborne.Tests
         private static HomesteadAssignmentMetadata Meta(string prefab, int zx, int zz) =>
             new HomesteadAssignmentMetadata(World, Selector, prefab, zx, zz);
 
-        private static IReadOnlyDictionary<string, HomesteadAssignmentMetadata> Selected(params (string prefab, int zx, int zz)[] items) =>
-            items.ToDictionary(i => StoneReconciler.ZoneKey(i.zx, i.zz), i => Meta(i.prefab, i.zx, i.zz));
+        // Default provenance for a static-geometry Stone: assignment + a fixed provider version + content hash.
+        // Facts and expected placements built from the same (prefab,zone) match on the FULL provenance.
+        private static HomesteadStoneProvenance Prov(string prefab, int zx, int zz,
+            string providerVersion = "catalog-digest-A", string content = "geo-hash-A", long generation = 0,
+            HomesteadSeatProvider provider = HomesteadSeatProvider.StaticGeometry,
+            string selector = Selector, int schema = HomesteadProvenanceCodec.SchemaVersion) =>
+            new HomesteadStoneProvenance(schema,
+                new HomesteadAssignmentMetadata(World, selector, prefab, zx, zz),
+                provider, providerVersion, content, generation);
+
+        private static IReadOnlyDictionary<string, HomesteadExpectedPlacement> Selected(params (string prefab, int zx, int zz)[] items) =>
+            items.ToDictionary(i => StoneReconciler.ZoneKey(i.zx, i.zz),
+                i => new HomesteadExpectedPlacement(Prov(i.prefab, i.zx, i.zz)));
 
         private static StoneReconcileFact Fact(long userId, uint id, bool keyed, string prefab, int zx, int zz) =>
-            new StoneReconcileFact(new StableZdoId(userId, id), keyed, Meta(prefab, zx, zz));
+            new StoneReconcileFact(new StableZdoId(userId, id), keyed, Prov(prefab, zx, zz));
 
         [Fact]
         public void Keeps_a_stone_that_matches_a_selected_assignment()
@@ -62,10 +73,60 @@ namespace SBPR.Trailborne.Tests
         {
             // Same zone as a selected assignment, but the resident carries a stale selector version.
             var stale = new StoneReconcileFact(new StableZdoId(10, 1), true,
-                new HomesteadAssignmentMetadata(World, "niflheim-homestead-playtest-OLD", "WoodHouse5", -25, -30));
+                Prov("WoodHouse5", -25, -30, selector: "niflheim-homestead-playtest-OLD"));
             var plan = StoneReconciler.Reconcile(new[] { stale }, Selected(("WoodHouse5", -25, -30)));
 
             Assert.Equal(StoneReconcileReason.Mismatched, plan.Decisions[0].Reason);
+        }
+
+        [Fact]
+        public void Reaps_a_stone_whose_content_provenance_is_stale_and_flags_it_for_recovery()
+        {
+            // R7 (Blocker 1): zone + assignment still match, but the catalog digest / content hash advanced
+            // (a content upgrade). The stale Stone must be reaped AND its zone flagged for ledger recovery so a
+            // sticky Created entry cannot block re-creation with current provenance.
+            var stale = new StoneReconcileFact(new StableZdoId(10, 1), true,
+                Prov("WoodHouse5", -25, -30, providerVersion: "catalog-digest-OLD", content: "geo-hash-OLD"));
+            var plan = StoneReconciler.Reconcile(new[] { stale }, Selected(("WoodHouse5", -25, -30)));
+
+            Assert.Equal(StoneReconcileReason.ProvenanceStale, plan.Decisions[0].Reason);
+            Assert.Contains(StoneReconciler.ZoneKey(-25, -30), plan.RecoveryZoneKeys);
+            Assert.DoesNotContain(StoneReconciler.ZoneKey(-25, -30), plan.SatisfiedZoneKeys);
+        }
+
+        [Fact]
+        public void Reaps_a_stone_whose_manifest_generation_is_stale()
+        {
+            // A generator Stone stamped under manifest generation 3 is stale once the expected placement is
+            // generation 5 (a newer manifest). Full-provenance comparison catches the generation drift.
+            var stale = new StoneReconcileFact(new StableZdoId(10, 1), true,
+                Prov("WoodVillage1", 4, 4, provider: HomesteadSeatProvider.Manifest,
+                     providerVersion: "op-v1", content: "doc-digest", generation: 3));
+            var expected = new Dictionary<string, HomesteadExpectedPlacement>
+            {
+                [StoneReconciler.ZoneKey(4, 4)] = new HomesteadExpectedPlacement(
+                    Prov("WoodVillage1", 4, 4, provider: HomesteadSeatProvider.Manifest,
+                         providerVersion: "op-v1", content: "doc-digest", generation: 5)),
+            };
+            var plan = StoneReconciler.Reconcile(new[] { stale }, expected);
+
+            Assert.Equal(StoneReconcileReason.ProvenanceStale, plan.Decisions[0].Reason);
+            Assert.Contains(StoneReconciler.ZoneKey(4, 4), plan.RecoveryZoneKeys);
+        }
+
+        [Fact]
+        public void A_kept_current_stone_does_not_flag_recovery_even_with_a_stale_duplicate()
+        {
+            // One current Stone (kept) and one stale-provenance Stone in the SAME zone. The zone is satisfied by
+            // the current one, so it must NOT be flagged for recovery (a valid Stone already exists there).
+            var current = new StoneReconcileFact(new StableZdoId(10, 1), true, Prov("WoodHouse5", -25, -30));
+            var stale = new StoneReconcileFact(new StableZdoId(10, 2), true,
+                Prov("WoodHouse5", -25, -30, content: "geo-hash-OLD"));
+            var plan = StoneReconciler.Reconcile(new[] { current, stale }, Selected(("WoodHouse5", -25, -30)));
+
+            Assert.Contains(StoneReconciler.ZoneKey(-25, -30), plan.SatisfiedZoneKeys);
+            Assert.DoesNotContain(StoneReconciler.ZoneKey(-25, -30), plan.RecoveryZoneKeys);
+            Assert.Equal(1, plan.Decisions.Count(d => d.Action == StoneReconcileAction.Keep));
         }
 
         [Fact]

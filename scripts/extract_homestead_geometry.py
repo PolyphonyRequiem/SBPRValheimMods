@@ -28,13 +28,43 @@ R6 CORRECTIONS (over the R5 extractor that the review rejected):
     the tests all agree byte-for-byte. Production recomputes and pins this at startup.
 
 Repro:  scripts/extract_homestead_geometry.py > tests/Fixtures/homestead-static-geometry.json
-Deps:   UnityPy (see scripts/requirements.txt / the prefab-tools venv). Offline
-        base-game read only (ADR-0001). No Physics, no Heightmap.
+        (then copy the same bytes to src/SBPR.Niflheim.HomesteadStones/Assets/)
+Deps:   UnityPy 1.25 + the offline `valheim_prefab` X-ray module. Both are pinned and
+        documented in scripts/homestead-extraction-requirements.txt +
+        docs/v2/planning/homestead-extraction-bootstrap.md so extraction is reproducible
+        from a clean checkout. Offline base-game read only (ADR-0001). No Physics, no
+        Heightmap.
+
+Bootstrap (see docs/v2/planning/homestead-extraction-bootstrap.md for full steps):
+  python3 -m venv .homestead-extract && . .homestead-extract/bin/activate
+  pip install -r scripts/homestead-extraction-requirements.txt
+  export VALHEIM_PREFAB_TOOLS=/path/to/valheim/prefab-tools   # dir holding valheim_prefab.py
+  export VALHEIM_SERVER_DATA=/path/to/valheim_server_Data     # dedicated-server asset payload
+  HOMESTEAD_ALL_BUNDLES=1 python scripts/extract_homestead_geometry.py > tests/Fixtures/homestead-static-geometry.json
+
+CI note: CI has NO Valheim assets, so it does NOT re-extract. Instead the drift guard
+  (tests/HomesteadCatalogDriftGuardTests) pins the exact 13 ordinary host names + the 2
+  generator hosts + every semantic hash + the schema, and asserts the fixture and the
+  embedded mod catalog are byte-identical. Regeneration is a deliberate, asset-bearing act.
 """
 import os, sys, json, math, hashlib
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import UnityPy  # noqa
-import valheim_prefab as vp
+# The extractor needs the offline `valheim_prefab` X-ray module. It is an external tool
+# (it must read the game's dedicated-server AssetBundles, which are not — and must not be —
+# committed to this MIT repo). Resolve it from VALHEIM_PREFAB_TOOLS so extraction is
+# reproducible from a clean checkout without hard-coding a machine-specific path; fall back
+# to the script directory (for a vendored copy) so a self-contained bundle also works.
+_PREFAB_TOOLS = os.environ.get("VALHEIM_PREFAB_TOOLS", os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _PREFAB_TOOLS)
+try:
+    import UnityPy  # noqa
+    import valheim_prefab as vp
+except ImportError as exc:  # pragma: no cover - operator bootstrap guard
+    sys.stderr.write(
+        "extract_homestead_geometry: missing extraction deps (%s).\n"
+        "  pip install -r scripts/homestead-extraction-requirements.txt\n"
+        "  export VALHEIM_PREFAB_TOOLS=<dir containing valheim_prefab.py>\n"
+        "  See docs/v2/planning/homestead-extraction-bootstrap.md.\n" % exc)
+    raise
 
 INFLATE = 0.15  # production footprint inflation (matches the seat keep-out tuning)
 HOSTS = ["WoodHouse%d" % i for i in range(1, 14)] + ["WoodFarm1", "WoodVillage1"]
@@ -134,6 +164,14 @@ def capsule_local_box(center, radius, height, direction):
         return center, (2 * radius, 2 * half, 2 * radius)
 
 
+def mat_world_scale(m):
+    # Per-axis world scale = length of each basis column of the upper-3x3.
+    sx = math.sqrt(m[0][0] ** 2 + m[1][0] ** 2 + m[2][0] ** 2)
+    sy = math.sqrt(m[0][1] ** 2 + m[1][1] ** 2 + m[2][1] ** 2)
+    sz = math.sqrt(m[0][2] ** 2 + m[1][2] ** 2 + m[2][2] ** 2)
+    return (sx, sy, sz)
+
+
 def collider_world_corners(tn, c, world_mat):
     """Return (corners, unresolved) — a list of world-space corner points whose XZ
     min/max form the conservative footprint, or unresolved=True to fail closed."""
@@ -142,8 +180,17 @@ def collider_world_corners(tn, c, world_mat):
         size = v3f(getattr(c, "m_Size", None))
         local = box_corners(center, size)
     elif tn == "SphereCollider":
+        # Sphere scaled-radius rule (R6/R7 documented): a sphere stays a sphere under scale, so its
+        # world radius is radius * max(|sx|,|sy|,|sz|) of the world scale — NOT a per-axis-scaled box.
+        # We transform ONLY the center through the full matrix (position/rotation), then expand by the
+        # scaled radius as an axis-aligned box in world space. Transforming a local 2r cube instead
+        # would understate/overstate the footprint under non-uniform scale (the R6 bug).
         r = float(getattr(c, "m_Radius", 0.5))
-        local = box_corners(center, (2 * r, 2 * r, 2 * r))
+        wc = transform_point(world_mat, center)
+        ws = mat_world_scale(world_mat)
+        sr = r * max(abs(ws[0]), abs(ws[1]), abs(ws[2]))
+        return ([(wc[0] + sx * sr, wc[1] + sy * sr, wc[2] + sz * sr)
+                 for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)], False)
     elif tn == "CapsuleCollider":
         r = float(getattr(c, "m_Radius", 0.5))
         h = float(getattr(c, "m_Height", 2 * r))
@@ -165,26 +212,44 @@ def collider_world_corners(tn, c, world_mat):
 
 # ---- hierarchy walk ------------------------------------------------------------------
 
-def walk(tr, parent_mat, out, parent_active):
+def walk(tr, parent_mat, out, parent_active, under_random_spawn=False, piece_ancestor=None):
     go = vp.deref(getattr(tr, "m_GameObject", None))
     world_mat = mat_mul(parent_mat, local_matrix(tr))
     active = parent_active and (is_active(go) if go else True)
+    # RandomSpawn / Piece ancestry + GameObject layer are RECORDED semantics (R7 Blocker 3): a collider
+    # under a RandomSpawn branch is unioned regardless of active state (we cannot know which branch the live
+    # world picks); nearest Piece ancestry + layer are recorded so the load-bearing filter can include only
+    # intended structural candidates under explicit rules.
+    this_random_spawn = False
+    node_layer = -1
+    node_piece = piece_ancestor
     if go:
         name = getattr(go, "m_Name", "?")
+        node_layer = int(getattr(go, "m_Layer", -1))
+        for cp in (getattr(go, "m_Component", None) or []):
+            tn = vp.ptr_type(getattr(cp, "component", None))
+            if tn == "RandomSpawn":
+                this_random_spawn = True
+            if tn == "Piece":
+                node_piece = name
         for cp in (getattr(go, "m_Component", None) or []):
             ptr = getattr(cp, "component", None)
             tn = vp.ptr_type(ptr)
             if tn in COLLIDER_TYPES:
                 c = vp.deref(ptr)
                 if c is None:
-                    out.append({"node": name, "kind": tn, "unresolved": True})
+                    out.append({"node": name, "kind": tn, "unresolved": True,
+                                "randomSpawn": under_random_spawn, "layer": node_layer,
+                                "piece": node_piece})
                     continue
                 enabled = bool(getattr(c, "m_Enabled", True))
                 is_trigger = bool(getattr(c, "m_IsTrigger", False))
                 corners, unresolved = collider_world_corners(tn, c, world_mat)
                 if unresolved:
                     out.append({"node": name, "kind": tn, "unresolved": True,
-                                "active": active, "enabled": enabled, "trigger": is_trigger})
+                                "active": active, "enabled": enabled, "trigger": is_trigger,
+                                "randomSpawn": under_random_spawn, "layer": node_layer,
+                                "piece": node_piece})
                     continue
                 xs = [p[0] for p in corners]
                 zs = [p[2] for p in corners]
@@ -197,13 +262,16 @@ def walk(tr, parent_mat, out, parent_active):
                     "cx": round(cx, 4), "cz": round(cz, 4),
                     "halfX": round(hx, 4), "halfZ": round(hz, 4),
                     "active": active, "enabled": enabled, "trigger": is_trigger,
+                    "randomSpawn": under_random_spawn, "layer": node_layer,
+                    "piece": node_piece,
                 })
+    child_under_rs = under_random_spawn or this_random_spawn
     for ch in (getattr(tr, "m_Children", None) or []):
         cht = vp.deref(ch)
         if cht is not None:
             # RandomSpawn branches: recurse into ALL children regardless of active state so
             # every possible branch collider is unioned (we clear all of them, conservatively).
-            walk(cht, world_mat, out, active)
+            walk(cht, world_mat, out, active, child_under_rs, node_piece)
 
 
 def get_root_tr(prefab):
@@ -270,13 +338,19 @@ def extract(prefab):
     walk(tr, base, out, True)
 
     unresolved = [c for c in out if c.get("unresolved")]
+    # Load-bearing = enabled, non-trigger colliders that are EITHER active in the base branch OR sit under a
+    # RandomSpawn ancestor (in which case active=false only reflects the authored default branch; the live
+    # world may pick that branch, so we conservatively UNION it). This is the R7 Blocker-3 correction: a
+    # RandomSpawn alternative is no longer dropped solely because active=false.
     load_bearing = [c for c in out
-                    if not c.get("unresolved") and c["enabled"] and not c["trigger"] and c["active"]]
+                    if not c.get("unresolved") and c["enabled"] and not c["trigger"]
+                    and (c["active"] or c.get("randomSpawn"))]
     result = {
         "prefab": prefab,
         "colliderCount": len(load_bearing),
         "rawColliderCount": len([c for c in out if not c.get("unresolved")]),
         "unresolvedCount": len(unresolved),
+        "randomSpawnColliderCount": len([c for c in out if c.get("randomSpawn") and not c.get("unresolved")]),
         "colliders": [{"cx": c["cx"], "cz": c["cz"], "halfX": c["halfX"], "halfZ": c["halfZ"]}
                       for c in load_bearing],
     }
@@ -291,13 +365,15 @@ def extract(prefab):
 def main():
     hosts = sys.argv[1:] or HOSTS
     result = {
-        "schema": "niflheim-homestead-static-geometry-v2",
+        "schema": "niflheim-homestead-static-geometry-v3",
         "inflate": INFLATE,
         "note": "Host-local axis-aligned XZ collider footprints from FULL transform matrices "
-                "(rotation + nonuniform/negative scale), capsule direction/height, sphere scaled "
-                "radius, conservative mesh bounds; RandomSpawn branches unioned. Load-bearing = "
-                "enabled, non-trigger, active. Canonical hash == HomesteadGeometryHash. Offline "
-                "base-game read (ADR-0001).",
+                "(rotation + nonuniform/negative scale), capsule direction/height, sphere SCALED "
+                "radius (r*max(|sx|,|sy|,|sz|), center transformed then axis-aligned expansion), "
+                "conservative mesh bounds or fail-closed. RandomSpawn branches unioned regardless of "
+                "active state (conservative); nearest Piece ancestry + GameObject layer recorded. "
+                "Load-bearing = enabled, non-trigger, and (active OR under a RandomSpawn ancestor). "
+                "Canonical hash == HomesteadGeometryHash. Offline base-game read (ADR-0001).",
         "hosts": {h: extract(h) for h in hosts},
     }
     print(json.dumps(result, indent=2, sort_keys=True))

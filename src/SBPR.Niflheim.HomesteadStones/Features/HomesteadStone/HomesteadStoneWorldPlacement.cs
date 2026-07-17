@@ -200,10 +200,17 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 candidate => new HomesteadAssignmentMetadata(
                     worldIdentity, SelectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ),
                 StringComparer.Ordinal);
+            // R7 (Blocker 1) — the reconciler compares FULL provenance, so build the expected provenance for
+            // each selected zone from the SAME authorities placement uses: ordinary hosts carry the catalog
+            // digest + the host's geometry semantic hash (generation 0); generator hosts carry the live
+            // manifest provider version + document digest + generation. A resident Stone whose provider/content/
+            // generation no longer matches this expectation is reaped as stale and its zone flagged for recovery.
+            var expectedByZone = BuildExpectedPlacements(selectedMetadata);
             // R6 (Blocker 4) — reconcile resident Stones with the FULL stable ZDOID (UserID, ID) via the
             // production StoneReconciler BEFORE the event gate, so unkeyed / unselected / mismatched /
-            // duplicate Stones are reaped and stale zone entries can never suppress a legitimate creation.
-            var existing = ReconcileResidentStones(selectedMetadata);
+            // duplicate / stale-provenance Stones are reaped and stale zone entries can never suppress a
+            // legitimate creation.
+            var existing = ReconcileResidentStones(expectedByZone);
             try
             {
                 PlaceSelected(prefab, worldIdentity, selected, byIdentity, existing, selectedMetadata, zoneSystem);
@@ -273,20 +280,27 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
                 var record = resolution.Record!;
                 var position = new Vector3((float)record.SeatX, (float)record.SeatY, (float)record.SeatZ);
+                var metadata = selectedMetadata[key];
+                var provenance = HomesteadProvenanceCodec.FromRecord(metadata, record);
 
                 // The registered template stays activeSelf=true under an inactive holder. Never mutate it:
                 // ZNetScene reconstruction needs an active template so ZNetView.Awake consumes m_initZDO.
                 var instance = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
                 instance.name = HomesteadStoneRegistrar.PrefabName;
                 instance.transform.SetParent(null, true);
-                var metadata = selectedMetadata[key];
-                if (!StampIdentity(instance.GetComponent<ZNetView>(), metadata))
+                if (!StampIdentity(instance.GetComponent<ZNetView>(), provenance))
                 {
                     if (ZNetScene.instance != null) ZNetScene.instance.Destroy(instance);
                     else UnityEngine.Object.Destroy(instance);
+                    // R7 (Blocker 1) — a stamp failure records DURABLE failure provenance before cleanup, so the
+                    // event is not silently lost and a persistently-failing stamp shows up as a terminal outcome
+                    // rather than a phantom retry loop.
+                    Ledger.Record(candidate.ZoneX, candidate.ZoneZ, HomesteadEventOutcome.Exception, SelectorVersion,
+                        "identity/provenance stamp read-back verification failed");
+                    PersistLedger();
                     Plugin.Log.LogError(
-                        $"[Niflheim/HomesteadStones] Destroyed unkeyed Stone at zone ({runtime.Zone.x},{runtime.Zone.y}); " +
-                        "ZNetView/ZDO identity stamping failed.");
+                        $"[Niflheim/HomesteadStones] Destroyed unstamped Stone at zone ({runtime.Zone.x},{runtime.Zone.y}); " +
+                        "ZNetView/ZDO provenance stamping failed (durable failure recorded).");
                     continue;
                 }
 
@@ -334,7 +348,8 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             var authoritativeCandidate = new HomesteadCandidate(
                 candidate.Prefab, candidate.ZoneX, candidate.ZoneZ, hostOrigin.x, hostOrigin.z, candidate.LocationRadius);
             return HomesteadPlacementResolver.ResolveOrdinary(
-                worldIdentity, SelectorVersion, authoritativeCandidate, geometry, yaw, WorldGenHeight);
+                worldIdentity, SelectorVersion, authoritativeCandidate, geometry, yaw, WorldGenHeight,
+                Catalog.CatalogDigest);
         }
 
         /// <summary>R6 (Blocker 1) — resolve a host's authoritative origin + realized yaw from the location/proxy
@@ -391,14 +406,53 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
         private static void PersistLedger() => HomesteadLedgerStore.Save(Ledger);
 
-        /// <summary>R6 (Blocker 4) — production reconciliation using the full stable ZDOID (UserID, ID).
-        /// Enumerates every resident Stone ZDO into an engine-free <see cref="StoneReconcileFact"/> (carrying
-        /// its full ZDOID + assignment metadata + keyed flag), runs the pure <see cref="StoneReconciler"/>
-        /// policy against the selected assignments, then destroys every Stone the policy marks Destroy
-        /// (unkeyed / unselected / mismatched / duplicate) and returns the zone keys already satisfied by a
-        /// kept Stone so the creation loop skips them. Runs BEFORE the event gate.</summary>
+        /// <summary>R7 (Blocker 1) — build the expected FULL provenance for each selected zone from the SAME
+        /// authorities the placement path uses, WITHOUT running a full seat resolve (the reconciler only needs
+        /// the provenance identity, not a seat). Ordinary hosts: catalog digest as provider version + the host's
+        /// geometry semantic hash as content hash, generation 0. Generator hosts: the live manifest's provider
+        /// version + document digest + generation. A zone whose host geometry/manifest identity is not currently
+        /// resolvable is omitted (its resident Stone stays as-is until the authority is available again).</summary>
+        private static Dictionary<string, HomesteadExpectedPlacement> BuildExpectedPlacements(
+            IReadOnlyDictionary<string, HomesteadAssignmentMetadata> selectedMetadata)
+        {
+            var expected = new Dictionary<string, HomesteadExpectedPlacement>(StringComparer.Ordinal);
+            foreach (var pair in selectedMetadata)
+            {
+                var meta = pair.Value;
+                HomesteadStoneProvenance provenance;
+                if (HomesteadHostClassifier.IsGenerator(meta.Prefab))
+                {
+                    // Generator: expected provenance mirrors what ResolveGeneratorOperational would stamp for the
+                    // CURRENT manifest. If the manifest has no matching row this generation, we cannot assert an
+                    // expected provenance (a would-be ManifestRequired), so we skip — the resident Stone (if any)
+                    // is left for the next tick rather than being reaped against an absent authority.
+                    if (!Manifest.TryGet(meta.Prefab, meta.ZoneX, meta.ZoneZ, out _)) continue;
+                    provenance = new HomesteadStoneProvenance(
+                        HomesteadProvenanceCodec.SchemaVersion, meta, HomesteadSeatProvider.Manifest,
+                        Manifest.ProviderVersion, Manifest.DocumentDigest, Manifest.Generation);
+                }
+                else
+                {
+                    // Ordinary: expected provenance is the catalog digest + this host's geometry semantic hash.
+                    if (!Catalog.TryGet(meta.Prefab, out var geometry)) continue;
+                    provenance = new HomesteadStoneProvenance(
+                        HomesteadProvenanceCodec.SchemaVersion, meta, HomesteadSeatProvider.StaticGeometry,
+                        Catalog.CatalogDigest, geometry.SemanticHash, 0);
+                }
+                expected[pair.Key] = new HomesteadExpectedPlacement(provenance);
+            }
+            return expected;
+        }
+
+        /// <summary>R6 (Blocker 4) / R7 (Blocker 1) — production reconciliation using the full stable ZDOID
+        /// (UserID, ID) and the FULL provenance read back through the shared codec. Enumerates every resident
+        /// Stone ZDO into an engine-free <see cref="StoneReconcileFact"/> (full ZDOID + full provenance + keyed
+        /// flag), runs the pure <see cref="StoneReconciler"/> policy against the expected placements, destroys
+        /// every Stone the policy marks Destroy (unkeyed / unselected / mismatched / duplicate / stale-provenance),
+        /// clears the ledger Created for any recovery zone so an upgrade re-creates, and returns the zone keys
+        /// already satisfied by a kept Stone so the creation loop skips them. Runs BEFORE the event gate.</summary>
         private static HashSet<string> ReconcileResidentStones(
-            IReadOnlyDictionary<string, HomesteadAssignmentMetadata> selected)
+            IReadOnlyDictionary<string, HomesteadExpectedPlacement> expected)
         {
             var satisfied = new HashSet<string>(StringComparer.Ordinal);
             var zdoMan = ZDOMan.instance;
@@ -413,23 +467,18 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             foreach (var zdo in found)
             {
                 if (zdo == null || !zdo.IsValid()) continue;
-                var x = zdo.GetInt(HomesteadStoneData.LocationZoneXKey, int.MinValue);
-                var z = zdo.GetInt(HomesteadStoneData.LocationZoneZKey, int.MinValue);
-                var keyed = x != int.MinValue && z != int.MinValue;
-                var metadata = new HomesteadAssignmentMetadata(
-                    zdo.GetString(HomesteadStoneData.WorldIdentityKey, string.Empty),
-                    zdo.GetString(HomesteadStoneData.SelectorVersionKey, string.Empty),
-                    zdo.GetString(HomesteadStoneData.HostPrefabKey, string.Empty),
-                    keyed ? x : 0,
-                    keyed ? z : 0);
+                // Read the FULL provenance back through the SAME codec production stamped with, so the
+                // reconciler compares provider/content/generation, not just basic assignment metadata.
+                var provenance = HomesteadProvenanceCodec.Read(new ZdoProvenanceAccessor(zdo));
+                var keyed = provenance.Assignment.ZoneX != int.MinValue && provenance.Assignment.ZoneZ != int.MinValue;
                 // FULL stable identity: (UserID, ID) — never a truncated numeric. Two ZDOs can share ID
                 // across different UserIDs; truncating would silently merge distinct Stones.
                 var stable = new StableZdoId(zdo.m_uid.UserID, zdo.m_uid.ID);
                 factByZdo[stable] = zdo;
-                facts.Add(new StoneReconcileFact(stable, keyed, metadata));
+                facts.Add(new StoneReconcileFact(stable, keyed, provenance));
             }
 
-            var plan = StoneReconciler.Reconcile(facts, selected);
+            var plan = StoneReconciler.Reconcile(facts, expected);
             var reaped = 0;
             foreach (var decision in plan.Decisions)
             {
@@ -441,6 +490,23 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 Plugin.Log.LogWarning(
                     $"[Niflheim/HomesteadStones] Reaped resident Stone {decision.ZdoId} ({decision.Reason}).");
             }
+            // R7 (Blocker 1) — a Created ledger outcome is ADVISORY: when the reconciler reaped the only Stone
+            // for a zone because its provenance was stale (a selector/provider/content/generation upgrade), the
+            // Created entry must be cleared so recovery re-creates the Stone. Reality (the ZDO) is authoritative;
+            // a sticky Created can never block an upgrade.
+            var recovered = 0;
+            foreach (var zoneKey in plan.RecoveryZoneKeys)
+            {
+                if (!TryParseZoneKey(zoneKey, out var zx, out var zz)) continue;
+                Ledger.ClearForRecovery(zx, zz);
+                recovered++;
+            }
+            if (recovered > 0)
+            {
+                PersistLedger();
+                Plugin.Log.LogInfo(
+                    $"[Niflheim/HomesteadStones] Cleared {recovered} stale Created ledger entry/entries for recovery (provenance upgrade).");
+            }
             foreach (var key in plan.SatisfiedZoneKeys) satisfied.Add(key);
             if (reaped > 0)
                 Plugin.Log.LogInfo(
@@ -448,22 +514,34 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             return satisfied;
         }
 
-        private static bool StampIdentity(ZNetView? networkView, HomesteadAssignmentMetadata metadata)
+        /// <summary>R7 (Blocker 1) — persist the FULL provenance (assignment + provider/content/generation) onto
+        /// the Stone ZDO via the shared engine-free codec, then read it back through the SAME codec and verify
+        /// every field round-tripped. A partial/failed write fails verification and the caller reaps the Stone
+        /// and records durable failure provenance.</summary>
+        private static bool StampIdentity(ZNetView? networkView, HomesteadStoneProvenance provenance)
         {
             if (networkView == null) return false;
             var zdo = networkView.GetZDO();
             if (zdo == null) return false;
             if (!networkView.IsOwner()) networkView.ClaimOwnership();
-            zdo.Set(HomesteadStoneData.LocationZoneXKey, metadata.ZoneX);
-            zdo.Set(HomesteadStoneData.LocationZoneZKey, metadata.ZoneZ);
-            zdo.Set(HomesteadStoneData.WorldIdentityKey, metadata.WorldIdentity);
-            zdo.Set(HomesteadStoneData.SelectorVersionKey, metadata.SelectorVersion);
-            zdo.Set(HomesteadStoneData.HostPrefabKey, metadata.Prefab);
-            return zdo.GetInt(HomesteadStoneData.LocationZoneXKey, int.MinValue) == metadata.ZoneX &&
-                   zdo.GetInt(HomesteadStoneData.LocationZoneZKey, int.MinValue) == metadata.ZoneZ &&
-                   zdo.GetString(HomesteadStoneData.WorldIdentityKey, string.Empty) == metadata.WorldIdentity &&
-                   zdo.GetString(HomesteadStoneData.SelectorVersionKey, string.Empty) == metadata.SelectorVersion &&
-                   zdo.GetString(HomesteadStoneData.HostPrefabKey, string.Empty) == metadata.Prefab;
+            var accessor = new ZdoProvenanceAccessor(zdo);
+            HomesteadProvenanceCodec.Stamp(accessor, provenance);
+            return HomesteadProvenanceCodec.ReadBackMatches(accessor, provenance);
+        }
+
+        /// <summary>Adapts a live Valheim <see cref="ZDO"/> to the engine-free <see cref="IProvenanceWriter"/> /
+        /// <see cref="IProvenanceReader"/> the codec uses, so production stamps/reads through the exact code the
+        /// headless tests exercise against an in-memory store (Blocker 5). Owner-only writes via the ZNetView.</summary>
+        private sealed class ZdoProvenanceAccessor : IProvenanceWriter, IProvenanceReader
+        {
+            private readonly ZDO zdo;
+            internal ZdoProvenanceAccessor(ZDO zdo) => this.zdo = zdo;
+            public void SetInt(string key, int value) => zdo.Set(key, value);
+            public void SetLong(string key, long value) => zdo.Set(key, value);
+            public void SetString(string key, string value) => zdo.Set(key, value);
+            public int GetInt(string key, int missing) => zdo.GetInt(key, missing);
+            public long GetLong(string key, long missing) => zdo.GetLong(key, missing);
+            public string GetString(string key, string missing) => zdo.GetString(key, missing);
         }
 
         private static string ResolveWorldIdentity() =>
@@ -472,6 +550,19 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         private static string Identity(HomesteadCandidate candidate) =>
             candidate.Prefab + ":" + candidate.ZoneX + ":" + candidate.ZoneZ;
         private static string ZoneKey(Vector2i zone) => zone.x + ":" + zone.y;
+
+        /// <summary>Parse a "zx:zz" zone key (as produced by <see cref="StoneReconciler.ZoneKey(int,int)"/>) back
+        /// into its integer coordinates for ledger recovery. Returns false on any malformed key.</summary>
+        private static bool TryParseZoneKey(string zoneKey, out int zoneX, out int zoneZ)
+        {
+            zoneX = 0;
+            zoneZ = 0;
+            if (string.IsNullOrEmpty(zoneKey)) return false;
+            var parts = zoneKey.Split(':');
+            return parts.Length == 2 &&
+                   int.TryParse(parts[0], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out zoneX) &&
+                   int.TryParse(parts[1], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out zoneZ);
+        }
 
         private sealed class RuntimeCandidate
         {

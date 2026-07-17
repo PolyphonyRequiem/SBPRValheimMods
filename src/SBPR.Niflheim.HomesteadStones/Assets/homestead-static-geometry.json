@@ -4,6 +4,7 @@
       "colliderCount": 0,
       "colliders": [],
       "prefab": "WoodFarm1",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 0,
       "semanticHash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
       "unresolvedCount": 0
@@ -571,6 +572,7 @@
         }
       ],
       "prefab": "WoodHouse1",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 96,
       "semanticHash": "ABCDC6D6A4D3B5ECC0FFE226489BB967CCC837029CFB41B7219B705C7E849DA3",
       "unresolvedCount": 0
@@ -1096,6 +1098,7 @@
         }
       ],
       "prefab": "WoodHouse10",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 86,
       "semanticHash": "760024E3C67E21B9D3D27CF852677432EC68EAB480CA830F06B1BA8A8FA77A40",
       "unresolvedCount": 0
@@ -1783,6 +1786,7 @@
         }
       ],
       "prefab": "WoodHouse11",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 116,
       "semanticHash": "D985B2B8F3183CBC2F5A88C6F5D77F504576B8DDE3AA5EF057E1D820059AADCF",
       "unresolvedCount": 0
@@ -1943,20 +1947,20 @@
         {
           "cx": -0.44,
           "cz": -0.267,
-          "halfX": 0.8236,
-          "halfZ": 0.8236
+          "halfX": 0.63,
+          "halfZ": 0.63
         },
         {
           "cx": 0.1913,
           "cz": 0.1429,
-          "halfX": 0.7428,
-          "halfZ": 0.7428
+          "halfX": 0.63,
+          "halfZ": 0.63
         },
         {
           "cx": -0.311,
           "cz": 0.208,
-          "halfX": 0.7854,
-          "halfZ": 0.7854
+          "halfX": 0.63,
+          "halfZ": 0.63
         },
         {
           "cx": 1.19,
@@ -2032,8 +2036,9 @@
         }
       ],
       "prefab": "WoodHouse12",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 43,
-      "semanticHash": "AB4538B0DEDCCF52A71B02DB8579B4B288C4999823C1A12C506A8C385DA6AB78",
+      "semanticHash": "3B41337E5C7AE72A111D7218F5E7D0914BE4BE94AD5E6BFCF589C6EBCDC09D33",
       "unresolvedCount": 0
     },
     "WoodHouse13": {
@@ -2545,6 +2550,7 @@
         }
       ],
       "prefab": "WoodHouse13",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 87,
       "semanticHash": "038271632D960F61152DBAE734FA5161EFD6AA1DA129122E9470732D967EA9D1",
       "unresolvedCount": 0
@@ -3340,6 +3346,7 @@
         }
       ],
       "prefab": "WoodHouse2",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 134,
       "semanticHash": "5C8325CF2BD9A1DFEC3E78DF65D2D3A44E1F43B11DAAD1C40984728387CA6708",
       "unresolvedCount": 0
@@ -3638,38 +3645,38 @@
         {
           "cx": -0.0024,
           "cz": 0.9984,
-          "halfX": 0.4257,
-          "halfZ": 0.6677
+          "halfX": 0.6495,
+          "halfZ": 0.6495
         },
         {
           "cx": -0.0624,
           "cz": -0.9916,
-          "halfX": 0.4257,
-          "halfZ": 0.6677
+          "halfX": 0.6495,
+          "halfZ": 0.6495
         },
         {
           "cx": -0.9598,
           "cz": 0.5971,
-          "halfX": 0.7015,
-          "halfZ": 0.5735
+          "halfX": 0.6495,
+          "halfZ": 0.6495
         },
         {
           "cx": 0.8002,
           "cz": -0.3929,
-          "halfX": 0.7015,
-          "halfZ": 0.5735
+          "halfX": 0.6495,
+          "halfZ": 0.6495
         },
         {
           "cx": -0.8685,
           "cz": -0.5016,
-          "halfX": 0.6934,
-          "halfZ": 0.6276
+          "halfX": 0.6495,
+          "halfZ": 0.6495
         },
         {
           "cx": 1.0226,
           "cz": 0.5287,
-          "halfX": 0.6934,
-          "halfZ": 0.6276
+          "halfX": 0.6495,
+          "halfZ": 0.6495
         },
         {
           "cx": -4.1798,
@@ -3691,8 +3698,9 @@
         }
       ],
       "prefab": "WoodHouse3",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 60,
-      "semanticHash": "F3B2CB4B42EBEEC4EF2A5E0118E3369E4BB5870EC0EB2C37A084F80D6A16FB42",
+      "semanticHash": "4BE3F6CC53E07DFE5B355B4F5511CFFB33CA86FE4127AA26A33138CD1ED356D3",
       "unresolvedCount": 0
     },
     "WoodHouse4": {
@@ -4096,6 +4104,7 @@
         }
       ],
       "prefab": "WoodHouse4",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 72,
       "semanticHash": "741767C20C84495746751047BCA5E0B62EADA16702AC89C2C85EC833722612AF",
       "unresolvedCount": 0
@@ -4411,6 +4420,7 @@
         }
       ],
       "prefab": "WoodHouse5",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 51,
       "semanticHash": "AE39400D4320381D737F24766B60ED04E40606266846AC252A0B1650A251977D",
       "unresolvedCount": 0
@@ -4810,6 +4820,7 @@
         }
       ],
       "prefab": "WoodHouse6",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 65,
       "semanticHash": "7618274A42E9A8E6B7B0D1C4F1373881823DD9A78774FD660FE619260A033E69",
       "unresolvedCount": 0
@@ -5455,6 +5466,7 @@
         }
       ],
       "prefab": "WoodHouse7",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 106,
       "semanticHash": "977A48F1398C4330219751F3A2DC21F1C8C1534CA5224B7412F9EBE7656C6224",
       "unresolvedCount": 0
@@ -5855,26 +5867,26 @@
         {
           "cx": -0.752,
           "cz": -2.4204,
-          "halfX": 0.4894,
-          "halfZ": 0.4894
+          "halfX": 0.39,
+          "halfZ": 0.39
         },
         {
           "cx": 0.3808,
           "cz": 3.5313,
-          "halfX": 0.4636,
-          "halfZ": 0.4636
+          "halfX": 0.39,
+          "halfZ": 0.39
         },
         {
           "cx": 0.0963,
           "cz": 1.4866,
-          "halfX": 0.4636,
-          "halfZ": 0.4636
+          "halfX": 0.39,
+          "halfZ": 0.39
         },
         {
           "cx": 3.75,
           "cz": -2.92,
-          "halfX": 0.4894,
-          "halfZ": 0.4894
+          "halfX": 0.39,
+          "halfZ": 0.39
         },
         {
           "cx": 2.7558,
@@ -5926,8 +5938,9 @@
         }
       ],
       "prefab": "WoodHouse8",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 422,
-      "semanticHash": "536674987C369A5EAB72C8009D1A660B60A6B001C482DCDE58AE465F3C6F92BC",
+      "semanticHash": "64905D6D985FB32F7FE040F1FD0B8480361ACE99BE60DA008160408DC64EF675",
       "unresolvedCount": 0
     },
     "WoodHouse9": {
@@ -6625,6 +6638,7 @@
         }
       ],
       "prefab": "WoodHouse9",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 115,
       "semanticHash": "6C97D8842747D370F8B45DF46453FFB40E5A7D8560376A65EBB16E436CDB16D0",
       "unresolvedCount": 0
@@ -6633,12 +6647,13 @@
       "colliderCount": 0,
       "colliders": [],
       "prefab": "WoodVillage1",
+      "randomSpawnColliderCount": 0,
       "rawColliderCount": 0,
       "semanticHash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
       "unresolvedCount": 0
     }
   },
   "inflate": 0.15,
-  "note": "Host-local axis-aligned XZ collider footprints from FULL transform matrices (rotation + nonuniform/negative scale), capsule direction/height, sphere scaled radius, conservative mesh bounds; RandomSpawn branches unioned. Load-bearing = enabled, non-trigger, active. Canonical hash == HomesteadGeometryHash. Offline base-game read (ADR-0001).",
-  "schema": "niflheim-homestead-static-geometry-v2"
+  "note": "Host-local axis-aligned XZ collider footprints from FULL transform matrices (rotation + nonuniform/negative scale), capsule direction/height, sphere SCALED radius (r*max(|sx|,|sy|,|sz|), center transformed then axis-aligned expansion), conservative mesh bounds or fail-closed. RandomSpawn branches unioned regardless of active state (conservative); nearest Piece ancestry + GameObject layer recorded. Load-bearing = enabled, non-trigger, and (active OR under a RandomSpawn ancestor). Canonical hash == HomesteadGeometryHash. Offline base-game read (ADR-0001).",
+  "schema": "niflheim-homestead-static-geometry-v3"
 }

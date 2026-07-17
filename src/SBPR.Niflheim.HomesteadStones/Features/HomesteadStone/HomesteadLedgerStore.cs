@@ -34,9 +34,15 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             var live = PathFor(worldIdentity, LiveSuffix);
             if (live == null)
             {
-                var empty = new HomesteadWorldLedger();
-                empty.SetWorldIdentity(worldIdentity);
-                return empty;
+                // R7 (Blocker 2): a world save path that cannot be resolved is NOT an empty ledger — returning
+                // empty here would fabricate a clean history and phantom-retry every terminal zone. Fail closed
+                // so the realization loop halts for this world until the path resolves.
+                Plugin.Log.LogError(
+                    $"[Niflheim/HomesteadStones] Ledger path unresolved for world '{worldIdentity}'; failing closed "
+                    + "(refusing to fabricate empty history).");
+                throw new LedgerIoException(
+                    $"Cannot resolve a durable ledger path for world '{worldIdentity}'.",
+                    new IOException("no world save path"));
             }
             var temp = PathFor(worldIdentity, TempSuffix)!;
             var backup = PathFor(worldIdentity, BackupSuffix)!;

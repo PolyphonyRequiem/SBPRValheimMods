@@ -141,7 +141,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
             HomesteadCandidate candidate,
             HomesteadHostGeometry geometry,
             double hostYawRadians,
-            WorldHeightFunction height)
+            WorldHeightFunction height,
+            string catalogDigest = "")
         {
             if (worldIdentity == null) throw new ArgumentNullException(nameof(worldIdentity));
             if (selectorVersion == null) throw new ArgumentNullException(nameof(selectorVersion));
@@ -177,7 +178,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
                 worldIdentity, selectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ,
                 seatCandidate.X, seatCandidate.Z, seatY,
                 evaluation.RadialDistance, evaluation.Clearance,
-                HomesteadSeatProvider.StaticGeometry, geometry.SemanticHash, seatCandidate.Attempt);
+                HomesteadSeatProvider.StaticGeometry, geometry.SemanticHash, seatCandidate.Attempt,
+                providerVersion: catalogDigest, manifestGeneration: 0);
             return HomesteadResolution.Ok(record);
         }
 
@@ -207,7 +209,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
             var record = new ResolvedPlacementRecord(
                 worldIdentity, selectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ,
                 row.SeatX, row.SeatZ, row.SeatY, radial, double.NaN,
-                HomesteadSeatProvider.Manifest, manifest.DocumentDigest, -1);
+                HomesteadSeatProvider.Manifest, manifest.DocumentDigest, -1,
+                providerVersion: manifest.ProviderVersion, manifestGeneration: manifest.Generation);
             return HomesteadResolution.Ok(record);
         }
     }
