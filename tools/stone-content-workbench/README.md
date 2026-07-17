@@ -70,6 +70,21 @@ failure). Edit controls are enabled for **Cooking nodes only**; stable IDs are r
 pins are manually editable. 1440×900 acceptance screenshots live under
 [`docs/evidence/`](docs/evidence/).
 
+### Bottom output tray — scroll + resize
+
+The bottom tray (Problems / JSON diff / Selected JSON / Generated C#) is an independently
+scrollable, vertically resizable viewport:
+
+- **Scroll:** each tab scrolls on its own when content exceeds the tray height. The output
+  viewport and its grid-track ancestors are pinned to `min-height:0` so the fixed tray track
+  wins and `overflow:auto` on `#output` forms a real scroll viewport (the earlier
+  `min-height:auto` default let long Selected JSON balloon past the track, so it never scrolled).
+- **Resize:** a focusable `role="separator"` handle sits between the main workspace and the tray.
+  Drag it (pointer) or focus it and press **ArrowUp/ArrowDown** (±24px), **Home**/**End** for
+  max/min. Dragging up enlarges the tray, down shrinks it. Height is a CSS custom property
+  (`--tray-h`, default 184px) clamped to `[120px, 72% of viewport]` so the tray can never collapse
+  or cover the main workspace; the chosen height persists in `localStorage`.
+
 ## What is proven
 
 - **Deterministic generation** — two generations are byte-identical.
