@@ -182,6 +182,31 @@ Deliverables after implementation authorization: executable authenticated-peer s
 
 **Exit:** each operation has automated contract/recovery proof and an executable operator runbook; no file editing required.
 
+> **Implementation status (IAP-009, t_32cdc8ea) — CONTROL subset:** the operator CONTROL foundation is
+> IMPLEMENTED and green. The engine-free CLEAN-side operator core ships under
+> `src/SBPR.Niflheim.HomesteadStones/`: `Application/Accounts/AccountMutationFence.cs` (per-account fence +
+> bounded drain barrier; a failed drain leaves the account untouched/recoverable),
+> `Application/Accounts/PilotSessionRegistry.cs` (process-local one-session-per-account registry;
+> deterministic operator close + stale-disconnect guard), `Application/Accounts/OperatorAdminGate.cs`
+> (live-admin authority via the shipped `VanillaAdminIdentity`; NO second admin path for gameplay
+> payloads), `Application/Accounts/OperatorAccountService.cs` (authenticated inspect / disable /
+> delete-drain; disable+delete fence→drain→atomic commit→deterministic session close; delete revokes
+> linked credential + allowlist so a stale allowlist cannot recreate the account), the
+> `PilotAccountService.RevokeAllowlistEntry` allowlist-only revoke, and
+> `Features/PilotIdentity/LocalAllowlistBootstrap.cs` (OS-owner-scoped, no-echo-stdin, allowlist-only
+> bootstrap core over the existing `PilotProvisioningInputGate`). Evidence:
+> [`account-identity-pilot-operator-evidence.md`](account-identity-pilot-operator-evidence.md); runbook:
+> [`../runbooks/account-identity-pilot-operator-runbook.md`](../runbooks/account-identity-pilot-operator-runbook.md).
+> `AT-AIP-ADMIN-INSPECT`, `AT-AIP-ADMIN-DISABLE`, `AT-AIP-LOCAL-BOOTSTRAP-SCOPE`, `AT-AIP-NONADMIN-REJECT`,
+> `AT-AIP-MUTATION-FENCE`, `AT-AIP-DISABLE-CLOSES-SESSION`, and `AT-AIP-DELETE-DRAIN-BARRIER` are green under
+> `dotnet test` (851/851) and the mod compiles clean (net48, 0 warnings). The REMAINING Tracer-4 IDs
+> (`AT-AIP-EXPORT-SAFE`, `AT-AIP-DELETE-PURGE`, `AT-AIP-DELETE-REVOKES-ALLOWLIST` full purge,
+> `AT-AIP-PURGE-FALLBACK-RESET`, `AT-AIP-FULL-RESET-ROTATES-KEY`, `AT-AIP-ARTIFACT-CATALOG`,
+> `AT-AIP-PILOT-CLOSURE-DEADLINE`, `AT-AIP-BACKUP-PURGE`, `AT-AIP-RETENTION-*`, `AT-AIP-HOLD-EXPIRY`,
+> `AT-AIP-RESET-EXPLICIT`, `AT-AIP-QUARANTINE`, `AT-AIP-NO-TIME-TRAVEL`, `AT-AIP-BREACH-RUNBOOK`,
+> `AT-AIP-OPERATOR-RUNBOOK`) are the privacy/purge lifecycle, deferred to a later pass. Live joined-client
+> operator proof is IAP-010; independent adversarial verification is IAP-011.
+
 ### Final gate — Dedicated joined-client pilot proof
 
 **Goal:** prove the whole journey in the real game and rehearse recovery/privacy operations.

@@ -196,6 +196,17 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Accounts/PilotAccountStore.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Accounts/PersistedPiiScanner.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotAccountService.cs" />
+    <!-- IAP-009 (t_32cdc8ea): the operator control foundation — the per-account mutation fence + drain
+         barrier, the process-local one-session-per-account registry (deterministic close/kick + stale-
+         disconnect guard), the live-admin authority gate (reuses the engine-free VanillaAdminIdentity),
+         the authenticated inspect/disable/delete-drain lifecycle service, and the OS-scoped local
+         allowlist bootstrap CORE. All engine-free (System.* only), link-compiled here and shipped under
+         net48 exactly like the Tracer-1 slice above. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/AccountMutationFence.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotSessionRegistry.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/OperatorAdminGate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/OperatorAccountService.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/PilotIdentity/LocalAllowlistBootstrap.cs" />
   </ItemGroup>
 
 </Project>
