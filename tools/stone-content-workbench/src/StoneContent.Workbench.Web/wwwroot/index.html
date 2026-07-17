@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>Stone Content Workbench</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo"></div>
+    <div class="brand">Stone Content Workbench</div>
+    <div class="crumb">Assets &nbsp;/&nbsp; <b>Homestead Stone</b> &nbsp;/&nbsp; progression.json</div>
+    <div class="grow"></div>
+    <div id="dirty" class="dirty">Unsaved draft</div>
+    <div class="branch">local &nbsp;/&nbsp; core-backed</div>
+    <button id="reset" class="btn ghost">↺ &nbsp;Reset</button>
+    <button id="validate" class="btn">✓ &nbsp;Validate</button>
+    <button id="export" class="btn primary">↓ &nbsp;Export scratch</button>
+  </header>
+  <div class="main">
+    <aside class="side">
+      <div class="kicker">Content</div>
+      <button class="nav" data-section="overview"><span class="ico">▦</span>Overview</button>
+      <button class="nav active" data-section="nodes"><span class="ico">⌘</span>Nodes<span class="count" id="c-nodes">20</span></button>
+      <button class="nav" data-section="facets"><span class="ico">◇</span>Facets<span class="count" id="c-facets">2</span></button>
+      <button class="nav" data-section="foundation"><span class="ico">⌂</span>Foundational<span class="count" id="c-found">10</span></button>
+      <button class="nav" data-section="tuning"><span class="ico">≡</span>Tree tuning<span class="count" id="c-tuning">4</span></button>
+      <div class="rule"></div>
+      <div class="kicker">Trees</div>
+      <div id="trees"></div>
+      <div class="versions">
+        <h4>Version pins <span style="float:right;color:#717985;font:10px ui-monospace">manual</span></h4>
+        <div class="vrow editable"><span>Registry</span><input class="pinedit" id="pin-contentRegistry" type="number" min="1"></div>
+        <div class="vrow editable"><span>Foundation</span><input class="pinedit" id="pin-foundationalCatalog" type="number" min="1"></div>
+        <div class="vrow editable"><span>Facet palette</span><input class="pinedit" id="pin-facetPalette" type="number" min="1"></div>
+        <div class="vrow editable"><span>Tree tuning</span><input class="pinedit" id="pin-treeTuning" type="number" min="1"></div>
+        <div class="warn">Semantic edits require an explicit affected pin bump.</div>
+      </div>
+    </aside>
+    <section class="work">
+      <div class="workhead">
+        <div>
+          <div id="eyebrow" class="eyebrow">Profession tree</div>
+          <h1 id="title">Cooking</h1>
+        </div>
+        <div id="treeTabs" class="tabs"></div>
+      </div>
+      <div id="canvas" class="canvas"></div>
+    </section>
+    <aside class="inspect">
+      <div class="ihead">
+        <div class="bigico">✦</div>
+        <div class="iname"><b id="iname">Field Prep</b><span id="iid">FieldPrep · v1</span></div>
+      </div>
+      <div id="ibody" class="ibody"></div>
+    </aside>
+  </div>
+  <footer class="bottom">
+    <div class="q">
+      <b>Continuous quality gate</b>
+      <p>Schema, references, roster arithmetic, version pins, generated-code compile, and tests stay separate.</p>
+      <div class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+    </div>
+    <div class="out">
+      <div class="otabs">
+        <button class="ot active" data-out="problems">Problems <span id="pc" class="badge">0</span></button>
+        <button class="ot" data-out="diff">JSON diff</button>
+        <button class="ot" data-out="json">Selected JSON</button>
+        <button class="ot" data-out="cs">Generated C#</button>
+      </div>
+      <div id="output" class="output"></div>
+    </div>
+  </footer>
+</div>
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -36,6 +36,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../src/StoneContent.Workbench.Core/StoneContent.Workbench.Core.csproj" />
+    <ProjectReference Include="../src/StoneContent.Workbench.Web/StoneContent.Workbench.Web.csproj" />
   </ItemGroup>
 
   <!-- SHIPPED, engine-free production catalog source under test (link-compiled, not copied).
