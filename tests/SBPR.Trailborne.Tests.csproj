@@ -198,6 +198,18 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotProviderGate.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotProvisioningInputGate.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotAuthLoggingContract.cs" />
+    <!-- IAP-003 Tracer 1 (t_0f1a9160): the first-bind account+credential foundation — opaque CSPRNG
+         identifiers, the versioned domain-separated HMAC key ring, disclosure/privacy-inventory basis,
+         the framed pilot-account journal + boot-rehydrated indexes + version census, the atomic
+         account+credential admission service (first bind / reconnect / rekey / conflict / race), and the
+         mechanical persisted-PII scanner. All engine-free (System.* only), link-compiled here and shipped
+         under net48 exactly like the Gate-0 slice above. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Accounts/PilotAccountIdentifiers.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Accounts/PilotDisclosure.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/LookupKeyRing.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Accounts/PilotAccountStore.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Accounts/PersistedPiiScanner.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotAccountService.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -139,6 +139,23 @@ Deliverables after implementation authorization: executable authenticated-peer s
 
 **Exit:** no raw subject in Niflheim journals/subsystem logs; upstream log/world facts are inventoried; restart returns one account; lookup performs no scan/network.
 
+> **Implementation status (IAP-003, t_0f1a9160):** Tracer 1 is IMPLEMENTED and green. The engine-free
+> CLEAN-side account foundation ships under `src/SBPR.Niflheim.HomesteadStones/`:
+> `Domain/Accounts/PilotAccountIdentifiers.cs` (opaque 128-bit CSPRNG ids), `Domain/Accounts/PilotDisclosure.cs`
+> (disclosure + human-approved privacy-inventory basis), `Adapters/Identity/LookupKeyRing.cs` (versioned
+> domain-separated HMAC-SHA-256, ≥256-bit keys, active/previous ring, fail-closed), `Persistence/Accounts/PilotAccountStore.cs`
+> (framed CRC journal + boot-rehydrated credential/allowlist indexes + version census + torn-tail quarantine),
+> `Persistence/Accounts/PersistedPiiScanner.cs` (mechanical raw-subject scan), and `Application/Accounts/PilotAccountService.cs`
+> (atomic account+credential first bind, reconnect, first-bind race, previous-key + multi-hop lazy re-key,
+> retirement-gate census, operation conflict/replay). Evidence:
+> [`account-identity-pilot-tracer1-evidence.md`](account-identity-pilot-tracer1-evidence.md). The Tracer-1
+> acceptance IDs named in the IAP-003 card are green under `dotnet test` and the mod compiles clean (net48,
+> 0 warnings). This tracer creates provider-independent account/credential state ONLY; it does NOT yet migrate
+> gameplay receipts — the accepted Homestead `AccountId`/`CharacterId` supersession lands with Tracer 3
+> (receipt scrub), which is where the accepted Homestead data-model identity rows are reconciled and stamped.
+> `AT-AIP-KEY-VERSION-CENSUS`/`AT-AIP-KEY-RETIREMENT-BLOCKED` are realized as the census assertions inside the
+> retirement-gate proof; `AT-AIP-REKEY-MULTIHOP` extends `AT-AIP-PREVIOUS-KEY-REKEY` across two sequential rotations.
+
 ### Tracer 2 — Character selection + one-session admission
 
 **Goal:** map authenticated profile facts to minted characters, reserve one account session, and preserve creator validation.
