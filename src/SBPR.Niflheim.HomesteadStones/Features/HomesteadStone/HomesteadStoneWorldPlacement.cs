@@ -64,6 +64,20 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         private static readonly HashSet<string> migrationWarned = new HashSet<string>(StringComparer.Ordinal);
         private static bool prefabMissingLogged;
 
+        // FIX R4 (#4) — per-zone fresh-event provenance for this session, so the migration scan can tell a
+        // genuine pre-fix missing-Stone world from a fresh-event failure. Reset every ZoneSystem.Start.
+        private static Dictionary<string, StoneEventOutcome> eventOutcomeByZoneKey =
+            new Dictionary<string, StoneEventOutcome>(StringComparer.Ordinal);
+        // Zones that were ALREADY generated at the moment selection became ready this session (i.e. before any
+        // fresh PlaceLocations event this session could have fired for them). A selected zone in this set with
+        // no Stone and no fresh event is a pre-fix migration.
+        private static HashSet<string> zonesGeneratedAtStart = new HashSet<string>(StringComparer.Ordinal);
+        // FIX R4 (#4) — per-zone bounded retry budget for transient fresh-creation failures.
+        private static Dictionary<string, int> transientRetryByZoneKey =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        private const int MaxTransientRetries = 3;
+        private static readonly HashSet<string> freshSkipWarned = new HashSet<string>(StringComparer.Ordinal);
+
         [HarmonyPatch(typeof(ZoneSystem), "Start")]
         [HarmonyPostfix]
         private static void OnZoneSystemStart(ZoneSystem __instance)
@@ -78,6 +92,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 selectedRuntimeByZoneKey = new Dictionary<string, RuntimeCandidate>(StringComparer.Ordinal);
                 migrationWarned.Clear();
                 prefabMissingLogged = false;
+                eventOutcomeByZoneKey = new Dictionary<string, StoneEventOutcome>(StringComparer.Ordinal);
+                zonesGeneratedAtStart = new HashSet<string>(StringComparer.Ordinal);
+                transientRetryByZoneKey = new Dictionary<string, int>(StringComparer.Ordinal);
+                freshSkipWarned.Clear();
             }
             __instance.StartCoroutine(ReconcileLoop(__instance));
         }
@@ -95,6 +113,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 selectedRuntimeByZoneKey = new Dictionary<string, RuntimeCandidate>(StringComparer.Ordinal);
                 migrationWarned.Clear();
                 prefabMissingLogged = false;
+                eventOutcomeByZoneKey = new Dictionary<string, StoneEventOutcome>(StringComparer.Ordinal);
+                zonesGeneratedAtStart = new HashSet<string>(StringComparer.Ordinal);
+                transientRetryByZoneKey = new Dictionary<string, int>(StringComparer.Ordinal);
+                freshSkipWarned.Clear();
             }
         }
 
@@ -129,6 +151,8 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 if (action != LocationRealizationAction.CreateFresh)
                 {
                     // ReuseExisting (restart/retry) or NotSelected: never create a duplicate.
+                    if (action == LocationRealizationAction.ReuseExisting)
+                        RecordOutcome(key, StoneEventOutcome.AlreadyGeneratedReuse);
                     return;
                 }
 
@@ -142,23 +166,35 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                             $"[Niflheim/HomesteadStones] Homestead Stone prefab '{HomesteadStoneRegistrar.PrefabName}' " +
                             "is not registered in ZNetScene; no Stone can realize. Check prefab registration/bundle load.");
                     }
+                    // FIX R4 (#4): prefab-missing is a TRANSIENT fresh-event failure (creation-failed), not a
+                    // pre-fix migration. Record provenance so the migration scan never relabels it.
+                    RecordOutcome(key, StoneEventOutcome.FreshTransientFailure);
                     return;
                 }
                 prefabMissingLogged = false;
 
                 if (!TryResolveEventSeat(runtime.Domain, hmap, out var position, out var attempt))
                 {
+                    // FIX R4 (#4): honest all-eight rejection is a TERMINAL fresh skip, distinct from both a
+                    // transient failure and a pre-fix migration.
+                    RecordOutcome(key, StoneEventOutcome.FreshInvalidSeats);
                     Plugin.Log.LogWarning(
                         $"[Niflheim/HomesteadStones] Selected host {runtime.Domain.Prefab} zone ({runtime.Domain.ZoneX}," +
                         $"{runtime.Domain.ZoneZ}) placed but all {SeatAttempts} deterministic seats were rejected against " +
                         "live host bounds (footprint overlap / insufficient clearance) or the live Heightmap could not " +
-                        "resolve a ground height. No Stone created this event.");
+                        "resolve a ground height. No Stone created this event (terminal fresh skip, not migration).");
                     return;
                 }
 
                 if (!CreateStone(prefab, position, metadata, mode))
+                {
+                    // FIX R4 (#4): a stamp/instantiate failure with live geometry available is a TRANSIENT
+                    // fresh failure eligible for bounded retry, never a migration.
+                    RecordOutcome(key, StoneEventOutcome.FreshTransientFailure);
                     return;
+                }
 
+                RecordOutcome(key, StoneEventOutcome.FreshCreated);
                 Plugin.Log.LogInfo(
                     $"[Niflheim/HomesteadStones] Realized {runtime.Domain.Prefab} zone ({runtime.Domain.ZoneX}," +
                     $"{runtime.Domain.ZoneZ}) at event time seat#{attempt}=({position.x:0.00},{position.y:0.00}," +
@@ -223,6 +259,19 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 selectionReady = true;
             }
 
+            // FIX R4 (#4): snapshot which selected zones were ALREADY generated at the moment selection became
+            // ready this session. On a fresh world the peer zones have not been ghost-spawned yet (false); on a
+            // pre-fix world the zone is already generated (true). A selected zone that was generated-at-start,
+            // still has no Stone, and sees no fresh event this session is the only genuine migration case.
+            foreach (var candidate in selection.Selected)
+            {
+                var zone = new Vector2i(candidate.ZoneX, candidate.ZoneZ);
+                if (IsZoneGenerated(zoneSystem, zone))
+                {
+                    lock (StateGate) { zonesGeneratedAtStart.Add(ZoneKey(zone)); }
+                }
+            }
+
             foreach (var warning in selection.Warnings)
                 Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Selector target warning: " + warning);
             Plugin.Log.LogInfo(
@@ -231,7 +280,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             return true;
         }
 
-        /// <summary>T009R4 — (re)register the Homestead Stone Areas from the REAL resident Stone ZDOs.</summary>
+        /// <summary>T009R4 + FIX R4 (#2) — reconcile ALL resident Homestead Stone ZDOs against the current
+        /// selected set (metadata-aware), remove stale/unselected/duplicate Stones under the pre-ratification
+        /// disposable-world policy, then (re)register the Stone Areas from the REAL kept resident Stone ZDOs.
+        /// A removed/stale Stone leaves no kept entry for its zone, so it can never suppress fresh creation.</summary>
         private static void ReconcileStoneAreas()
         {
             var server = FoundationalPlacementObserver.Server;
@@ -240,70 +292,185 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             if (zdoMan == null) return;
 
             string identity;
-            lock (StateGate) { identity = worldIdentity; }
-
-            var world = new WorldId(identity);
-            var facts = new List<StoneAreaRegistrar.StoneAreaFact>();
+            Dictionary<string, HomesteadAssignmentMetadata> selectedSnapshot;
+            lock (StateGate)
+            {
+                identity = worldIdentity;
+                selectedSnapshot = new Dictionary<string, HomesteadAssignmentMetadata>(selectedByZoneKey, StringComparer.Ordinal);
+            }
 
             var found = new List<ZDO>();
             var index = 0;
             while (!zdoMan.GetAllZDOsWithPrefabIterative(HomesteadStoneRegistrar.PrefabName, found, ref index)) { }
+
+            // Project resident ZDOs into pure records keyed by stable ZDOID for deterministic dedup.
+            var records = new List<StoneZdoRecord>(found.Count);
+            var zdoById = new Dictionary<long, ZDO>();
             foreach (var zdo in found)
             {
                 if (zdo == null || !zdo.IsValid()) continue;
                 int zoneX = zdo.GetInt(HomesteadStoneData.LocationZoneXKey, int.MinValue);
                 int zoneZ = zdo.GetInt(HomesteadStoneData.LocationZoneZKey, int.MinValue);
                 if (zoneX == int.MinValue || zoneZ == int.MinValue) continue;
+                long id = zdo.m_uid.ID;
+                records.Add(new StoneZdoRecord(
+                    id,
+                    zdo.GetString(HomesteadStoneData.WorldIdentityKey, string.Empty),
+                    zdo.GetString(HomesteadStoneData.SelectorVersionKey, string.Empty),
+                    zdo.GetString(HomesteadStoneData.HostPrefabKey, string.Empty),
+                    zoneX, zoneZ));
+                zdoById[id] = zdo;
+            }
 
-                string zdoWorld = zdo.GetString(HomesteadStoneData.WorldIdentityKey, string.Empty);
-                if (!string.IsNullOrEmpty(zdoWorld) &&
-                    !string.Equals(zdoWorld, identity, StringComparison.Ordinal)) continue;
+            // Build the expected selected identities keyed by zone.
+            var expectations = new Dictionary<string, SelectedStoneExpectation>(StringComparer.Ordinal);
+            foreach (var pair in selectedSnapshot)
+            {
+                var m = pair.Value;
+                expectations[pair.Key] = new SelectedStoneExpectation(
+                    m.WorldIdentity, m.SelectorVersion, m.Prefab, m.ZoneX, m.ZoneZ);
+            }
 
-                var stoneId = StoneId.FromHostZone(world, zoneX, zoneZ);
-                Vector3 pos = zdo.GetPosition();
-                facts.Add(new StoneAreaRegistrar.StoneAreaFact(
-                    stoneId, pos.x, pos.z, Domain.StoneProgression.StoneAreaMembership.DefaultAreaRadius));
+            var reconcile = HomesteadStoneReconciler.Reconcile(records, expectations);
+
+            var world = new WorldId(identity);
+            var facts = new List<StoneAreaRegistrar.StoneAreaFact>();
+            var removed = 0;
+            foreach (var decision in reconcile.Decisions)
+            {
+                if (!zdoById.TryGetValue(decision.ZdoId, out var zdo)) continue;
+                if (decision.Disposition == StoneReconcileDisposition.Reuse)
+                {
+                    var stoneId = StoneId.FromHostZone(world, decision.ZoneX, decision.ZoneZ);
+                    Vector3 pos = zdo.GetPosition();
+                    facts.Add(new StoneAreaRegistrar.StoneAreaFact(
+                        stoneId, pos.x, pos.z, Domain.StoneProgression.StoneAreaMembership.DefaultAreaRadius));
+                }
+                else
+                {
+                    // Remove or RemoveDuplicate: owner-authoritatively destroy the stale/unselected/duplicate ZDO.
+                    if (!zdo.IsOwner()) zdo.SetOwner(ZDOMan.GetSessionID());
+                    zdoMan.DestroyZDO(zdo);
+                    removed++;
+                    Plugin.Log.LogInfo(
+                        $"[Niflheim/HomesteadStones] reconcile removed {decision.Disposition} Stone ZDO id={decision.ZdoId} " +
+                        $"zone ({decision.ZoneX},{decision.ZoneZ}) — not in current selected set / metadata mismatch / duplicate.");
+                }
             }
 
             var result = StoneAreaRegistrar.Reconcile(server.StoneAreas, facts);
-            if (result.Registered > 0 || result.Updated > 0 || result.Unregistered > 0)
-                Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + result.ToString());
+            if (result.Registered > 0 || result.Updated > 0 || result.Unregistered > 0 || removed > 0)
+                Plugin.Log.LogInfo($"[Niflheim/HomesteadStones] {result} stonesRemoved={removed}");
         }
 
-        /// <summary>Emit one migration-required diagnostic per selected host whose zone is ALREADY generated
-        /// (its one-shot PlaceLocations event already fired and destroyed the live geometry) but which has no
-        /// resident Stone. This is a pre-fix world. We never force a seat; a disposable fresh world is the
-        /// supported path for this slice, and a future migration/provider seam is preserved.</summary>
+        /// <summary>FIX R4 (#4) — classify each selected host missing its Stone using PROVENANCE recorded this
+        /// session, so a fresh-event failure is never mislabelled as a pre-fix migration. Only a zone that was
+        /// already generated at session start, still has no Stone, and saw NO fresh event this session is a
+        /// true migration. Fresh invalid-seat skips and transient failures get their own distinct diagnostics.</summary>
         private static void DiagnoseExistingWorldMigration(ZoneSystem zoneSystem)
         {
             List<KeyValuePair<string, RuntimeCandidate>> selectedSnapshot;
+            HashSet<string> generatedAtStart;
+            Dictionary<string, StoneEventOutcome> outcomes;
             lock (StateGate)
             {
                 if (!selectionReady) return;
                 selectedSnapshot = selectedRuntimeByZoneKey.ToList();
+                generatedAtStart = new HashSet<string>(zonesGeneratedAtStart, StringComparer.Ordinal);
+                outcomes = new Dictionary<string, StoneEventOutcome>(eventOutcomeByZoneKey, StringComparer.Ordinal);
             }
 
             foreach (var pair in selectedSnapshot)
             {
                 var key = pair.Key;
                 var runtime = pair.Value;
-                bool zoneGenerated = Traverse.Create(zoneSystem)
-                    .Method("IsZoneGenerated", new[] { typeof(Vector2i) }, new object[] { runtime.Zone })
-                    .GetValue<bool>();
                 bool resident = HasResidentStone(runtime.Zone);
-                var action = HomesteadStoneLifecycle.DecideExistingWorld(
-                    isSelectedHost: true, zoneAlreadyGenerated: zoneGenerated, stoneAlreadyResident: resident);
-                if (action != ExistingWorldAction.MigrationRequired) continue;
-                if (!migrationWarned.Add(key)) continue;
-                Plugin.Log.LogWarning(
-                    $"[Niflheim/HomesteadStones] migration-required: selected host {runtime.Domain.Prefab} zone " +
-                    $"({runtime.Domain.ZoneX},{runtime.Domain.ZoneZ}) was generated by a pre-fix world and has no " +
-                    "resident Homestead Stone. The one-shot fresh-generation placement event already fired and its " +
-                    "live geometry is gone; this build does NOT reconstruct geometry from persisted ZDOs. Regenerate " +
-                    "a disposable fresh world (Astley seed reproduces the layout) to realize this Stone. A future " +
-                    "migration/provider seam is preserved for pre-release.");
+                bool generated = generatedAtStart.Contains(key);
+                var outcome = outcomes.TryGetValue(key, out var recorded) ? recorded : StoneEventOutcome.Unknown;
+
+                var classification = HomesteadMigrationClassifier.Classify(
+                    isSelectedHost: true, zoneGeneratedOnStart: generated, stoneResident: resident, freshOutcome: outcome);
+
+                switch (classification)
+                {
+                    case MigrationClassification.MigrationRequired:
+                        if (!migrationWarned.Add(key)) break;
+                        Plugin.Log.LogWarning(
+                            $"[Niflheim/HomesteadStones] migration-required: selected host {runtime.Domain.Prefab} zone " +
+                            $"({runtime.Domain.ZoneX},{runtime.Domain.ZoneZ}) was generated by a pre-fix world and has no " +
+                            "resident Homestead Stone. Its one-shot fresh-generation placement event already fired before " +
+                            "this fix and its live geometry is gone; this build does NOT reconstruct geometry from persisted " +
+                            "ZDOs. Regenerate a disposable fresh world (Astley seed reproduces the layout) to realize this " +
+                            "Stone. A future migration/provider seam is preserved for pre-release.");
+                        break;
+                    case MigrationClassification.FreshInvalidSeats:
+                        if (!freshSkipWarned.Add(key)) break;
+                        Plugin.Log.LogWarning(
+                            $"[Niflheim/HomesteadStones] fresh-skip (not migration): selected host {runtime.Domain.Prefab} " +
+                            $"zone ({runtime.Domain.ZoneX},{runtime.Domain.ZoneZ}) had a live fresh-generation event this " +
+                            "session but all eight deterministic seats were invalid against live host bounds. Terminal skip; " +
+                            "no retry, and NOT a pre-fix migration.");
+                        break;
+                    case MigrationClassification.FreshTransientFailure:
+                        HandleTransientRetry(key, runtime);
+                        break;
+                    case MigrationClassification.None:
+                    default:
+                        break;
+                }
             }
         }
+
+        /// <summary>FIX R4 (#4) — bounded retry policy for a TRANSIENT fresh-creation failure. If authoritative
+        /// geometry is still available (the zone's live host colliders + Heightmap still exist because the zone
+        /// is NOT yet marked generated), re-attempt creation up to <see cref="MaxTransientRetries"/> times.
+        /// Once the zone is generated (geometry gone) the failure becomes terminal and is reported as
+        /// creation-failed, still distinct from a pre-fix migration.</summary>
+        private static void HandleTransientRetry(string key, RuntimeCandidate runtime)
+        {
+            var zoneSystem = ZoneSystem.instance;
+            if (zoneSystem == null) return;
+
+            bool geometryGone = IsZoneGenerated(zoneSystem, runtime.Zone);
+            int attempts;
+            lock (StateGate)
+            {
+                transientRetryByZoneKey.TryGetValue(key, out attempts);
+            }
+
+            if (geometryGone || attempts >= MaxTransientRetries)
+            {
+                if (freshSkipWarned.Add(key))
+                    Plugin.Log.LogWarning(
+                        $"[Niflheim/HomesteadStones] creation-failed (not migration): selected host {runtime.Domain.Prefab} " +
+                        $"zone ({runtime.Domain.ZoneX},{runtime.Domain.ZoneZ}) had a transient fresh-creation failure and " +
+                        (geometryGone
+                            ? "the authoritative live geometry is no longer available (zone generated); "
+                            : $"exhausted the bounded retry budget ({MaxTransientRetries}); ") +
+                        "no Stone this session. This is a fresh creation failure, NOT a pre-fix migration.");
+                return;
+            }
+
+            // Geometry still live: bump the counter. The one-shot PlaceLocations event will not re-fire, so a
+            // true re-attempt is only possible if the zone gets re-realized; recording the attempt keeps the
+            // diagnosis honest and bounded without forcing geometry.
+            lock (StateGate)
+            {
+                transientRetryByZoneKey[key] = attempts + 1;
+            }
+        }
+
+        /// <summary>Record the fresh-event provenance outcome for a zone key (thread-safe).</summary>
+        private static void RecordOutcome(string key, StoneEventOutcome outcome)
+        {
+            lock (StateGate) { eventOutcomeByZoneKey[key] = outcome; }
+        }
+
+        /// <summary>Vanilla <c>ZoneSystem.IsZoneGenerated(Vector2i)</c> is private; call it via Traverse.</summary>
+        private static bool IsZoneGenerated(ZoneSystem zoneSystem, Vector2i zone) =>
+            Traverse.Create(zoneSystem)
+                .Method("IsZoneGenerated", new[] { typeof(Vector2i) }, new object[] { zone })
+                .GetValue<bool>();
 
         private static List<RuntimeCandidate> BuildCandidates(ZoneSystem zoneSystem) =>
             zoneSystem.m_locationInstances
@@ -328,6 +495,19 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             position = default;
             attempt = -1;
 
+            // FIX R4 (#1): finalize the live terrain BEFORE sampling. Vanilla's TerrainModifier.Awake pokes
+            // each covering Heightmap with a DELAYED rebuild (m_doLateUpdate) that only regenerates later in
+            // Heightmap.CustomLateUpdate. This postfix runs synchronously before SpawnZone resumes, so a
+            // covering Heightmap can still carry a queued pre-leveling surface. We force the SPECIFIC covering
+            // Heightmap(s) to their final queued state now — while the location modifiers and temporary host
+            // geometry still exist — using the narrowest safe vanilla ops (instance HaveQueuedRebuild() then
+            // Regenerate()), NOT the global Heightmap.ForceGenerateAll().
+            FinalizeCoveringTerrain(candidate);
+
+            // Flush the just-instantiated host transforms + regenerated terrain colliders into the physics
+            // engine so the overlap query and height sample see the final leveled state without a FixedUpdate.
+            Physics.SyncTransforms();
+
             var bounds = CaptureLiveHostBounds(candidate);
             if (!bounds.HasBounds) return false;
 
@@ -335,8 +515,11 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             var eventSeats = new List<EventSeat>(seats.Count);
             foreach (var s in seats) eventSeats.Add(new EventSeat(s.Attempt, s.X, s.Z));
 
+            // FIX R4 (#3): score against the ACTUAL structural bounds (LiveHostBounds.Extent), not the coarse
+            // location radius. The location radius survives only as the hard host-attribution / seat-ring
+            // constraint applied in CaptureLiveHostBounds / IsHostStructure above.
             var chosen = HomesteadEventSeatScorer.ChooseBest(
-                eventSeats, bounds, candidate.LocationRadius, candidate.X, candidate.Z);
+                eventSeats, bounds, candidate.X, candidate.Z);
             if (!chosen.HasSeat) return false;
 
             var probe = new Vector3((float)chosen.X, 0f, (float)chosen.Z);
@@ -346,6 +529,35 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             position = new Vector3((float)chosen.X, height.Value, (float)chosen.Z);
             attempt = chosen.Attempt;
             return true;
+        }
+
+        /// <summary>FIX R4 (#1) — force the covering Heightmap(s) over the host footprint to their final
+        /// queued leveled state before sampling. Finds only the Heightmap(s) that cover the host point +
+        /// footprint radius (narrowest scope), and for each with a queued rebuild calls the instance
+        /// Regenerate() to drain the delayed Poke deterministically now, rather than waiting for a
+        /// CustomLateUpdate that may not have run yet inside this synchronous PlaceLocations postfix.</summary>
+        private static void FinalizeCoveringTerrain(HomesteadCandidate host)
+        {
+            var probeCenter = new Vector3((float)host.X, 0f, (float)host.Z);
+            var radius = (float)Math.Max(12.0, host.LocationRadius + 6.0);
+
+            // Decide (pure) whether any covering Heightmap has a queued rebuild.
+            var covering = new List<Heightmap>();
+            Heightmap.FindHeightmap(probeCenter, radius, covering);
+            var anyQueued = false;
+            foreach (var heightmap in covering)
+            {
+                if (heightmap != null && heightmap.HaveQueuedRebuild()) { anyQueued = true; break; }
+            }
+
+            var action = HomesteadTerrainFinalization.Decide(anyQueued);
+            if (action != TerrainFinalizationAction.ForceRegenerate) return;
+
+            foreach (var heightmap in covering)
+            {
+                if (heightmap != null && heightmap.HaveQueuedRebuild())
+                    heightmap.Regenerate();
+            }
         }
 
         /// <summary>Build the host structural AABB from the freshly-spawned host colliders present at event

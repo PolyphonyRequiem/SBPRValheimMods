@@ -197,13 +197,19 @@ For each selected Location:
 5. Attribute live host structural bounds from nearby enabled, non-trigger `Piece` colliders; reject the
    Stone capsule footprint when it overlaps those colliders and require at least 1.75 m horizontal AABB
    clearance.
-6. Score every valid attempt using that clearance, the host-radius + 2.5 m yard/readability band, radial
-   distance penalty, then attempt index as deterministic tie-break. Choose the best attempt; if all eight
-   fail, skip and warn rather than force an invalid seat.
+6. Score every valid attempt using that clearance, an **actual structural-bounds** yard/readability band
+   (the live host collider AABB half-extent + 2.5 m — **not** the coarse Location exterior radius; R4 fix),
+   radial distance penalty, then attempt index as deterministic tie-break. Choose the best attempt; if all
+   eight fail, skip and warn rather than force an invalid seat. The Location exterior radius survives only
+   as the hard host-attribution / seat-ring constraint (step 2 / step 5), never as the scoring reference.
 7. Before creating, search all Stone ZDOs—not only loaded GameObjects—for the same host zone coord.
    Stamp world identity, selector version, host prefab, and host zone coord on the new Stone's ZDO.
-   During this explicitly pre-ratification build, remove stale Stone ZDOs whose complete assignment
-   metadata is absent from the current selected set so selector/config rerolls cannot accumulate a union.
+   During this explicitly pre-ratification build, a periodic **metadata-aware selected-set reconciliation**
+   (R4 fix) walks every resident Stone ZDO: a ZDO matching the current selected world/selector/host prefab/
+   zone is reused (one canonical kept per zone, lowest ZDOID wins on duplicates, extras removed); a ZDO
+   absent from the current selected set or with mismatched metadata is removed, so selector/config rerolls
+   cannot accumulate a union and a stale Stone can never suppress fresh creation for a currently-selected
+   zone.
 
 The Unity Preview Lab is the exhaustive static composition surface. It already established that compact
 `WoodHouse1` and `WoodHouse2` need attempt 3 in the accepted composition model. The V12 visual seat is a
@@ -211,7 +217,7 @@ provisional playtest tune: it was first modelled at local Y `+1.0 m`, then raise
 2× scale per Daniel's 2026-07-15 real-client feedback (see §2). Live Valheim is a smaller integration gate for real terrain, runtime
 materials/emission/animation, persistence, and generator-backed Farm/Village behavior.
 
-## 5a. Server-authoritative realization lifecycle (R3 — event-time creation)
+## 5a. Server-authoritative realization lifecycle (R4 — event-time creation, finalized terrain)
 
 The initial live proof (T009L2) failed because realization never occurred on a headless dedicated
 server, silently. Root cause, confirmed against decompiled vanilla (`assembly_valheim`, base-game RE
@@ -258,45 +264,72 @@ is a strict one-shot event.
 
 For a **freshly-placed selected host**, the postfix:
 
-- captures the host structural AABB from the real freshly-spawned host colliders (`Physics.SyncTransforms`
-  then an `OverlapSphere` filtered to enabled, non-trigger `Piece` colliders attributed to the host by the
-  existing `creator == 0`, inside-radius contract — the same live attribution the prior listen path used);
+- **finalizes the live terrain first (R4 fix).** Vanilla `TerrainModifier.Awake` pokes each covering
+  `Heightmap` with a **delayed** rebuild (`Poke(delayed:true)` sets `m_doLateUpdate`); the actual
+  `Regenerate()` only runs later in `Heightmap.CustomLateUpdate`. Because this postfix runs synchronously
+  before `SpawnZone` resumes, a covering Heightmap can still carry the pre-leveling surface. The postfix
+  finds the specific Heightmap(s) covering the host footprint (`Heightmap.FindHeightmap(point, radius, …)`)
+  and, for each with `HaveQueuedRebuild()`, forces the instance `Regenerate()` **now** — while the location
+  modifiers and temporary host geometry still exist — using the narrowest safe vanilla op rather than the
+  global `Heightmap.ForceGenerateAll()`. Then `Physics.SyncTransforms()` flushes the just-instantiated host
+  transforms and the regenerated terrain colliders into the physics engine;
+- captures the host structural AABB from the real freshly-spawned host colliders (an `OverlapSphere`
+  filtered to enabled, non-trigger `Piece` colliders attributed to the host by the existing `creator == 0`,
+  inside-radius contract — the same live attribution the prior listen path used);
 - runs the full **all-eight best-of-score** seat contract against those live bounds (engine-free
-  `HomesteadEventSeatScorer`), enforcing the 1.75 m keep-out and the host-radius yard band, or an honest
-  8-of-8 skip;
-- resolves the final Y from the **live `Heightmap`** under the chosen seat;
+  `HomesteadEventSeatScorer`), enforcing the 1.75 m keep-out and the **actual structural-extent** yard band
+  (`LiveHostBounds.Extent`, not the coarse Location radius — R4 fix), or an honest 8-of-8 skip;
+- resolves the final Y from the now-finalized **live `Heightmap`** under the chosen seat;
 - instantiates the additive Stone bracketed in `ZNetView.StartGhostInit()`/`FinishGhostInit()` in Ghost
   mode so the `ZNetView` creates a **persistent ZDO** in `ZDOMan` and returns before `AddInstance`
   (verified against decompiled `ZNetView.Awake`; `OnDestroy` never destroys the ZDO). The temp GameObject
   is then destroyed like vanilla's ghost temp objects, but its persistent ZDO survives and is saved with
   the world. In Full mode the Stone remains a live scene instance;
 - stamps identity (world identity, selector version, host prefab, host zone coord) atomically on the
-  created ZDO; a stamping failure destroys the instance and creates nothing.
+  created ZDO; a stamping failure destroys the instance and creates nothing;
+- **records the fresh-event provenance outcome** (R4 fix) — `FreshCreated`, `FreshInvalidSeats` (terminal
+  8-of-8 skip), or `FreshTransientFailure` (prefab-missing / stamp failure / exception with live geometry
+  available) — so the periodic migration scan can never mislabel a fresh-event failure as a pre-fix
+  migration.
 
-### Three distinct lifecycle cases
+### Distinct lifecycle cases (provenance-tracked)
 
 - **Fresh generation → create.** A selected host being placed for the first time creates exactly one
-  Stone, at event time, from live geometry (above).
+  Stone, at event time, from live (terrain-finalized) geometry (above). Outcome recorded `FreshCreated`.
 - **Persisted Stone → reuse.** Before creating, the seam checks all Stone ZDOs for the host zone coord.
   On a restart the persisted Stone ZDO reloads and the one-shot event does not re-fire; if any path reaches
   the decision with a resident Stone it reuses it. Exactly one Stone per selected zone; no duplication on
   retries or restart.
-- **Already-generated host without a Stone → deferred migration.** A selected host whose zone is already
-  generated (`IsZoneGenerated`) but has no resident Stone can only be a **pre-fix world**: its one-shot
-  placement event already fired and its live geometry is gone. The periodic reconcile emits exactly one
-  `migration-required` diagnostic per such zone and **never** forces a seat or guesses geometry. Pre-release
-  migration is deferred; regenerating a disposable fresh world (the Astley seed reproduces the layout) is
-  the supported path, and a future migration/provider seam is preserved.
+- **Fresh event failure ≠ migration (R4 fix).** A fresh event that fired this session but produced no Stone
+  is classified by its recorded provenance, NOT relabelled as migration once vanilla marks the zone
+  generated:
+  - `FreshInvalidSeats` — honest all-eight rejection against live bounds: a **terminal fresh skip** with a
+    distinct warning, no retry.
+  - `FreshTransientFailure` — prefab-missing / stamp failure / exception: a **creation-failed** diagnosis
+    eligible for a bounded retry policy **only while authoritative geometry remains available** (the zone is
+    not yet marked generated); once the geometry is gone or the retry budget is exhausted it is reported as
+    a terminal creation failure, still distinct from migration.
+- **Already-generated host, no Stone, and no fresh event this session → deferred migration.** Only a
+  selected host whose zone was **already generated at session start**, still has no Stone, and saw **no
+  fresh event this session** is a **pre-fix world**: its one-shot placement event fired before this fix and
+  its live geometry is gone. The periodic reconcile emits exactly one `migration-required` diagnostic per
+  such zone and **never** forces a seat or guesses geometry. Pre-release migration is deferred; regenerating
+  a disposable fresh world (the Astley seed reproduces the layout) is the supported path, and a future
+  migration/provider seam is preserved. The classification is a pure decision (`HomesteadMigrationClassifier`)
+  driven by session-recorded provenance, so fresh failures can never be misreported as migration.
 
 Base `WorldGenerator.GetHeight`, unconditional first-seat selection, and generic-ZDO geometry
 reconstruction are **explicitly not used**.
 
-Per-world diagnostic state (world identity, selection, migration-warned set, prefab-missing latch) is
-recreated on every `ZoneSystem.Start` and cleared on destroy, so no state survives a world reload. The
+Per-world diagnostic state (world identity, selection, per-zone event provenance, generated-at-start set,
+transient-retry budget, migration-warned / fresh-skip-warned sets, prefab-missing latch) is recreated on
+every `ZoneSystem.Start` and cleared on destroy, so no state survives a world reload. The
 prefab-not-registered error logs once per missing-state. The event-time lifecycle decisions
-(`HomesteadStoneLifecycle`), the live-bounds clearance geometry (`LiveHostBounds`), and the best-of-eight
-seat scorer (`HomesteadEventSeatScorer`) are engine-free (`Domain/HomesteadStoneRealization.cs`) and
-drift-guarded by `HomesteadStoneRealizationTests`.
+(`HomesteadStoneLifecycle`), the terrain-finalization decision (`HomesteadTerrainFinalization`), the
+metadata-aware reconciliation (`HomesteadStoneReconciler`), the provenance-aware migration classifier
+(`HomesteadMigrationClassifier`), the live-bounds clearance geometry (`LiveHostBounds`), and the
+best-of-eight seat scorer (`HomesteadEventSeatScorer`) are all engine-free
+(`Domain/HomesteadStoneRealization.cs`) and drift-guarded by `HomesteadStoneRealizationTests`.
 
 ## 6. Explicit cuts for this integration slice
 
