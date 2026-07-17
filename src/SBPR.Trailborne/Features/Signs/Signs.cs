@@ -156,36 +156,11 @@ namespace SBPR.Trailborne.Features.Signs
             { "black", new Color(0.10f, 0.10f, 0.12f, 1f) },
         };
 
-        // Pin type per color — vanilla Minimap pin sprite reuse for color clarity.
-        // Consumed by the (still-unregistered) SignInteractPatch pin path.
-        public static readonly Dictionary<string, Minimap.PinType> PinTypes = new Dictionary<string, Minimap.PinType>
-        {
-            { "red",   Minimap.PinType.Icon3 }, // red-ish vanilla pin
-            { "white", Minimap.PinType.Icon0 }, // generic / white
-            { "blue",  Minimap.PinType.Icon2 }, // blue-ish
-            { "black", Minimap.PinType.Icon4 }, // dark / generic
-        };
-
-        /// <summary>
-        /// Map a pigment ITEM prefab name to its color identity, or null if the prefab
-        /// is not one of our four pigments. Inverse of <see cref="PigmentForColor"/>.
-        /// Retained as public API for pigment-detection (e.g. the deferred pin path);
-        /// the retired apply-pigment paint seam that originally drove it is gone.
-        /// </summary>
-        public static string? ColorForPigment(string pigmentPrefabName)
-        {
-            if (pigmentPrefabName == Pigments.PigmentRedName)   return "red";
-            if (pigmentPrefabName == Pigments.PigmentWhiteName) return "white";
-            if (pigmentPrefabName == Pigments.PigmentBlueName)  return "blue";
-            if (pigmentPrefabName == Pigments.PigmentBlackName) return "black";
-            return null;
-        }
-
         /// <summary>
         /// Map a color identity ("red"/"white"/"blue"/"black") to the matching pigment
         /// ITEM prefab name (the pigment the panel charges for that slot), or null if
-        /// the color isn't one of our four. Inverse of <see cref="ColorForPigment"/>;
-        /// used by the paint backend to compute + consume the crafting-style cost.
+        /// the color isn't one of our four. Used by the paint backend to compute +
+        /// consume the crafting-style cost.
         /// </summary>
         public static string? PigmentForColor(string color)
         {
@@ -204,12 +179,6 @@ namespace SBPR.Trailborne.Features.Signs
         {
             if (string.IsNullOrEmpty(color)) return "";
             return char.ToUpperInvariant(color[0]) + color.Substring(1) + " Pigment";
-        }
-
-        public static Minimap.PinType PinTypeForColor(string color)
-        {
-            if (color != null && PinTypes.TryGetValue(color, out var t)) return t;
-            return Minimap.PinType.Icon0;
         }
 
         // ───────────────────────────────────────────────
