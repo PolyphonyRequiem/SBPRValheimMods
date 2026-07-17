@@ -100,33 +100,35 @@ namespace SBPR.Trailborne.Features.Portals
         // ── Portal piece (LOCKED — spec §4.2: reuse the Ancient Portal's placement choices) ──
         public const float PortalHealth = 300f;   // match the Ancient Portal default (tunable, §4.2)
 
-        // ── Visual envelope (DESK-ESTIMATED placeholder kitbash — flagged AT-GEOMETRY for
-        //    in-game tuning, spec §4.1). Reuses the Ancient Portal's ~3 m envelope so the two
-        //    read as the same class of object, re-tinted to "twisted/swamp" (§4.1 art-pass). ──
+        // ── Visual envelope. The convergence/crown sits at ~3 m — UNCHANGED from the Ancient
+        //    envelope because the overhead jump-up ACTIVATION height is out of scope (spec §4.1,
+        //    AT-ACTIVATION-UNCHANGED). Only the SHAPE below it changes. ────────────────────────
         private const float EnvelopeHeight = 3f;
 
-        // Swamp re-tint (spec §4.1): a darker, sicklier emission so a Twisted Portal is
-        // distinguishable from the Ancient Portal at a glance. Multiplies the grafted ring's
-        // shared material color via a per-renderer MaterialPropertyBlock (never sharedMaterial —
-        // the painted-sign lesson, t_f3310406). Placeholder tint, flagged for the art pass.
+        // Swamp re-tint (spec §4.1): DEMOTED to a *secondary* per-renderer cue only. Daniel is
+        // colorblind, so the differentiation now rides on SHAPE (5 uneven inward-leaning spikes +
+        // a self-emissive guck crown), and this green tint is a nicety layered on top — never the
+        // differentiator. Applied via a per-renderer MaterialPropertyBlock (never sharedMaterial —
+        // the painted-sign lesson, t_f3310406) so it bleeds into no other Stalagmite/guck sack in
+        // the world.
         private static readonly Color SwampTint = new Color(0.45f, 0.62f, 0.40f, 1f);
 
-        // ── Ring orientation (SHARED so visual + trigger never drift). The ring lies FLAT
-        //    (faces up) where the player jumps in — the Ancient Portal precedent. ───────────
-        private static readonly Quaternion RingFlatRotation = Quaternion.Euler(90f, 0f, 0f);
-
-        // ── Leg geometry (3 posts on a 1.2 m ring, 120° apart) — the Ancient Portal precedent,
-        //    DESK-ESTIMATED, flagged AT-GEOMETRY. Each post gets a SOLID structural collider on
-        //    the piece root so the structure is axe-hittable while the gaps let the player walk
-        //    in / stand under / jump into the overhead ring. ──────────────────────────────────
-        private const int   LegCount  = 3;
-        private const float LegRadius = 1.2f;
+        // ── Spike geometry (5 uneven inward-leaning tapered spikes on a tighter 0.9 m ring) —
+        //    the colorblind-safe silhouette (twisted-portal-distinct-mesh.md §4, card t_4ab58b42).
+        //    Replaces the Ancient Portal's 3 even straight posts on a 1.2 m ring. DESK-ESTIMATED,
+        //    flagged AT-GEOMETRY for in-game tuning. Each spike gets a SOLID structural collider
+        //    on the piece root so the cluster is axe-hittable / deconstructable while the gaps let
+        //    the player walk in / stand under / jump up into the convergence. ───────────────────
+        private const int   LegCount  = 5;
+        private const float LegRadius = 0.9f;
+        private const float LegLeanDegrees = 10f;   // inward tilt toward centre (colorblind-safe axis)
         private static readonly Vector3 LegColliderSize = new Vector3(0.5f, EnvelopeHeight + 0.5f, 0.5f);
 
         // ── Donor blueprints (read-only, never cloned — ADR-0006) ───────────────────────────
-        private const string DonorPortal = "portal_wood";    // ring (small_portal mesh) + effect donor
-        private const string DonorRoot   = "Greydwarf_Root"; // root tendrils (default mesh)
-        private const string DonorStump  = "stubbe";         // legs (cylinder stump mesh)
+        private const string DonorPortal    = "portal_wood";    // effect donor (hit/destroy/place SFX)
+        private const string DonorRoot      = "Greydwarf_Root"; // root tendrils (default mesh)
+        private const string DonorSpike     = "Stalagmite";     // legs → tapered spike (default mesh)
+        private const string DonorGuckSack  = "GuckSack";       // crown → self-emissive guck mass (Cancer/sack mesh)
 
         // Build-menu thumbnail. There is no dedicated Twisted icon yet (the key is gone, so no
         // item icon ships with this feature); a piece m_icon is non-fatal when absent (no
@@ -166,28 +168,35 @@ namespace SBPR.Trailborne.Features.Portals
             var visualRoot = new GameObject(VisualRootName);
             visualRoot.transform.SetParent(go.transform, worldPositionStays: false);
 
-            // ── Grafted kitbash (all mesh-reference, ZNetView-free; placeholder transforms
-            //    DESK-ESTIMATED for the ~3 m envelope, FLAGGED for AT-GEOMETRY tuning). ────────
-            var portalBlueprint = zns.GetPrefab(DonorPortal);
-            var rootBlueprint   = zns.GetPrefab(DonorRoot);
-            var stumpBlueprint  = zns.GetPrefab(DonorStump);
+            // ── Grafted kitbash (all mesh-reference, ZNetView-free; transforms DESK-ESTIMATED,
+            //    FLAGGED AT-GEOMETRY). A distinct COLORBLIND-SAFE silhouette (card t_4ab58b42):
+            //    5 uneven inward-leaning tapered spikes crowned by a self-emissive guck mass —
+            //    NOT the Ancient Portal's tidy tripod + flat hoop. ─────────────────────────────
+            var rootBlueprint    = zns.GetPrefab(DonorRoot);
+            var spikeBlueprint   = zns.GetPrefab(DonorSpike);
+            var guckBlueprint    = zns.GetPrefab(DonorGuckSack);
 
-            // Ring/glow on TOP (~3 m up), lying FLAT (face up) — the player jumps up into it,
-            // re-tinted to swamp so it reads distinct from the Ancient Portal (spec §4.1).
-            var ring = Assets.GraftMeshFromBlueprint(portalBlueprint, visualRoot, "SBPR_TwistedPortalRing", "small_portal");
-            if (ring != null)
+            // Crown: a self-emissive GuckSack (Cancer/sack mesh) mass sitting where the spikes
+            // converge (~3 m up), in place of the Ancient Portal's flat wooden hoop. The guck's
+            // own _EmissionMap makes it self-glow by SHAPE (colorblind-safe), so this is the
+            // headline silhouette break, not a re-tinted hoop. The swamp MPB tint is layered on
+            // as a *secondary* cue only.
+            var crown = Assets.GraftMeshFromBlueprint(guckBlueprint, visualRoot, "SBPR_TwistedPortalCrown", "sack");
+            if (crown != null)
             {
-                ring.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
-                ring.transform.localRotation = RingFlatRotation;                 // lie flat (face up)
-                ring.transform.localScale    = new Vector3(0.71f, 0.71f, 0.71f); // ~3 m wide
-                ApplySwampTint(ring);
+                crown.transform.localPosition = new Vector3(0f, EnvelopeHeight, 0f);
+                crown.transform.localRotation = Quaternion.identity;
+                // GuckSack sack mesh is ~2.4 × 3.9 × 2.8 m raw; scale to ~1.7 m wide so it crowns
+                // the convergence without dwarfing the spike cluster (AT-GEOMETRY).
+                crown.transform.localScale    = new Vector3(0.7f, 0.55f, 0.7f);
+                ApplySwampTint(crown);
             }
 
-            // Legs: 3 thin tall pillars holding the ring overhead, each with its own SOLID
-            // structural collider on the piece root (built in BuildLegs) — the Ancient precedent.
-            BuildLegs(stumpBlueprint, visualRoot, go);
+            // Spikes: 5 uneven inward-leaning tapered Stalagmite spikes on a tighter 0.9 m ring,
+            // each with its own SOLID structural collider on the piece root (built in BuildLegs).
+            BuildLegs(spikeBlueprint, visualRoot, go);
 
-            // Roots: a couple of tendrils weaving up toward the ring (placeholder; art pass).
+            // Roots: a couple of tendrils weaving up toward the crown (placeholder; art pass).
             BuildRoots(rootBlueprint, visualRoot);
 
             // ── WearNTear: organic wood, HP 300, no rain decay (spec §4.2) ──────────────────
@@ -277,13 +286,18 @@ namespace SBPR.Trailborne.Features.Portals
             mr.SetPropertyBlock(mpb);
         }
 
-        /// <summary>Build 3 thin tall legs (scaled stubbe stump) holding the ring overhead, each
-        /// with a SOLID structural post collider on the PIECE ROOT (fixed geometry — axe-hittable /
-        /// deconstructable) while the gaps stay open for the walk-up/stand-under path. The exact
-        /// transforms are DESK-ESTIMATED, flagged AT-GEOMETRY. Mirrors Portals.BuildLegs.</summary>
-        private static void BuildLegs(GameObject? stumpBlueprint, GameObject visualRoot, GameObject pieceRoot)
+        /// <summary>Build 5 uneven inward-leaning tapered SPIKES (Stalagmite `default` mesh) in a
+        /// tight 0.9 m cluster, each with a SOLID structural post collider on the PIECE ROOT (fixed
+        /// geometry — axe-hittable / deconstructable) while the gaps stay open for the
+        /// walk-up/stand-under/jump-up path. Alternating heights + an inward lean give the
+        /// colorblind-safe silhouette break (twisted-portal-distinct-mesh.md §4). Exact transforms
+        /// are DESK-ESTIMATED, flagged AT-GEOMETRY. Mirrors Portals.BuildLegs.</summary>
+        private static void BuildLegs(GameObject? spikeBlueprint, GameObject visualRoot, GameObject pieceRoot)
         {
-            var legScale = new Vector3(0.06f, 0.8f, 0.06f);
+            // Stalagmite `default` mesh is ~1.36 × 4.82 × 1.33 m raw. Narrow it hard on X/Z into a
+            // thin spike and alternate the Y so tips sit ~3.6 m (tall) / ~3.0 m (short) — uneven.
+            var spikeScaleTall  = new Vector3(0.16f, 0.75f, 0.16f);
+            var spikeScaleShort = new Vector3(0.16f, 0.62f, 0.16f);
             for (int i = 0; i < LegCount; i++)
             {
                 float ang = (Mathf.PI * 2f / LegCount) * i;
@@ -299,19 +313,26 @@ namespace SBPR.Trailborne.Features.Portals
                 legBox.size = LegColliderSize;
                 legBox.center = new Vector3(0f, LegColliderSize.y * 0.5f, 0f);   // base on the ground
 
-                // (b) Visual leg mesh on the visual root (cosmetic; placeholder).
-                if (stumpBlueprint == null) continue;
-                var leg = Assets.GraftMeshFromBlueprint(stumpBlueprint, visualRoot, "SBPR_TwistedPortalLeg" + i, "cylinder");
+                // (b) Visual spike mesh on the visual root, leaning INWARD toward centre so the
+                //     tips converge under the guck crown (colorblind-safe axis). Alternate the
+                //     height so the cluster reads uneven, not a tidy symmetric ring.
+                if (spikeBlueprint == null) continue;
+                var leg = Assets.GraftMeshFromBlueprint(spikeBlueprint, visualRoot, "SBPR_TwistedPortalSpike" + i, "default");
                 if (leg == null) continue;
                 leg.transform.localPosition = legPos;
-                leg.transform.localScale = legScale;
-                leg.transform.localRotation = Quaternion.identity;
+                leg.transform.localScale = (i % 2 == 0) ? spikeScaleTall : spikeScaleShort;
+                // Tilt the spike's up-axis inward toward the centre: rotate about the tangent so
+                // the tip leans over the convergence point. The inward direction in the XZ plane is
+                // -legPos; build a lean rotation from vertical toward that direction.
+                var inward = new Vector3(-Mathf.Cos(ang), 0f, -Mathf.Sin(ang));
+                var leanAxis = Vector3.Cross(Vector3.up, inward);   // tangent to tilt about
+                leg.transform.localRotation = Quaternion.AngleAxis(LegLeanDegrees, leanAxis);
                 ApplySwampTint(leg);
             }
         }
 
         /// <summary>Build 2 root tendrils (Greydwarf_Root default mesh) weaving up near the legs
-        /// toward the ring rim. Placeholder — flagged for the art pass. Mirrors Portals.BuildRoots.</summary>
+        /// toward the guck crown. Placeholder — flagged for the art pass. Mirrors Portals.BuildRoots.</summary>
         private static void BuildRoots(GameObject? rootBlueprint, GameObject visualRoot)
         {
             if (rootBlueprint == null) return;
