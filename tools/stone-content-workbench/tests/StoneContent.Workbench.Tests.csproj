@@ -58,4 +58,12 @@
     <None Include="../assets/homestead-stone.content.schema.json" CopyToOutputDirectory="PreserveNewest" Link="Assets/homestead-stone.content.schema.json" />
   </ItemGroup>
 
+  <!-- Static frontend copied to output so the tray scroll/resize contract test (t_42b44e70)
+       reads the SHIPPED index.html / styles.css / app.js by a stable relative path. -->
+  <ItemGroup>
+    <None Include="../src/StoneContent.Workbench.Web/wwwroot/index.html" CopyToOutputDirectory="PreserveNewest" Link="Frontend/index.html" />
+    <None Include="../src/StoneContent.Workbench.Web/wwwroot/styles.css" CopyToOutputDirectory="PreserveNewest" Link="Frontend/styles.css" />
+    <None Include="../src/StoneContent.Workbench.Web/wwwroot/app.js" CopyToOutputDirectory="PreserveNewest" Link="Frontend/app.js" />
+  </ItemGroup>
+
 </Project>
