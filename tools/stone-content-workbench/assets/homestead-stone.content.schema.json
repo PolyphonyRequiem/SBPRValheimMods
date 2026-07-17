@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://niflheim.local/schemas/homestead-stone.content.schema.json",
+  "title": "Niflheim Homestead Stone content asset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "formatVersion",
+    "assetId",
+    "family",
+    "variant",
+    "versions",
+    "foundational",
+    "facets",
+    "trees",
+    "nodes"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "formatVersion": {
+      "const": 1
+    },
+    "assetId": {
+      "type": "string",
+      "pattern": "^[a-z0-9.-]+$"
+    },
+    "family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "variant": {
+      "type": "string",
+      "minLength": 1
+    },
+    "versions": {
+      "$ref": "#/$defs/versionPins"
+    },
+    "foundational": {
+      "$ref": "#/$defs/foundational"
+    },
+    "facets": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/facet"
+      }
+    },
+    "trees": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/tree"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    }
+  },
+  "$defs": {
+    "positiveVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "versionPins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contentRegistry",
+        "foundationalCatalog",
+        "facetPalette",
+        "treeTuning"
+      ],
+      "properties": {
+        "contentRegistry": {
+          "$ref": "#/$defs/positiveVersion"
+        },
+        "foundationalCatalog": {
+          "$ref": "#/$defs/positiveVersion"
+        },
+        "facetPalette": {
+          "$ref": "#/$defs/positiveVersion"
+        },
+        "treeTuning": {
+          "$ref": "#/$defs/positiveVersion"
+        }
+      }
+    },
+    "versionedId": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "$ref": "#/$defs/positiveVersion"
+        }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "versionTag",
+        "members",
+        "exclusions"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "$ref": "#/$defs/positiveVersion"
+        },
+        "versionTag": {
+          "type": "string",
+          "pattern": "^v[1-9][0-9]*$"
+        },
+        "members": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "exclusions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "foundational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tree",
+        "catalog"
+      ],
+      "properties": {
+        "tree": {
+          "$ref": "#/$defs/versionedId"
+        },
+        "catalog": {
+          "$ref": "#/$defs/catalog"
+        }
+      }
+    },
+    "facet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "candidateTreeIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "enum": [
+            "Profession",
+            "Martial"
+          ]
+        },
+        "candidateTreeIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "tree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "category",
+        "tuning"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "$ref": "#/$defs/positiveVersion"
+        },
+        "category": {
+          "enum": [
+            "Profession",
+            "Martial"
+          ]
+        },
+        "tuning": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "initialLevel",
+            "unlockCostStep",
+            "cumulativeBpThresholds"
+          ],
+          "properties": {
+            "initialLevel": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "unlockCostStep": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cumulativeBpThresholds": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "developmentBp",
+        "purchaseAp"
+      ],
+      "properties": {
+        "developmentBp": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "purchaseAp": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiresCommittedTree",
+        "requiresCurrentContentVersion",
+        "minActiveStoneLevel",
+        "minTreeLevel",
+        "requiresActiveAttunement",
+        "requiresOfferedStatus",
+        "requiresDevelopmentAuthority",
+        "requiresResponsibilityRange",
+        "priorOfferedNodeIds"
+      ],
+      "properties": {
+        "requiresCommittedTree": {
+          "type": "boolean"
+        },
+        "requiresCurrentContentVersion": {
+          "type": "boolean"
+        },
+        "requiresActiveAttunement": {
+          "type": "boolean"
+        },
+        "requiresOfferedStatus": {
+          "type": "boolean"
+        },
+        "requiresDevelopmentAuthority": {
+          "type": "boolean"
+        },
+        "requiresResponsibilityRange": {
+          "type": "boolean"
+        },
+        "minActiveStoneLevel": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minTreeLevel": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "priorOfferedNodeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "treeId",
+        "treeLevel",
+        "displayLabel",
+        "outcomeType",
+        "ownership",
+        "firstBuildStatus",
+        "pricing",
+        "requirements"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9]*$"
+        },
+        "version": {
+          "$ref": "#/$defs/positiveVersion"
+        },
+        "treeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "treeLevel": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "displayLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcomeType": {
+          "enum": [
+            "LocalEffect",
+            "CharacterEffect",
+            "PermanentEffect"
+          ]
+        },
+        "ownership": {
+          "enum": [
+            "StoneCultivated",
+            "PersonalOffered",
+            "NoneWhileUnavailable"
+          ]
+        },
+        "firstBuildStatus": {
+          "enum": [
+            "Executable",
+            "Unavailable"
+          ]
+        },
+        "pricing": {
+          "$ref": "#/$defs/pricing"
+        },
+        "requirements": {
+          "$ref": "#/$defs/requirements"
+        }
+      }
+    }
+  }
+}

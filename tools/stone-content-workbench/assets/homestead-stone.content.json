@@ -1,0 +1,611 @@
+{
+  "$schema": "./homestead-stone.content.schema.json",
+  "formatVersion": 1,
+  "assetId": "niflheim.homestead-stone.progression",
+  "family": "Settlement",
+  "variant": "Homestead",
+  "versions": {
+    "contentRegistry": 1,
+    "foundationalCatalog": 1,
+    "facetPalette": 1,
+    "treeTuning": 1
+  },
+  "foundational": {
+    "tree": {
+      "id": "FoundationalTree",
+      "version": 1
+    },
+    "catalog": {
+      "id": "HomesteadFoundationalConstruction",
+      "version": 1,
+      "versionTag": "v1",
+      "members": [
+        "foundation_wood_floor",
+        "foundation_wood_wall",
+        "foundation_wood_pole",
+        "foundation_wood_beam",
+        "foundation_wood_roof",
+        "foundation_wood_stair",
+        "foundation_wood_door",
+        "foundation_wood_stakewall"
+      ],
+      "exclusions": [
+        "foundation_workbench",
+        "foundation_forge"
+      ]
+    }
+  },
+  "facets": [
+    {
+      "id": "Profession",
+      "category": "Profession",
+      "candidateTreeIds": [
+        "Cooking",
+        "Crafting"
+      ]
+    },
+    {
+      "id": "Martial",
+      "category": "Martial",
+      "candidateTreeIds": [
+        "Archer",
+        "Warrior"
+      ]
+    }
+  ],
+  "trees": [
+    {
+      "id": "Cooking",
+      "version": 1,
+      "category": "Profession",
+      "tuning": {
+        "initialLevel": 1,
+        "unlockCostStep": 1,
+        "cumulativeBpThresholds": [
+          3
+        ]
+      }
+    },
+    {
+      "id": "Crafting",
+      "version": 1,
+      "category": "Profession",
+      "tuning": {
+        "initialLevel": 1,
+        "unlockCostStep": 1,
+        "cumulativeBpThresholds": [
+          3
+        ]
+      }
+    },
+    {
+      "id": "Archer",
+      "version": 1,
+      "category": "Martial",
+      "tuning": {
+        "initialLevel": 1,
+        "unlockCostStep": 1,
+        "cumulativeBpThresholds": [
+          3
+        ]
+      }
+    },
+    {
+      "id": "Warrior",
+      "version": 1,
+      "category": "Martial",
+      "tuning": {
+        "initialLevel": 1,
+        "unlockCostStep": 1,
+        "cumulativeBpThresholds": [
+          3
+        ]
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "id": "SavorTheHearth",
+      "version": 1,
+      "treeId": "Cooking",
+      "treeLevel": 1,
+      "displayLabel": "Savor the Hearth",
+      "outcomeType": "LocalEffect",
+      "ownership": "StoneCultivated",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "FieldPrep",
+      "version": 1,
+      "treeId": "Cooking",
+      "treeLevel": 1,
+      "displayLabel": "Field Prep",
+      "outcomeType": "CharacterEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "IronStomach",
+      "version": 1,
+      "treeId": "Cooking",
+      "treeLevel": 1,
+      "displayLabel": "Iron Stomach",
+      "outcomeType": "PermanentEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "SwiftPreparation",
+      "version": 1,
+      "treeId": "Cooking",
+      "treeLevel": 2,
+      "displayLabel": "Swift Preparation",
+      "outcomeType": "CharacterEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 2,
+        "minTreeLevel": 2,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": [
+          "FieldPrep",
+          "IronStomach"
+        ]
+      }
+    },
+    {
+      "id": "WatchfulCook",
+      "version": 1,
+      "treeId": "Cooking",
+      "treeLevel": 2,
+      "displayLabel": "Watchful Cook",
+      "outcomeType": "CharacterEffect",
+      "ownership": "NoneWhileUnavailable",
+      "firstBuildStatus": "Unavailable",
+      "pricing": {
+        "developmentBp": null,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": false,
+        "requiresCurrentContentVersion": false,
+        "minActiveStoneLevel": 0,
+        "minTreeLevel": 0,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": false,
+        "requiresResponsibilityRange": false,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "RefinedWorkshop",
+      "version": 1,
+      "treeId": "Crafting",
+      "treeLevel": 1,
+      "displayLabel": "Refined Workshop",
+      "outcomeType": "LocalEffect",
+      "ownership": "StoneCultivated",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "Masterwork",
+      "version": 1,
+      "treeId": "Crafting",
+      "treeLevel": 1,
+      "displayLabel": "Masterwork",
+      "outcomeType": "CharacterEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "BuiltToLast",
+      "version": 1,
+      "treeId": "Crafting",
+      "treeLevel": 1,
+      "displayLabel": "Built to Last",
+      "outcomeType": "PermanentEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "MeasuredCuts",
+      "version": 1,
+      "treeId": "Crafting",
+      "treeLevel": 1,
+      "displayLabel": "Measured Cuts",
+      "outcomeType": "CharacterEffect",
+      "ownership": "NoneWhileUnavailable",
+      "firstBuildStatus": "Unavailable",
+      "pricing": {
+        "developmentBp": null,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": false,
+        "requiresCurrentContentVersion": false,
+        "minActiveStoneLevel": 0,
+        "minTreeLevel": 0,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": false,
+        "requiresResponsibilityRange": false,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "ArtisansCounter",
+      "version": 1,
+      "treeId": "Crafting",
+      "treeLevel": 1,
+      "displayLabel": "Artisan's Counter",
+      "outcomeType": "LocalEffect",
+      "ownership": "NoneWhileUnavailable",
+      "firstBuildStatus": "Unavailable",
+      "pricing": {
+        "developmentBp": null,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": false,
+        "requiresCurrentContentVersion": false,
+        "minActiveStoneLevel": 0,
+        "minTreeLevel": 0,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": false,
+        "requiresResponsibilityRange": false,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "PracticeRange",
+      "version": 1,
+      "treeId": "Archer",
+      "treeLevel": 1,
+      "displayLabel": "Practice Range",
+      "outcomeType": "LocalEffect",
+      "ownership": "StoneCultivated",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "FieldFletchingI",
+      "version": 1,
+      "treeId": "Archer",
+      "treeLevel": 1,
+      "displayLabel": "Field Fletching I",
+      "outcomeType": "CharacterEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "FletchersHabit",
+      "version": 1,
+      "treeId": "Archer",
+      "treeLevel": 1,
+      "displayLabel": "Fletcher's Habit",
+      "outcomeType": "PermanentEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "SteadyAim",
+      "version": 1,
+      "treeId": "Archer",
+      "treeLevel": 1,
+      "displayLabel": "Steady Aim",
+      "outcomeType": "CharacterEffect",
+      "ownership": "NoneWhileUnavailable",
+      "firstBuildStatus": "Unavailable",
+      "pricing": {
+        "developmentBp": null,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": false,
+        "requiresCurrentContentVersion": false,
+        "minActiveStoneLevel": 0,
+        "minTreeLevel": 0,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": false,
+        "requiresResponsibilityRange": false,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "BowyersLore",
+      "version": 1,
+      "treeId": "Archer",
+      "treeLevel": 1,
+      "displayLabel": "Bowyer's Lore",
+      "outcomeType": "PermanentEffect",
+      "ownership": "NoneWhileUnavailable",
+      "firstBuildStatus": "Unavailable",
+      "pricing": {
+        "developmentBp": null,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": false,
+        "requiresCurrentContentVersion": false,
+        "minActiveStoneLevel": 0,
+        "minTreeLevel": 0,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": false,
+        "requiresResponsibilityRange": false,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "TwigTraining",
+      "version": 1,
+      "treeId": "Warrior",
+      "treeLevel": 1,
+      "displayLabel": "T.W.I.G. Training",
+      "outcomeType": "LocalEffect",
+      "ownership": "StoneCultivated",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "ReadyHands",
+      "version": 1,
+      "treeId": "Warrior",
+      "treeLevel": 1,
+      "displayLabel": "Ready Hands",
+      "outcomeType": "CharacterEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "WeaponDiscipline",
+      "version": 1,
+      "treeId": "Warrior",
+      "treeLevel": 1,
+      "displayLabel": "Weapon Discipline",
+      "outcomeType": "PermanentEffect",
+      "ownership": "PersonalOffered",
+      "firstBuildStatus": "Executable",
+      "pricing": {
+        "developmentBp": 1,
+        "purchaseAp": 1
+      },
+      "requirements": {
+        "requiresCommittedTree": true,
+        "requiresCurrentContentVersion": true,
+        "minActiveStoneLevel": 1,
+        "minTreeLevel": 1,
+        "requiresActiveAttunement": true,
+        "requiresOfferedStatus": true,
+        "requiresDevelopmentAuthority": true,
+        "requiresResponsibilityRange": true,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "ShrugItOffI",
+      "version": 1,
+      "treeId": "Warrior",
+      "treeLevel": 1,
+      "displayLabel": "Shrug It Off I",
+      "outcomeType": "CharacterEffect",
+      "ownership": "NoneWhileUnavailable",
+      "firstBuildStatus": "Unavailable",
+      "pricing": {
+        "developmentBp": null,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": false,
+        "requiresCurrentContentVersion": false,
+        "minActiveStoneLevel": 0,
+        "minTreeLevel": 0,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": false,
+        "requiresResponsibilityRange": false,
+        "priorOfferedNodeIds": []
+      }
+    },
+    {
+      "id": "HeavyHands",
+      "version": 1,
+      "treeId": "Warrior",
+      "treeLevel": 1,
+      "displayLabel": "Heavy Hands",
+      "outcomeType": "CharacterEffect",
+      "ownership": "NoneWhileUnavailable",
+      "firstBuildStatus": "Unavailable",
+      "pricing": {
+        "developmentBp": null,
+        "purchaseAp": null
+      },
+      "requirements": {
+        "requiresCommittedTree": false,
+        "requiresCurrentContentVersion": false,
+        "minActiveStoneLevel": 0,
+        "minTreeLevel": 0,
+        "requiresActiveAttunement": false,
+        "requiresOfferedStatus": false,
+        "requiresDevelopmentAuthority": false,
+        "requiresResponsibilityRange": false,
+        "priorOfferedNodeIds": []
+      }
+    }
+  ]
+}

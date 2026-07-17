@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Stone Content Authoring Workbench — xUnit test suite (POC, card t_e2de37e4).
+       Strict TDD gate for the Core deep module plus the current-C#↔declarative PARITY proof.
+
+       It references the Core project AND link-compiles the SHIPPED engine-free production
+       catalog source (HomesteadProgressionCatalog / FoundationalPieceCatalog / StoneFacets /
+       the snapshot codec) exactly as tests/SBPR.Trailborne.Tests.csproj does — so the parity
+       adapter reads the REAL current authority through its public interface, with no copied
+       second catalog and no source parsing. Every link-compiled file below is free of
+       UnityEngine / HarmonyLib / Valheim refs, so it compiles under net8 here.
+
+       The tools/Directory.Build.props shield keeps this subtree out of the repo-root
+       Valheim-SDK-path requirement; this suite fetches no Valheim SDK and runs headless. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>StoneContent.Workbench.Tests</AssemblyName>
+    <RootNamespace>StoneContent.Workbench.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../src/StoneContent.Workbench.Core/StoneContent.Workbench.Core.csproj" />
+  </ItemGroup>
+
+  <!-- SHIPPED, engine-free production catalog source under test (link-compiled, not copied).
+       These ARE the current authority; the parity adapter normalizes them into the same
+       semantic snapshot as the declarative asset. The repo root sits four levels up. -->
+  <ItemGroup>
+    <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/Snapshots/AggregateSnapshot.cs" />
+    <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/Content/HomesteadProgressionCatalog.cs" />
+    <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/Content/FoundationalPieceCatalog.cs" />
+    <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneFacets.cs" />
+    <!-- StoneFacets.cs pulls in the Stone aggregate + identity types it lives beside. -->
+    <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneProgressionAggregate.cs" />
+    <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/Identity/ProgressionIdentity.cs" />
+  </ItemGroup>
+
+  <!-- Canonical asset + schema copied to output so tests read them by relative path. -->
+  <ItemGroup>
+    <None Include="../assets/homestead-stone.content.json" CopyToOutputDirectory="PreserveNewest" Link="Assets/homestead-stone.content.json" />
+    <None Include="../assets/homestead-stone.content.schema.json" CopyToOutputDirectory="PreserveNewest" Link="Assets/homestead-stone.content.schema.json" />
+  </ItemGroup>
+
+</Project>

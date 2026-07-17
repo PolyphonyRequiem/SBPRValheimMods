@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Stone Content Authoring Workbench — the deep-module CORE (POC, card t_e2de37e4).
+       Owns load / validate / classify / generate / check as PURE functions: it returns
+       result records and never prints, writes files, or mutates repository state. CLI and
+       (child card) web adapters own all I/O. Engine-free net8; references no game / BepInEx /
+       Valheim assemblies, so it builds headless in CI. The tools/Directory.Build.props shield
+       keeps this subtree out of the repo-root Valheim-SDK-path requirement. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>StoneContent.Workbench.Core</AssemblyName>
+    <RootNamespace>StoneContent.Workbench.Core</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
