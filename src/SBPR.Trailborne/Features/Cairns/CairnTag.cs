@@ -433,9 +433,10 @@ namespace SBPR.Trailborne.Features.Cairns
         // ── DIAGNOSTIC (card t_7de074f3 — ATTEMPT #6 Step 1). When ON, BuildBanner attaches a
         //    BannerDiagnostic probe that logs the live parent-chain lossyScale, cloth state, and
         //    a frame-to-frame movement test proving whether the solver is actually integrating.
-        //    Default ON for this diagnostic build; turn OFF (or strip the component) once the
-        //    attempt-#6 rebuild lands and the failure mode is known.
-        public const bool DefaultBannerDiagnostic  = true;
+        //    Default OFF in shipped builds (a per-frame probe is not release-appropriate); the
+        //    probe + sbpr_bannerdiag console command remain available and can be re-enabled via
+        //    the SBPR_BannerDiagnostic config toggle while the cairn-banner work stays open.
+        public const bool DefaultBannerDiagnostic  = false;
 
         // Live config accessors — the runtime value, or the Default* fallback when Plugin isn't
         // bound (unit context). Centralized so BuildBanner reads one name per knob.
