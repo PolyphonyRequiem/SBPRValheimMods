@@ -129,6 +129,7 @@
          snapshot codec + the pure DerivedActivationView), link-compiled like the rest of Tracer 1. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/HomesteadProgressionCatalog.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/ContentRegistryValidator.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/ResourceDeliveryConformanceGuard.cs" />
     <!-- Homestead progression Tracer 2 (T008): the authored Foundational construction-piece catalog
          (membership + exclusions + version) that hardens the ongoing protected AP source. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/FoundationalPieceCatalog.cs" />

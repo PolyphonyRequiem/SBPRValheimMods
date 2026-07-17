@@ -102,7 +102,7 @@ namespace StoneContent.Workbench.Core.Changes
                     if (bt.Version != et.Version || bt.Category != et.Category)
                         changes.Add(new ClassifiedChange(RequiredPin.ContentRegistry, $"/trees[{et.Id}]",
                             "Tree identity/version/category changed.", false));
-                    if (bt.Tuning != et.Tuning)
+                    if (!TuningEquals(bt.Tuning, et.Tuning))
                         changes.Add(new ClassifiedChange(RequiredPin.TreeTuning, $"/trees[{et.Id}]/tuning",
                             "Tree tuning numbers changed.", false));
                 }
@@ -143,7 +143,27 @@ namespace StoneContent.Workbench.Core.Changes
             b.Ownership != e.Ownership ||
             b.FirstBuildStatus != e.FirstBuildStatus ||
             b.Pricing != e.Pricing ||
-            b.Requirements != e.Requirements;
+            !RequirementsEqual(b.Requirements, e.Requirements);
+
+        // TreeTuningDef and NodeRequirementsDef are records that carry an IReadOnlyList, so the compiler-
+        // generated record equality falls back to REFERENCE equality on that list — two independently
+        // parsed-but-identical documents would then read as different. Compare structurally instead so
+        // the classifier is correct regardless of how the two documents were constructed.
+        private static bool TuningEquals(TreeTuningDef a, TreeTuningDef b) =>
+            a.InitialLevel == b.InitialLevel &&
+            a.UnlockCostStep == b.UnlockCostStep &&
+            a.CumulativeBpThresholds.SequenceEqual(b.CumulativeBpThresholds);
+
+        private static bool RequirementsEqual(NodeRequirementsDef a, NodeRequirementsDef b) =>
+            a.RequiresCommittedTree == b.RequiresCommittedTree &&
+            a.RequiresCurrentContentVersion == b.RequiresCurrentContentVersion &&
+            a.MinActiveStoneLevel == b.MinActiveStoneLevel &&
+            a.MinTreeLevel == b.MinTreeLevel &&
+            a.RequiresActiveAttunement == b.RequiresActiveAttunement &&
+            a.RequiresOfferedStatus == b.RequiresOfferedStatus &&
+            a.RequiresDevelopmentAuthority == b.RequiresDevelopmentAuthority &&
+            a.RequiresResponsibilityRange == b.RequiresResponsibilityRange &&
+            a.PriorOfferedNodeIds.SequenceEqual(b.PriorOfferedNodeIds);
 
         /// <summary>True when this node's own version was bumped between baseline and edited.</summary>
         public static bool NodeVersionBumped(StoneContentDocument baseline, StoneContentDocument edited, string nodeId)

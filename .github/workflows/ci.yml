@@ -231,6 +231,15 @@ jobs:
           dotnet test tools/stone-content-workbench/tests/StoneContent.Workbench.Tests.csproj -c Release \
             --logger "console;verbosity=normal"
 
+      - name: Build the local web workbench (loopback host + static UI)
+        run: |
+          dotnet build tools/stone-content-workbench/src/StoneContent.Workbench.Web/StoneContent.Workbench.Web.csproj \
+            -c Release
+          # The static frontend must ship with the adapter.
+          test -f tools/stone-content-workbench/src/StoneContent.Workbench.Web/wwwroot/index.html
+          test -f tools/stone-content-workbench/src/StoneContent.Workbench.Web/wwwroot/app.js
+          test -f tools/stone-content-workbench/src/StoneContent.Workbench.Web/wwwroot/styles.css
+
       - name: CLI validate the canonical asset
         run: |
           dotnet run --project tools/stone-content-workbench/src/StoneContent.Workbench.Cli -c Release -- \

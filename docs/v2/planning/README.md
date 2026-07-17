@@ -151,6 +151,25 @@ Planning artifacts for the Black Forest tier. Same role as
   separately authorized task authoring, and accepted the audited decomposition via PR #297. No Kanban cards or
   runtime implementation were created; implementation remains separately unauthorized per ADR-0005.
 
+- **Homestead loyalty, upkeep, and Resource Delivery Spec Kit package** — an approval-gated extension of the
+  accepted Homestead progression substrate. It specifies account-pair loyalty Connections from real Stone stakes,
+  weekly upkeep + daily-practice participation, offline parallel outcome growth, multiplier-aware Personal AP,
+  Bonded-BP-developed Resource Delivery nodes in any Tree, one virtual Stone Stockpile, and the Stone-Level-2
+  **Humble Homesteader's Bundle** (10 Wood + 10 Stone at 24 baseline contribution-hours). The package consists of:
+  - [`homestead-resource-delivery-spec.md`](homestead-resource-delivery-spec.md) — normative problem/solution,
+    22 user stories, 24 contiguous requirements, exact acceptance mapping, proposed-choice ratification checklist,
+    and first-slice conformance `21 authored = 14 executable + 7 unavailable`;
+  - [`homestead-resource-delivery-research.md`](homestead-resource-delivery-research.md) — current source reality,
+    reusable seams, threat analysis, and mandatory time/fan-out/inventory/capacity spikes;
+  - [`homestead-resource-delivery-data-model.md`](homestead-resource-delivery-data-model.md) — Connection,
+    Participation, Stone outcome, Stockpile, content, receipt, transition, lifecycle, and repair contracts;
+  - [`homestead-resource-delivery-contracts.md`](homestead-resource-delivery-contracts.md) — authenticated commands,
+    server-observed evidence, AP/contribution reconciliation, Stock transactions, reads, and stable rejections;
+  - [`homestead-resource-delivery-plan.md`](homestead-resource-delivery-plan.md) — constitution check, Gate A plus
+    five vertical tracers, exact named acceptance, independent verification, and implementation stop.
+  **Status: proposed S1 Design → S2 Spec.** This docs-only package awaits independent verification and Daniel's
+  approval. It contains no tasks or runtime implementation and does not authorize either.
+
 - **`bear-hide-tent-collider-fit-impl-spec.md`** — the buildable *how* for the **Bear Hide
   Tent collider fix** (BUG card `t_439f2351` defect 1, Daniel 2026-06-26 in-game playtest:
   *"the collision mesh has no relationship to the tent mesh"* / *"I am not finding a spot
