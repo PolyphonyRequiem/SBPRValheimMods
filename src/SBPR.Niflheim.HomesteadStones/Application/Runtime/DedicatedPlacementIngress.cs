@@ -110,8 +110,9 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             // A resolvable resident ZDO IS a materialized successful placement; version comes from the
             // server's pinned catalog tag; provenance is the durable ZDOID so replays converge on one
-            // receipt. The ACCOUNT (platform subject) resolves the AccountId; the stable CHARACTER subject
-            // is the acting character (reconnect-durable — Blocker 3). Neither comes from the payload.
+            // receipt. IAP-007 Tracer 3: the ACCOUNT is the bound internal AccountId and the CHARACTER
+            // is the bound internal CharacterId (both from the admitted session — Tracer 1/2), never a
+            // provider/platform subject and never the payload.
             var observation = new FoundationalPlacementObservation(
                 inside ? stoneId : default,
                 senderAccount,

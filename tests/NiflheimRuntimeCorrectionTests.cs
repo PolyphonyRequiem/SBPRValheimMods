@@ -293,7 +293,6 @@ namespace SBPR.Trailborne.Tests
         {
             var server = FoundationalProgressionServer.Create(
                 _durableDir,
-                accountIdForPlatform: null,
                 familyResolver: new FixedFamilyResolver(_stone),
                 bondAuthority: new HomesteadBondPolicy(),
                 stoneApStore: stoneStore ?? new InMemoryMirroredStoneApStore());

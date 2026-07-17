@@ -190,6 +190,12 @@ principalBindingDigest = Digest(accountId, characterId)
 
 Provider subject and any plain/truncated hash of it are forbidden. This change must preserve same-operation replay results under the new unreleased proof schema; incompatible old fixtures may be explicitly reset.
 
+> **Implemented (IAP-007 Tracer 3, t_c8c96581).** `OperationReceiptStore.SubmitFoundationalAp` now
+> computes `Digest(accountId|characterId)` for the durable principal binding; `AuthoritativePrincipal`
+> and `AuthenticatedConnection` no longer carry `PlatformId`, and `PrincipalResolver` no longer performs
+> any provider lookup (it binds the bound-internal session principal off the connection). The gameplay
+> principal handed to commands/adapters is `PilotSessionPrincipal` (accountId/characterId/sessionId).
+
 ## Durable lifecycle mutation envelope
 
 ```text

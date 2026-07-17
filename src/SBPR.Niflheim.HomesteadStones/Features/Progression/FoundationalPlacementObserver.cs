@@ -93,17 +93,29 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             var membership = server.StoneAreas;
             bool inside = membership.TryResolve(pos.x, pos.z, out var stoneId);
 
-            // Acting identity from server context: on the authoritative host, PlacePiece runs for the
-            // host's own player. The acting principal is the local player's server-owned s_playerID (the
-            // SAME value vanilla stamps as the placed piece's creator), and the acting character is the
-            // player's STABLE character ZDOID — never the mutable display name. Both are server-owned,
-            // not a client payload identity.
-            string platformId = ResolveActingPlatformId(actor);
-            string characterId = ResolveActingCharacterId(actor);
+            // Acting identity IAP-007 Tracer 3: the gameplay principal is the acting peer's BOUND
+            // INTERNAL session (server-minted AccountId/CharacterId) published by admission — NOT a raw
+            // provider/platform subject and NOT the character ZDOID. We key the bound-session index by
+            // the local player's durable s_playerID (a server-owned peer key, used only to look up the
+            // internal principal — never itself persisted as gameplay identity). If no internal session
+            // is bound (admission not yet complete), we FAIL CLOSED: credit nothing rather than fall
+            // back to a provider identity.
+            long actingPlayerId = actor != null ? actor.GetPlayerID() : 0L;
+            string peerKey = actingPlayerId != 0L
+                ? actingPlayerId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty;
+            if (string.IsNullOrEmpty(peerKey) ||
+                !server.BoundSessions.TryResolve(peerKey, out var sessionPrincipal))
+            {
+                // No bound internal session -> no gameplay principal. Never provider-derive one.
+                return;
+            }
+            string accountId = sessionPrincipal.Account.Value;
+            string characterId = sessionPrincipal.Character.Value;
 
             var observation = new FoundationalPlacementObservation(
                 stoneId,
-                platformId,
+                accountId,
                 characterId,
                 stablePieceId,
                 provenance,
@@ -117,25 +129,6 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             // (a mapped stable id) so unrelated vanilla builds don't spam the operator log.
             if (!string.IsNullOrEmpty(stablePieceId))
                 Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + outcome.ToOperatorLine());
-        }
-
-        /// <summary>Derive the acting platform id from server-owned facts. On the authoritative host the
-        /// acting player is the local authenticated player; its server-owned s_playerID is the acting
-        /// identity (the same id vanilla stamps as the placed piece's creator). Never a client payload.</summary>
-        private static string ResolveActingPlatformId(Player actor)
-        {
-            long id = actor != null ? actor.GetPlayerID() : 0L;
-            return id.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        /// <summary>Acting character id = the local player's STABLE character ZDOID string (server-owned,
-        /// durable across renames), never the mutable display name from GetPlayerName().</summary>
-        private static string ResolveActingCharacterId(Player actor)
-        {
-            if (actor == null) return string.Empty;
-            var nview = actor.GetComponent<ZNetView>();
-            var zdo = nview != null ? nview.GetZDO() : null;
-            return zdo != null ? zdo.m_uid.ToString() : string.Empty;
         }
 
         /// <summary>Strip Unity's "(Clone)" suffix so a live instance name matches the registered prefab

@@ -190,6 +190,29 @@ Deliverables after implementation authorization: executable authenticated-peer s
 
 **Exit:** every current identity/recovery test stays green under minted IDs; mechanical fixture scan finds no provider subject/unkeyed provider digest.
 
+> **Implementation status (IAP-007, t_c8c96581):** Tracer 3 is IMPLEMENTED and green on top of the
+> merged IAP-005 foundation. The gameplay principal is now the BOUND INTERNAL session
+> (server-minted `AccountId`/`CharacterId`), not a provider/profile subject. Changes under
+> `src/SBPR.Niflheim.HomesteadStones/`:
+> `Domain/Identity/ProgressionIdentity.cs` removes `AuthenticatedConnection.PlatformId`,
+> `AuthoritativePrincipal.PlatformId`, and the `PrincipalResolver(Func<string,string?>)` platform→account
+> map + candidate-A fallback (the resolver now takes no args and reads the bound internal principal
+> straight off the connection — no provider lookup/network call, AIP-FR-014/018); it adds the
+> `PilotSessionPrincipal` gameplay-principal contract (accountId/characterId/sessionId only).
+> `Application/Receipts/OperationReceiptStore.cs` changes the durable principal binding digest to
+> `Digest(accountId|characterId)` — the raw `PlatformId` and its unkeyed truncated hash are gone from
+> every receipt binding (AIP-FR-015). `Application/Runtime/BoundSessionPrincipalIndex.cs` (new) is the
+> engine-free, non-durable seam admission publishes each connected peer's minted internal principal into;
+> `FoundationalPlacementObserver.cs` resolves the acting peer's bound internal principal from it and
+> FAILS CLOSED when none is bound (no provider-derived fallback). `FoundationalPlacementObservation.cs`
+> renames `ActingPlatformId`→`ActingAccountId`; `FoundationalProgressionServer.Create` drops the
+> `accountIdForPlatform` parameter. Evidence: all Foundational authority/replay/restart/dedicated/listen
+> suites stay green (868/868 under `dotnet test`, net8) and the mod compiles clean (net48, 0 warnings).
+> Named acceptance `AT-AIP-PRINCIPAL-SCRUB`, `AT-AIP-RECEIPT-REPLAY`, `AT-AIP-HOSTILE-PRINCIPAL`,
+> `AT-AIP-NO-PROVIDER-HOTPATH`, `AT-AIP-DEFERRED-SURFACE-ABSENT` land in
+> `tests/NiflheimTracer3PrincipalScrubTests.cs`. Incompatible pre-Tracer-3 provider-shaped fixtures are
+> reset per the explicit-reset contract (no legacy migration — data-model.md §"Migration and recovery").
+
 ### Tracer 4 — Operator/privacy lifecycle
 
 **Goal:** inspect, disable, export, verifiably delete/purge, reset, retain/purge, and hold data using existing admin authority.

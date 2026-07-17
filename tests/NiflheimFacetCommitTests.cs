@@ -83,7 +83,7 @@ namespace SBPR.Trailborne.Tests
 
         private FacetCommandHandler NewHandler()
         {
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             return new FacetCommandHandler(_journalPath, resolver, _stones, _characters, _authority,
                 new StubGovernorAuthorityPolicy());
         }
@@ -298,7 +298,7 @@ namespace SBPR.Trailborne.Tests
         public void Unauthorized_outside_responsibility_range_rejects()
         {
             // A handler whose Governor policy denies the range: the Bond exists but is not authorized.
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             var handler = new FacetCommandHandler(_journalPath, resolver, _stones, _characters, _authority,
                 new DenyAllGovernorAuthorityPolicy());
             var result = handler.Handle(GovCommit("op-range", HomesteadProgressionCatalog.ProfessionFacetId, "Cooking"));
@@ -346,7 +346,7 @@ namespace SBPR.Trailborne.Tests
             // Simulate a restart: fresh store + fresh handler rehydrating from the same journal.
             var freshStones = new InMemoryStoneAggregateStore();
             freshStones.PutStone(BuildStone(_stone, revision: 5, activeLevel: 2, committed: null));
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             var rehydrated = new FacetCommandHandler(_journalPath, resolver, freshStones, _characters, _authority,
                 new StubGovernorAuthorityPolicy());
 
@@ -393,7 +393,7 @@ namespace SBPR.Trailborne.Tests
         {
             var lowStones = new InMemoryStoneAggregateStore();
             lowStones.PutStone(BuildStone(_stone, revision: 5, activeLevel: 0, committed: null));
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             var handler = new FacetCommandHandler(_journalPath, resolver, lowStones, _characters, _authority,
                 new StubGovernorAuthorityPolicy());
 

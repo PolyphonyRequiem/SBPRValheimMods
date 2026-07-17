@@ -47,6 +47,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             OperationReceiptStore receipts,
             StoneAreaMembership stoneAreas,
             PendingRevalidationQueue pendingPlacements,
+            BoundSessionPrincipalIndex boundSessions,
             string durableDirectory)
         {
             Runtime = runtime;
@@ -58,6 +59,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             Receipts = receipts;
             StoneAreas = stoneAreas;
             PendingPlacements = pendingPlacements;
+            BoundSessions = boundSessions;
             DurableDirectory = durableDirectory;
         }
 
@@ -80,6 +82,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// the server (or a short deadline expires, writing no credit). The net48 layer pumps it on the
         /// ZDOMan replication cadence. Purely in-memory: a restart starts empty and never re-scans.</summary>
         public PendingRevalidationQueue PendingPlacements { get; }
+
+        /// <summary>IAP-007 Tracer 3 — the process-local bound-session principal index. Admission
+        /// (Tracer 1/2) publishes each connected peer's minted internal (AccountId, CharacterId,
+        /// SessionId) here; the live placement observer resolves the acting peer's BOUND INTERNAL
+        /// principal from it instead of deriving one from a raw provider subject. Non-durable:
+        /// cleared on restart, republished by admission on reconnect.</summary>
+        public BoundSessionPrincipalIndex BoundSessions { get; }
 
         public string DurableDirectory { get; }
 
@@ -111,12 +120,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
         /// <summary>Compose the live runtime over a stable server-owned durable directory. The
         /// directory is created if absent; the two journals live inside it and are rehydrated at
-        /// construction. Caller supplies the platform→account map (candidate E; null falls back to
-        /// candidate A — platform id as account), the per-Stone family classification, the server-owned
-        /// Bond authority policy, and the Stone AP sink (ZDO-backed in production, in-memory in tests).</summary>
+        /// construction. IAP-007 Tracer 3: the gameplay principal is the BOUND INTERNAL session
+        /// (server-minted AccountId/CharacterId) — there is no provider platform→account map and no
+        /// provider lookup on the gameplay path (AIP-FR-014/018). Caller supplies the per-Stone family
+        /// classification, the server-owned Bond authority policy, and the Stone AP sink (ZDO-backed in
+        /// production, in-memory in tests).</summary>
         public static FoundationalProgressionServer Create(
             string durableDirectory,
-            Func<string, string?>? accountIdForPlatform,
             IStoneFamilyResolver familyResolver,
             IBondAuthorityPolicy bondAuthority,
             IMirroredStoneApStore stoneApStore,
@@ -134,7 +144,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             string apJournal = Path.Combine(durableDirectory, ApJournalFile);
             string relJournal = Path.Combine(durableDirectory, RelationshipJournalFile);
 
-            var resolver = new PrincipalResolver(accountIdForPlatform);
+            var resolver = new PrincipalResolver();
             var authority = new InMemoryAccountStoneAuthorityStore();
             var characters = new InMemoryCharacterAggregateStore();
             var characterApStore = new InMemoryCharacterApStore();
@@ -163,9 +173,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             var pending = new PendingRevalidationQueue(
                 pendingRevalidationDeadline ?? TimeSpan.FromSeconds(30), pendingRevalidationCapacity);
 
+            var boundSessions = new BoundSessionPrincipalIndex();
+
             return new FoundationalProgressionServer(
                 runtime, relationships, authority, characters, stoneApStore, characterApStore,
-                receipts, stoneAreas, pending, durableDirectory);
+                receipts, stoneAreas, pending, boundSessions, durableDirectory);
         }
     }
 }

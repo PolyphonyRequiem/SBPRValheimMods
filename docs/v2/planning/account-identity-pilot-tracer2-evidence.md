@@ -79,6 +79,8 @@ HMAC only).
 
 - No gameplay-receipt migration; `PlatformId` still appears in the existing Homestead receipt path until
   Tracer 3, which is where the accepted Homestead data-model identity rows are reconciled and stamped.
+  (Superseded: IAP-007 Tracer 3, t_c8c96581, has since removed `PlatformId` from the gameplay
+  receipt/binding/log path — see account-identity-pilot-plan.md §"Tracer 3".)
 - No operator/privacy lifecycle (disable/export/delete/purge/retention) — that is Tracer 4.
 - No live dedicated joined-client proof (final gate). This tracer is engine-free + net48-compile evidence;
   "logs green ≠ playable" still holds for the end-to-end journey.

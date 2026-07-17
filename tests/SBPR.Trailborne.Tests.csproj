@@ -145,6 +145,10 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalPlacementObservation.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalPlacementRuntime.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/FoundationalProgressionServer.cs" />
+    <!-- IAP-007 Tracer 3: the engine-free bound-session principal index — admission publishes each
+         connected peer's minted internal (AccountId, CharacterId, SessionId) here, and the live gameplay
+         observer resolves the acting peer's BOUND INTERNAL principal from it instead of a provider subject. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/BoundSessionPrincipalIndex.cs" />
     <!-- Homestead progression Tracer 2 (T009R2): the engine-free DEDICATED-server placement ingress +
          revalidation core — a joined dedicated-server client's build never runs Player.PlacePiece on the
          server, so this revalidates a client notice against the server's own ZDO facts (existence, creator
