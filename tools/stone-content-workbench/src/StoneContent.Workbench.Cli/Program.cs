@@ -142,8 +142,10 @@ namespace StoneContent.Workbench.Cli
 
         private static int ServeReserved()
         {
-            Console.Error.WriteLine("serve: RESERVED for the Stone Content Workbench UI child card " +
-                "(t_e4d16b1c). Not implemented in the core POC.");
+            Console.Error.WriteLine("serve: the local browser workbench lives in the separate " +
+                "StoneContent.Workbench.Web project (UI card t_e4d16b1c). Run it with: " +
+                "dotnet run --project tools/stone-content-workbench/src/StoneContent.Workbench.Web -- " +
+                "--asset <path> [--scratch <dir>] [--port <n>].");
             return ExitUsage;
         }
 

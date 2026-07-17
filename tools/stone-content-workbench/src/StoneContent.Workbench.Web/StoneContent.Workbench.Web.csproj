@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Stone Content Authoring Workbench — LOCAL web adapter (POC, UI card t_e4d16b1c).
+       A loopback-only ASP.NET Core minimal host that serves a dependency-light static
+       HTML/CSS/JS workbench and exposes four endpoints (document / validate /
+       generate-preview / export). Like the CLI, this layer owns ALL file I/O and HTTP
+       presentation; every authoritative parse / validate / classify / generate decision
+       comes from the StoneContentWorkspace deep module. The browser NEVER reimplements
+       authoritative validation — client JS only presents what the core returns.
+
+       Engine-free net8: references only the Core project, no game / BepInEx / Valheim
+       assemblies, so it builds headless. The tools/Directory.Build.props shield keeps
+       this subtree out of the repo-root Valheim-SDK-path requirement. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>StoneContent.Workbench.Web</AssemblyName>
+    <RootNamespace>StoneContent.Workbench.Web</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The tests project references this Web project to exercise WorkbenchService as a
+         pure adapter; expose it as a normal library-style reference target. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../StoneContent.Workbench.Core/StoneContent.Workbench.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -17,13 +17,14 @@ tools/stone-content-workbench/
 │   └── homestead-stone.content.schema.json   # Draft 2020-12 schema proposal
 ├── src/
 │   ├── StoneContent.Workbench.Core/          # I/O-free deep module (load/validate/classify/generate/check)
-│   └── StoneContent.Workbench.Cli/           # thin CLI adapter (owns all file/console I/O)
+│   ├── StoneContent.Workbench.Cli/           # thin CLI adapter (owns all file/console I/O)
+│   └── StoneContent.Workbench.Web/           # loopback-only local browser workbench (calls the core)
 └── tests/
-    └── StoneContent.Workbench.Tests.csproj   # xUnit: serialization, validation, generation, parity, compile harness
+    └── StoneContent.Workbench.Tests.csproj   # xUnit: serialization, validation, generation, parity, compile harness, web contract
 ```
 
-The core returns result records and performs no I/O. The CLI owns files and presentation. A browser
-`serve` command is **reserved for the UI child card** and is not implemented here.
+The core returns result records and performs no I/O. The CLI and the Web adapter own files and
+presentation; both route every authoritative decision through the core deep module.
 
 ## Build & test (net8, no Valheim SDK needed)
 
@@ -50,6 +51,24 @@ ASSET=tools/stone-content-workbench/assets/homestead-stone.content.json
 
 All commands accept `--json` for machine-readable output. Exit codes: `0` clean, `1`
 validation/drift failure, `2` usage error.
+
+## Local browser workbench
+
+```bash
+WEB=tools/stone-content-workbench/src/StoneContent.Workbench.Web
+ASSET=tools/stone-content-workbench/assets/homestead-stone.content.json
+
+# Loopback-only host (127.0.0.1). Serves the static UI + four core-backed endpoints.
+/usr/bin/dotnet run --project $WEB -c Release -- --asset "$ASSET" --scratch /tmp/scw-scratch --port 5177
+# → open http://127.0.0.1:5177/
+```
+
+The browser is a pure presentation layer — it never reimplements validation. Endpoints:
+`GET /api/document`, `POST /api/validate`, `POST /api/generate-preview`, `POST /api/export`
+(atomic write into the granted scratch root, refused on a stale baseline / invalid doc / generator
+failure). Edit controls are enabled for **Cooking nodes only**; stable IDs are read-only; version
+pins are manually editable. 1440×900 acceptance screenshots live under
+[`docs/evidence/`](docs/evidence/).
 
 ## What is proven
 

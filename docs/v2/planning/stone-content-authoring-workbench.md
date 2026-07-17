@@ -28,7 +28,33 @@ A net8 core deep module plus a thin CLI that:
 
 The core (`StoneContent.Workbench.Core`) is I/O-free: it returns result records and never prints,
 reads, or writes. The CLI (`StoneContent.Workbench.Cli`) owns all file and console I/O. A local
-browser workbench (`serve`) is **reserved for the UI child card** and is not built here.
+browser workbench (`StoneContent.Workbench.Web`) — delivered by the UI child card — reuses the same
+core deep module for every authoritative decision; see **Local browser workbench** below.
+
+## Local browser workbench (UI vertical slice)
+
+`StoneContent.Workbench.Web` is a **loopback-only** ASP.NET Core host (`--asset <path>
+[--scratch <dir>] [--port <n>]`, bound to `127.0.0.1` only) serving a dependency-light static
+HTML/CSS/JS workbench. The browser is a **pure presentation layer**: it never reimplements a
+validation rule. Four endpoints call the core through a thin `WorkbenchService` adapter:
+
+- `GET  /api/document` — canonical asset text + the SHA-256 baseline hash (stale-write guard);
+- `POST /api/validate` — baseline-aware validation (enforces the version-bump policy above);
+- `POST /api/generate-preview` — the four generated `*.Data.g.cs` artifacts, blocked when invalid;
+- `POST /api/export` — atomically writes the canonical asset + generated artifacts into the
+  startup-granted scratch root (temp-sibling write then rename), refusing on a stale baseline,
+  any validation error, or a generator failure.
+
+The UI renders all four content sections; **edit controls are enabled for Cooking nodes only** (the
+vertical slice). Stable node IDs are read-only; version pins are manually editable so a semantic edit
+can be paired with an explicit bump. It provides dirty/reset state, an exact JSON diff, a narrow
+generated-C# diff, and diagnostic-to-field navigation. Presentation preserves the accepted dark
+mockup and carries meaning through **blue/orange + text/shape** — never red-vs-green, and avoiding
+cyan/magenta ambiguity. The host grants exactly one asset root and one scratch root at startup; the
+browser can never supply an arbitrary server path.
+
+Acceptance evidence (1440×900 screenshots inspected for clipping/contrast/layout defects) lives under
+[`tools/stone-content-workbench/docs/evidence/`](../../../tools/stone-content-workbench/docs/evidence/).
 
 ## Current-authority warning
 
