@@ -48,6 +48,10 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneRegistrar));
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneWorldPlacement));
 
+            // R5 acceptance #3 — bounded startup drift assertions: verify every required Harmony target /
+            // engine callsite the realization lifecycle depends on is present, once, before realization runs.
+            Features.HomesteadStone.HomesteadRuntimeDriftCheck.Verify();
+
             // T009 — live Foundational AP runtime. The bootstrap Harmony patch composes the durable
             // FoundationalProgressionServer on the authoritative server and arms the placement observer.
             harmony.PatchAll(typeof(Features.Progression.FoundationalRuntimeBootstrap));

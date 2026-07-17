@@ -21,15 +21,23 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         private const string SelectorVersion = "niflheim-homestead-playtest-v1";
         private const float MinimumDistance = 128f;
         private const double Density = 0.40;
-        private const int SeatAttempts = 8;
-        private const float SeatKeepOut = 1.75f;
         private const float RecheckSeconds = 5f;
+        /// <summary>Max XZ distance a LocationProxy may sit from the assignment XZ to be treated as this
+        /// candidate's realized host root (locations are placed within a 64 m zone; a small radius is ample).</summary>
+        private const float LiveHostMatchRadius = 24f;
         private static readonly HashSet<string> EligibleHosts = new HashSet<string>(
             Enumerable.Range(1, 13).Select(index => "WoodHouse" + index)
                 .Concat(new[] { "WoodFarm1", "WoodVillage1" }),
             StringComparer.Ordinal);
-        private static readonly int CollisionMask = LayerMask.GetMask("Default", "static_solid", "Default_small", "piece", "piece_nonsolid");
         private static ZoneSystem? scheduledFor;
+
+        /// <summary>Durable per-world event provenance ledger. Rehydrated from the world ZDO on assignment so
+        /// a fresh-world failure is a terminal fact across restarts (no phantom retries) — never session-only.</summary>
+        private static HomesteadWorldLedger Ledger = new HomesteadWorldLedger();
+
+        /// <summary>Versioned generator-host seat manifest (Approach C). Empty until an operator scan supplies
+        /// rows; generator hosts skip explicitly (ManifestRequired) until then. No runtime geometry guessing.</summary>
+        private static HomesteadGeneratorManifest Manifest = HomesteadGeneratorManifest.Empty;
 
         [HarmonyPatch(typeof(ZoneSystem), "Start")]
         [HarmonyPostfix]
@@ -53,6 +61,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 yield return new WaitForSeconds(1f);
 
             var worldIdentity = ResolveWorldIdentity();
+            Ledger = HomesteadLedgerStore.Load(worldIdentity);
             var instances = BuildCandidates(zoneSystem);
             var selection = HomesteadSelector.Select(
                 instances.Select(candidate => candidate.Domain).ToList(),
@@ -150,19 +159,40 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 var key = ZoneKey(runtime.Zone);
                 if (existing.Contains(key) || !zoneSystem.IsZoneLoaded(runtime.Zone)) continue;
 
-                var seats = HomesteadSeatGenerator.Generate(worldIdentity, SelectorVersion, candidate, SeatAttempts);
-                var seat = HomesteadSeatGenerator.ChooseBest(seats, candidateSeat => EvaluateSeat(candidate, candidateSeat));
-                if (!seat.HasSeat)
+                // Event gate (assumption audit): a same-version terminal outcome already recorded for this
+                // host zone must NOT be re-attempted — this is what prevents counter-only phantom retries
+                // after vanilla has set its generated flag.
+                if (Ledger.IsTerminal(candidate.ZoneX, candidate.ZoneZ, SelectorVersion)) continue;
+
+                HomesteadResolution resolution;
+                try
                 {
-                    Plugin.Log.LogWarning(
-                        $"[Niflheim/HomesteadStones] Selected {candidate.Prefab} zone ({candidate.ZoneX},{candidate.ZoneZ}) " +
-                        $"has no valid live seat after {seat.AttemptsEvaluated} attempts this realization.");
+                    resolution = ResolveSeat(candidate, worldIdentity);
+                }
+                catch (Exception exception)
+                {
+                    // Every event outcome including exceptions is captured (durable, terminal until a version
+                    // change) — never swallowed into a silent retry.
+                    Ledger.Record(candidate.ZoneX, candidate.ZoneZ, HomesteadEventOutcome.Exception, SelectorVersion, exception.Message);
+                    PersistLedger();
+                    Plugin.Log.LogError(
+                        $"[Niflheim/HomesteadStones] Exception resolving {candidate.Prefab} zone " +
+                        $"({candidate.ZoneX},{candidate.ZoneZ}): {exception}");
                     continue;
                 }
 
-                var position = new Vector3((float)seat.Seat.X, 0f, (float)seat.Seat.Z);
-                if (!Heightmap.GetHeight(position, out var groundHeight)) continue;
-                position.y = groundHeight;
+                if (!resolution.IsResolved)
+                {
+                    Ledger.Record(candidate.ZoneX, candidate.ZoneZ, MapOutcome(resolution.Status), SelectorVersion, resolution.Detail);
+                    PersistLedger();
+                    Plugin.Log.LogWarning(
+                        $"[Niflheim/HomesteadStones] {candidate.Prefab} zone ({candidate.ZoneX},{candidate.ZoneZ}) " +
+                        $"unresolved: {resolution.Status} — {resolution.Detail}");
+                    continue;
+                }
+
+                var record = resolution.Record!;
+                var position = new Vector3((float)record.SeatX, (float)record.SeatY, (float)record.SeatZ);
 
                 // The registered template stays activeSelf=true under an inactive holder. Never mutate it:
                 // ZNetScene reconstruction needs an active template so ZNetView.Awake consumes m_initZDO.
@@ -181,59 +211,106 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 }
 
                 existing.Add(key);
+                Ledger.Record(candidate.ZoneX, candidate.ZoneZ, HomesteadEventOutcome.Created, SelectorVersion,
+                    record.Provider.ToString());
+                PersistLedger();
                 Plugin.Log.LogInfo(
                     $"[Niflheim/HomesteadStones] Placed {candidate.Prefab} zone ({candidate.ZoneX},{candidate.ZoneZ}) " +
-                    $"attempt={seat.Seat.Attempt} seat=({position.x:0.00},{position.y:0.00},{position.z:0.00}).");
+                    $"provider={record.Provider} radial={record.RadialFromHost:0.00}m " +
+                    $"seat=({position.x:0.00},{position.y:0.00},{position.z:0.00}).");
             }
         }
 
-        private static SeatEvaluation EvaluateSeat(HomesteadCandidate host, SeatCandidate candidate)
+        /// <summary>Resolve a seat for one selected host, engine-free. Ordinary hosts read the LIVE host
+        /// root's AUTHORED static colliders (no Physics scene) + its realized rotation, then score seats
+        /// analytically with terrain Y from <see cref="WorldGenerator"/> pure noise. Generator hosts route
+        /// exclusively through the versioned manifest. NO Physics.*, NO live Heightmap here.</summary>
+        private static HomesteadResolution ResolveSeat(HomesteadCandidate candidate, string worldIdentity)
         {
-            var point = new Vector3((float)candidate.X, 0f, (float)candidate.Z);
-            if (Heightmap.FindHeightmap(point) == null || !Heightmap.GetHeight(point, out var height) ||
-                float.IsNaN(height) || float.IsInfinity(height)) return default;
-            point.y = height;
+            if (HomesteadHostClassifier.IsGenerator(candidate.Prefab))
+            {
+                // Generator hosts: manifest-only. Content hash of the live host (empty geometry ⇒ empty hash),
+                // matched against the versioned manifest row. No matching row ⇒ ManifestRequired (explicit skip).
+                var genGeometry = ReadLiveHostGeometry(candidate);
+                var contentHash = genGeometry?.SemanticHash ?? HomesteadGeometryHash.Compute(System.Array.Empty<StaticColliderFootprint>());
+                return HomesteadPlacementResolver.ResolveGenerator(
+                    worldIdentity, SelectorVersion, candidate, contentHash, Manifest);
+            }
 
-            var hostCenter = new Vector2((float)host.X, (float)host.Z);
-            var radialDistance = Vector2.Distance(new Vector2(point.x, point.z), hostCenter);
-            var structural = Physics.OverlapSphere(
-                    new Vector3((float)host.X, height + 2f, (float)host.Z),
-                    (float)Math.Max(12.0, host.LocationRadius + 6.0),
-                    CollisionMask,
-                    QueryTriggerInteraction.Ignore)
-                .Where(collider => IsHostStructure(host, collider))
-                .Select(collider => collider.bounds)
-                .ToArray();
-            if (structural.Length == 0) return default;
+            var geometry = ReadLiveHostGeometry(candidate);
+            if (geometry == null)
+                return HomesteadResolution.Fail(HomesteadResolutionStatus.GeometryUnavailable,
+                    $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) live host root not found in loaded zone.");
 
-            var hostBounds = structural[0];
-            foreach (var bounds in structural.Skip(1)) hostBounds.Encapsulate(bounds);
-            var closestX = Mathf.Clamp(point.x, hostBounds.min.x, hostBounds.max.x);
-            var closestZ = Mathf.Clamp(point.z, hostBounds.min.z, hostBounds.max.z);
-            var clearance = Vector2.Distance(new Vector2(point.x, point.z), new Vector2(closestX, closestZ));
-            var footprintBlocked = Physics.OverlapCapsule(
-                    point + Vector3.up * 0.25f,
-                    point + Vector3.up * 2.25f,
-                    0.9f,
-                    CollisionMask,
-                    QueryTriggerInteraction.Ignore)
-                .Any(collider => IsHostStructure(host, collider));
-            return new SeatEvaluation(
-                !footprintBlocked && clearance >= SeatKeepOut,
-                clearance,
-                radialDistance,
-                Math.Max(hostBounds.extents.x, hostBounds.extents.z));
+            var yaw = ReadLiveHostYaw(candidate);
+            return HomesteadPlacementResolver.ResolveOrdinary(
+                worldIdentity, SelectorVersion, candidate, geometry, yaw, WorldGenHeight);
         }
 
-        private static bool IsHostStructure(HomesteadCandidate host, Collider collider)
+        /// <summary>Locate the live host root GameObject in the loaded zone and read its authored static
+        /// collider footprints (SPIKE-2 Approach A). Returns null if the host instance is not present.</summary>
+        private static HomesteadHostGeometry? ReadLiveHostGeometry(HomesteadCandidate candidate)
         {
-            if (collider == null || !collider.enabled || collider.isTrigger) return false;
-            var piece = collider.GetComponentInParent<Piece>();
-            if (piece == null) return false;
-            var position = piece.transform.position;
-            return HomesteadHostStructure.IsAttributed(
-                piece.GetCreator(), position.x, position.z, host.X, host.Z, host.LocationRadius);
+            var host = FindLiveHostRoot(candidate);
+            if (host == null) return null;
+            return HomesteadHostGeometryProvider.FromHostRoot(candidate.Prefab, host, host.transform.rotation);
         }
+
+        private static double ReadLiveHostYaw(HomesteadCandidate candidate)
+        {
+            var host = FindLiveHostRoot(candidate);
+            // The footprints are de-rotated into the host-local frame by the provider, so the resolver must
+            // re-apply the SAME realized yaw. Reading it from the live root keeps geometry + seat consistent.
+            return host == null ? 0.0 : host.transform.rotation.eulerAngles.y * System.Math.PI / 180.0;
+        }
+
+        /// <summary>Find the realized host root instance for a candidate by matching its LocationProxy/root
+        /// near the location XZ within the loaded zone. Reads live transform + authored components only.</summary>
+        private static GameObject? FindLiveHostRoot(HomesteadCandidate candidate)
+        {
+            var znetScene = ZNetScene.instance;
+            if (znetScene == null) return null;
+            var center = new Vector3((float)candidate.X, 0f, (float)candidate.Z);
+            LocationProxy? best = null;
+            var bestDistanceSq = float.MaxValue;
+            foreach (var proxy in UnityEngine.Object.FindObjectsByType<LocationProxy>(FindObjectsSortMode.None))
+            {
+                if (proxy == null) continue;
+                var position = proxy.transform.position;
+                var dx = position.x - center.x;
+                var dz = position.z - center.z;
+                var distanceSq = (dx * dx) + (dz * dz);
+                if (distanceSq < bestDistanceSq && distanceSq <= LiveHostMatchRadius * LiveHostMatchRadius)
+                {
+                    bestDistanceSq = distanceSq;
+                    best = proxy;
+                }
+            }
+            return best == null ? null : best.gameObject;
+        }
+
+        /// <summary>Pure world-generation height (WorldGenerator noise — headless-safe, no Heightmap GameObject).
+        /// Adapts the engine <see cref="WorldGenerator"/> to the engine-free <see cref="WorldHeightFunction"/>.</summary>
+        private static bool WorldGenHeight(double worldX, double worldZ, out double height)
+        {
+            height = 0.0;
+            var generator = WorldGenerator.instance;
+            if (generator == null) return false;
+            var value = generator.GetHeight((float)worldX, (float)worldZ);
+            if (float.IsNaN(value) || float.IsInfinity(value)) return false;
+            height = value;
+            return true;
+        }
+
+        private static HomesteadEventOutcome MapOutcome(HomesteadResolutionStatus status) => status switch
+        {
+            HomesteadResolutionStatus.NoValidSeat => HomesteadEventOutcome.NoValidSeat,
+            HomesteadResolutionStatus.ManifestRequired => HomesteadEventOutcome.ManifestRequired,
+            HomesteadResolutionStatus.GeometryUnavailable => HomesteadEventOutcome.GeometryUnavailable,
+            _ => HomesteadEventOutcome.Exception,
+        };
+
+        private static void PersistLedger() => HomesteadLedgerStore.Save(Ledger);
 
         private static HashSet<string> ReconcileExisting(
             IReadOnlyDictionary<string, HomesteadAssignmentMetadata> selected)
