@@ -184,6 +184,14 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotProviderGate.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotProvisioningInputGate.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Identity/PilotAuthLoggingContract.cs" />
+    <!-- RD-T002 (Gate A) — Resource Delivery deterministic-time + recoverable-fan-out slice. Engine-free
+         (System-only), so link-compiled here exactly like the Homestead progression Gate-A slice. Closes
+         AT-RD-001/003/004/005/007. No gameplay is enabled; these are pure domain/application seams. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/ConnectionIdentity.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/ConnectionAggregate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/ContributionRule.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/IntervalReconciler.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/FinalLinkHandshakeStore.cs" />
   </ItemGroup>
 
 </Project>
