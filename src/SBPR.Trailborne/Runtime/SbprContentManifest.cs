@@ -125,6 +125,18 @@ namespace SBPR.Trailborne.Runtime
                     R("BjornHide", 4), R("FineWood", 6), R("LeatherScraps", 4),
                 }),
 
+                // ── Trailside Camp triad — Bedroll + Camp Fire (card t_439f2351 defects 2,3).
+                //    Hard-literal names; PROVISIONAL Black-Forest costs — MUST equal each
+                //    feature's BuildResources() (Bedroll.BuildResources / CampFire.BuildResources). ──
+                new PieceDef("piece_sbpr_bedroll", null, new[]
+                {
+                    R("BjornHide", 2), R("LeatherScraps", 3), R("Wood", 4),
+                }),
+                new PieceDef("piece_sbpr_camp_fire", null, new[]
+                {
+                    R("Wood", 5), R("Stone", 3), R("Coal", 2),
+                }),
+
                 // ── Ancient Portal (PortalPieceName; sole cost is one Portal Seed) ──
                 new PieceDef(Portals.PortalPieceName, null, new[]
                 {

@@ -22,6 +22,10 @@ namespace SBPR.Trailborne.Features.Trailblazing
     // And for the Bear Hide Tent (Trailside Camp) — a Spade-placed BF piece like the
     // Surveyor's Table, so we need the type for BearHideTent.TentName.
     using BearHideTent = SBPR.Trailborne.Features.Camp.BearHideTent;
+    // Trailside Camp triad siblings — the Bedroll + Camp Fire live on the same spade
+    // 'Trail' tab as the tent (Pillar 1: Spade, never Hammer).
+    using Bedroll = SBPR.Trailborne.Features.Camp.Bedroll;
+    using CampFire = SBPR.Trailborne.Features.Camp.CampFire;
     // And for MarkerSigns — the v2 marker pieces live on the spade 'Trail' tab too,
     // so we need the MarkerSigns TYPE for its prefab-name table.
     using MarkerSigns = SBPR.Trailborne.Features.MarkerSigns.MarkerSigns;
@@ -448,6 +452,11 @@ namespace SBPR.Trailborne.Features.Trailblazing
             // Trailside Camp — the Bear Hide Tent on the same 'Trail' tab (Pillar 1: Spade,
             // never Hammer). Prefab registered in the earlier RegisterPrefabs pass.
             AddSpadePieceByName(zns, table, BearHideTent.TentName);
+            // Trailside Camp triad — the Bedroll (sleep) + Camp Fire (heat gate) on the
+            // same 'Trail' tab as the tent. Prefabs registered in the earlier RegisterPrefabs
+            // pass, so they resolve by name here.
+            AddSpadePieceByName(zns, table, Bedroll.BedrollName);
+            AddSpadePieceByName(zns, table, CampFire.CampFireName);
             // v2 Marker Signs — four additive marker pieces on the same 'Trail' tab
             // (Pillar 1: Spade, never Hammer). Prefabs were registered in the earlier
             // RegisterPrefabs pass, so they resolve by name here (same guarantee the
