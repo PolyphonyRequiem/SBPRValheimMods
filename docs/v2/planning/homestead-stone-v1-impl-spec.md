@@ -190,9 +190,10 @@ For each selected Location:
 1. Generate exactly **8** pseudorandom XZ candidates deterministically from invariant world UID, selector
    version, host prefab, host zone coord, and attempt index.
 2. Keep candidates within 92% of the Location exterior radius with a 1.75 m center guard.
-3. Compute the global selected set independently of scene realization, but defer terrain/collider
-   validation and creation until that selected Location's zone is loaded on the current peer.
-4. Resolve Y against the local `Heightmap`.
+3. Compute the global selected set deterministically and independently of scene realization. Terrain/
+   collider validation and creation happen at **event time**, during vanilla fresh zone/location
+   realization (see §5a), when the host's real colliders and the live `Heightmap` exist.
+4. Resolve Y against the live `Heightmap` under the chosen seat at event time.
 5. Attribute live host structural bounds from nearby enabled, non-trigger `Piece` colliders; reject the
    Stone capsule footprint when it overlaps those colliders and require at least 1.75 m horizontal AABB
    clearance.
@@ -210,7 +211,7 @@ provisional playtest tune: it was first modelled at local Y `+1.0 m`, then raise
 2× scale per Daniel's 2026-07-15 real-client feedback (see §2). Live Valheim is a smaller integration gate for real terrain, runtime
 materials/emission/animation, persistence, and generator-backed Farm/Village behavior.
 
-## 5a. Dedicated-server realization gate (realization lifecycle fix)
+## 5a. Server-authoritative realization lifecycle (R3 — event-time creation)
 
 The initial live proof (T009L2) failed because realization never occurred on a headless dedicated
 server, silently. Root cause, confirmed against decompiled vanilla (`assembly_valheim`, base-game RE
@@ -219,61 +220,83 @@ per ADR-0001):
 - `ZoneSystem.IsZoneLoaded(zone)` is true only when `zone ∈ ZoneSystem.m_zones`. `m_zones` is populated
   exclusively by `CreateLocalZones`, which iterates the active area around `ZNet.GetReferencePosition()`.
 - On a dedicated server there is no local player; `Game` sets the reference position to a far-away
-  sentinel (`~1e6,0,1e6`) and never moves it. A joined **peer's** location zone is realized only via
-  `CreateGhostZones` → `SpawnZone(SpawnMode.Ghost)`, which places the location's ZDOs (the resident
-  structure ZDOs an observer sees) but **never adds the zone to `m_zones`**.
-- Consequently `IsZoneLoaded(zone)` is permanently false for every peer zone, and the old placement loop
-  dropped all selected candidates at that gate before any seat evaluation — with no diagnostic.
-- Additionally, `ZNetScene` instantiates GameObjects (live `Heightmap`, vanilla `Piece` colliders) only
-  around `GetReferencePosition()`, so collider-aware seat evaluation and `Heightmap.GetHeight` are also
-  unavailable around a peer zone on a dedicated server.
+  sentinel and never moves it. A joined **peer's** location zone is realized only via `CreateGhostZones`
+  → `SpawnZone(SpawnMode.Ghost)`, which never adds the zone to `m_zones`. So `IsZoneLoaded(zone)` is
+  permanently false for every peer zone, and the old placement loop dropped all candidates at that gate.
 
-Realization therefore uses **server-owned data**, not local scene state:
+### The R1/R2 dead end (removed)
 
-1. Trigger on `ZoneSystem.m_locationInstances[zone].m_placed` — set in BOTH ghost and full spawn, so it is
-   true on a dedicated server for peer-realized zones — instead of `IsZoneLoaded`.
-2. When the candidate's zone IS scene-instantiated on this peer (listen server / singleplayer host), keep
-   the full collider-aware best-of-eight seat evaluation and live `Heightmap` height (unchanged path).
-3. When it is not (headless dedicated server), resolve the seat from the host location's **own persisted
-   structure ZDOs** — not base world height, and not the first seat. Those ZDOs are spawned and persisted
-   by `SpawnZone(SpawnMode.Ghost)` when the peer zone is realized; each carries the real world position the
-   host was built at, including the Y produced by the location's own `TerrainModifier`/`TerrainComp`
-   leveling. They are harvested headlessly via `ZDOMan.FindSectorObjects(zone, 1, 0, …)` and attributed to
-   the host by the existing contract (`creator == 0`, inside the location radius). The pure resolver
-   (`Domain/HomesteadHeadlessSeat.cs`) then:
-   - evaluates **all eight** deterministic seats (never first-seat);
-   - rejects any seat inside a conservative footprint keep-out (1.75 m) of any attributed structure point,
-     or short of the required clearance;
-   - validates each seat's **final surface Y** from the lowest attributed structure base within a 6 m
-     sample radius (leveled-surface evidence), rejecting seats with no such evidence rather than falling
-     back to base world height;
-   - chooses the best valid seat by clearance + yard-band score, or returns an honest 8-of-8 skip.
-   - If the host is placed but **no** attributed structure evidence is persisted yet, creation is
-     **deferred** (revisited next pass), never guessed.
-4. Idempotence and restart-reuse are unchanged: the pre-create Stone-ZDO search by host zone coord still
-   guarantees exactly one persistent Stone per selected zone and no duplication on restart.
+R1 fell back to base `WorldGenerator.GetHeight` + first-seat. R2 tried to reconstruct the host footprint
+and leveled surface from the location's **generic persisted structure ZDOs** (creator == 0 within the
+location radius). Fresh review (PR #323) rejected R2 as unsound, and this build **removes** it:
 
-Base `WorldGenerator.GetHeight` and unconditional first-seat selection are **explicitly insufficient** on a
-dedicated server and are not used: they ignore the location's terrain leveling and the host footprint, which
-is exactly what the persisted structure ZDOs encode.
+- A ZDO transform pivot is neither a collider bound nor a terrain sample. Pivot distance cannot preserve
+  capsule/clearance; a min-pivot Y can bury or float the Stone; rotation/prefab/role/bounds are lost.
+- The `creator == 0` in-radius harvest also swept in the `LocationProxy`, zone-control, and vegetation —
+  the proxy alone defeats the intended defer semantics.
+- Headless scoring used the location radius rather than live structural-bounds extent.
 
-Bounded, actionable diagnostics replace the prior silent-nothing behavior (no per-tick spam), and are
-**recreated per `ZoneSystem` run** (reset on `ZoneSystem.Start` and cleared on destroy) so no warning latch,
-pass signature, or stone-less timer survives a world reload:
+**This build does not reconstruct scene geometry from generic persisted ZDO pivots.**
 
-- prefab-not-registered logs once per missing-state (nothing can realize until fixed);
-- a per-pass gate summary (selected / realized-this-pass / already-resident / zone-not-placed / eligible /
-  seat-skipped) logs only when the pass shape changes, and breaks the seat-skipped count out by reason
-  (missing world generator / deferred-no-evidence / all-eight-rejected / live-seat-unavailable) so a
-  deferred zone is never conflated with a seat failure;
-- a selected zone whose host location is placed **and whose eight seats were actually evaluated and all
-  rejected** past a bounded interval (30 s) emits exactly one actionable warning per episode, and re-arms if
-  the zone relapses. Deferred zones (evidence not yet persisted) are excluded from this warning; it no
-  longer claims "every seat attempt is failing" for a zone that was never evaluated.
+### Event-time creation seam
 
-The gate, the change-gated pass reporter, the stone-less watch, and the headless seat resolver are
-engine-free (`Domain/HomesteadRealizationDiagnostics.cs`, `Domain/HomesteadHeadlessSeat.cs`) and
-drift-guarded by `HomesteadRealizationDiagnosticsTests` and `HomesteadHeadlessSeatResolverTests`.
+Creation is grounded in the vanilla fresh-zone realization event, where the real geometry actually
+exists. `ZoneSystem.SpawnZone(Ghost|Full)` calls
+`PlaceLocations(zoneID, …, hmap, clearAreas, mode, spawnedObjects)`, which:
+
+1. freshly `Instantiate`s the host location's own `ZNetView` children at their final world positions with
+   **real colliders**, over the **live `Heightmap`**, after the location's `TerrainModifier`/`TerrainComp`
+   leveling has been applied;
+2. sets `m_locationInstances[zone].m_placed = true`;
+3. returns — and only **after** it returns does `SpawnZone` destroy the ghost temp objects (Ghost mode).
+
+A Harmony **postfix on `ZoneSystem.PlaceLocations`** therefore observes the authoritative live geometry —
+on **both** a listen server (`SpawnMode.Full`) and a headless dedicated server (`SpawnMode.Ghost`) — while
+it still exists, before vanilla destroys it. `PlaceLocations` fires **exactly once per zone per world**
+(vanilla guards its body on `!m_placed` and `SpawnZone` guards on `!IsZoneGenerated`), so fresh creation
+is a strict one-shot event.
+
+For a **freshly-placed selected host**, the postfix:
+
+- captures the host structural AABB from the real freshly-spawned host colliders (`Physics.SyncTransforms`
+  then an `OverlapSphere` filtered to enabled, non-trigger `Piece` colliders attributed to the host by the
+  existing `creator == 0`, inside-radius contract — the same live attribution the prior listen path used);
+- runs the full **all-eight best-of-score** seat contract against those live bounds (engine-free
+  `HomesteadEventSeatScorer`), enforcing the 1.75 m keep-out and the host-radius yard band, or an honest
+  8-of-8 skip;
+- resolves the final Y from the **live `Heightmap`** under the chosen seat;
+- instantiates the additive Stone bracketed in `ZNetView.StartGhostInit()`/`FinishGhostInit()` in Ghost
+  mode so the `ZNetView` creates a **persistent ZDO** in `ZDOMan` and returns before `AddInstance`
+  (verified against decompiled `ZNetView.Awake`; `OnDestroy` never destroys the ZDO). The temp GameObject
+  is then destroyed like vanilla's ghost temp objects, but its persistent ZDO survives and is saved with
+  the world. In Full mode the Stone remains a live scene instance;
+- stamps identity (world identity, selector version, host prefab, host zone coord) atomically on the
+  created ZDO; a stamping failure destroys the instance and creates nothing.
+
+### Three distinct lifecycle cases
+
+- **Fresh generation → create.** A selected host being placed for the first time creates exactly one
+  Stone, at event time, from live geometry (above).
+- **Persisted Stone → reuse.** Before creating, the seam checks all Stone ZDOs for the host zone coord.
+  On a restart the persisted Stone ZDO reloads and the one-shot event does not re-fire; if any path reaches
+  the decision with a resident Stone it reuses it. Exactly one Stone per selected zone; no duplication on
+  retries or restart.
+- **Already-generated host without a Stone → deferred migration.** A selected host whose zone is already
+  generated (`IsZoneGenerated`) but has no resident Stone can only be a **pre-fix world**: its one-shot
+  placement event already fired and its live geometry is gone. The periodic reconcile emits exactly one
+  `migration-required` diagnostic per such zone and **never** forces a seat or guesses geometry. Pre-release
+  migration is deferred; regenerating a disposable fresh world (the Astley seed reproduces the layout) is
+  the supported path, and a future migration/provider seam is preserved.
+
+Base `WorldGenerator.GetHeight`, unconditional first-seat selection, and generic-ZDO geometry
+reconstruction are **explicitly not used**.
+
+Per-world diagnostic state (world identity, selection, migration-warned set, prefab-missing latch) is
+recreated on every `ZoneSystem.Start` and cleared on destroy, so no state survives a world reload. The
+prefab-not-registered error logs once per missing-state. The event-time lifecycle decisions
+(`HomesteadStoneLifecycle`), the live-bounds clearance geometry (`LiveHostBounds`), and the best-of-eight
+seat scorer (`HomesteadEventSeatScorer`) are engine-free (`Domain/HomesteadStoneRealization.cs`) and
+drift-guarded by `HomesteadStoneRealizationTests`.
 
 ## 6. Explicit cuts for this integration slice
 

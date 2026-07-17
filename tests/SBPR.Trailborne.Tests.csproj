@@ -92,11 +92,11 @@
     <!-- Production Homestead assignment/seating domain logic is engine-free and link-compiled
          into this net8 test project while the shipping mod consumes the same source under net48. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadPlacement.cs" />
-    <!-- Engine-free realization gate + bounded diagnostics (Homestead Stone realization lifecycle FIX).
-         The dedicated-server realization gate, per-pass change-detection reporter, and stone-less warning
-         watch — all pure logic, link-compiled here so the diagnostic/gate contract is drift-guarded. -->
-    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadRealizationDiagnostics.cs" />
-    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadHeadlessSeat.cs" />
+    <!-- FIX R3 event-time realization: pure lifecycle decisions (fresh-create / reuse / migration) and the
+         best-of-eight seat scorer over REAL live host-collider bounds. Replaces the R1/R2 generic-ZDO
+         geometry inference (HomesteadHeadlessSeat.cs) and the superseded deferred-loop diagnostics
+         (HomesteadRealizationDiagnostics.cs), which the fresh review rejected as unsound. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadStoneRealization.cs" />
     <!-- Engine-free V12 presentation-tune contract (scale/hover/collider), pinned by
          HomesteadStonePresentationTests. Consumed under net48 by HomesteadStoneRegistrar. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadStonePresentation.cs" />
