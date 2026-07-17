@@ -210,6 +210,47 @@ provisional playtest tune: it was first modelled at local Y `+1.0 m`, then raise
 2× scale per Daniel's 2026-07-15 real-client feedback (see §2). Live Valheim is a smaller integration gate for real terrain, runtime
 materials/emission/animation, persistence, and generator-backed Farm/Village behavior.
 
+## 5a. Dedicated-server realization gate (realization lifecycle fix)
+
+The initial live proof (T009L2) failed because realization never occurred on a headless dedicated
+server, silently. Root cause, confirmed against decompiled vanilla (`assembly_valheim`, base-game RE
+per ADR-0001):
+
+- `ZoneSystem.IsZoneLoaded(zone)` is true only when `zone ∈ ZoneSystem.m_zones`. `m_zones` is populated
+  exclusively by `CreateLocalZones`, which iterates the active area around `ZNet.GetReferencePosition()`.
+- On a dedicated server there is no local player; `Game` sets the reference position to a far-away
+  sentinel (`~1e6,0,1e6`) and never moves it. A joined **peer's** location zone is realized only via
+  `CreateGhostZones` → `SpawnZone(SpawnMode.Ghost)`, which places the location's ZDOs (the resident
+  structure ZDOs an observer sees) but **never adds the zone to `m_zones`**.
+- Consequently `IsZoneLoaded(zone)` is permanently false for every peer zone, and the old placement loop
+  dropped all selected candidates at that gate before any seat evaluation — with no diagnostic.
+- Additionally, `ZNetScene` instantiates GameObjects (live `Heightmap`, vanilla `Piece` colliders) only
+  around `GetReferencePosition()`, so collider-aware seat evaluation and `Heightmap.GetHeight` are also
+  unavailable around a peer zone on a dedicated server.
+
+Realization therefore uses **server-owned data**, not local scene state:
+
+1. Trigger on `ZoneSystem.m_locationInstances[zone].m_placed` — set in BOTH ghost and full spawn, so it is
+   true on a dedicated server for peer-realized zones — instead of `IsZoneLoaded`.
+2. When the candidate's zone IS scene-instantiated on this peer (listen server / singleplayer host), keep
+   the full collider-aware best-of-eight seat evaluation and live `Heightmap` height (unchanged path).
+3. When it is not (headless dedicated server), fall back to the deterministic first seat with height from
+   `WorldGenerator.GetHeight` — the same terrain source vanilla used to place the host — which is
+   available without scene realization and is stable across restarts.
+4. Idempotence and restart-reuse are unchanged: the pre-create Stone-ZDO search by host zone coord still
+   guarantees exactly one persistent Stone per selected zone and no duplication on restart.
+
+Bounded, actionable diagnostics replace the prior silent-nothing behavior (no per-tick spam):
+
+- prefab-not-registered logs once per missing-state (nothing can realize until fixed);
+- a per-pass gate summary (selected / realized-this-pass / already-resident / zone-not-placed / eligible /
+  seat-skipped) logs only when the pass shape changes;
+- a selected zone whose host location is placed but which stays Stone-less past a bounded interval (30 s)
+  emits exactly one actionable warning per stone-less episode, and re-arms if the zone relapses.
+
+The gate, the change-gated pass reporter, and the stone-less watch are engine-free
+(`Domain/HomesteadRealizationDiagnostics.cs`) and drift-guarded by `HomesteadRealizationDiagnosticsTests`.
+
 ## 6. Explicit cuts for this integration slice
 
 Do not implement stale proposal behavior:
