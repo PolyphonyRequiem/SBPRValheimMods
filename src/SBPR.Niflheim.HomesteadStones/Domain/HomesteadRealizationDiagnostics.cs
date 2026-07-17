@@ -60,12 +60,34 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         }
     }
 
+    /// <summary>Why an ELIGIBLE candidate did not produce a Stone this pass. Distinguishes the failure
+    /// modes the R1 warning conflated ("every seat attempt is failing"), so the operator sees the ACTUAL
+    /// cause. Stable ordinal — surfaced only as a diagnostic count/reason, never persisted.</summary>
+    public enum SeatSkipReason
+    {
+        /// <summary>No world generator was available to resolve terrain (should be transient at boot).</summary>
+        NoWorldGenerator = 0,
+
+        /// <summary>Headless: the host is placed but its structure ZDOs are not persisted yet, so the
+        /// footprint/surface are unknown. Creation is DEFERRED, not failed — revisited next pass.</summary>
+        DeferredNoStructureEvidence = 1,
+
+        /// <summary>All eight deterministic seats were evaluated and rejected (footprint overlap, insufficient
+        /// clearance, or no local surface evidence). An honest 8-of-8 skip, not a forced seat.</summary>
+        AllSeatsRejected = 2,
+
+        /// <summary>Live path (listen server / host): the collider-aware best-of-eight found no valid seat or
+        /// the local Heightmap could not resolve a height.</summary>
+        LiveSeatUnavailable = 3,
+    }
+
     /// <summary>Accumulates the gate outcomes of a single realization pass and renders a bounded, stable
     /// operator summary. The engine-bound loop compares each finished pass to the previous one via
     /// <see cref="Signature"/> and logs only when the shape changed, so a steady state is silent.</summary>
     public sealed class RealizationPass
     {
         private readonly Dictionary<RealizationGate, int> _counts = new Dictionary<RealizationGate, int>();
+        private readonly Dictionary<SeatSkipReason, int> _skipReasons = new Dictionary<SeatSkipReason, int>();
         private int _realized;
         private int _seatSkipped;
 
@@ -82,12 +104,25 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         /// <summary>An eligible candidate that reached seat evaluation and produced a persistent Stone.</summary>
         public void Realized() => _realized++;
 
-        /// <summary>An eligible candidate whose seat evaluation found no valid live seat this pass.</summary>
-        public void SeatSkipped() => _seatSkipped++;
+        /// <summary>An eligible candidate that did NOT produce a Stone this pass, with the specific reason
+        /// (deferred vs honest 8-of-8 skip vs missing generator vs live-seat unavailable). Reasons are
+        /// counted so the operator summary can distinguish them instead of asserting "every seat is failing".</summary>
+        public void SeatSkipped(SeatSkipReason reason)
+        {
+            _seatSkipped++;
+            _skipReasons.TryGetValue(reason, out var current);
+            _skipReasons[reason] = current + 1;
+        }
 
         public int Count(RealizationGate gate)
         {
             _counts.TryGetValue(gate, out var current);
+            return current;
+        }
+
+        public int Count(SeatSkipReason reason)
+        {
+            _skipReasons.TryGetValue(reason, out var current);
             return current;
         }
 
@@ -98,25 +133,35 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         /// Two passes with the same signature describe the same steady state and must not both log.</summary>
         public string Signature => string.Format(
             CultureInfo.InvariantCulture,
-            "sel={0};already={1};notplaced={2};eligible={3};realized={4};seatskip={5}",
+            "sel={0};already={1};notplaced={2};eligible={3};realized={4};seatskip={5};" +
+            "nogen={6};defer={7};reject={8};live={9}",
             Selected,
             Count(RealizationGate.AlreadyRealized),
             Count(RealizationGate.ZoneNotPlaced),
             Count(RealizationGate.Eligible),
             _realized,
-            _seatSkipped);
+            _seatSkipped,
+            Count(SeatSkipReason.NoWorldGenerator),
+            Count(SeatSkipReason.DeferredNoStructureEvidence),
+            Count(SeatSkipReason.AllSeatsRejected),
+            Count(SeatSkipReason.LiveSeatUnavailable));
 
-        /// <summary>One-line, PII-free operator summary.</summary>
+        /// <summary>One-line, PII-free operator summary. Skip reasons are broken out so a DEFERRED zone
+        /// (evidence not yet persisted) is never reported as a seat failure.</summary>
         public string ToOperatorLine() => string.Format(
             CultureInfo.InvariantCulture,
             "Realization pass: selected={0} realizedThisPass={1} alreadyResident={2} zoneNotPlaced={3} " +
-            "eligible={4} seatSkipped={5}.",
+            "eligible={4} seatSkipped={5} (noWorldGen={6} deferredNoEvidence={7} allSeatsRejected={8} liveSeatUnavailable={9}).",
             Selected,
             _realized,
             Count(RealizationGate.AlreadyRealized),
             Count(RealizationGate.ZoneNotPlaced),
             Count(RealizationGate.Eligible),
-            _seatSkipped);
+            _seatSkipped,
+            Count(SeatSkipReason.NoWorldGenerator),
+            Count(SeatSkipReason.DeferredNoStructureEvidence),
+            Count(SeatSkipReason.AllSeatsRejected),
+            Count(SeatSkipReason.LiveSeatUnavailable));
     }
 
     /// <summary>Change-gated pass logger. Feed it each finished <see cref="RealizationPass"/>; it returns

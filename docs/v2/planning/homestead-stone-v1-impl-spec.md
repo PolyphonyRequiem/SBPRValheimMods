@@ -234,22 +234,46 @@ Realization therefore uses **server-owned data**, not local scene state:
    true on a dedicated server for peer-realized zones — instead of `IsZoneLoaded`.
 2. When the candidate's zone IS scene-instantiated on this peer (listen server / singleplayer host), keep
    the full collider-aware best-of-eight seat evaluation and live `Heightmap` height (unchanged path).
-3. When it is not (headless dedicated server), fall back to the deterministic first seat with height from
-   `WorldGenerator.GetHeight` — the same terrain source vanilla used to place the host — which is
-   available without scene realization and is stable across restarts.
+3. When it is not (headless dedicated server), resolve the seat from the host location's **own persisted
+   structure ZDOs** — not base world height, and not the first seat. Those ZDOs are spawned and persisted
+   by `SpawnZone(SpawnMode.Ghost)` when the peer zone is realized; each carries the real world position the
+   host was built at, including the Y produced by the location's own `TerrainModifier`/`TerrainComp`
+   leveling. They are harvested headlessly via `ZDOMan.FindSectorObjects(zone, 1, 0, …)` and attributed to
+   the host by the existing contract (`creator == 0`, inside the location radius). The pure resolver
+   (`Domain/HomesteadHeadlessSeat.cs`) then:
+   - evaluates **all eight** deterministic seats (never first-seat);
+   - rejects any seat inside a conservative footprint keep-out (1.75 m) of any attributed structure point,
+     or short of the required clearance;
+   - validates each seat's **final surface Y** from the lowest attributed structure base within a 6 m
+     sample radius (leveled-surface evidence), rejecting seats with no such evidence rather than falling
+     back to base world height;
+   - chooses the best valid seat by clearance + yard-band score, or returns an honest 8-of-8 skip.
+   - If the host is placed but **no** attributed structure evidence is persisted yet, creation is
+     **deferred** (revisited next pass), never guessed.
 4. Idempotence and restart-reuse are unchanged: the pre-create Stone-ZDO search by host zone coord still
    guarantees exactly one persistent Stone per selected zone and no duplication on restart.
 
-Bounded, actionable diagnostics replace the prior silent-nothing behavior (no per-tick spam):
+Base `WorldGenerator.GetHeight` and unconditional first-seat selection are **explicitly insufficient** on a
+dedicated server and are not used: they ignore the location's terrain leveling and the host footprint, which
+is exactly what the persisted structure ZDOs encode.
+
+Bounded, actionable diagnostics replace the prior silent-nothing behavior (no per-tick spam), and are
+**recreated per `ZoneSystem` run** (reset on `ZoneSystem.Start` and cleared on destroy) so no warning latch,
+pass signature, or stone-less timer survives a world reload:
 
 - prefab-not-registered logs once per missing-state (nothing can realize until fixed);
 - a per-pass gate summary (selected / realized-this-pass / already-resident / zone-not-placed / eligible /
-  seat-skipped) logs only when the pass shape changes;
-- a selected zone whose host location is placed but which stays Stone-less past a bounded interval (30 s)
-  emits exactly one actionable warning per stone-less episode, and re-arms if the zone relapses.
+  seat-skipped) logs only when the pass shape changes, and breaks the seat-skipped count out by reason
+  (missing world generator / deferred-no-evidence / all-eight-rejected / live-seat-unavailable) so a
+  deferred zone is never conflated with a seat failure;
+- a selected zone whose host location is placed **and whose eight seats were actually evaluated and all
+  rejected** past a bounded interval (30 s) emits exactly one actionable warning per episode, and re-arms if
+  the zone relapses. Deferred zones (evidence not yet persisted) are excluded from this warning; it no
+  longer claims "every seat attempt is failing" for a zone that was never evaluated.
 
-The gate, the change-gated pass reporter, and the stone-less watch are engine-free
-(`Domain/HomesteadRealizationDiagnostics.cs`) and drift-guarded by `HomesteadRealizationDiagnosticsTests`.
+The gate, the change-gated pass reporter, the stone-less watch, and the headless seat resolver are
+engine-free (`Domain/HomesteadRealizationDiagnostics.cs`, `Domain/HomesteadHeadlessSeat.cs`) and
+drift-guarded by `HomesteadRealizationDiagnosticsTests` and `HomesteadHeadlessSeatResolverTests`.
 
 ## 6. Explicit cuts for this integration slice
 

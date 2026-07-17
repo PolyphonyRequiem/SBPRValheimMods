@@ -52,7 +52,7 @@ namespace SBPR.Trailborne.Tests
             pass.Observe(RealizationGate.Eligible);
             pass.Observe(RealizationGate.Eligible);
             pass.Realized();
-            pass.SeatSkipped();
+            pass.SeatSkipped(SeatSkipReason.AllSeatsRejected);
 
             Assert.Equal(4, pass.Selected);
             Assert.Equal(1, pass.Count(RealizationGate.AlreadyRealized));
@@ -60,7 +60,65 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(2, pass.Count(RealizationGate.Eligible));
             Assert.Equal(1, pass.RealizedCount);
             Assert.Equal(1, pass.SeatSkippedCount);
-            Assert.Equal("sel=4;already=1;notplaced=1;eligible=2;realized=1;seatskip=1", pass.Signature);
+            Assert.Equal(1, pass.Count(SeatSkipReason.AllSeatsRejected));
+            Assert.Equal(
+                "sel=4;already=1;notplaced=1;eligible=2;realized=1;seatskip=1;nogen=0;defer=0;reject=1;live=0",
+                pass.Signature);
+        }
+
+        [Fact]
+        public void Pass_operator_line_distinguishes_deferred_from_seat_failure_reasons()
+        {
+            var pass = new RealizationPass();
+            pass.Observe(RealizationGate.Eligible);
+            pass.Observe(RealizationGate.Eligible);
+            pass.Observe(RealizationGate.Eligible);
+            pass.SeatSkipped(SeatSkipReason.DeferredNoStructureEvidence);
+            pass.SeatSkipped(SeatSkipReason.AllSeatsRejected);
+            pass.SeatSkipped(SeatSkipReason.NoWorldGenerator);
+
+            Assert.Equal(1, pass.Count(SeatSkipReason.DeferredNoStructureEvidence));
+            Assert.Equal(1, pass.Count(SeatSkipReason.AllSeatsRejected));
+            Assert.Equal(1, pass.Count(SeatSkipReason.NoWorldGenerator));
+            Assert.Equal(0, pass.Count(SeatSkipReason.LiveSeatUnavailable));
+
+            var line = pass.ToOperatorLine();
+            // Deferred is reported as its own reason, NOT as a blanket "every seat is failing" claim.
+            Assert.Contains("deferredNoEvidence=1", line);
+            Assert.Contains("allSeatsRejected=1", line);
+            Assert.Contains("noWorldGen=1", line);
+            Assert.Contains("seatSkipped=3", line);
+        }
+
+        [Fact]
+        public void Reporter_and_watch_are_per_instance_so_a_new_world_run_starts_clean()
+        {
+            // The engine adapter RECREATES the reporter and watch on each ZoneSystem.Start. Simulate a first
+            // world that warned + established a pass signature, then a fresh instance for the next world: the
+            // new instances must not inherit any state from the prior world run.
+            var worldOne = new RealizationPassReporter();
+            var firstPass = new RealizationPass();
+            firstPass.Observe(RealizationGate.Eligible);
+            firstPass.SeatSkipped(SeatSkipReason.AllSeatsRejected);
+            Assert.NotNull(worldOne.Consider(firstPass)); // world 1 speaks
+
+            var watchOne = new StonelessWatch(30.0);
+            watchOne.Advance(0.0, new[] { "3:2" });
+            Assert.Equal(new[] { "3:2" }, watchOne.Advance(31.0, new[] { "3:2" })); // world 1 warned zone 3:2
+
+            // New world run → fresh instances (what OnZoneSystemStart does).
+            var worldTwo = new RealizationPassReporter();
+            var samePass = new RealizationPass();
+            samePass.Observe(RealizationGate.Eligible);
+            samePass.SeatSkipped(SeatSkipReason.AllSeatsRejected);
+            // Even though this pass shape equals world 1's first pass, a fresh reporter has no memory and MUST
+            // speak — proving the signature latch did not survive the world reload.
+            Assert.NotNull(worldTwo.Consider(samePass));
+
+            var watchTwo = new StonelessWatch(30.0);
+            // Zone 3:2 already warned in world 1; a fresh watch must re-arm and warn again in world 2.
+            watchTwo.Advance(0.0, new[] { "3:2" });
+            Assert.Equal(new[] { "3:2" }, watchTwo.Advance(31.0, new[] { "3:2" }));
         }
 
         [Fact]
@@ -85,7 +143,7 @@ namespace SBPR.Trailborne.Tests
             var changed = new RealizationPass();
             changed.Observe(RealizationGate.AlreadyRealized);
             changed.Observe(RealizationGate.Eligible);
-            changed.SeatSkipped();
+            changed.SeatSkipped(SeatSkipReason.AllSeatsRejected);
             Assert.NotNull(reporter.Consider(changed)); // shape changed again → speaks
         }
 

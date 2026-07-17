@@ -35,12 +35,17 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         private static readonly int CollisionMask = LayerMask.GetMask("Default", "static_solid", "Default_small", "piece", "piece_nonsolid");
         private static ZoneSystem? scheduledFor;
 
-        // Bounded diagnostic state (per composed server run). The reporter emits one summary line only when
-        // a realization pass changes shape; the watch fires one warning per stone-less selected zone episode;
-        // prefabAvailabilityLogged ensures the prefab-availability line is emitted at most once per state.
-        private static readonly RealizationPassReporter PassReporter = new RealizationPassReporter();
-        private static readonly StonelessWatch Stoneless = new StonelessWatch(StonelessWarnSeconds);
+        // Bounded diagnostic state — RECREATED per ZoneSystem/world run (see OnZoneSystemStart). The R1 build
+        // held these in static readonly fields that survived world reloads, so a stale "warned"/"last pass"
+        // memory leaked across worlds. They are now reset on every ZoneSystem.Start and cleared on destroy.
+        private static RealizationPassReporter PassReporter = new RealizationPassReporter();
+        private static StonelessWatch Stoneless = new StonelessWatch(StonelessWarnSeconds);
         private static bool prefabMissingLogged;
+
+        // Conservative, data-only headless seat model: reject seats inside 1.75 m of any attributed host
+        // structure point (footprint keep-out), and require attributed structure leveled-surface evidence
+        // within 6 m to validate the final Y. Mirrors the live SeatKeepOut and the host-bounds sample scale.
+        private static readonly HeadlessSeatModel HeadlessModel = new HeadlessSeatModel(SeatKeepOut, 6.0);
 
         [HarmonyPatch(typeof(ZoneSystem), "Start")]
         [HarmonyPostfix]
@@ -48,6 +53,11 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         {
             if (ZNet.instance == null || !ZNet.instance.IsServer() || ReferenceEquals(scheduledFor, __instance)) return;
             scheduledFor = __instance;
+            // Fresh per-world diagnostic state: a new world must not inherit the prior world's pass signature,
+            // stone-less timers, or prefab-missing latch.
+            PassReporter = new RealizationPassReporter();
+            Stoneless = new StonelessWatch(StonelessWarnSeconds);
+            prefabMissingLogged = false;
             __instance.StartCoroutine(PlacementLoop(__instance));
         }
 
@@ -55,7 +65,12 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         [HarmonyPostfix]
         private static void OnZoneSystemDestroyed(ZoneSystem __instance)
         {
-            if (ReferenceEquals(scheduledFor, __instance)) scheduledFor = null;
+            if (!ReferenceEquals(scheduledFor, __instance)) return;
+            scheduledFor = null;
+            // Drop per-world diagnostic state so a subsequent world starts clean even before its Start runs.
+            PassReporter = new RealizationPassReporter();
+            Stoneless = new StonelessWatch(StonelessWarnSeconds);
+            prefabMissingLogged = false;
         }
 
         private static System.Collections.IEnumerator PlacementLoop(ZoneSystem zoneSystem)
@@ -192,13 +207,16 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 pass.Observe(gate);
                 if (gate != RealizationGate.Eligible) continue;
 
-                // Zone is placed and Stone-less: it is a realization candidate this pass. Track it for the
-                // stone-less watch; it is removed from the watch automatically once it realizes.
-                stonelessZoneKeys.Add(key);
-
-                if (!TryResolveSeat(zoneSystem, worldIdentity, candidate, out var position))
+                if (!TryResolveSeat(zoneSystem, worldIdentity, candidate, out var position, out var skipReason))
                 {
-                    pass.SeatSkipped();
+                    pass.SeatSkipped(skipReason);
+                    // A zone that is DEFERRED (structure evidence not yet persisted) is legitimately waiting,
+                    // not failing — it must NOT count toward the stone-less "seats are failing" warning. A
+                    // zone whose seats were actually evaluated and rejected (headless all-eight, or the live
+                    // collider path finding no valid seat) IS a real stone-less-episode candidate.
+                    if (skipReason == SeatSkipReason.AllSeatsRejected ||
+                        skipReason == SeatSkipReason.LiveSeatUnavailable)
+                        stonelessZoneKeys.Add(key);
                     continue;
                 }
 
@@ -230,13 +248,16 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             var summary = PassReporter.Consider(pass);
             if (summary != null) Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + summary);
 
-            // Actionable stone-less warning: a selected zone whose host location is placed but which has gone
-            // Stone-less past the bounded interval. Fired at most once per zone per stone-less episode.
+            // Actionable stone-less warning: a selected zone whose host location is placed AND whose eight
+            // deterministic seats were actually evaluated and all rejected, sustained past the bounded
+            // interval. Deferred zones (evidence not yet persisted) are excluded above, so this no longer
+            // claims "every seat is failing" for a zone that was never evaluated.
             foreach (var stonelessKey in Stoneless.Advance(elapsedSeconds, stonelessZoneKeys))
                 Plugin.Log.LogWarning(
-                    $"[Niflheim/HomesteadStones] Selected zone {stonelessKey} host location is placed but has had " +
-                    $"no realized Homestead Stone for over {StonelessWarnSeconds:0}s; every seat attempt is failing. " +
-                    "Investigate seat/terrain resolution for this zone.");
+                    $"[Niflheim/HomesteadStones] Selected zone {stonelessKey} host location is placed but its seats " +
+                    $"were evaluated and rejected (all {SeatAttempts} deterministic seats headlessly, or no valid live " +
+                    $"seat) for over {StonelessWarnSeconds:0}s — footprint overlap / insufficient clearance / no " +
+                    "validated surface. Investigate seat/terrain resolution for this zone.");
         }
 
         /// <summary>Server-owned truth that a selected zone's world exists: its vanilla location instance is
@@ -251,36 +272,82 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         /// scene-instantiated on THIS peer (listen server / singleplayer host), the live collider-aware seat
         /// evaluation runs exactly as before. On a headless dedicated server the peer zone is never scene-
         /// instantiated (ZNetScene realizes objects only around ZNet.GetReferencePosition()), so live
-        /// Heightmap/colliders are absent; we fall back to the deterministic best-of-8 seat with a data-only
-        /// height from WorldGenerator, which is the same terrain source vanilla used to place the host.</summary>
+        /// Heightmap/colliders are absent; we resolve the seat from the location's OWN persisted structure
+        /// ZDOs — server-authoritative leveled-surface + footprint evidence — evaluating all eight
+        /// deterministic seats and deferring (not guessing) when that evidence is not yet persisted.</summary>
         private static bool TryResolveSeat(
-            ZoneSystem zoneSystem, string worldIdentity, HomesteadCandidate candidate, out Vector3 position)
+            ZoneSystem zoneSystem, string worldIdentity, HomesteadCandidate candidate, out Vector3 position,
+            out SeatSkipReason skipReason)
         {
             position = default;
+            skipReason = SeatSkipReason.LiveSeatUnavailable;
             var seats = HomesteadSeatGenerator.Generate(worldIdentity, SelectorVersion, candidate, SeatAttempts);
 
             if (zoneSystem.IsZoneLoaded(new Vector2i(candidate.ZoneX, candidate.ZoneZ)))
             {
                 // Scene-instantiated locally: use the full collider-aware evaluation + live Heightmap.
                 var seat = HomesteadSeatGenerator.ChooseBest(seats, candidateSeat => EvaluateSeat(candidate, candidateSeat));
-                if (!seat.HasSeat) return false;
+                if (!seat.HasSeat) { skipReason = SeatSkipReason.LiveSeatUnavailable; return false; }
                 var p = new Vector3((float)seat.Seat.X, 0f, (float)seat.Seat.Z);
-                if (!Heightmap.GetHeight(p, out var groundHeight)) return false;
+                if (!Heightmap.GetHeight(p, out var groundHeight)) { skipReason = SeatSkipReason.LiveSeatUnavailable; return false; }
                 p.y = groundHeight;
                 position = p;
                 return true;
             }
 
-            // Headless dedicated server: no live scene around the peer zone. Pick the first deterministic
-            // seat and resolve Y from world-generation data (the authoritative terrain source that exists
-            // without scene realization). This is idempotent and stable across restarts by construction.
-            var world = WorldGenerator.instance;
-            if (world == null) return false;
-            var chosen = seats[0];
-            var height = world.GetHeight((float)chosen.X, (float)chosen.Z);
-            if (float.IsNaN(height) || float.IsInfinity(height)) return false;
-            position = new Vector3((float)chosen.X, height, (float)chosen.Z);
-            return true;
+            // Headless dedicated server: no live scene around the peer zone. Resolve the seat from the host
+            // location's OWN persisted structure ZDOs (creator == 0, inside the location radius) — the same
+            // server-owned facts an observer sees. Their world Y is the leveled final surface (location
+            // TerrainModifier/TerrainComp already applied when the ghost zone spawned them), and their XZ is
+            // the real footprint. We evaluate ALL eight deterministic seats against that evidence.
+            var hostStructure = HarvestHostStructure(candidate);
+            var seatFacts = new List<SeatFact>(seats.Count);
+            foreach (var s in seats) seatFacts.Add(new SeatFact(s.Attempt, s.X, s.Z));
+
+            var resolution = HomesteadHeadlessSeatResolver.Resolve(
+                seatFacts, hostStructure, candidate.X, candidate.Z, candidate.LocationRadius, HeadlessModel);
+
+            switch (resolution.Outcome)
+            {
+                case HeadlessSeatOutcome.Resolved:
+                    position = new Vector3((float)resolution.Seat.X, (float)resolution.Seat.Y, (float)resolution.Seat.Z);
+                    return true;
+                case HeadlessSeatOutcome.NoStructureEvidence:
+                    skipReason = SeatSkipReason.DeferredNoStructureEvidence;
+                    return false;
+                default:
+                    skipReason = SeatSkipReason.AllSeatsRejected;
+                    return false;
+            }
+        }
+
+        /// <summary>Harvest the host location's persisted structure ZDOs headlessly: every ZDO whose sector is
+        /// the host zone (or an immediate neighbour, since a location can straddle a zone edge), that is
+        /// attributed to the host (creator == 0 and inside the location radius per the existing
+        /// <see cref="HomesteadHostStructure"/> contract). Returns their world XZ and Y (leveled surface).
+        /// Empty when the ghost-spawned structure ZDOs have not yet persisted — the DEFER signal.</summary>
+        private static List<HostStructureFact> HarvestHostStructure(HomesteadCandidate candidate)
+        {
+            var facts = new List<HostStructureFact>();
+            var zdoMan = ZDOMan.instance;
+            if (zdoMan == null) return facts;
+
+            var sector = new Vector2i(candidate.ZoneX, candidate.ZoneZ);
+            var found = new List<ZDO>();
+            // area=1 covers the host zone plus its 8 neighbours so a location straddling a zone boundary is
+            // fully represented; distantArea=0. This is a read-only membership walk, no scene realization.
+            zdoMan.FindSectorObjects(sector, 1, 0, found);
+            foreach (var zdo in found)
+            {
+                if (zdo == null || !zdo.IsValid()) continue;
+                long creator = zdo.GetLong(ZDOVars.s_creator, 0L);
+                var pos = zdo.GetPosition();
+                if (!HomesteadHostStructure.IsAttributed(
+                        creator, pos.x, pos.z, candidate.X, candidate.Z, candidate.LocationRadius))
+                    continue;
+                facts.Add(new HostStructureFact(pos.x, pos.z, pos.y));
+            }
+            return facts;
         }
 
         private static SeatEvaluation EvaluateSeat(HomesteadCandidate host, SeatCandidate candidate)
