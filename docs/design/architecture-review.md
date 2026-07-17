@@ -378,8 +378,10 @@ Compass lands, rather than copied. Don't pre-build the rest of D speculatively.
 Not a domain model, but a structural fix the existing architecture doc already
 recommends and defers (PR-C R2). Today `Plugin.Awake` calls
 `harmony.PatchAll(typeof(...))` per patch class. PR-C documents that this is exactly
-how the `Sign_Interact_Patch` shipped **dead** (never registered, no compile error).
-Every new feature adds a patch class someone must remember to wire.
+how `SignInteractPatch` *once* shipped dead — registered nowhere, with no compile
+error — before it was later wired up at `Plugin.cs:391` (it is now the load-bearing
+E/Shift+E sign entrypoint). Every new feature adds a patch class someone must
+remember to wire, and nothing fails loud when they forget.
 
 **The fix (PR-C's own recommendation):** give each feature an explicit
 `ApplyPatches(Harmony h)` and have `Registrar`/`Plugin` call them from a list. A
@@ -496,8 +498,9 @@ if the seam feels wrong.
 - Add Core tests: every `RecipeDef` resolves a known station; pigment/kit/portal/lens
   costs equal their locked values; no duplicate outputs.
 - Fold in §4: give each feature `ApplyPatches(Harmony)`; `Plugin`/`Registrar` call a
-  list. (This also lets a future deliberate wiring of the dead `SignInteractPatch` be
-  an explicit one-line list add — NOT smuggled in here; that stays Daniel's call.)
+  list. (This makes the registration surface explicit and fail-loud so no future
+  patch can silently ship dead the way `SignInteractPatch` transiently did before it
+  was wired at `Plugin.cs:391`.)
 
 > Verify: 0/0; Core recipe-invariant tests green; **boot the server** → SpecCheck logs
 > `✓ All N recipes match` exactly as today (the manifest now IS the registry, so it
@@ -583,10 +586,12 @@ as many as fit cleanly with 0/0 + a gate each); the rest are child cards for
 3. **Phase appetite for THIS card:** stop after P1 (ZDO-component, 2 tags) for a tight
    first review, or push through P2 (recipe registry) in the same card as a second
    gated PR? (Lean: P0+P1 as PR-1, P2 as PR-2 — two small gates beat one big one.)
-4. **`SignInteractPatch` (dead since PR-C R1):** P2's `ApplyPatches` makes wiring it a
-   one-line list add. Wire it (activates Shift+E sign-pinning — a behavior change) or
-   leave it explicitly dormant? (Recommend: leave dormant; wire it in its own
-   behavior card, your call.)
+4. **`SignInteractPatch` — RESOLVED, already wired (was "dead since PR-C R1"):** this
+   patch is no longer dead. It is registered at `Plugin.cs:391` and is the live
+   E/Shift+E sign entrypoint (Painted + Marker signs, `SBPR_Pinned` ZDO + WorldPin).
+   The §4 `ApplyPatches` seam is still worth cutting on its own merits — but as a guard
+   against the *next* dead patch, not to wire this one. (No currently-dead patch exists;
+   every `[HarmonyPatch]` class resolves to a `PatchAll` line in `Plugin.cs`.)
 
 ---
 
