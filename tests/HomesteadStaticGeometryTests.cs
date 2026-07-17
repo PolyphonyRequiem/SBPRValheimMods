@@ -27,19 +27,19 @@ namespace SBPR.Trailborne.Tests
         // guard (INV-5) that forces a selector-version roll instead of silently reseating.
         private static readonly Dictionary<string, string> GoldenHash = new(StringComparer.Ordinal)
         {
-            ["WoodHouse1"] = "F7D55B6E270BB43C9D7CBE38F227804A2F799205FAE132064676709F08AC9391",
-            ["WoodHouse2"] = "3568AB0F7343C362C650F75867E9FBC7E27F5AD4CF9CFB5A56EEA9FA339151CB",
-            ["WoodHouse3"] = "8B30D15DDA6CA06CACE991B8F09B9710501B913195D80A8F77F83FD40C08E948",
-            ["WoodHouse4"] = "6361323FE04EE3DA1689E8F00EB39E9B3D3A504A68ADE4ACE2291469553CF882",
-            ["WoodHouse5"] = "E94B77E76B7C369527D50669ED5D822E4FBBC749E8EDB88DEDA34C3A6ECA1D8D",
-            ["WoodHouse6"] = "279BBF7B77CCC6E2174048CEDE2DD8B217E937ECBFFD25E9DA075BA9C3742248",
-            ["WoodHouse7"] = "4CB39C108DB72A4FF89A79B7FC06AC5AB8BA7E19C02E5B13B8788B913BD43B12",
-            ["WoodHouse8"] = "A415AC5155A7D5DE86B267D0981065F910C8D9D0AC8C725F83D0461CBEDBB370",
-            ["WoodHouse9"] = "2C8A610A6B8CFF6828F5A208A8A4E73E67D8EF087B87547D2A1EA73AC582317B",
-            ["WoodHouse10"] = "D92A3430B22E052D9DD02A6FA4B4FD22C57A63763CACE252F0F3F53C24FD3447",
-            ["WoodHouse11"] = "928EB24820E127E4F9A89117A1928BF796AC09D8D5871C022DE1DB0427973423",
-            ["WoodHouse12"] = "6191D3D36BA0CCA345954F7053CCF39D2F0B9912E7A594CBAE49B4CC75B3E1A4",
-            ["WoodHouse13"] = "A6E784F678781FAD82FB349FE6B3E2EAEE60C3518BED029312BACA278DAEE23C",
+            ["WoodHouse1"] = "ABCDC6D6A4D3B5ECC0FFE226489BB967CCC837029CFB41B7219B705C7E849DA3",
+            ["WoodHouse2"] = "5C8325CF2BD9A1DFEC3E78DF65D2D3A44E1F43B11DAAD1C40984728387CA6708",
+            ["WoodHouse3"] = "F3B2CB4B42EBEEC4EF2A5E0118E3369E4BB5870EC0EB2C37A084F80D6A16FB42",
+            ["WoodHouse4"] = "741767C20C84495746751047BCA5E0B62EADA16702AC89C2C85EC833722612AF",
+            ["WoodHouse5"] = "AE39400D4320381D737F24766B60ED04E40606266846AC252A0B1650A251977D",
+            ["WoodHouse6"] = "7618274A42E9A8E6B7B0D1C4F1373881823DD9A78774FD660FE619260A033E69",
+            ["WoodHouse7"] = "977A48F1398C4330219751F3A2DC21F1C8C1534CA5224B7412F9EBE7656C6224",
+            ["WoodHouse8"] = "536674987C369A5EAB72C8009D1A660B60A6B001C482DCDE58AE465F3C6F92BC",
+            ["WoodHouse9"] = "6C97D8842747D370F8B45DF46453FFB40E5A7D8560376A65EBB16E436CDB16D0",
+            ["WoodHouse10"] = "760024E3C67E21B9D3D27CF852677432EC68EAB480CA830F06B1BA8A8FA77A40",
+            ["WoodHouse11"] = "D985B2B8F3183CBC2F5A88C6F5D77F504576B8DDE3AA5EF057E1D820059AADCF",
+            ["WoodHouse12"] = "AB4538B0DEDCCF52A71B02DB8579B4B288C4999823C1A12C506A8C385DA6AB78",
+            ["WoodHouse13"] = "038271632D960F61152DBAE734FA5161EFD6AA1DA129122E9470732D967EA9D1",
         };
 
         // A permissive height function: seats are clamped to <=6 m where terrain is flat at host-origin Y,
@@ -254,58 +254,71 @@ namespace SBPR.Trailborne.Tests
             Assert.True(rotated.Clearance < unrotated.Clearance);
         }
 
-        // ---- Generator manifest seam (Approach C) --------------------------------------------
+        // ---- Generator manifest seam (R6 operational manifest — Blocker 6) -------------------
 
         [Fact]
         public void Generator_host_requires_a_manifest_and_skips_explicitly_when_absent()
         {
             var candidate = Host("WoodVillage1", -30, -13, -1920.0, -832.0);
 
-            var resolution = HomesteadPlacementResolver.ResolveGenerator(
-                World, Selector, candidate, liveContentHash: "content-abc", HomesteadGeneratorManifest.Empty);
+            var resolution = HomesteadPlacementResolver.ResolveGeneratorOperational(
+                World, Selector, candidate, HomesteadOperationalManifest.Empty);
 
             Assert.Equal(HomesteadResolutionStatus.ManifestRequired, resolution.Status);
             Assert.Null(resolution.Record);
         }
 
         [Fact]
-        public void Generator_host_accepts_a_matching_content_valid_manifest_row()
+        public void Generator_host_accepts_a_matching_operational_manifest_row()
         {
             var candidate = Host("WoodVillage1", -30, -13, -1920.0, -832.0);
-            var manifest = new HomesteadGeneratorManifest(new[]
-            {
-                new HomesteadManifestRow(World, Selector, "WoodVillage1", -30, -13, -1918.0, -833.0, 41.5, "content-abc"),
-            });
+            // Zone (-30,-13) center = (-1920,-832); seat within the 32 m zone half-extent.
+            var manifest = HomesteadOperationalManifest.Parse(
+                "version=1\nworld=" + World + "\nselector=" + Selector + "\nprovider=op-v1\ngeneration=3\n" +
+                "row\tWoodVillage1\t-30\t-13\t-1918.0\t-833.0\t41.5\tcontent-abc",
+                World, Selector);
 
-            var resolution = HomesteadPlacementResolver.ResolveGenerator(World, Selector, candidate, "content-abc", manifest);
+            var resolution = HomesteadPlacementResolver.ResolveGeneratorOperational(World, Selector, candidate, manifest);
 
             Assert.Equal(HomesteadResolutionStatus.Resolved, resolution.Status);
             Assert.Equal(HomesteadSeatProvider.Manifest, resolution.Record!.Provider);
             Assert.Equal(-1918.0, resolution.Record!.SeatX, 6);
             Assert.Equal(41.5, resolution.Record!.SeatY, 6);
+            // Provenance stamped onto the record is the manifest DOCUMENT digest, not a per-row hash.
+            Assert.Equal(manifest.DocumentDigest, resolution.Record!.ContentHash);
         }
 
         [Fact]
-        public void Generator_host_rejects_a_manifest_row_whose_content_hash_drifted()
+        public void Operational_manifest_rejects_out_of_zone_and_non_finite_rows()
         {
-            var candidate = Host("WoodVillage1", -30, -13, -1920.0, -832.0);
-            var manifest = new HomesteadGeneratorManifest(new[]
-            {
-                new HomesteadManifestRow(World, Selector, "WoodVillage1", -30, -13, -1918.0, -833.0, 41.5, "content-OLD"),
-            });
+            var manifest = HomesteadOperationalManifest.Parse(
+                "version=1\nworld=" + World + "\nselector=" + Selector + "\nprovider=op-v1\ngeneration=1\n" +
+                "row\tWoodVillage1\t-30\t-13\t-1918.0\t-833.0\t41.5\tok-row\n" +      // valid
+                "row\tWoodVillage1\t0\t0\t9999.0\t0.0\t10.0\tfar-row\n" +            // out of zone bounds
+                "row\tWoodFarm1\t1\t1\tNaN\t0.0\t5.0\tnan-row",                       // non-finite
+                World, Selector);
 
-            var resolution = HomesteadPlacementResolver.ResolveGenerator(World, Selector, candidate, "content-NEW", manifest);
-
-            Assert.Equal(HomesteadResolutionStatus.ManifestRequired, resolution.Status);
+            Assert.Equal(1, manifest.Count);
+            Assert.True(manifest.TryGet("WoodVillage1", -30, -13, out _));
+            Assert.Equal(2, manifest.RejectedRows.Count);
         }
 
         [Fact]
-        public void Manifest_rejects_duplicate_keys_at_construction()
+        public void Operational_manifest_is_empty_when_world_or_provenance_mismatches()
         {
-            var row = new HomesteadManifestRow(World, Selector, "WoodVillage1", -30, -13, 0, 0, 0, "h");
-            var dup = new HomesteadManifestRow(World, Selector, "WoodVillage1", -30, -13, 1, 1, 1, "h2");
+            // Wrong world → whole document is untrusted (Empty), supplies no seats.
+            var wrongWorld = HomesteadOperationalManifest.Parse(
+                "version=1\nworld=uid:999\nselector=" + Selector + "\nprovider=op-v1\ngeneration=1\n" +
+                "row\tWoodVillage1\t-30\t-13\t-1918.0\t-833.0\t41.5\tr",
+                World, Selector);
+            Assert.True(wrongWorld.IsEmpty);
 
-            Assert.Throws<ArgumentException>(() => new HomesteadGeneratorManifest(new[] { row, dup }));
+            // Missing provider provenance → Empty even if scope keys match.
+            var noProvider = HomesteadOperationalManifest.Parse(
+                "version=1\nworld=" + World + "\nselector=" + Selector + "\ngeneration=1\n" +
+                "row\tWoodVillage1\t-30\t-13\t-1918.0\t-833.0\t41.5\tr",
+                World, Selector);
+            Assert.True(noProvider.IsEmpty);
         }
 
         // ---- helpers -------------------------------------------------------------------------

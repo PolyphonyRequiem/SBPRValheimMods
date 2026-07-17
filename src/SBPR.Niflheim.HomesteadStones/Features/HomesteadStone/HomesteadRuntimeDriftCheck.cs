@@ -33,12 +33,49 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             ok &= AssertProperty(typeof(ZoneSystem), "LocationsGenerated", isStatic: false);
             ok &= AssertField(typeof(ZoneSystem), "m_locationInstances");
 
-            // The host-geometry read seam depends on LocationProxy being the realized host root component.
+            // R6 (Blocker 1) — the authoritative host-transform read + resident-Stone enumeration seams. The
+            // production path resolves host origin/rotation from the LocationProxy ZDO (s_location hash +
+            // GetPosition/GetRotation) and enumerates Stones/proxies via ZDOMan, so those exact members must
+            // exist. LocationProxy remains a required type (its ZDO is the identity source), but we no longer
+            // depend on discovering its live child hierarchy.
             ok &= AssertType(typeof(LocationProxy));
+            ok &= AssertMethod(typeof(ZoneSystem), "GetZone", new[] { typeof(Vector3) });
+            ok &= AssertMethod(typeof(ZDO), "GetRotation", Type.EmptyTypes);
+            ok &= AssertMethod(typeof(ZDO), "GetPosition", Type.EmptyTypes);
+            ok &= AssertField(typeof(ZDOVars), "s_location");
+            ok &= AssertMethod(typeof(ZDOMan), "GetAllZDOsWithPrefabIterative",
+                new[] { typeof(string), typeof(System.Collections.Generic.List<ZDO>), typeof(int).MakeByRefType() });
+
+            // R6 (Blocker 1/2) — the catalog semantic-hash pin: verify the embedded catalog loads and every
+            // host hash pins (a drifted catalog throws inside Load). This is the anti-tautology assertion —
+            // it exercises the REAL production authority, not a type existence check.
+            ok &= AssertCatalogPins();
 
             Plugin.Log.LogInfo(
                 "[Niflheim/HomesteadStones] Runtime drift check: " + (ok ? "all required targets/callsites present." : "FAILED — see errors above; realization disabled until resolved."));
             return ok;
+        }
+
+        private static bool AssertCatalogPins()
+        {
+            try
+            {
+                var catalog = HomesteadStaticGeometryCatalogLoader.Load();
+                if (catalog.HostCount <= 0)
+                {
+                    Plugin.Log.LogError("[Niflheim/HomesteadStones] Drift: static catalog loaded but has zero hosts.");
+                    return false;
+                }
+                Plugin.Log.LogInfo(
+                    $"[Niflheim/HomesteadStones] Catalog pin OK: hosts={catalog.HostCount} digest={catalog.CatalogDigest}.");
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Plugin.Log.LogError(
+                    $"[Niflheim/HomesteadStones] Drift: static catalog hash-pin/load failed: {exception.Message}.");
+                return false;
+            }
         }
 
         private static bool AssertMethod(Type type, string name, Type[]? parameters)

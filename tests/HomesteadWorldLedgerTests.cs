@@ -107,5 +107,72 @@ namespace SBPR.Trailborne.Tests
             Assert.True(ledger.TryGet(0, 0, out var record));
             Assert.Equal(HomesteadEventOutcome.MigrationDeferred, record.Outcome);
         }
+
+        // ---- R6 (Blocker 5/6/1) additions ---------------------------------------------------
+
+        [Fact]
+        public void Manifest_required_becomes_retryable_when_a_newer_generation_appears()
+        {
+            var ledger = new HomesteadWorldLedger();
+            // Recorded ManifestRequired at generation 2.
+            ledger.Record(7, 7, HomesteadEventOutcome.ManifestRequired, V1, "no row", manifestGeneration: 2);
+
+            // Same generation → still terminal (no phantom retry).
+            Assert.True(ledger.IsTerminal(7, 7, V1, liveManifestGeneration: 2));
+            // A NEWER generation → retryable (a fresh operator manifest may now have a row).
+            Assert.False(ledger.IsTerminal(7, 7, V1, liveManifestGeneration: 3));
+
+            // Re-recording under the newer generation supersedes the old record.
+            ledger.Record(7, 7, HomesteadEventOutcome.ManifestRequired, V1, "still no row", manifestGeneration: 3);
+            Assert.True(ledger.TryGet(7, 7, out var record));
+            Assert.Equal(3, record.ManifestGeneration);
+        }
+
+        [Fact]
+        public void Manifest_generation_survives_serialize_round_trip()
+        {
+            var ledger = new HomesteadWorldLedger();
+            ledger.SetWorldIdentity(World);
+            ledger.Record(1, 1, HomesteadEventOutcome.ManifestRequired, V1, "no row", manifestGeneration: 5);
+
+            var back = HomesteadWorldLedger.Deserialize(World, ledger.Serialize());
+            Assert.True(back.TryGet(1, 1, out var record));
+            Assert.Equal(5, record.ManifestGeneration);
+            Assert.False(back.IsTerminal(1, 1, V1, liveManifestGeneration: 6));   // retry survives restart
+        }
+
+        [Fact]
+        public void Created_can_be_cleared_for_recovery_when_the_stone_is_missing()
+        {
+            // R6 (Blocker 5): the ledger records provenance, not creation truth. A Created whose Stone ZDO
+            // no longer exists must be recoverable — ClearForRecovery drops it so the loop re-creates.
+            var ledger = new HomesteadWorldLedger();
+            ledger.Record(2, 2, HomesteadEventOutcome.Created, V1, "StaticGeometry");
+            Assert.True(ledger.IsTerminal(2, 2, V1));
+
+            ledger.ClearForRecovery(2, 2);
+
+            Assert.False(ledger.IsTerminal(2, 2, V1));   // reopened for re-creation
+            Assert.False(ledger.TryGet(2, 2, out _));
+        }
+
+        [Fact]
+        public void Catalog_unavailable_is_never_persisted_so_it_stays_retryable()
+        {
+            var ledger = new HomesteadWorldLedger();
+            ledger.Record(9, 9, HomesteadEventOutcome.CatalogUnavailable, V1, "catalog not loaded yet");
+            Assert.Equal(0, ledger.Count);                 // not stored
+            Assert.False(ledger.IsTerminal(9, 9, V1));     // retryable next tick
+        }
+
+        [Fact]
+        public void A_corrupt_blob_is_flagged_not_wellformed_for_the_store_to_recover()
+        {
+            var good = HomesteadWorldLedger.Deserialize(World, "");
+            Assert.True(good.IsWellFormed);                // genuinely empty is well-formed
+
+            var corrupt = HomesteadWorldLedger.Deserialize(World, "not-our-schema\ngarbage");
+            Assert.False(corrupt.IsWellFormed);            // header mismatch → the store must try temp/backup
+        }
     }
 }

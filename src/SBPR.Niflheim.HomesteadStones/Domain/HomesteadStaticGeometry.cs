@@ -248,6 +248,11 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         /// <summary>Ordinary host whose live geometry read returned zero footprints (should not happen on a
         /// well-formed prefab; treated as a terminal, non-retryable data fault, not a transient miss).</summary>
         GeometryUnavailable,
+
+        /// <summary>R6 (Blocker 1) — the static geometry catalog had no entry for this host, or the host's
+        /// authoritative location/proxy identity was not resolvable this tick. RETRYABLE and fail-closed:
+        /// the host is re-attempted on a later tick, never permanently abandoned as GeometryUnavailable.</summary>
+        CatalogUnavailable,
     }
 
     /// <summary>The engine-free result of one resolution attempt: either a record or an explicit status.</summary>

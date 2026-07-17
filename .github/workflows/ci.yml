@@ -124,6 +124,19 @@ jobs:
             | tee build.log
           test -f src/SBPR.Trailborne/bin/Release/SBPR.Trailborne.dll
 
+      # ── Niflheim Homestead Stones mod (Release, 0w/0e) ─────────────────────
+      # R6 (Blocker 7): the net48 realization adapters — static-geometry catalog
+      # loader, operational-manifest store, atomic ledger store, world-placement
+      # patch, and the load-bearing runtime drift check — are NOT link-compiled by
+      # the engine-free test suite (they reference live Unity/BepInEx types). CI
+      # must compile them against the real SDK so an adapter/provider/store/manifest/
+      # drift regression fails the build here, not only in a local dev tree.
+      - name: Build Homestead Stones mod (Release)
+        run: |
+          dotnet build src/SBPR.Niflheim.HomesteadStones/SBPR.Niflheim.HomesteadStones.csproj -c Release \
+            | tee homestead-build.log
+          test -f src/SBPR.Niflheim.HomesteadStones/bin/Release/SBPR.Niflheim.HomesteadStones.dll
+
       # ── Structural test suite (CLEANUP 3/3, card t_4364809c) ────────────────
       # xUnit over the SHIPPED engine-free contracts (link-compiled: the hover-hint
       # decision table + BoundedMapMath windowed-fog geometry). Needs NO Valheim SDK

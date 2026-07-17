@@ -48,9 +48,12 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneRegistrar));
             harmony.PatchAll(typeof(Features.HomesteadStone.HomesteadStoneWorldPlacement));
 
-            // R5 acceptance #3 — bounded startup drift assertions: verify every required Harmony target /
-            // engine callsite the realization lifecycle depends on is present, once, before realization runs.
-            Features.HomesteadStone.HomesteadRuntimeDriftCheck.Verify();
+            // R5/R6 acceptance — bounded startup drift assertions, and R6 (Blocker 7): the result is
+            // LOAD-BEARING. When Verify() is false, realization is disabled: the placement loop will not run
+            // its create/reconcile patches, so a drifted game update degrades to "no realization + a loud
+            // error" instead of seating Stones against renamed/removed engine callsites.
+            Features.HomesteadStone.HomesteadStoneWorldPlacement.RealizationEnabled =
+                Features.HomesteadStone.HomesteadRuntimeDriftCheck.Verify();
 
             // T009 — live Foundational AP runtime. The bootstrap Harmony patch composes the durable
             // FoundationalProgressionServer on the authoritative server and arms the placement observer.

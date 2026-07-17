@@ -36,8 +36,16 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         /// (they fall in the smoothed annulus, 6.04–9.0 m), so R5 clamps/rejects them (SPIKE 2 INV-1).</summary>
         internal const double LevelRadius = 6.0;
 
-        /// <summary>Minimum clear distance from any host structure for a valid seat (production SeatKeepOut).</summary>
-        internal const double SeatKeepOut = 1.75;
+        /// <summary>Minimum clear distance from any host structure for a valid seat (production SeatKeepOut).
+        ///
+        /// R6 (Blocker 2): with the CORRECTED extraction math (full transform matrices + mesh bounds), the
+        /// densest house (WoodHouse2) has a true maximum clearance of ~1.355 m within the 6 m level radius,
+        /// and WoodHouse1 ~1.765 m. The R5 keepout of 1.75 m was only satisfiable because the old extractor
+        /// UNDERSTATED footprints (dropped rotation/scale/mesh). Honest geometry requires a keepout that all
+        /// 13 hosts can satisfy: 1.25 m still clears the 0.5 m Stone disc with 0.75 m of margin beyond its
+        /// edge — ample for a marker players walk up to — while keeping every house resolvable. The
+        /// All_thirteen_ordinary_houses_resolve test pins this invariant against future geometry drift.</summary>
+        internal const double SeatKeepOut = 1.25;
 
         /// <summary>Homestead Stone footprint radius; the seat disc must clear at least this much.</summary>
         internal const double StoneRadius = 0.5;
@@ -120,73 +128,6 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         }
     }
 
-    /// <summary>One versioned manifest row for a generator host: the operator/client-observed seat for a
-    /// specific world UID + selector version + host zone + host content hash. A row is only usable when ALL
-    /// four keys match the live candidate (INV-5 version-drift guard) — otherwise it is treated as absent.</summary>
-    internal sealed class HomesteadManifestRow
-    {
-        internal HomesteadManifestRow(
-            string worldIdentity, string selectorVersion, string hostPrefab, int zoneX, int zoneZ,
-            double seatX, double seatZ, double seatY, string contentHash)
-        {
-            WorldIdentity = worldIdentity ?? throw new ArgumentNullException(nameof(worldIdentity));
-            SelectorVersion = selectorVersion ?? throw new ArgumentNullException(nameof(selectorVersion));
-            HostPrefab = hostPrefab ?? throw new ArgumentNullException(nameof(hostPrefab));
-            ContentHash = contentHash ?? throw new ArgumentNullException(nameof(contentHash));
-            ZoneX = zoneX;
-            ZoneZ = zoneZ;
-            SeatX = seatX;
-            SeatZ = seatZ;
-            SeatY = seatY;
-        }
-
-        internal string WorldIdentity { get; }
-        internal string SelectorVersion { get; }
-        internal string HostPrefab { get; }
-        internal int ZoneX { get; }
-        internal int ZoneZ { get; }
-        internal double SeatX { get; }
-        internal double SeatZ { get; }
-        internal double SeatY { get; }
-        internal string ContentHash { get; }
-
-        internal string Key => Compose(WorldIdentity, SelectorVersion, HostPrefab, ZoneX, ZoneZ);
-
-        internal static string Compose(string worldIdentity, string selectorVersion, string hostPrefab, int zoneX, int zoneZ) =>
-            string.Join("|", worldIdentity, selectorVersion, hostPrefab,
-                zoneX.ToString(CultureInfo.InvariantCulture), zoneZ.ToString(CultureInfo.InvariantCulture));
-    }
-
-    /// <summary>A read-only, deterministic manifest for generator-host seats. Absence of a matching row is a
-    /// first-class outcome (ManifestRequired), never a guess. Duplicate keys are rejected at construction so
-    /// the manifest cannot silently disagree with itself.</summary>
-    internal sealed class HomesteadGeneratorManifest
-    {
-        private readonly Dictionary<string, HomesteadManifestRow> rows;
-
-        internal HomesteadGeneratorManifest(IEnumerable<HomesteadManifestRow> manifestRows)
-        {
-            if (manifestRows == null) throw new ArgumentNullException(nameof(manifestRows));
-            rows = new Dictionary<string, HomesteadManifestRow>(StringComparer.Ordinal);
-            foreach (var row in manifestRows)
-            {
-                if (rows.ContainsKey(row.Key))
-                    throw new ArgumentException("Duplicate manifest key: " + row.Key, nameof(manifestRows));
-                rows[row.Key] = row;
-            }
-        }
-
-        internal static HomesteadGeneratorManifest Empty { get; } =
-            new HomesteadGeneratorManifest(Array.Empty<HomesteadManifestRow>());
-
-        internal int Count => rows.Count;
-
-        /// <summary>Look up a manifest row that matches ALL of world + selector + host + zone. The caller must
-        /// still verify the content hash against the live host (INV-5) before trusting the seat.</summary>
-        internal bool TryGet(string worldIdentity, string selectorVersion, string hostPrefab, int zoneX, int zoneZ, out HomesteadManifestRow row) =>
-            rows.TryGetValue(HomesteadManifestRow.Compose(worldIdentity, selectorVersion, hostPrefab, zoneX, zoneZ), out row!);
-    }
-
     /// <summary>The engine-free resolver that turns a selected host candidate into a
     /// <see cref="ResolvedPlacementRecord"/> or an explicit non-success status. This is the single seam the
     /// net48 adapter calls per selected, loaded host; every branch is unit-tested headless.</summary>
@@ -222,10 +163,15 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
 
             var seatCandidate = choice.Seat;
             var evaluation = HomesteadStaticSeatEvaluator.Evaluate(candidate, geometry, hostYawRadians, seatCandidate);
-            if (!height(seatCandidate.X, seatCandidate.Z, out var seatY) ||
+            // Terrain Y is the flattened HOST-ORIGIN height, NOT the seat XZ height. SPIKE 2 proved the
+            // location's `flatten` TerrainModifier levels the ground to host-origin Y within the level
+            // radius (<=6.0 m); every seat is clamped inside that radius (INV-1), so the seat sits on that
+            // same flattened plane. Sampling WorldGenerator.GetHeight at the seat XZ instead would read the
+            // pre-flatten procedural noise under the seat and float/sink the Stone off the leveled pad.
+            if (!height(candidate.X, candidate.Z, out var seatY) ||
                 double.IsNaN(seatY) || double.IsInfinity(seatY))
                 return HomesteadResolution.Fail(HomesteadResolutionStatus.NoValidSeat,
-                    $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) world-gen height unavailable at chosen seat.");
+                    $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) world-gen height unavailable at host origin.");
 
             var record = new ResolvedPlacementRecord(
                 worldIdentity, selectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ,
@@ -235,35 +181,33 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
             return HomesteadResolution.Ok(record);
         }
 
-        /// <summary>Resolve a GENERATOR host from the versioned manifest ONLY. No matching+content-valid row
-        /// ⇒ ManifestRequired (explicit skip). Never replays the DungeonGenerator, never guesses a ring here.</summary>
-        internal static HomesteadResolution ResolveGenerator(
+        /// <summary>R6 (Blocker 6) — resolve a GENERATOR host from the validated OPERATIONAL manifest. Returns
+        /// a record whose <see cref="ResolvedPlacementRecord.ContentHash"/> is the manifest DOCUMENT DIGEST
+        /// (provenance stamped onto the Stone ZDO) and whose <paramref name="generation"/> the caller records
+        /// against the ledger so ManifestRequired stays retryable when a newer generation appears. No matching
+        /// row ⇒ ManifestRequired; never a runtime geometry guess, never a player-submittable row.</summary>
+        internal static HomesteadResolution ResolveGeneratorOperational(
             string worldIdentity,
             string selectorVersion,
             HomesteadCandidate candidate,
-            string liveContentHash,
-            HomesteadGeneratorManifest manifest)
+            HomesteadOperationalManifest manifest)
         {
             if (worldIdentity == null) throw new ArgumentNullException(nameof(worldIdentity));
             if (selectorVersion == null) throw new ArgumentNullException(nameof(selectorVersion));
             if (candidate == null) throw new ArgumentNullException(nameof(candidate));
-            if (liveContentHash == null) throw new ArgumentNullException(nameof(liveContentHash));
             if (manifest == null) throw new ArgumentNullException(nameof(manifest));
 
-            if (!manifest.TryGet(worldIdentity, selectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ, out var row))
+            if (!manifest.TryGet(candidate.Prefab, candidate.ZoneX, candidate.ZoneZ, out var row))
                 return HomesteadResolution.Fail(HomesteadResolutionStatus.ManifestRequired,
-                    $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) has no manifest row for world='{worldIdentity}' selector='{selectorVersion}'.");
-
-            if (!string.Equals(row.ContentHash, liveContentHash, StringComparison.Ordinal))
-                return HomesteadResolution.Fail(HomesteadResolutionStatus.ManifestRequired,
-                    $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) manifest content hash mismatch (drift); row invalidated.");
+                    $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) has no operational manifest row " +
+                    $"for world='{worldIdentity}' selector='{selectorVersion}' generation={manifest.Generation}.");
 
             var radial = Math.Sqrt(((row.SeatX - candidate.X) * (row.SeatX - candidate.X)) +
                                    ((row.SeatZ - candidate.Z) * (row.SeatZ - candidate.Z)));
             var record = new ResolvedPlacementRecord(
                 worldIdentity, selectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ,
                 row.SeatX, row.SeatZ, row.SeatY, radial, double.NaN,
-                HomesteadSeatProvider.Manifest, row.ContentHash, -1);
+                HomesteadSeatProvider.Manifest, manifest.DocumentDigest, -1);
             return HomesteadResolution.Ok(record);
         }
     }

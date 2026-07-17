@@ -100,6 +100,12 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadPlacementResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadWorldLedger.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneReconciler.cs" />
+    <!-- R6 engine-free additions: operational manifest (Blocker 6), static geometry catalog + its
+         engine-free JSON loader (Blocker 1/2). All free of UnityEngine/Valheim refs. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadOperationalManifest.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadStaticGeometryCatalog.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadLedgerAtomicIo.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/HomesteadStone/HomesteadStaticGeometryCatalogLoader.cs" />
     <!-- Engine-free V12 presentation-tune contract (scale/hover/collider), pinned by
          HomesteadStonePresentationTests. Consumed under net48 by HomesteadStoneRegistrar. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadStonePresentation.cs" />

@@ -272,7 +272,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
         {
             get
             {
-                if (!IsValid || Clearance < 1.75) return double.NegativeInfinity;
+                if (!IsValid || Clearance < HomesteadStaticSeatEvaluator.SeatKeepOut) return double.NegativeInfinity;
                 var yardBand = Math.Max(0.0, Math.Min(1.0, 1.0 - (Math.Abs(RadialDistance - (HostRadius + 2.5)) / 5.0)));
                 return 100.0 + (Clearance * 4.0) + (yardBand * 8.0) - (Math.Max(0.0, RadialDistance - 12.0) * 2.0);
             }
