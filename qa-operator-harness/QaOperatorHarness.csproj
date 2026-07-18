@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- IAP-010 QA operator harness. Link-compiles the SAME shipped IAP-009 CLEAN
+       cores exercised by tests/NiflheimOperatorControlTests.cs, then binds them
+       to REAL OS resources (real journal files, real stat/chmod fail-closed,
+       real no-echo stdin, a real concurrent in-flight mutation, and a genuine
+       fresh-process restart). This is the "thin net48 host that binds real
+       stdin/stat/console I/O to the cores" the operator runbook defers to
+       IAP-010. No copy/fork: the asserted behaviour IS the shipped behaviour. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>QaOperatorHarness</AssemblyName>
+    <RootNamespace>SBPR.Qa.OperatorHarness</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SbprSkipSdkValidation>true</SbprSkipSdkValidation>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- In-repo default: the shipped IAP-009 cores are two dirs up. Override with
+         -p:SRCDIR=<abs path> when building from a detached worktree. -->
+    <SRCDIR Condition="'$(SRCDIR)'==''">$(MSBuildThisFileDirectory)../src/SBPR.Niflheim.HomesteadStones</SRCDIR>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(SRCDIR)/Adapters/Identity/PilotProviderGate.cs" />
+    <Compile Include="$(SRCDIR)/Adapters/Identity/PilotProvisioningInputGate.cs" />
+    <Compile Include="$(SRCDIR)/Adapters/Identity/PilotAuthLoggingContract.cs" />
+    <Compile Include="$(SRCDIR)/Adapters/Identity/LookupKeyRing.cs" />
+    <Compile Include="$(SRCDIR)/Domain/Accounts/PilotAccountIdentifiers.cs" />
+    <Compile Include="$(SRCDIR)/Domain/Accounts/PilotDisclosure.cs" />
+    <Compile Include="$(SRCDIR)/Persistence/Accounts/PilotAccountStore.cs" />
+    <Compile Include="$(SRCDIR)/Persistence/Accounts/PersistedPiiScanner.cs" />
+    <Compile Include="$(SRCDIR)/Application/Accounts/PilotAccountService.cs" />
+    <Compile Include="$(SRCDIR)/Application/Accounts/AccountMutationFence.cs" />
+    <Compile Include="$(SRCDIR)/Application/Accounts/PilotSessionRegistry.cs" />
+    <Compile Include="$(SRCDIR)/Application/Accounts/OperatorAdminGate.cs" />
+    <Compile Include="$(SRCDIR)/Application/Accounts/OperatorAccountService.cs" />
+    <Compile Include="$(SRCDIR)/Application/Runtime/VanillaAdminIdentity.cs" />
+    <Compile Include="$(SRCDIR)/Features/PilotIdentity/LocalAllowlistBootstrap.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>
