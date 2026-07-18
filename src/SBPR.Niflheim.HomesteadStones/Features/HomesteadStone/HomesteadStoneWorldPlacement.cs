@@ -22,9 +22,11 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         private const float MinimumDistance = 128f;
         private const double Density = 0.40;
         private const float RecheckSeconds = 5f;
+        private const float VegetationClearRadius = 2.5f;
+        // Current Homestead Stone hosts are the thirteen ordinary Meadows house locations only.
+        // Farm/Village generators belong to the future village system and are intentionally excluded.
         private static readonly HashSet<string> EligibleHosts = new HashSet<string>(
-            Enumerable.Range(1, 13).Select(index => "WoodHouse" + index)
-                .Concat(new[] { "WoodFarm1", "WoodVillage1" }),
+            Enumerable.Range(1, 13).Select(index => "WoodHouse" + index),
             StringComparer.Ordinal);
         private static ZoneSystem? scheduledFor;
 
@@ -36,15 +38,6 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         /// <summary>Durable per-world event provenance ledger. Rehydrated from the world ZDO on assignment so
         /// a fresh-world failure is a terminal fact across restarts (no phantom retries) — never session-only.</summary>
         private static HomesteadWorldLedger Ledger = new HomesteadWorldLedger();
-
-        /// <summary>Versioned generator-host seat manifest (Approach C). Empty until an operator scan supplies
-        /// rows; generator hosts skip explicitly (ManifestRequired) until then. No runtime geometry guessing.</summary>
-        private static HomesteadOperationalManifest Manifest = HomesteadOperationalManifest.Empty;
-
-        /// <summary>R6 (Blocker 1) — the checked-in static geometry catalog, the production authority for
-        /// ordinary-host footprints. Loaded + hash-pin-verified once at startup; a pin failure disables
-        /// realization fail-closed rather than seating against drifted geometry.</summary>
-        private static HomesteadStaticGeometryCatalog Catalog = HomesteadStaticGeometryCatalog.Empty;
 
         [HarmonyPatch(typeof(ZoneSystem), "Start")]
         [HarmonyPostfix]
@@ -75,23 +68,9 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 yield return new WaitForSeconds(1f);
 
             var worldIdentity = ResolveWorldIdentity();
-            try
-            {
-                // R6 (Blocker 1) — load + hash-pin-verify the checked-in static catalog. A pin failure means
-                // the shipped geometry drifted from the catalog; fail closed (no seating) rather than seat
-                // against changed geometry.
-                Catalog = HomesteadStaticGeometryCatalogLoader.Load();
-                Plugin.Log.LogInfo(
-                    $"[Niflheim/HomesteadStones] Static geometry catalog loaded: hosts={Catalog.HostCount} "
-                    + $"digest={Catalog.CatalogDigest} schema='{Catalog.Schema}'.");
-            }
-            catch (Exception exception)
-            {
-                Plugin.Log.LogError(
-                    $"[Niflheim/HomesteadStones] Static catalog load/verify FAILED: {exception.Message}. "
-                    + "Realization halted (catalog is the production authority; refusing to seat against drift).");
-                yield break;
-            }
+            Plugin.Log.LogInfo(
+                $"[Niflheim/HomesteadStones] Authored seat catalog ready: hosts={HomesteadAuthoredSeatCatalog.Count} " +
+                $"version='{HomesteadAuthoredSeatCatalog.Version}' digest={HomesteadAuthoredSeatCatalog.ContentHash}.");
             try
             {
                 Ledger = HomesteadLedgerStore.Load(worldIdentity);
@@ -120,10 +99,6 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
             while (ReferenceEquals(ZoneSystem.instance, zoneSystem))
             {
-                // R6 (Blocker 6) — reload the operational manifest each tick so a new generation supplied by
-                // an operator is picked up WITHOUT a restart; generation is passed to the ledger gate so a
-                // previously-ManifestRequired generator host becomes retryable when the generation advances.
-                Manifest = HomesteadManifestStore.LoadOrReload(worldIdentity, SelectorVersion);
                 PlaceLoaded(zoneSystem, worldIdentity, selection.Selected, byIdentity);
                 ReconcileStoneAreas(worldIdentity);
                 yield return new WaitForSeconds(RecheckSeconds);
@@ -200,19 +175,16 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 candidate => new HomesteadAssignmentMetadata(
                     worldIdentity, SelectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ),
                 StringComparer.Ordinal);
-            // R7 (Blocker 1) — the reconciler compares FULL provenance, so build the expected provenance for
-            // each selected zone from the SAME authorities placement uses: ordinary hosts carry the catalog
-            // digest + the host's geometry semantic hash (generation 0); generator hosts carry the live
-            // manifest provider version + document digest + generation. A resident Stone whose provider/content/
-            // generation no longer matches this expectation is reaped as stale and its zone flagged for recovery.
+            // The reconciler compares full authored-table provenance. A Stone from an older placement
+            // authority is reaped and its zone reopened for creation at Daniel's selected transform.
             var expectedByZone = BuildExpectedPlacements(selectedMetadata);
-            // R6 (Blocker 4) — reconcile resident Stones with the FULL stable ZDOID (UserID, ID) via the
-            // production StoneReconciler BEFORE the event gate, so unkeyed / unselected / mismatched /
-            // duplicate / stale-provenance Stones are reaped and stale zone entries can never suppress a
-            // legitimate creation.
-            var existing = ReconcileResidentStones(expectedByZone);
+            // Reconcile before the event gate so unkeyed, unselected, mismatched, duplicate, and stale-
+            // provenance Stones cannot suppress legitimate creation. Keep reconciliation INSIDE the same
+            // tick-scoped durability boundary as creation: a transient ledger fault must abort this tick and
+            // retry on the normal five-second loop, not kill the coroutine until process restart.
             try
             {
+                var existing = ReconcileResidentStones(expectedByZone);
                 PlaceSelected(prefab, worldIdentity, selected, byIdentity, existing, selectedMetadata, zoneSystem);
             }
             catch (HomesteadLedgerStore.LedgerIoException exception)
@@ -239,18 +211,23 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             {
                 var runtime = byIdentity[Identity(candidate)];
                 var key = ZoneKey(runtime.Zone);
-                if (existing.Contains(key) || !zoneSystem.IsZoneLoaded(runtime.Zone)) continue;
+                if (existing.Contains(key)) continue;
+                // Dedicated peer zones are Ghost-generated and never enter ZoneSystem.m_zones, so
+                // IsZoneLoaded is permanently false here. The server-owned realization fact is the
+                // selected location instance's persisted m_placed flag.
+                if (!zoneSystem.m_locationInstances.TryGetValue(runtime.Zone, out var locationInstance) ||
+                    !locationInstance.m_placed)
+                    continue;
 
-                // Event gate (assumption audit): a same-version terminal outcome already recorded for this
-                // host zone must NOT be re-attempted — this is what prevents counter-only phantom retries
-                // after vanilla has set its generated flag. The live manifest generation is passed so a
-                // ManifestRequired zone becomes retryable when a newer generation appears (R6 Blocker 6).
-                if (Ledger.IsTerminal(candidate.ZoneX, candidate.ZoneZ, SelectorVersion, Manifest.Generation)) continue;
+                // Same-version terminal failures remain terminal. Creation itself is governed by matching
+                // Stone ZDO truth, not this advisory outcome ledger.
+                if (Ledger.IsTerminal(candidate.ZoneX, candidate.ZoneZ, SelectorVersion, liveManifestGeneration: 0)) continue;
 
                 HomesteadResolution resolution;
+                Quaternion placementRotation;
                 try
                 {
-                    resolution = ResolveSeat(candidate, worldIdentity);
+                    resolution = ResolveSeat(candidate, worldIdentity, out placementRotation);
                 }
                 catch (Exception exception)
                 {
@@ -266,11 +243,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
                 if (!resolution.IsResolved)
                 {
-                    // ManifestRequired carries the generation it was decided under so a later generation can
-                    // supersede it; all other failures carry generation 0 (version-scoped terminal).
-                    var generation = resolution.Status == HomesteadResolutionStatus.ManifestRequired
-                        ? Manifest.Generation : 0L;
-                    Ledger.Record(candidate.ZoneX, candidate.ZoneZ, MapOutcome(resolution.Status), SelectorVersion, resolution.Detail, generation);
+                    Ledger.Record(candidate.ZoneX, candidate.ZoneZ, MapOutcome(resolution.Status), SelectorVersion, resolution.Detail);
                     PersistLedger();
                     Plugin.Log.LogWarning(
                         $"[Niflheim/HomesteadStones] {candidate.Prefab} zone ({candidate.ZoneX},{candidate.ZoneZ}) " +
@@ -285,7 +258,8 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
                 // The registered template stays activeSelf=true under an inactive holder. Never mutate it:
                 // ZNetScene reconstruction needs an active template so ZNetView.Awake consumes m_initZDO.
-                var instance = UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
+                ClearVegetationAround(position, zoneSystem);
+                var instance = UnityEngine.Object.Instantiate(prefab, position, placementRotation);
                 instance.name = HomesteadStoneRegistrar.PrefabName;
                 instance.transform.SetParent(null, true);
                 if (!StampIdentity(instance.GetComponent<ZNetView>(), provenance))
@@ -315,51 +289,45 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             }
         }
 
-        /// <summary>Resolve a seat for one selected host, engine-free. Ordinary hosts read the LIVE host
-        /// root's AUTHORED static colliders (no Physics scene) + its realized rotation, then score seats
-        /// analytically with terrain Y from <see cref="WorldGenerator"/> pure noise. Generator hosts route
-        /// exclusively through the versioned manifest. NO Physics.*, NO live Heightmap here.</summary>
-        private static HomesteadResolution ResolveSeat(HomesteadCandidate candidate, string worldIdentity)
+        /// <summary>Resolve one Daniel-approved prefab-local transform against the authoritative LocationProxy
+        /// position/rotation. No runtime collider catalog, Physics scoring, or generator manifest.</summary>
+        private static HomesteadResolution ResolveSeat(
+            HomesteadCandidate candidate,
+            string worldIdentity,
+            out Quaternion placementRotation)
         {
-            if (HomesteadHostClassifier.IsGenerator(candidate.Prefab))
-            {
-                // Generator hosts: OPERATIONAL-manifest-only (R6 Blocker 6). No matching row ⇒ ManifestRequired
-                // (explicit, retryable skip). Never reads live geometry, never guesses a ring, never a
-                // player-submittable row. The manifest document digest becomes the Stone's provenance stamp.
-                return HomesteadPlacementResolver.ResolveGeneratorOperational(
-                    worldIdentity, SelectorVersion, candidate, Manifest);
-            }
+            placementRotation = Quaternion.identity;
+            if (!HomesteadAuthoredSeatCatalog.TryGet(candidate.Prefab, out var seat))
+                return HomesteadResolution.Fail(HomesteadResolutionStatus.GeometryUnavailable,
+                    $"{candidate.Prefab} has no authored Homestead Stone transform.");
 
-            // R6 (Blocker 1) — ORDINARY host geometry comes from the CHECKED-IN static catalog keyed by exact
-            // prefab, NOT a live LocationProxy child hierarchy. The host's realized transform/rotation comes
-            // from the authoritative location/proxy ZDO (position + rotation + s_location hash), not a
-            // nearest-live-proxy guess. A missing catalog entry or unresolvable host identity is RETRYABLE
-            // (CatalogUnavailable), never a terminal GeometryUnavailable.
-            if (!Catalog.TryGet(candidate.Prefab, out var geometry))
-                return HomesteadResolution.Fail(HomesteadResolutionStatus.CatalogUnavailable,
-                    $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) has no static catalog entry (retryable).");
-
-            if (!TryResolveHostFromZdo(candidate, out var hostOrigin, out var yaw))
+            if (!TryResolveHostFromZdo(candidate, out var hostOrigin, out var hostRotation))
                 return HomesteadResolution.Fail(HomesteadResolutionStatus.CatalogUnavailable,
                     $"{candidate.Prefab} ({candidate.ZoneX},{candidate.ZoneZ}) authoritative location/proxy ZDO not resolvable yet (retryable).");
 
-            // Use the ZDO-authoritative host origin (not the coarse zone-instance XZ) so the seat and terrain
-            // sample agree with the realized location pose.
-            var authoritativeCandidate = new HomesteadCandidate(
-                candidate.Prefab, candidate.ZoneX, candidate.ZoneZ, hostOrigin.x, hostOrigin.z, candidate.LocationRadius);
-            return HomesteadPlacementResolver.ResolveOrdinary(
-                worldIdentity, SelectorVersion, authoritativeCandidate, geometry, yaw, WorldGenHeight,
-                Catalog.CatalogDigest);
+            seat.ToWorld(
+                hostOrigin.x, hostOrigin.z, hostRotation.eulerAngles.y,
+                out var seatX, out var seatZ, out var worldYawDegrees);
+            placementRotation = Quaternion.Euler(0f, (float)worldYawDegrees, 0f);
+            var radial = Math.Sqrt((seatX - hostOrigin.x) * (seatX - hostOrigin.x) +
+                                   (seatZ - hostOrigin.z) * (seatZ - hostOrigin.z));
+            var record = new ResolvedPlacementRecord(
+                worldIdentity, SelectorVersion, candidate.Prefab, candidate.ZoneX, candidate.ZoneZ,
+                seatX, seatZ, hostOrigin.y + seat.LocalY,
+                radial, double.NaN,
+                HomesteadSeatProvider.StaticGeometry, HomesteadAuthoredSeatCatalog.ContentHash, attempt: 0,
+                providerVersion: HomesteadAuthoredSeatCatalog.Version, manifestGeneration: 0);
+            return HomesteadResolution.Ok(record);
         }
 
         /// <summary>R6 (Blocker 1) — resolve a host's authoritative origin + realized yaw from the location/proxy
         /// ZDO, matched by the host prefab's <c>s_location</c> stable hash within the candidate's zone. Reads
         /// ZDO position + rotation only (no child-hierarchy discovery, no nearest-live-proxy guess). Returns
         /// false when no matching proxy ZDO exists yet — retryable, not terminal.</summary>
-        private static bool TryResolveHostFromZdo(HomesteadCandidate candidate, out Vector3 hostOrigin, out double yawRadians)
+        private static bool TryResolveHostFromZdo(HomesteadCandidate candidate, out Vector3 hostOrigin, out Quaternion hostRotation)
         {
             hostOrigin = default;
-            yawRadians = 0.0;
+            hostRotation = Quaternion.identity;
             var zdoMan = ZDOMan.instance;
             if (zdoMan == null) return false;
 
@@ -376,24 +344,53 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                 // Bind to the candidate's zone so two same-prefab locations in adjacent zones never cross-match.
                 if (ZoneSystem.GetZone(zdo.GetPosition()) != zone) continue;
                 hostOrigin = zdo.GetPosition();
-                yawRadians = zdo.GetRotation().eulerAngles.y * System.Math.PI / 180.0;
+                hostRotation = zdo.GetRotation();
                 return true;
             }
             return false;
         }
 
-        /// <summary>Pure world-generation height (WorldGenerator noise — headless-safe, no Heightmap GameObject).
-        /// Adapts the engine <see cref="WorldGenerator"/> to the engine-free <see cref="WorldHeightFunction"/>.</summary>
-        private static bool WorldGenHeight(double worldX, double worldZ, out double height)
+        /// <summary>
+        /// Reproduce the Location clear-area consequence for a Stone realized after vanilla vegetation
+        /// placement. Only ZDOs whose prefab appears in ZoneSystem's vegetation table are eligible.
+        /// </summary>
+        private static void ClearVegetationAround(Vector3 position, ZoneSystem zoneSystem)
         {
-            height = 0.0;
-            var generator = WorldGenerator.instance;
-            if (generator == null) return false;
-            var value = generator.GetHeight((float)worldX, (float)worldZ);
-            if (float.IsNaN(value) || float.IsInfinity(value)) return false;
-            height = value;
-            return true;
+            var zdoMan = ZDOMan.instance;
+            if (zdoMan == null) return;
+
+            var radiusSq = VegetationClearRadius * VegetationClearRadius;
+            var prefabNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var vegetation in zoneSystem.m_vegetation)
+            {
+                if (vegetation?.m_prefab == null || string.IsNullOrEmpty(vegetation.m_prefab.name)) continue;
+                prefabNames.Add(vegetation.m_prefab.name);
+            }
+
+            var destroyed = 0;
+            foreach (var prefabName in prefabNames)
+            {
+                var found = new List<ZDO>();
+                var index = 0;
+                while (!zdoMan.GetAllZDOsWithPrefabIterative(prefabName, found, ref index)) { }
+                foreach (var zdo in found)
+                {
+                    if (zdo == null || !zdo.IsValid() || !zdo.IsOwner()) continue;
+                    var candidate = zdo.GetPosition();
+                    var dx = candidate.x - position.x;
+                    var dz = candidate.z - position.z;
+                    if ((dx * dx) + (dz * dz) > radiusSq) continue;
+                    zdoMan.DestroyZDO(zdo);
+                    destroyed++;
+                }
+            }
+
+            if (destroyed > 0)
+                Plugin.Log.LogInfo(
+                    $"[Niflheim/HomesteadStones] Cleared {destroyed} vegetation ZDO(s) within " +
+                    $"{VegetationClearRadius:0.0}m of authored seat ({position.x:0.00},{position.z:0.00}).");
         }
+
 
         private static HomesteadEventOutcome MapOutcome(HomesteadResolutionStatus status) => status switch
         {
@@ -406,12 +403,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
         private static void PersistLedger() => HomesteadLedgerStore.Save(Ledger);
 
-        /// <summary>R7 (Blocker 1) — build the expected FULL provenance for each selected zone from the SAME
-        /// authorities the placement path uses, WITHOUT running a full seat resolve (the reconciler only needs
-        /// the provenance identity, not a seat). Ordinary hosts: catalog digest as provider version + the host's
-        /// geometry semantic hash as content hash, generation 0. Generator hosts: the live manifest's provider
-        /// version + document digest + generation. A zone whose host geometry/manifest identity is not currently
-        /// resolvable is omitted (its resident Stone stays as-is until the authority is available again).</summary>
+        /// <summary>Build the expected provenance for each selected authored house transform.</summary>
         private static Dictionary<string, HomesteadExpectedPlacement> BuildExpectedPlacements(
             IReadOnlyDictionary<string, HomesteadAssignmentMetadata> selectedMetadata)
         {
@@ -419,26 +411,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             foreach (var pair in selectedMetadata)
             {
                 var meta = pair.Value;
-                HomesteadStoneProvenance provenance;
-                if (HomesteadHostClassifier.IsGenerator(meta.Prefab))
-                {
-                    // Generator: expected provenance mirrors what ResolveGeneratorOperational would stamp for the
-                    // CURRENT manifest. If the manifest has no matching row this generation, we cannot assert an
-                    // expected provenance (a would-be ManifestRequired), so we skip — the resident Stone (if any)
-                    // is left for the next tick rather than being reaped against an absent authority.
-                    if (!Manifest.TryGet(meta.Prefab, meta.ZoneX, meta.ZoneZ, out _)) continue;
-                    provenance = new HomesteadStoneProvenance(
-                        HomesteadProvenanceCodec.SchemaVersion, meta, HomesteadSeatProvider.Manifest,
-                        Manifest.ProviderVersion, Manifest.DocumentDigest, Manifest.Generation);
-                }
-                else
-                {
-                    // Ordinary: expected provenance is the catalog digest + this host's geometry semantic hash.
-                    if (!Catalog.TryGet(meta.Prefab, out var geometry)) continue;
-                    provenance = new HomesteadStoneProvenance(
-                        HomesteadProvenanceCodec.SchemaVersion, meta, HomesteadSeatProvider.StaticGeometry,
-                        Catalog.CatalogDigest, geometry.SemanticHash, 0);
-                }
+                if (!HomesteadAuthoredSeatCatalog.TryGet(meta.Prefab, out _)) continue;
+                var provenance = new HomesteadStoneProvenance(
+                    HomesteadProvenanceCodec.SchemaVersion, meta, HomesteadSeatProvider.StaticGeometry,
+                    HomesteadAuthoredSeatCatalog.Version, HomesteadAuthoredSeatCatalog.ContentHash, 0);
                 expected[pair.Key] = new HomesteadExpectedPlacement(provenance);
             }
             return expected;

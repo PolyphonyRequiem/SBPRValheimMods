@@ -27,12 +27,12 @@ namespace SBPR.Trailborne.Tests
         // guard (INV-5) that forces a selector-version roll instead of silently reseating.
         private static readonly Dictionary<string, string> GoldenHash = new(StringComparer.Ordinal)
         {
-            ["WoodHouse1"] = "ABCDC6D6A4D3B5ECC0FFE226489BB967CCC837029CFB41B7219B705C7E849DA3",
+            ["WoodHouse1"] = "822F0501D5E5AA6AE4F4F2C7EE6F3CEB3D9FA533B1533ACDA11928018DEDB0BC",
             ["WoodHouse2"] = "5C8325CF2BD9A1DFEC3E78DF65D2D3A44E1F43B11DAAD1C40984728387CA6708",
             ["WoodHouse3"] = "4BE3F6CC53E07DFE5B355B4F5511CFFB33CA86FE4127AA26A33138CD1ED356D3",
-            ["WoodHouse4"] = "741767C20C84495746751047BCA5E0B62EADA16702AC89C2C85EC833722612AF",
-            ["WoodHouse5"] = "AE39400D4320381D737F24766B60ED04E40606266846AC252A0B1650A251977D",
-            ["WoodHouse6"] = "7618274A42E9A8E6B7B0D1C4F1373881823DD9A78774FD660FE619260A033E69",
+            ["WoodHouse4"] = "204B33E2696C0CDF0E03D7F292727F761A843954966E0F0245DB164F0A73FE2C",
+            ["WoodHouse5"] = "FD140BB9654051B924BC22E15A97E14B347D2D0AFE0E841F8D950DCEA198ECBC",
+            ["WoodHouse6"] = "53B197EFE52B0259655996C9FA1AAB3F6B561E884F12D3540E07893A0521BAF2",
             ["WoodHouse7"] = "977A48F1398C4330219751F3A2DC21F1C8C1534CA5224B7412F9EBE7656C6224",
             ["WoodHouse8"] = "64905D6D985FB32F7FE040F1FD0B8480361ACE99BE60DA008160408DC64EF675",
             ["WoodHouse9"] = "6C97D8842747D370F8B45DF46453FFB40E5A7D8560376A65EBB16E436CDB16D0",
@@ -106,15 +106,6 @@ namespace SBPR.Trailborne.Tests
             // Recomputed hash matches the extractor-written fixture hash AND the golden pin.
             Assert.Equal(GoldenHash[prefab], geometry.SemanticHash);
             Assert.Equal(GoldenHash[prefab], HomesteadGeometryHash.Compute(geometry.Footprints));
-        }
-
-        [Theory]
-        [InlineData("WoodFarm1")]
-        [InlineData("WoodVillage1")]
-        public void Generator_hosts_have_zero_static_colliders(string prefab)
-        {
-            var geometry = Fixture.Load(prefab);
-            Assert.Equal(0, geometry.ColliderCount);
         }
 
         // ---- Ordinary resolution: real seat, inside level radius, flat Y ---------------------

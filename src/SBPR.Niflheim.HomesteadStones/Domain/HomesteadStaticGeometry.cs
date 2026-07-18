@@ -149,10 +149,15 @@ namespace SBPR.Niflheim.HomesteadStones.Domain
                 .Select(f => string.Format(
                     CultureInfo.InvariantCulture,
                     "{0:0.0000}|{1:0.0000}|{2:0.0000}|{3:0.0000}",
-                    f.LocalX, f.LocalZ, f.HalfX, f.HalfZ))
+                    CanonicalZero(f.LocalX), CanonicalZero(f.LocalZ),
+                    CanonicalZero(f.HalfX), CanonicalZero(f.HalfZ)))
                 .OrderBy(row => row, StringComparer.Ordinal);
             return StableHash.Hex(string.Join("\n", rows));
         }
+
+        // Python preserves the sign bit when formatting -0.0 while Mono's custom numeric formatter does not.
+        // Canonicalize zero explicitly so extractor/runtime hashes are platform-independent.
+        private static double CanonicalZero(double value) => value == 0.0 ? 0.0 : value;
     }
 
     /// <summary>The versioned, engine-free output of a successful seat resolution — the single record both

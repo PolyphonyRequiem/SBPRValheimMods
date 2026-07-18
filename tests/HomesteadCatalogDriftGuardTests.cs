@@ -29,12 +29,12 @@ namespace SBPR.Trailborne.Tests
         private static readonly IReadOnlyDictionary<string, string> ExpectedOrdinaryHashes =
             new Dictionary<string, string>
             {
-                ["WoodHouse1"] = "ABCDC6D6A4D3B5ECC0FFE226489BB967CCC837029CFB41B7219B705C7E849DA3",
+                ["WoodHouse1"] = "822F0501D5E5AA6AE4F4F2C7EE6F3CEB3D9FA533B1533ACDA11928018DEDB0BC",
                 ["WoodHouse2"] = "5C8325CF2BD9A1DFEC3E78DF65D2D3A44E1F43B11DAAD1C40984728387CA6708",
                 ["WoodHouse3"] = "4BE3F6CC53E07DFE5B355B4F5511CFFB33CA86FE4127AA26A33138CD1ED356D3",
-                ["WoodHouse4"] = "741767C20C84495746751047BCA5E0B62EADA16702AC89C2C85EC833722612AF",
-                ["WoodHouse5"] = "AE39400D4320381D737F24766B60ED04E40606266846AC252A0B1650A251977D",
-                ["WoodHouse6"] = "7618274A42E9A8E6B7B0D1C4F1373881823DD9A78774FD660FE619260A033E69",
+                ["WoodHouse4"] = "204B33E2696C0CDF0E03D7F292727F761A843954966E0F0245DB164F0A73FE2C",
+                ["WoodHouse5"] = "FD140BB9654051B924BC22E15A97E14B347D2D0AFE0E841F8D950DCEA198ECBC",
+                ["WoodHouse6"] = "53B197EFE52B0259655996C9FA1AAB3F6B561E884F12D3540E07893A0521BAF2",
                 ["WoodHouse7"] = "977A48F1398C4330219751F3A2DC21F1C8C1534CA5224B7412F9EBE7656C6224",
                 ["WoodHouse8"] = "64905D6D985FB32F7FE040F1FD0B8480361ACE99BE60DA008160408DC64EF675",
                 ["WoodHouse9"] = "6C97D8842747D370F8B45DF46453FFB40E5A7D8560376A65EBB16E436CDB16D0",
@@ -44,12 +44,6 @@ namespace SBPR.Trailborne.Tests
                 ["WoodHouse13"] = "038271632D960F61152DBAE734FA5161EFD6AA1DA129122E9470732D967EA9D1",
             };
 
-        // The 2 generator hosts route through the operational manifest, not static geometry, so they carry the
-        // canonical empty-footprint hash (SHA-256 of the empty string). Pinned so a generator host never
-        // silently acquires static geometry.
-        private const string EmptyFootprintHash =
-            "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855";
-        private static readonly string[] ExpectedGeneratorHosts = { "WoodFarm1", "WoodVillage1" };
 
         private static string RepoRoot()
         {
@@ -82,12 +76,11 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(ExpectedSchema, root.GetProperty("schema").GetString());
 
             var hosts = root.GetProperty("hosts");
-            // Exact host set: the 13 ordinary hosts + the 2 generator hosts, nothing more, nothing missing.
+            // Exact current host set: the 13 ordinary houses. Farm/Village belong to the future village system.
             var actualNames = new HashSet<string>();
             foreach (var host in hosts.EnumerateObject()) actualNames.Add(host.Name);
 
             var expectedNames = new HashSet<string>(ExpectedOrdinaryHashes.Keys);
-            foreach (var g in ExpectedGeneratorHosts) expectedNames.Add(g);
             Assert.Equal(expectedNames, actualNames);
 
             // Every ordinary host's semantic hash is pinned exactly (not merely nonempty).
@@ -99,12 +92,21 @@ namespace SBPR.Trailborne.Tests
                     $"{pair.Key} is an ordinary static-geometry host and must carry footprints.");
             }
 
-            // Generator hosts carry the canonical empty-footprint hash and zero colliders.
-            foreach (var generator in ExpectedGeneratorHosts)
+
+        }
+
+        [Fact]
+        public void Runtime_loader_recomputes_every_pinned_hash()
+        {
+            // Exercise the exact production parser/hash path. A string-only pin test missed the Python -0.0
+            // versus Mono 0.0 formatting divergence that disabled realization at boot.
+            var catalog = SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
+                .HomesteadStaticGeometryCatalogLoader.Parse(File.ReadAllText(FixturePath()));
+            Assert.Equal(ExpectedOrdinaryHashes.Count, catalog.HostCount);
+            foreach (var pair in ExpectedOrdinaryHashes)
             {
-                var host = hosts.GetProperty(generator);
-                Assert.Equal(EmptyFootprintHash, host.GetProperty("semanticHash").GetString());
-                Assert.Equal(0, host.GetProperty("colliderCount").GetInt32());
+                Assert.True(catalog.TryGet(pair.Key, out var geometry));
+                Assert.Equal(pair.Value, geometry.SemanticHash);
             }
         }
 

@@ -43,8 +43,8 @@ Bootstrap (see docs/v2/planning/homestead-extraction-bootstrap.md for full steps
   HOMESTEAD_ALL_BUNDLES=1 python scripts/extract_homestead_geometry.py > tests/Fixtures/homestead-static-geometry.json
 
 CI note: CI has NO Valheim assets, so it does NOT re-extract. Instead the drift guard
-  (tests/HomesteadCatalogDriftGuardTests) pins the exact 13 ordinary host names + the 2
-  generator hosts + every semantic hash + the schema, and asserts the fixture and the
+  (tests/HomesteadCatalogDriftGuardTests) pins the exact 13 ordinary house names,
+  every semantic hash + the schema, and asserts the fixture and the
   embedded mod catalog are byte-identical. Regeneration is a deliberate, asset-bearing act.
 """
 import os, sys, json, math, hashlib
@@ -67,7 +67,7 @@ except ImportError as exc:  # pragma: no cover - operator bootstrap guard
     raise
 
 INFLATE = 0.15  # production footprint inflation (matches the seat keep-out tuning)
-HOSTS = ["WoodHouse%d" % i for i in range(1, 14)] + ["WoodFarm1", "WoodVillage1"]
+HOSTS = ["WoodHouse%d" % i for i in range(1, 14)]
 COLLIDER_TYPES = ("BoxCollider", "CapsuleCollider", "SphereCollider", "MeshCollider")
 
 
@@ -321,7 +321,12 @@ def _env_for(idx, target_file):
 def canonical_hash(footprints):
     # ONE canonical schema, identical to HomesteadGeometryHash.Compute in C#:
     #   sorted rows of "{cx:0.0000}|{cz:0.0000}|{halfX:0.0000}|{halfZ:0.0000}", '\n'-joined, SHA-256 hex.
-    rows = sorted("%.4f|%.4f|%.4f|%.4f" % (f["cx"], f["cz"], f["halfX"], f["halfZ"]) for f in footprints)
+    def z(value):
+        # Python preserves the sign bit for -0.0 while Mono does not. Canonicalize zero explicitly.
+        return 0.0 if value == 0.0 else value
+    rows = sorted("%.4f|%.4f|%.4f|%.4f" %
+                  (z(f["cx"]), z(f["cz"]), z(f["halfX"]), z(f["halfZ"]))
+                  for f in footprints)
     return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest().upper()
 
 
@@ -356,7 +361,7 @@ def extract(prefab):
     }
     # Fail closed on an unresolvable collider on an ORDINARY host (a house we must seat by
     # catalog): the geometry is incomplete, so the host must not ship a partial footprint.
-    if unresolved and prefab not in ("WoodFarm1", "WoodVillage1"):
+    if unresolved:
         result["error"] = "unresolved colliders: %d (mesh bounds missing?)" % len(unresolved)
     result["semanticHash"] = canonical_hash(load_bearing)
     return result

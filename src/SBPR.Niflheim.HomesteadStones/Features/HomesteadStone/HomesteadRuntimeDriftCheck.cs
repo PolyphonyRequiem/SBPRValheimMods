@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using SBPR.Niflheim.HomesteadStones.Domain;
 using UnityEngine;
 
 namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
@@ -29,6 +30,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 
             // Engine callsites the engine-free seat path adapts (terrain height + selection readiness).
             ok &= AssertMethod(typeof(WorldGenerator), "GetHeight", new[] { typeof(float), typeof(float) });
+            ok &= AssertMethod(typeof(Heightmap), "GetHeight", new[] { typeof(Vector3), typeof(float).MakeByRefType() });
             ok &= AssertProperty(typeof(WorldGenerator), "instance", isStatic: true);
             ok &= AssertProperty(typeof(ZoneSystem), "LocationsGenerated", isStatic: false);
             ok &= AssertField(typeof(ZoneSystem), "m_locationInstances");
@@ -46,36 +48,27 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             ok &= AssertMethod(typeof(ZDOMan), "GetAllZDOsWithPrefabIterative",
                 new[] { typeof(string), typeof(System.Collections.Generic.List<ZDO>), typeof(int).MakeByRefType() });
 
-            // R6 (Blocker 1/2) — the catalog semantic-hash pin: verify the embedded catalog loads and every
-            // host hash pins (a drifted catalog throws inside Load). This is the anti-tautology assertion —
-            // it exercises the REAL production authority, not a type existence check.
-            ok &= AssertCatalogPins();
+            // The runtime placement authority is the 13-row authored transform table. The collider catalog is
+            // build-time validation evidence only and must never be able to disable gameplay at boot.
+            ok &= AssertAuthoredSeatPins();
 
             Plugin.Log.LogInfo(
                 "[Niflheim/HomesteadStones] Runtime drift check: " + (ok ? "all required targets/callsites present." : "FAILED — see errors above; realization disabled until resolved."));
             return ok;
         }
 
-        private static bool AssertCatalogPins()
+        private static bool AssertAuthoredSeatPins()
         {
-            try
-            {
-                var catalog = HomesteadStaticGeometryCatalogLoader.Load();
-                if (catalog.HostCount <= 0)
-                {
-                    Plugin.Log.LogError("[Niflheim/HomesteadStones] Drift: static catalog loaded but has zero hosts.");
-                    return false;
-                }
-                Plugin.Log.LogInfo(
-                    $"[Niflheim/HomesteadStones] Catalog pin OK: hosts={catalog.HostCount} digest={catalog.CatalogDigest}.");
-                return true;
-            }
-            catch (Exception exception)
+            if (HomesteadAuthoredSeatCatalog.Count != 13)
             {
                 Plugin.Log.LogError(
-                    $"[Niflheim/HomesteadStones] Drift: static catalog hash-pin/load failed: {exception.Message}.");
+                    $"[Niflheim/HomesteadStones] Drift: authored seat catalog has {HomesteadAuthoredSeatCatalog.Count} hosts; expected 13.");
                 return false;
             }
+            Plugin.Log.LogInfo(
+                $"[Niflheim/HomesteadStones] Authored seat pin OK: hosts=13 version='{HomesteadAuthoredSeatCatalog.Version}' " +
+                $"digest={HomesteadAuthoredSeatCatalog.ContentHash}.");
+            return true;
         }
 
         private static bool AssertMethod(Type type, string name, Type[]? parameters)

@@ -1,210 +1,174 @@
 ---
-title: "Homestead Stone realization lifecycle (R7) — provenance-in-ZDO, strict fail-closed durability, reproducible extraction"
-status: current playtest implementation hypothesis (R7, t_8a46fb4f) — provisional until final pre-release playtest ratification
-supersedes: R1–R6 realization approaches (R5 == commit 84ac516, PR #329 rejected; R6 == commit 1e4ba48, PR #332 rejected)
+title: "Homestead Stone realization lifecycle — R7 authored-seat contract"
+status: current playtest implementation hypothesis (2026-07-18) — provisional until final pre-release playtest ratification
 ---
 
-# Homestead Stone realization lifecycle (R7)
+# Homestead Stone realization lifecycle — R7 authored-seat contract
 
-This spec is the same-PR buildable contract for how a Homestead Stone is *created, reused,
-cleaned up, and deferred* on the authoritative server. R7 continues R6's static/manifest
-authority split (§0–§8 below are the R6 contract, still in force) and adds the R7 corrections
-in §9 that the R6 review (PR #332) required: provider/content provenance wired into ZDO truth,
-strict fail-closed ledger durability, truthful/reproducible extraction, a strictly-enforced
-manifest contract, and tests that execute the real production seams. It supersedes R1–R4 (live
-host colliders / built Heightmap — proven impossible headless by spike `t_24a5d20d`), R5
-(PR #329), and R6 (PR #332).
+**Status:** implementation contract for the current pre-release playtest
+**Scope:** `WoodHouse1..13` only
+**Supersedes:** R1–R6 runtime collider scoring, generator manifests, and dynamic seat selection
 
-Companion runtime: `src/SBPR.Niflheim.HomesteadStones/`. Engine-free seams live under `Domain/` and
-are unit-tested headless; the net48 Unity adapter (`Features/HomesteadStone/`) only reads
-authoritative ZDO data + engine callsites and delegates every decision to the engine-free core.
+## 1. Goal
 
-## 0. Two authorities, by host class (load-bearing)
+For 40% of ordinary Meadows house locations, create exactly one persistent Homestead Stone at a
+Daniel-approved transform authored in the house prefab's local coordinate system. The dedicated
+server must derive the world transform from authoritative LocationProxy ZDO position/rotation,
+without requiring live Unity colliders, a built Heightmap, Python, or a runtime geometry catalog.
 
-A headless dedicated server never instantiates host colliders or a built Heightmap without a joined
-GPU client, so *any* server-side geometry query is doomed. R6 therefore derives seats from **authored
-data**, never a live physics read, split by host class:
+`WoodFarm1` and `WoodVillage1` are not Homestead Stone hosts. They belong to a future village-like
+system with a separate lifecycle.
 
-| Class | Hosts | Share | Seat authority (R6) |
-|-------|-------|-------|---------------------|
-| Ordinary | `WoodHouse1..13` | 104/114 (91.2%) | **Static geometry catalog** — a checked-in, offline-generated footprint catalog keyed by exact prefab + semantic content hash. |
-| Generator | `WoodFarm1`, `WoodVillage1` | 10/114 (8.8%) | **Operational manifest** — a trusted, operator-supplied, versioned manifest (existing-world repair / generator layout). Never a runtime geometry guess; never a player-submittable row. |
+## 2. Assignment
 
-`HomesteadHostClassifier` owns the split. The runtime supplies only the host's **realized
-transform/rotation** (resolved from authoritative `LocationProxy` ZDO data — location hash, zone,
-position, rotation — *not* nearest live proxy) and the terrain height. Geometry is authored data.
+- Eligible hosts: exact prefab names `WoodHouse1..13`.
+- Density: 40% per type; current world fixture has 260 candidates and 104 selected houses.
+- Minimum selected-host spacing: 128 m.
+- Stable assignment identity: world UID + selector version + host prefab + host zone.
+- Selector version: `niflheim-homestead-playtest-v1` for this disposable pre-release world.
 
-## 1. Static catalog is the production authority (Blocker 1)
+## 3. Authored transform table
 
-- Live `LocationProxy` child-hierarchy discovery is removed from seat resolution. Ordinary-host
-  footprints come from `HomesteadStaticGeometryCatalog`, loaded at startup from an embedded resource
-  (`Assets/homestead-static-geometry.json`) that is **byte-identical** to the test fixture
-  (`tests/Fixtures/homestead-static-geometry.json`; enforced by `HomesteadCatalogDriftGuardTests`).
-- Host transform/rotation is resolved from authoritative location/proxy ZDO data (`ZDOVars.s_location`
-  hash, `ZoneSystem.GetZone`, `ZDO.GetPosition/GetRotation`), not the nearest live proxy.
-- **Missing identity / missing catalog entry is retryable/fail-closed (`CatalogUnavailable`), never a
-  terminal `GeometryUnavailable`.** A host whose catalog row is temporarily unavailable is re-attempted.
+`HomesteadAuthoredSeatCatalog` is the sole runtime seating authority. Each row contains a local
+position and local yaw. Runtime applies the same transform composition as a prefab child:
 
-## 2. Correct geometry extraction + one hash contract (Blocker 2)
+```text
+worldPosition = hostPosition + hostRotation * localPosition
+worldRotation = hostRotation * localRotation
+```
 
-- The offline extractor (`scripts/extract_homestead_geometry.py`, deps + repro command in its header,
-  CI drift-checked via the byte-identical-catalog guard) composes **full 4×4 transform matrices** at
-  every hierarchy level — parent rotation and non-uniform/negative scale honoured, not summed local
-  positions.
-- Per-collider shape math into host space, then a conservative axis-aligned XZ AABB (never
-  `collider.bounds`): **Box** = transformed 8 corners; **Capsule** = direction/height/radius extent
-  box, transformed; **Sphere** = center + scaled radius (`radius·max(|sx|,|sy|,|sz|)`); **Mesh** =
-  conservative transformed mesh-bounds AABB or **fail closed** (never silently discarded).
-- Active/enabled/trigger/layer, nearest `Piece` ancestry, and `RandomSpawn` branch semantics are
-  preserved; inactive-branch colliders are **conservatively unioned** (we cannot know which branch the
-  live world picked). `All_thirteen_ordinary_houses_resolve` pins that all 13 still resolve.
-- **ONE canonical semantic hash schema** (`HomesteadGeometryHash`, computed over the stored
-  kind-free footprint rows `cx,cz,halfX,halfZ`) is shared by extractor, fixture, runtime catalog, ZDO
-  stamp, and tests. Production recomputes and **pins** each host's stored hash at startup; a mismatch
-  throws inside catalog load (drift ⇒ regenerate catalog + roll selector version, never silent reseat).
-  Tests validate the fixture's **stored** hash, not a differently-shaped recompute.
+| Host | Local position (x,y,z) | Local yaw |
+|---|---:|---:|
+| WoodHouse1 | (-5.999, 0, 0.125) | 91.2° |
+| WoodHouse2 | (-0.062, 0, 6.000) | 179.4° |
+| WoodHouse3 | (-4.795, 0, 3.607) | 127.0° |
+| WoodHouse4 | (5.267, 0, 2.873) | -118.6° |
+| WoodHouse5 | (-5.078, 0, 3.196) | 122.2° |
+| WoodHouse6 | (5.671, 0, 1.961) | -109.1° |
+| WoodHouse7 | (-0.561, 0, -5.974) | 5.4° |
+| WoodHouse8 | (-2.472, 0, 0.373) | 98.6° |
+| WoodHouse9 | (-5.078, 0, 3.196) | 122.2° |
+| WoodHouse10 | (-5.207, 0, 2.982) | 119.8° |
+| WoodHouse11 | (6.000, 0, 0.000) | -90.0° |
+| WoodHouse12 | (3.249, 0, -5.044) | -32.8° |
+| WoodHouse13 | (2.595, 0, -5.410) | -25.6° |
 
-## 3. Terrain Y at host origin (Blocker 3)
+Every row was selected from three Unity Preview Lab renders at least 2 m apart. The checked-in
+collider catalog and Python extractor remain build-time evidence for clearance review only. They are
+not loaded, parsed, hashed, or consulted by the runtime.
 
-Terrain Y = `WorldGenerator.instance.GetHeight(hostOriginX, hostOriginZ)` — the **host origin**, not
-the seat XZ. SPIKE-2 proved the location's `flatten` TerrainModifier levels the ground to host-origin
-Y within the level radius (≤ 6.0 m); every seat is clamped inside that radius (INV-1), so it sits on
-the same flattened plane. Sampling the seat XZ would read pre-flatten procedural noise and float/sink
-the Stone. Parity fixtures validate against the SPIKE-2 height port; no constant-height masking.
+The authored-seat authority version is `niflheim-homestead-authored-seats-v2`. V2 also reproduces
+the prefab-child clear-area consequence for Stones realized after vanilla vegetation placement:
+before first creation, the authoritative server destroys only ZDOs whose prefab is present in
+`ZoneSystem.m_vegetation` and whose XZ center lies within 2.5 m of the authored seat. It never removes
+structures, player pieces, creatures, or arbitrary nearby ZDOs. Reconciliation/restart does not run
+the clear again for a matching existing Stone.
 
-## 4. One full-ZDOID reconciler in production (Blocker 4)
+## 4. Authoritative host pose
 
-The old `ReconcileExisting` is bypassed. Production uses `StoneReconciler` keyed on the full stable
-`ZDOID(UserID, ID)` — never a truncated numeric ID — handling unkeyed, unselected, metadata-mismatch,
-and duplicate Stones with a deterministic keep/remove (lowest `ZDOID` kept, so the SAME Stone survives
-across restarts regardless of enumeration order). **Reconciliation runs before the event gate** so a
-stale same-zone entry cannot suppress a needed creation. The adapter wiring is tested, not only the
-pure model.
+The server resolves the host by:
 
-## 5. Ledger semantics & atomic storage (Blocker 5)
+1. exact `ZDOVars.s_location` stable hash;
+2. exact candidate zone;
+3. LocationProxy ZDO `GetPosition()` and `GetRotation()`.
 
-Persisted Stone ZDOs are **creation truth**; `HomesteadWorldLedger` records provenance/outcomes and
-never overrides missing/mismatched ZDO reality. Keyed by world UID + selector version + host zone +
-provider/content hash.
+No nearest-proxy guess and no live child-hierarchy discovery are allowed. A missing matching proxy is
+retryable; it does not create a failure Stone or fall back to a guessed position.
 
-- `Created` is valid **only while a matching Stone exists**; a missing Stone permits recovery
-  (re-creation), so a cleared/corrupt world is not silently stuck.
-- Stamp/exception failures are recorded. No fake/phantom retries.
-- **Atomic store** (`HomesteadLedgerAtomicIo`): write temp → flush/fsync → atomic same-filesystem
-  rename/replace **without deleting the old file first**; a valid temp/backup is recovered after a
-  crash. An I/O failure **fails closed** for realization (diagnostic) — never silently returns empty
-  and retries. Path is rooted/validated per world. Crash-boundary and corruption tests cover this
-  (`HomesteadLedgerAtomicIoTests`).
+## 5. Realization timing
 
-## 6. Operational manifest provider (Blocker 6)
+The placement coroutine starts after `ZoneSystem.LocationsGenerated`. A selected host is eligible for
+creation when its authoritative `m_locationInstances[zone].m_placed` is true. Do not gate on
+`ZoneSystem.IsZoneLoaded`: peer Ghost-generated locations can be persistently placed without entering
+the dedicated server's live `m_zones` set.
 
-`HomesteadOperationalManifest` + `HomesteadManifestStore` load/reload a configured manifest file and
-validate it strictly: exact world UID + selector version (whole-document scope keys), provider version
-+ document content digest, per-row host prefab + zone + finite coordinates within zone (±32 m) and
-host bounds (≤ 96 m radius), unique `(prefab,zone)`. Malformed / non-finite / unbounded / duplicate
-rows are rejected per-row; a document failing scope/provenance supplies **no** seats (forged/mismatched
-manifests cannot seat a Stone).
+The loop reconciles existing Stones, creates missing eligible Stones, reconciles Stone Areas, then
+repeats every five seconds.
 
-The manifest carries a monotonic **generation**. A `ManifestRequired` outcome is recorded against the
-generation current when decided; when a **new generation** with a valid matching row appears, the
-resolver is allowed to retry (generation-scoped terminal, not permanent). The document digest +
-provider version + generation are **stamped onto the Stone ZDO** and enforced on reuse/reconciliation.
-Ordinary players cannot submit rows.
+## 6. Persistence and reconciliation
 
-## 7. Drift gate & adapter tests (Blocker 7)
+A correctly stamped Stone ZDO is creation truth.
 
-`HomesteadRuntimeDriftCheck.Verify()` runs once at load and its result is **load-bearing**:
-`HomesteadStoneWorldPlacement.RealizationEnabled = Verify()`, so a false result **prevents the
-realization patches/loop from running**. The check asserts the exact required Harmony targets /
-engine callsites / fields (`ZoneSystem.Start/OnDestroy`, `ZNetScene.Awake`,
-`WorldGenerator.GetHeight(float,float)`, `WorldGenerator.instance`, `ZoneSystem.LocationsGenerated`,
-`ZoneSystem.m_locationInstances`, `ZoneSystem.GetZone`, `ZDO.GetPosition/GetRotation`,
-`ZDOVars.s_location`, `ZDOMan.GetAllZDOsWithPrefabIterative`, `LocationProxy`) **and** exercises the
-real production authority by loading the embedded catalog and asserting every semantic-hash pin holds
-(`AssertCatalogPins` — anti-tautology). It reports rather than throws so a drifted game update degrades
-to "no realization + a loud error" instead of a hard crash. Adapter/provider/store/manifest/drift
-production files are compiled and tested (fresh location-ZDO transform, catalog load + hash pin,
-ledger recovery, manifest reload, and actual reconciler wiring).
+The stamp contains:
 
-## 8. What remains post-merge (not in this card)
+- provenance schema version;
+- world UID;
+- selector version;
+- host prefab;
+- host zone X/Z;
+- provider kind;
+- authored-seat table version;
+- authored-seat table content hash;
+- generation 0.
 
-End-to-end fresh-world realization + realized-rotation recovery are verified by the scheduled
-**T009L2** rerun on the spike's preserved disposable world fixture (world UID `-898655635`, seed
-`kniTMtyDpB`) plus AP/retry/reconnect/restart — a joined-GPU-client path that cannot be exercised
-headless. This PR delivers the engine-free authority (static catalog for houses, trusted manifest for
-generators/existing-world repair) + adapter wiring; T009L2 is the in-engine acceptance gate.
+Reconciliation uses full stable ZDOID `(UserID, ID)` and full provenance. It deterministically:
 
-## 9. R7 corrections (PR #332 review)
+- keeps the first matching Stone per selected zone;
+- destroys unkeyed, unselected, mismatched, stale-provenance, and duplicate Stones;
+- clears an advisory ledger `Created` entry when stale provenance requires recreation.
 
-R7 keeps §0–§8 intact and closes the five gaps the R6 review rejected. Each is wired into the
-**production** path and exercised by a test that runs that path, not only a pure model.
+The sidecar ledger records outcomes and is not creation truth. Ledger I/O/corruption fails closed.
+Both reconciliation and creation persistence run inside the same tick-scoped `LedgerIoException`
+boundary: a transient durability failure aborts that tick and retries on the next five-second pass;
+it must not kill the coroutine until process restart.
 
-### 9.1 Provider/content provenance is wired into ZDO truth (Blocker 1)
+## 7. Ground following
 
-A Stone's *creation authority* is now a durable, versioned fact on its ZDO, not something
-re-guessed from bare zone existence:
+The persistent ZNetView/ZDO root remains fixed at the authored world transform. A non-networked child
+`GroundAnchor` owns the visual and targeting collider.
 
-- `HomesteadProvenanceCodec` (engine-free, `Domain/HomesteadProvenance.cs`) is the single source
-  of truth for the provenance key names + schema version. `HomesteadStoneData` forwards to it, and
-  `HomesteadProvenanceCodecTests` pins every key literal so the codec and the net48 stamp cannot
-  drift apart.
-- The full provenance = schema version + assignment (world UID, selector version, host prefab,
-  zone) + **provider kind + provider version + content hash + manifest generation**. Ordinary hosts
-  stamp the catalog digest (provider version) + the host's geometry semantic hash (content hash),
-  generation 0; generator hosts stamp the manifest provider version + document digest + generation.
-- `StampIdentity` persists **every** field and **read-back verifies** the whole fact through the
-  same codec; a partial/torn write fails verification, the Stone is reaped, and **durable failure
-  provenance is recorded before cleanup** (no phantom retry loop).
-- The reconciler reads the full provenance back through the same codec and compares the **whole
-  fact** — a selector/provider/content/generation upgrade is a mismatch that reaps the stale Stone.
-  The event gate uses reconciled matching facts, never bare zone existence.
-- A ledger `Created` outcome is **advisory only**. When the reconciler reaps the only Stone for a
-  zone because its provenance was stale, it flags that zone for recovery and the production loop
-  calls `HomesteadWorldLedger.ClearForRecovery`, so a sticky `Created` can never block an upgrade.
-  Outcomes are keyed by world UID + selector version + host prefab/zone + provider/content hash +
-  generation.
+On a client with a loaded Heightmap, `HomesteadStoneGroundFollower` samples current terrain every
+0.5 s and adjusts only `GroundAnchor.localPosition.y` when the difference is at least 0.02 m.
+Therefore hoe/pickaxe elevation edits move the visible Stone and collider without letting a client
+rewrite authoritative Stone identity or Area position. When no Heightmap exists (including a
+headless dedicated server), the anchor retains its prior height and retries later.
 
-### 9.2 Strict, fail-closed ledger durability (Blocker 2)
+Stone Area membership is XZ-only with a 20 m radius, so local vertical following does not change
+progression authority.
 
-- **World path resolution failure ⇒ fail-closed** (`LedgerIoException`), never a fabricated empty
-  ledger — a fabricated clean history would phantom-retry every terminal zone.
-- The serialized envelope carries the exact **world identity + record count + checksum**. On load,
-  a world-identity mismatch, wrong line count (truncated valid-prefix or extra rows), a **duplicate
-  zone row**, malformed fields, or a bad checksum invalidate the **whole candidate** (`IsWellFormed
-  = false`), so recovery falls back to a valid temp/backup rather than adopting corruption.
-- Recovery chooses only fully valid candidates and never prefers a torn temp over a valid primary.
-  Writes are temp → flush/fsync → atomic `File.Replace` (keeping a `.bak`) **without deleting the
-  old file first**; the first write uses an atomic rename. I/O/corruption **blocks realization with
-  bounded diagnostics**. Covered by `HomesteadLedgerAtomicIoTests` + `HomesteadWorldLedgerTests`
-  (world-mismatch / truncation / duplicate / garbage / crash-boundary).
+## 8. Drift and build-time evidence
 
-### 9.3 Truthful, reproducible extraction (Blocker 3)
+Runtime startup pins:
 
-- Extraction semantics are unchanged from §2 (full transform matrices, conservative per-shape
-  AABBs, RandomSpawn inactive-branch union, mesh fail-closed, one canonical hash).
-- Extraction is now **self-contained from checkout**: pinned deps in
-  `scripts/homestead-extraction-requirements.txt` and a documented, executable bootstrap in
-  `docs/v2/planning/homestead-extraction-bootstrap.md`. The extractor resolves the offline
-  `valheim_prefab` module from `VALHEIM_PREFAB_TOOLS` (no hard-coded machine path) and emits a clear
-  bootstrap error when deps are missing.
-- The drift gate no longer accepts a merely-nonempty catalog: `HomesteadCatalogDriftGuardTests` pins
-  the **exact 13 ordinary host names + 2 generator hosts**, the schema string, and **every semantic
-  hash**, and asserts the fixture and embedded catalog are byte-identical. CI (no game assets) guards
-  the checked-in artifact; regeneration is a deliberate asset-bearing act.
+- the exact required Valheim methods/fields;
+- exactly 13 authored seat rows;
+- the authored table version/content hash.
 
-### 9.4 Operational manifest contract (Blocker 4)
+Runtime startup must not load or verify the offline collider catalog. Build-time tests may regenerate
+and compare that catalog to detect vanilla prefab drift and to validate authored-seat clearance.
 
-The §6 manifest validation stands; R7 stamps the manifest provider version + document digest +
-generation onto the Stone ZDO as provenance (§9.1), so reuse/reconciliation enforce the manifest
-identity a Stone was created under. A same/lower generation with changed content is rejected; a new
-valid higher generation re-arms `ManifestRequired` and the resolver re-stamps the newer provenance.
+## 9. Verified evidence
 
-### 9.5 Real production-seam tests (Blocker 5)
+On disposable world UID `-898655635`, seed `kniTMtyDpB`:
 
-The headless suite exercises the actual production code paths, not only mocks:
-`HomesteadProvenanceCodecTests` runs the production `Stamp`/`Read`/`ReadBackMatches` against an
-in-memory ZDO surface (the exact seam `ZdoProvenanceAccessor` adapts); `StoneReconcilerTests` drives
-the full-provenance reconciler including duplicate/unkeyed/mismatch/stale-provenance/stale-generation
-paths; the ledger + manifest + drift-guard tests cover strict parsing, crash recovery, missing-Stone
-recovery, selector/provider upgrade, and catalog parity. In-engine-only paths (fresh-world realized
-rotation, joined-client craft/build) remain the post-merge **T009L2** gate (§8).
+- authored seat pin: 13 rows;
+- assignment: 260 candidates / 104 selected;
+- old static-catalog provenance Stones were reaped and recreated;
+- WoodHouse6 host pose `(193.633,46.869,126.330)`, yaw `67.50°`;
+- expected authored-B Stone `(197.615,46.869,121.841)`, yaw `318.40°`;
+- actual Stone matched position and rotation exactly;
+- target zone contained exactly one Stone, stable ZDOID `1:12445`;
+- restart reused the same ZDO with zero new placement and zero duplicate.
+- first live-client load sampled terrain `47.645`, moved `GroundAnchor.localY` to `0.775`, and left
+  root/ZDO Y fixed at `46.869`;
+- a real persisted `TerrainOp` raised terrain by `0.750 m`; anchor and collider rose by exactly
+  `0.750 m` while root position, ZDO position, yaw, and stable ZDOID stayed unchanged;
+- the inverse real `TerrainOp` restored terrain, anchor, and collider to their exact baseline values;
+- a second independent +0.500/-0.500 m cycle reproduced the result;
+- V2 vegetation clearing removed the two Beech ZDOs that obscured/intersected the authored seat;
+  live client probes found zero vegetation trees within 2.5 m and restart preserved that result;
+- GPU evidence shows the Stone clearly visible beside the WoodHouse6 host after clearing.
+
+## 10. Delivery gates
+
+Before merge:
+
+1. Homestead and Trailborne net48 builds: 0 warnings / 0 errors.
+2. Full net8 suite and workbench suite pass.
+3. Docs lint/freshness pass.
+4. Production authored-transform + restart evidence remains green.
+5. Joined-client ground-follow test passes with reversible real terrain operations and fixed root/ZDO.
+6. Fresh independent review of the updated PR head.
+
+After merge, rerun T009L2: joined client → Attunement → Foundational placement → AP receipt →
+reconnect/restart recovery. Logs green are not a playable verdict.

@@ -58,15 +58,21 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
             // vanilla build removal, support, damage, or destruction policy.
             root.AddComponent<HomesteadStoneIdentity>();
 
-            // Explicit gameplay collision belongs to the additive root, never the decorative bundle.
+            // The network root remains authoritative and fixed. Presentation + targeting collision live under
+            // a non-networked ground anchor that follows the CURRENT loaded Heightmap after terrain edits.
+            var groundAnchor = new GameObject(HomesteadStoneGroundFollower.AnchorName);
+            groundAnchor.layer = root.layer;
+            groundAnchor.transform.SetParent(root.transform, false);
+
+            // Explicit gameplay collision belongs to the additive ground anchor, never the decorative bundle.
             // Refit to the enlarged (2×) and raised (+1 m) visual envelope so targeting is neither
             // undersized nor ghostly against the ~3.6 m stone floating at +2.0 m.
-            var collider = root.AddComponent<CapsuleCollider>();
+            var collider = groundAnchor.AddComponent<CapsuleCollider>();
             collider.radius = HomesteadStonePresentation.ColliderRadius;
             collider.height = HomesteadStonePresentation.ColliderHeight;
             collider.center = new Vector3(0f, HomesteadStonePresentation.ColliderCenterY, 0f);
 
-            var presentation = UnityEngine.Object.Instantiate(visual, root.transform, false);
+            var presentation = UnityEngine.Object.Instantiate(visual, groundAnchor.transform, false);
             presentation.name = "MeadowsHomesteadingStone visual";
             presentation.transform.localPosition = new Vector3(0f, VisualLocalY, 0f);
             presentation.transform.localRotation = Quaternion.identity;
@@ -80,11 +86,13 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
                     "four-second procedural hover/yaw motion on the visual child.");
             }
 
+            root.AddComponent<HomesteadStoneGroundFollower>();
+
             RegisterPrefab(scene, root);
             Plugin.Log.LogInfo(
                 $"[Niflheim/HomesteadStones] Registered {PrefabName} additively with V12 visual " +
                 $"'{VisualAssetPath}' at {HomesteadStonePresentation.VisualScale:0.0}× scale, local Y +{VisualLocalY:0.0} m, " +
-                $"refit root collider (r={HomesteadStonePresentation.ColliderRadius:0.00}, h={HomesteadStonePresentation.ColliderHeight:0.0}), and no Piece/WearNTear policy.");
+                $"ground-following collider anchor (r={HomesteadStonePresentation.ColliderRadius:0.00}, h={HomesteadStonePresentation.ColliderHeight:0.0}), and no Piece/WearNTear policy.");
         }
 
         private static bool TryLoadVisual(out GameObject visual)

@@ -52,6 +52,10 @@ namespace SBPR.Niflheim.HomesteadStones { public partial class Plugin { public c
     <!-- Unity Editor-only reproducible bundle builder: source-controlled with the owning mod,
          copied into the Preview Lab for execution, never compiled into the runtime plugin. -->
     <Compile Remove="Assets/Editor/**/*.cs" />
+    <!-- Retired engine adapters remain source/test fixtures only. The shipping plugin uses the 13-row
+         HomesteadAuthoredSeatCatalog and does not compile the generator manifest store or catalog loader. -->
+    <Compile Remove="Features/HomesteadStone/HomesteadManifestStore.cs" />
+    <Compile Remove="Features/HomesteadStone/HomesteadStaticGeometryCatalogLoader.cs" />
 
     <!-- Game + Unity assemblies (read-only, Private=false — never shipped). Minimal set
          for this slice: the plugin bootstrap, prefab construction, and the area-of-influence
