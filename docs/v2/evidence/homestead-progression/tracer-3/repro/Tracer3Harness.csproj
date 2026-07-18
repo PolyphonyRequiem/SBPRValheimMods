@@ -1,0 +1,105 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Tracer3Harness</AssemblyName>
+    <RootNamespace>Tracer3Harness</RootNamespace>
+    <Deterministic>true</Deterministic>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- SrcRoot points at the shipped HomesteadStones project so we link-compile the
+         EXACT engine-free file set the net8 test project compiles — no copy, no fork.
+         repro/ is six directories below the repo root. -->
+    <SrcRoot Condition="'$(SrcRoot)'==''">../../../../../../src/SBPR.Niflheim.HomesteadStones</SrcRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Link-compile the SHIPPED Tracer-3 slice + its engine-free deps, mirroring the
+         ../src include set in tests/SBPR.Trailborne.Tests.csproj. -->
+    <Compile Include="$(SrcRoot)/Adapters/Activities/FoundationalPlacementAdapter.cs" />
+    <Compile Include="$(SrcRoot)/Adapters/Identity/LookupKeyRing.cs" />
+    <Compile Include="$(SrcRoot)/Adapters/Identity/PilotAuthLoggingContract.cs" />
+    <Compile Include="$(SrcRoot)/Adapters/Identity/PilotProfileSubject.cs" />
+    <Compile Include="$(SrcRoot)/Adapters/Identity/PilotProviderGate.cs" />
+    <Compile Include="$(SrcRoot)/Adapters/Identity/PilotProvisioningInputGate.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/AccountAdmissionIndex.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/AccountMutationFence.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/OperatorAccountService.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/OperatorAdminGate.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/PilotAccountService.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/PilotCharacterAdmissionService.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/PilotPrivacyService.cs" />
+    <Compile Include="$(SrcRoot)/Application/Accounts/PilotSessionRegistry.cs" />
+    <Compile Include="$(SrcRoot)/Application/Commands/FacetCommands.cs" />
+    <Compile Include="$(SrcRoot)/Application/Commands/ProgressionCommandPipeline.cs" />
+    <Compile Include="$(SrcRoot)/Application/Commands/RelationshipCommands.cs" />
+    <Compile Include="$(SrcRoot)/Application/Commands/RelationshipPlacementAuthorizer.cs" />
+    <Compile Include="$(SrcRoot)/Application/Queries/GetStoneProgressionView.cs" />
+    <Compile Include="$(SrcRoot)/Application/Receipts/OperationReceiptStore.cs" />
+    <Compile Include="$(SrcRoot)/Application/ResourceDelivery/AccountStoneParticipationRegistry.cs" />
+    <Compile Include="$(SrcRoot)/Application/ResourceDelivery/FinalLinkHandshakeStore.cs" />
+    <Compile Include="$(SrcRoot)/Application/ResourceDelivery/StockTransactionHarness.cs" />
+    <Compile Include="$(SrcRoot)/Application/ResourceDelivery/StoneConnectionSourceRegistry.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/AuthenticatedSenderIdentity.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/BoundSessionAdmission.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/BoundSessionPrincipalIndex.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/DedicatedPlacementIngress.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/FoundationalPlacementObservation.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/FoundationalPlacementRuntime.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/FoundationalProgressionServer.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/LiveSessionAdmission.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/PendingRevalidationQueue.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/RelationshipProvisioningIngress.cs" />
+    <Compile Include="$(SrcRoot)/Application/Runtime/VanillaAdminIdentity.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Accounts/PilotAccountIdentifiers.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Accounts/PilotDisclosure.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Accounts/PilotRetentionPolicy.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Activation/DerivedActivationView.cs" />
+    <Compile Include="$(SrcRoot)/Domain/CharacterProgression/CharacterProgressionAggregate.cs" />
+    <Compile Include="$(SrcRoot)/Domain/CharacterProgression/Relationships.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Content/ContentRegistryValidator.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Content/FoundationalPieceCatalog.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Content/FoundationalPrefabMap.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Content/HomesteadProgressionCatalog.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Content/ResourceDeliveryConformanceGuard.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadAuthoredSeatCatalog.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadLedgerAtomicIo.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadOperationalManifest.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadPlacement.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadPlacementResolver.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadProvenance.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadStaticGeometryCatalog.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadStaticGeometry.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadStonePresentation.cs" />
+    <Compile Include="$(SrcRoot)/Domain/HomesteadWorldLedger.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Identity/AccountStoneAuthorityIndex.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Identity/ProgressionIdentity.cs" />
+    <Compile Include="$(SrcRoot)/Domain/ResourceDelivery/AccountStoneParticipationAggregate.cs" />
+    <Compile Include="$(SrcRoot)/Domain/ResourceDelivery/ApMultiplierPolicy.cs" />
+    <Compile Include="$(SrcRoot)/Domain/ResourceDelivery/ConnectionAggregate.cs" />
+    <Compile Include="$(SrcRoot)/Domain/ResourceDelivery/ConnectionIdentity.cs" />
+    <Compile Include="$(SrcRoot)/Domain/ResourceDelivery/ContributionRule.cs" />
+    <Compile Include="$(SrcRoot)/Domain/ResourceDelivery/IntervalReconciler.cs" />
+    <Compile Include="$(SrcRoot)/Domain/ResourceDelivery/QualifyingSourceRule.cs" />
+    <Compile Include="$(SrcRoot)/Domain/Snapshots/AggregateSnapshot.cs" />
+    <Compile Include="$(SrcRoot)/Domain/StoneProgression/StoneAreaMembership.cs" />
+    <Compile Include="$(SrcRoot)/Domain/StoneProgression/StoneAreaRegistrar.cs" />
+    <Compile Include="$(SrcRoot)/Domain/StoneProgression/StoneFacets.cs" />
+    <Compile Include="$(SrcRoot)/Domain/StoneProgression/StoneProgressionAggregate.cs" />
+    <Compile Include="$(SrcRoot)/Domain/StoneReconciler.cs" />
+    <Compile Include="$(SrcRoot)/Features/HomesteadStone/HomesteadStaticGeometryCatalogLoader.cs" />
+    <Compile Include="$(SrcRoot)/Features/PilotIdentity/LocalAllowlistBootstrap.cs" />
+    <Compile Include="$(SrcRoot)/Features/Progression/HomesteadProgressionPanel.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Accounts/PersistedPiiScanner.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Accounts/PilotAccountStore.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Characters/AccountStoneAuthorityStore.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Characters/CharacterProgressionStore.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Recovery/ProgressionStateRepair.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Recovery/ReceiptRecovery.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Stone/MirroredStoneApStore.cs" />
+    <Compile Include="$(SrcRoot)/Persistence/Stone/StoneAggregateStore.cs" />
+  </ItemGroup>
+</Project>
