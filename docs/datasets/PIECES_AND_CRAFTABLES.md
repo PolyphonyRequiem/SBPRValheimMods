@@ -429,8 +429,10 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 
 > The portable-camp triad (Bear Hide Tent + special bedroll + covered camp fire) that
 > lets an Explorer sleep out on the trail. Design: `docs/design/trailside-camp.md`.
-> Net-new pillar, NOT in requirements.md v1. **Only the Bear Hide Tent ships so far**
-> (placeholder art); the bedroll + camp fire are later cards on the same design doc.
+> Net-new pillar, NOT in requirements.md v1. **All three triad pieces now ship**
+> (Bear Hide Tent + special bedroll + covered camp fire; placeholder art). Together,
+> under a fixed tent canopy, a lit camp fire + a bedroll let an Explorer skip the night
+> on the trail WITHOUT overwriting their home respawn point.
 
 ### Pieces
 
@@ -451,6 +453,46 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 | Patch surface | None. Registered additively via `BearHideTent.RegisterPrefabs` / `DoObjectDBWiring` (Registrar), added to the spade table in `Trailblazing.DoObjectDBWiring`. The AssetBundle + textures ship into the plugin folder via `pack-modpack.sh` (steps 2b/2c). |
 | Status | **IMPLEMENTED — build 0/0 (2026-06-25).** Code + SpecCheck Piece row + dataset + design doc. `[hold]` for Daniel's review + in-game verify. **logs-green ≠ playable** — the AssetBundle load + runtime material only prove out on a joined client (bundle header verified UnityFS/6000.0.61f1 off-box; in-game render unverified). Recipe is PROVISIONAL pending the design doc's open recipe lock. |
 | Source spec | `docs/design/trailside-camp.md` (§1.2 placeholder art, §1.3 BF tier, §2 visual-only shelter) |
+
+---
+
+#### Bedroll
+
+| Field | Value |
+|---|---|
+| Display name | Bedroll |
+| Prefab name | `piece_sbpr_bedroll` |
+| Type | `Piece` (additive shell + vanilla `Bed` component + `BedrollTag` interactable + `BedrollCheckExposurePatch`) |
+| Mod | Trailborne |
+| Biome tier | Black Forest (`BjornHide` is a BF material; mirrors the tent) |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed via the **Trailblazer's Spade build menu** ('Trail' tab), like every Spade-placed SBPR piece (Pillar 1, never the Hammer) |
+| Recipe (build) | Bear Hide (`BjornHide`) ×2 + Leather Scraps ×3 + Wood ×4 — **PROVISIONAL** pending Daniel's recipe lock |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`; `EnsureCategory` guards drift) |
+| Function | The **sleep** half of the triad. Under the tent canopy beside a lit camp fire, pressing Use skips the night and grants vanilla **`SE_Rested`** — a trail nap that does **NOT** overwrite the player's home respawn. Inspired is deferred (Q7) until `trailside-beautification.md` graduates. |
+| Visual notes | Placeholder = the vanilla `bed` fur mesh grafted as a ZNetView-free cosmetic child (ADR-0006 additive; `Assets.GraftMeshFromBlueprint`), seated flush via a **measured** `MeasureLocalFootY` offset (not hand-guessed). HP 200, Wood material. |
+| Patch surface | **🔴 The interaction is owned by `BedrollTag` (an `Interactable`), NOT vanilla `Bed.Interact`.** Verified against the decomp (`Bed.Interact` :99592-99655): the vanilla sleep branch (:99643) is only reachable when the bed is already your current spawn point, and every path there first calls `SetCustomSpawnPoint`. So a no-spawn night-skip is impossible through `Bed.Interact`. `BedrollTag` reimplements the 5-gate chain (time/enemies/exposure-relaxed/fire/wet) and drives `Player.AttachStart(isBed:true)` directly, setting the `s_inBed` flag the all-asleep vote (`Game.EverybodyIsTryingToSleep` :84716) needs — spawn untouched. **`BedrollCheckExposurePatch`** is a prefab-gated (`BedrollTag`) prefix on `Bed.CheckExposure` that drops ONLY the `cover ≥ 0.8` clause, KEEPS `underRoof` (Q6 — no open-sky sleep); vanilla beds are untouched (AT-BEDROLL-VANILLA). It's belt-and-braces (BedrollTag applies the same relaxed rule inline). |
+| Status | **IMPLEMENTED — build 0/0.** Code + SpecCheck Piece row + dataset + spec. Review-gated; logs-green ≠ playable — the sleep ATs close only on Daniel sleeping in-game under the FIXED tent collider (sibling card). Recipe PROVISIONAL. |
+| Source spec | `docs/v2/planning/bear-hide-tent-triad-build-impl-spec.md` §2; `docs/design/trailside-camp.md` §1.4/§3/§3.1 |
+
+---
+
+#### Camp Fire
+
+| Field | Value |
+|---|---|
+| Display name | Camp Fire |
+| Prefab name | `piece_sbpr_camp_fire` |
+| Type | `Piece` (additive shell + vanilla `Fireplace` + hand-built Heat `EffectArea`) |
+| Mod | Trailborne |
+| Biome tier | Black Forest (Wood + Stone + Coal; mirrors the triad) |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed via the **Trailblazer's Spade build menu** ('Trail' tab) (Pillar 1, never the Hammer) |
+| Recipe (build) | Wood ×5 + Stone ×3 + Coal ×2 — **PROVISIONAL** pending Daniel's recipe lock |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`; `EnsureCategory` guards drift) |
+| Function | The **fire** half of the triad. A small additive `Fireplace` whose Heat `EffectArea` satisfies the vanilla bed sleep gate 4 (`Bed.CheckFire` → `EffectArea.IsPointInsideArea(pos, Heat)`). Burns **Wood** (fuel item resolved in the ODB pass). Under the tent canopy it stays lit in rain (`underRoof` beats `Fireplace.CheckWet`'s rain clause); a high-wind storm (canopy 0.47 < 0.7 wind-cover) still douses it — **accepted ordinary behavior** (Q4, Daniel's parent-task resolution: "ordinary rain campfire behavior; no invisible mini-roof"). |
+| Visual notes | Placeholder flame = `Assets.GraftTorchFire` (the cairn's torch-tier flame VFX/light/sfx graft), parented — with the Heat `EffectArea` — under the Fireplace's `m_enabledObject` toggle root so both go inactive when the fire goes out. HP 200, Wood material, ~3.5 m Heat radius (tune so a bedroll under the same canopy sits inside it). |
+| Patch surface | None (no Harmony). **Inverts the Cairns machinery**: cairns STRIP the Heat `EffectArea` (a non-burning marker); the camp fire KEEPS one (built additively — the cairn never does). Registered via `CampFire.RegisterPrefabs` / `DoObjectDBWiring` (Registrar), added to the spade table in `Trailblazing.DoObjectDBWiring`. |
+| Status | **IMPLEMENTED — build 0/0.** Code + SpecCheck Piece row + dataset + spec. Review-gated; logs-green ≠ playable — AT-CAMPFIRE-PLACE / AT-BEDROLL-NOFIRE close only in-game. Recipe PROVISIONAL. |
+| Source spec | `docs/v2/planning/bear-hide-tent-triad-build-impl-spec.md` §3 |
 
 ---
 

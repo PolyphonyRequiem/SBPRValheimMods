@@ -1099,6 +1099,16 @@ namespace SBPR.Trailborne
             // menu, so these hooks are inert on the dedicated server.
             harmony.PatchAll(typeof(ClientRefreshPatches));
 
+            // Trailside Camp — special bedroll exposure relax (card t_439f2351 defect 2,
+            // impl-spec §2.2). Prefab-gated (BedrollTag) prefix on Bed.CheckExposure that
+            // drops ONLY the 0.8-cover clause, keeps underRoof (Q6). Regression-safe: no-ops
+            // on every vanilla bed (AT-BEDROLL-VANILLA). MUST be registered here or it ships
+            // dead and PatchCheck ERRORs at boot (the unregistered-patch lesson). See the
+            // class header for why this is belt-and-braces alongside BedrollTag's own inline
+            // gate (BedrollTag owns the E-press so the bedroll can skip night without setting
+            // spawn — vanilla Bed.Interact's sleep branch always claims spawn).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Camp.BedrollCheckExposurePatch));
+
             // Placement-ripple magnitude (Request 1): Player.UpdatePlacementGhost
             // postfix sizes the placement marker's CircleProjector to OUR spade op's
             // effect radius (1.5/3/5m) so the aiming ripple previews the real affected
