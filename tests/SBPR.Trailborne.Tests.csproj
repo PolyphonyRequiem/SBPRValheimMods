@@ -263,6 +263,13 @@
          event-sourced Connection source coordinator. Named acceptance AT-RD-002. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/QualifyingSourceRule.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StoneConnectionSourceRegistry.cs" />
+    <!-- RD-T005 (Tracer 2): weekly/daily participation and the multiplier-aware AP award — the pure
+         AccountStoneParticipationAggregate, the exact ApMultiplierPolicy, and the durable participation
+         coordinator with the combined AP-before-practice fifth-placement order. Named acceptance
+         AT-RD-006, AT-RD-009, AT-RD-019. Engine-free. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/AccountStoneParticipationAggregate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/ApMultiplierPolicy.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/AccountStoneParticipationRegistry.cs" />
   </ItemGroup>
 
   <ItemGroup>
