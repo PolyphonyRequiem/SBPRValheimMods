@@ -250,6 +250,11 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/ContributionRule.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/IntervalReconciler.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/FinalLinkHandshakeStore.cs" />
+    <!-- RD-T006 (Gate B) — the DISPOSABLE server-owned inventory<->Stock transaction harness. Engine-free
+         (System-only), link-compiled here exactly like the Gate-A slice. Proves the load-bearing debit/
+         credit/fit/stale/replay/process-death transaction seam before any donation/withdrawal command
+         exists; enables NO gameplay. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StockTransactionHarness.cs" />
   </ItemGroup>
 
   <ItemGroup>
