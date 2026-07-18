@@ -92,6 +92,7 @@
     <!-- Production Homestead assignment/seating domain logic is engine-free and link-compiled
          into this net8 test project while the shipping mod consumes the same source under net48. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadPlacement.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/HomesteadAuthoredSeatCatalog.cs" />
     <!-- R5 (t_2a8a8aaa): engine-free static-geometry seat authority + generator manifest seam.
          Replaces the SPIKE-1-doomed live Physics/Heightmap scorer. Link-compiled here so every
          resolution branch (static seat, terrain clamp, manifest reject/accept, provenance) is tested

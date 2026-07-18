@@ -39,19 +39,13 @@ namespace SBPR.Niflheim.HomesteadStones { public partial class Plugin { public c
   </Target>
 
   <ItemGroup>
-    <!-- R6 (Blocker 1) — the checked-in static geometry catalog is the production authority. It ships as an
-         embedded resource so production reads authored geometry from a pinned artifact (never a live
-         LocationProxy child hierarchy). The logical resource name is
-         SBPR.Niflheim.HomesteadStones.Assets.homestead-static-geometry.json. -->
-    <EmbeddedResource Include="Assets/homestead-static-geometry.json">
-      <LogicalName>SBPR.Niflheim.HomesteadStones.Assets.homestead-static-geometry.json</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-
-  <ItemGroup>
     <!-- Unity Editor-only reproducible bundle builder: source-controlled with the owning mod,
          copied into the Preview Lab for execution, never compiled into the runtime plugin. -->
     <Compile Remove="Assets/Editor/**/*.cs" />
+    <!-- Retired engine adapters remain source/test fixtures only. The shipping plugin uses the 13-row
+         HomesteadAuthoredSeatCatalog and does not compile the generator manifest store or catalog loader. -->
+    <Compile Remove="Features/HomesteadStone/HomesteadManifestStore.cs" />
+    <Compile Remove="Features/HomesteadStone/HomesteadStaticGeometryCatalogLoader.cs" />
 
     <!-- Game + Unity assemblies (read-only, Private=false — never shipped). Minimal set
          for this slice: the plugin bootstrap, prefab construction, and the area-of-influence

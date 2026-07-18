@@ -101,5 +101,31 @@ namespace SBPR.Trailborne.Tests
             Assert.Throws<HomesteadLedgerIoException>(() =>
                 HomesteadLedgerAtomicIo.LoadWithRecovery(World, p.Live, p.Temp, p.Backup));
         }
+
+        [Fact]
+        public void A_truncated_temp_never_beats_a_complete_backup()
+        {
+            using var p = new Paths();
+            File.WriteAllText(p.Live, "garbage-not-our-schema");
+            File.WriteAllText(p.Temp, Serialized(5, 6, HomesteadEventOutcome.Created).Split('\n')[0]);
+            File.WriteAllText(p.Backup, Serialized(7, 8, HomesteadEventOutcome.Created));
+
+            var loaded = HomesteadLedgerAtomicIo.LoadWithRecovery(World, p.Live, p.Temp, p.Backup);
+            Assert.False(loaded.TryGet(5, 6, out _));
+            Assert.True(loaded.TryGet(7, 8, out _));
+        }
+
+        [Fact]
+        public void A_foreign_world_ledger_is_rejected()
+        {
+            using var p = new Paths();
+            var foreign = new HomesteadWorldLedger();
+            foreign.SetWorldIdentity("uid:foreign");
+            foreign.Record(1, 2, HomesteadEventOutcome.Created, V1, "foreign");
+            File.WriteAllText(p.Live, foreign.Serialize());
+
+            Assert.Throws<HomesteadLedgerIoException>(() =>
+                HomesteadLedgerAtomicIo.LoadWithRecovery(World, p.Live, p.Temp, p.Backup));
+        }
     }
 }
