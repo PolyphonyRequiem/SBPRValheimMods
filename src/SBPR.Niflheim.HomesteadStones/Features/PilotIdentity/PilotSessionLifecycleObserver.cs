@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Adapters.Identity;
 using SBPR.Niflheim.HomesteadStones.Application.Accounts;
@@ -77,7 +78,35 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                     accountStore, keyRing, PilotDisclosureVersions.NoticeVersion, PilotDisclosureVersions.RetentionVersion);
                 var characters = new PilotCharacterAdmissionService(accountStore, keyRing, new AccountAdmissionIndex());
 
-                live = new LiveSessionAdmission(accounts, characters, server.BoundSessions);
+                // IAP-012 fix-forward (t_f6c8c748): compose the privacy service over the SAME durable store
+                // and wire its fail-closed admission gate. If the rehydrated journal already carries an
+                // Active pilot lifecycle record and a cataloged WorldSave fixture (opened/cataloged through
+                // the operator privacy path), configure the gate to that pilot+fixture and enforce it: a
+                // closed pilot or an uncataloged/expired/purged world fixture then rejects live admission
+                // before any bind. When no pilot has been opened yet, the gate stays unconfigured and
+                // admission proceeds as before (server not bricked mid-migration) — logged prominently.
+                var privacy = new PilotPrivacyService(
+                    accountStore, new OperatorAdminGate(Array.Empty<string>()), new AccountMutationFence(),
+                    System.TimeSpan.FromSeconds(5));
+                IPrivacyAdmissionGate? privacyGate = null;
+                var activePilot = accountStore.Pilots.FirstOrDefault(p => p.Status == PilotLifecycleStatus.Active);
+                var worldFixture = accountStore.Artifacts.FirstOrDefault(a =>
+                    a.ArtifactType == PilotArtifactType.WorldSave && a.Status == ArtifactStatus.Active);
+                if (activePilot != null && worldFixture != null)
+                {
+                    privacy.ConfigureAdmission(activePilot.PilotId, worldFixture.StorageLocator);
+                    privacyGate = privacy;
+                    Plugin.Log.LogInfo("[Niflheim/HomesteadStones] Privacy admission gate ENFORCED for pilot='"
+                        + activePilot.PilotId.Value + "' worldFixture='" + worldFixture.StorageLocator + "'.");
+                }
+                else
+                {
+                    Plugin.Log.LogWarning("[Niflheim/HomesteadStones] No open pilot + cataloged world fixture in the "
+                        + "durable journal; privacy admission gate NOT enforced (open a pilot via the operator "
+                        + "privacy path to fail closed on closure/uncataloged fixtures).");
+                }
+
+                live = new LiveSessionAdmission(accounts, characters, server.BoundSessions, privacyGate);
                 providerGate = new PilotProviderGate(PilotProviderKey.Steamworks(PilotBackendIssuer));
                 admittedTransports.Clear();
                 composedFor = __instance;

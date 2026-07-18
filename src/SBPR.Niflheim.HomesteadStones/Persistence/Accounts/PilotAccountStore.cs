@@ -119,6 +119,12 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         public ArtifactStatus Status;
         public long Revision;
         public string PurgeEvidenceDigest = string.Empty;
+        // IAP-012 fix-forward (t_f6c8c748): fields needed for account-scoped purge/key census + audit.
+        public string PolicyVersion = string.Empty;
+        public string KeyVersion = string.Empty;
+        public string ReceiptId = string.Empty;
+        public string AccountId = string.Empty;   // set for account-scoped artifacts (exports)
+        public string Selector = string.Empty;    // stable purge selector recorded at purge time
     }
 
     /// <summary>Projected retention hold (data-model.md RetentionHold). Scoped, reasoned, and expiring;
@@ -132,6 +138,7 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         public long CreatedAt;
         public long ExpiresAt;
         public RetentionHoldStatus Status;
+        public string ReceiptId = string.Empty;
     }
 
     /// <summary>One version-census line (data-model.md RunLookupKeyVersionCensus). Counts by key version
@@ -686,6 +693,11 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                         Status = ParseArtifactStatus(ch.Get("status")),
                         Revision = ch.GetLong("revision"),
                         PurgeEvidenceDigest = ch.Get("purgeEvidenceDigest"),
+                        PolicyVersion = ch.Get("policyVersion"),
+                        KeyVersion = ch.Get("keyVersion"),
+                        ReceiptId = ch.Get("receiptId"),
+                        AccountId = ch.Get("accountId"),
+                        Selector = ch.Get("selector"),
                     };
                     _artifacts[art.DataArtifactId.Value] = art;
                     break;
@@ -697,6 +709,9 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                         art.Status = ParseArtifactStatus(ch.Get("status"));
                         art.Revision = ch.GetLong("revision");
                         if (ch.Get("purgeEvidenceDigest").Length > 0) art.PurgeEvidenceDigest = ch.Get("purgeEvidenceDigest");
+                        if (ch.Get("selector").Length > 0) art.Selector = ch.Get("selector");
+                        if (ch.Get("keyVersion").Length > 0) art.KeyVersion = ch.Get("keyVersion");
+                        if (ch.Get("receiptId").Length > 0) art.ReceiptId = ch.Get("receiptId");
                     }
                     break;
                 }
@@ -711,6 +726,7 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                         CreatedAt = ch.GetLong("createdAt"),
                         ExpiresAt = ch.GetLong("expiresAt"),
                         Status = ParseHoldStatus(ch.Get("status")),
+                        ReceiptId = ch.Get("receiptId"),
                     };
                     _holds[hold.RetentionHoldId.Value] = hold;
                     break;
