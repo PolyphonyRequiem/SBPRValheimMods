@@ -4,8 +4,10 @@ using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery;
 using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery;
 using SBPR.Niflheim.HomesteadStones.Persistence.Characters;
 
 namespace SBPR.Niflheim.HomesteadStones.Application.Commands
@@ -82,7 +84,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             string ownerGovernorRole = "",
             long? expectedCharacterRevision = null,
             long? expectedAuthorityRevision = null,
-            RelationshipStatus expectedStatus = RelationshipStatus.Active)
+            RelationshipStatus expectedStatus = RelationshipStatus.Active,
+            long serverTimeSeconds = 0)
         {
             OperationId = operationId;
             CommandType = commandType;
@@ -95,6 +98,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             ExpectedCharacterRevision = expectedCharacterRevision;
             ExpectedAuthorityRevision = expectedAuthorityRevision;
             ExpectedStatus = expectedStatus;
+            ServerTimeSeconds = serverTimeSeconds;
         }
 
         public OperationId OperationId { get; }
@@ -108,6 +112,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         public long? ExpectedCharacterRevision { get; }
         public long? ExpectedAuthorityRevision { get; }
         public RelationshipStatus ExpectedStatus { get; }
+
+        /// <summary>Server-observed effective time (whole seconds) for this command. Drives the Connection
+        /// source lifecycle (age accrual, grace freeze/expiry) so a Bond/Attunement/Release advances the
+        /// account-pair Connection at the same authoritative time as the relationship mutation. Defaults
+        /// to 0 for callers on the legacy path that do not yet supply a clock.</summary>
+        public long ServerTimeSeconds { get; }
     }
 
     /// <summary>Supplies the authored Stone classification (family/variant) that drives the
@@ -142,13 +152,25 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private readonly IStoneFamilyResolver _familyResolver;
         private readonly IBondAuthorityPolicy _bondAuthority;
 
+        // RD-T004 integration (item 1): the durable Connection source coordinator. When supplied, every
+        // committed Bond/Attunement/Release drives the matching Connection source transition inside the
+        // SAME logical transaction (via ApplyProjections, which runs on both live commit AND boot
+        // rehydration) so the account-pair Connection is a recoverable projection of the committed
+        // relationship journal. Null on the legacy path (no Connection integration), preserving behavior.
+        private readonly StoneConnectionSourceRegistry? _sourceRegistry;
+        private readonly WorldId _world;
+        private readonly ProductScope _product;
+
         public RelationshipCommandHandler(
             string journalPath,
             PrincipalResolver resolver,
             ICharacterAggregateStore characterStore,
             IAccountStoneAuthorityStore authorityStore,
             IStoneFamilyResolver familyResolver,
-            IBondAuthorityPolicy bondAuthority)
+            IBondAuthorityPolicy bondAuthority,
+            StoneConnectionSourceRegistry? sourceRegistry = null,
+            WorldId world = default,
+            ProductScope product = default)
         {
             _journalPath = journalPath ?? throw new ArgumentNullException(nameof(journalPath));
             _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
@@ -159,9 +181,15 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             // content-backed policy that can prove the requested range is authored and available.
             _bondAuthority = bondAuthority ?? throw new ArgumentNullException(nameof(bondAuthority));
 
+            _sourceRegistry = sourceRegistry;
+            _world = world;
+            _product = product;
+
             // Rehydrate the character/authority projections from durable journal truth at construction
             // (server boot). Only committed operations project; a partial op is quarantined, never
-            // applied. Idempotent set-to-state, so re-running is a no-op.
+            // applied. Idempotent set-to-state, so re-running is a no-op. When a source registry is
+            // supplied, ApplyProjections ALSO re-drives its idempotent source transition, so the
+            // account-pair Connection state is reconstructed from the same committed relationship log.
             RehydrateFromJournal();
         }
 
@@ -291,7 +319,9 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 CharacterRevision = transition.Character.Revision,
                 AuthorityRevision = transition.Authority.Revision,
                 CharacterSnapshot = transition.Character.Serialize(),
-                AuthoritySnapshot = transition.Authority.Serialize()
+                AuthoritySnapshot = transition.Authority.Serialize(),
+                CommandType = (int)command.CommandType,
+                ServerTimeSeconds = command.ServerTimeSeconds
             };
 
             Append(Record(RelationshipBoundary.IntentJournaled, record));
@@ -309,6 +339,34 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 CharacterProgressionAggregate.Deserialize(record.CharacterSnapshot));
             _authorityStore.ApplyAuthorityProjection(operationId,
                 AccountStoneAuthorityIndex.Deserialize(record.AuthoritySnapshot));
+
+            // RD-T004 integration (item 1): drive the Connection source transition as part of the SAME
+            // logical transaction. This runs on live commit (after the relationship terminal is durable)
+            // AND on boot rehydration, so the account-pair Connection is a recoverable projection of the
+            // committed relationship journal. The registry is idempotent by its own operationId, so a
+            // rehydration re-drive over its already-committed source event is a harmless replay. The
+            // source op id is bound to the relationship op id so the two stay correlated.
+            if (_sourceRegistry == null) return;
+            var account = new AccountId(record.AccountId);
+            var stoneId = new StoneId(record.StoneId);
+            string sourceOpId = operationId + ":csrc";
+            switch ((RelationshipCommandType)record.CommandType)
+            {
+                case RelationshipCommandType.CreateBond:
+                    _sourceRegistry.ActivateRelationship(sourceOpId, _world, _product, stoneId, account,
+                        record.RelationshipId, RelationshipKind.Bond, record.ServerTimeSeconds,
+                        "relreceipt:" + operationId);
+                    break;
+                case RelationshipCommandType.CreateAttunement:
+                    _sourceRegistry.ActivateRelationship(sourceOpId, _world, _product, stoneId, account,
+                        record.RelationshipId, RelationshipKind.Attunement, record.ServerTimeSeconds,
+                        "relreceipt:" + operationId);
+                    break;
+                case RelationshipCommandType.ReleaseRelationship:
+                    _sourceRegistry.ReleaseRelationship(sourceOpId, _world, _product, stoneId, account,
+                        record.RelationshipId, record.ServerTimeSeconds);
+                    break;
+            }
         }
 
         private static RelationshipCommandResult Reject(string code) =>
@@ -340,6 +398,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             public long AuthorityRevision;
             public string CharacterSnapshot = string.Empty;
             public string AuthoritySnapshot = string.Empty;
+            // RD-T004 integration (item 1): the command type + server-effective time needed to drive the
+            // Connection source transition as a recoverable projection of this committed record.
+            public int CommandType;
+            public long ServerTimeSeconds;
         }
 
         /// <summary>Return the committed record for one operationId, or null when the operation has no
@@ -419,14 +481,19 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 r.CharacterRevision.ToString(CultureInfo.InvariantCulture),
                 r.AuthorityRevision.ToString(CultureInfo.InvariantCulture),
                 Encode(r.CharacterSnapshot),
-                Encode(r.AuthoritySnapshot)
+                Encode(r.AuthoritySnapshot),
+                r.CommandType.ToString(CultureInfo.InvariantCulture),
+                r.ServerTimeSeconds.ToString(CultureInfo.InvariantCulture)
             });
         }
 
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
-            if (parts.Length != 14 || parts[0] != "RELREC") return null;
+            // 14 = legacy record (no Connection-source fields); 16 = record carrying CommandType +
+            // ServerTimeSeconds. Legacy records default those to 0 (None/0s) so they never drive the
+            // registry — correct, since legacy journals predate the integration.
+            if ((parts.Length != 14 && parts.Length != 16) || parts[0] != "RELREC") return null;
             var rec = new CommittedRelationship
             {
                 OperationId = parts[1],
@@ -440,7 +507,9 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 CharacterRevision = long.Parse(parts[10], CultureInfo.InvariantCulture),
                 AuthorityRevision = long.Parse(parts[11], CultureInfo.InvariantCulture),
                 CharacterSnapshot = Decode(parts[12]),
-                AuthoritySnapshot = Decode(parts[13])
+                AuthoritySnapshot = Decode(parts[13]),
+                CommandType = parts.Length == 16 ? int.Parse(parts[14], CultureInfo.InvariantCulture) : 0,
+                ServerTimeSeconds = parts.Length == 16 ? long.Parse(parts[15], CultureInfo.InvariantCulture) : 0
             };
             return new ParsedRecord
             {
