@@ -91,6 +91,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
         // Committed operation binding digests (idempotency).
         private readonly Dictionary<string, string> _committedOps =
             new Dictionary<string, string>(StringComparer.Ordinal);
+        // The EXACT affected-Connection-key set each committed lifecycle operation produced, keyed by
+        // operationId. A replay MUST return this recorded set verbatim (with a Replayed outcome) — never
+        // a recomputation against the current roster (which may have changed) and never an empty set.
+        private readonly Dictionary<string, IReadOnlyList<string>> _affectedByOp =
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
 
         public StoneConnectionSourceRegistry(string journalPath)
         {
@@ -146,18 +151,23 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
             var idem = CheckIdempotency(operationId, binding, out var conflict);
             if (conflict != null) return conflict.Value;
             if (idem != null)
+                // Return the EXACT recorded affected set with a Replayed outcome — never a
+                // recomputation against the current roster (item 4).
                 return new ConnectionSourceEventResult(ConnectionSourceOutcome.Replayed, "Replayed",
-                    AffectedForActivation(world, product, stoneId, account, relationshipId, role));
+                    _affectedByOp.TryGetValue(operationId, out var recorded) ? recorded : Array.Empty<string>());
 
             if (role == StoneRelationshipRole.None)
                 return new ConnectionSourceEventResult(ConnectionSourceOutcome.NoOp, "NotAStoneRelationship",
                     Array.Empty<string>());
 
-            AppendEvent(operationId, binding, ConnectionSourceEventKind.RelationshipActivated, world, product,
-                stoneId, account, relationshipId, (int)role, serverTimeSeconds, activationProvenance);
-
+            // Apply first to compute the exact affected set, then persist it WITH the event so a
+            // restart replays the identical result rather than recomputing it.
             var affected = ApplyActivation(world, product, stoneId, account, relationshipId, role,
                 serverTimeSeconds, activationProvenance);
+            AppendEvent(operationId, binding, ConnectionSourceEventKind.RelationshipActivated, world, product,
+                stoneId, account, relationshipId, (int)role, serverTimeSeconds, activationProvenance, affected);
+
+            _affectedByOp[operationId] = affected;
             return new ConnectionSourceEventResult(ConnectionSourceOutcome.Applied, "Applied", affected);
         }
 
@@ -174,26 +184,42 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
             var idem = CheckIdempotency(operationId, binding, out var conflict);
             if (conflict != null) return conflict.Value;
             if (idem != null)
-                // The participant is already gone after a committed replay; report no live affected set.
+                // Return the EXACT recorded release affected set with a Replayed outcome — never an
+                // empty set recomputed after the participant is already gone (item 4).
                 return new ConnectionSourceEventResult(ConnectionSourceOutcome.Replayed, "Replayed",
-                    Array.Empty<string>());
-
-            AppendEvent(operationId, binding, ConnectionSourceEventKind.RelationshipReleased, world, product,
-                stoneId, account, relationshipId, 0, serverTimeSeconds, string.Empty);
+                    _affectedByOp.TryGetValue(operationId, out var recorded) ? recorded : Array.Empty<string>());
 
             var affected = ApplyRelease(world, product, stoneId, account, relationshipId, serverTimeSeconds);
+            AppendEvent(operationId, binding, ConnectionSourceEventKind.RelationshipReleased, world, product,
+                stoneId, account, relationshipId, 0, serverTimeSeconds, string.Empty, affected);
+
+            _affectedByOp[operationId] = affected;
             return new ConnectionSourceEventResult(ConnectionSourceOutcome.Applied, "Applied", affected);
         }
 
-        /// <summary>Idempotent grace-expiry reconciliation for a Connection: if it is in grace and the
-        /// expiry has passed, reset its accumulated age (spec RD-004). Pure projection update; not itself
-        /// a journaled lifecycle event (it is derivable from time, mirroring ConnectionAggregate).</summary>
+        /// <summary>Grace-expiry reconciliation for a Connection: if it is in grace and the expiry has
+        /// passed, reset its accumulated age (spec RD-004). Unlike a pure time-derived projection, the
+        /// reset is JOURNALED (item 3) so a restart replays the terminal Reset instead of restoring the
+        /// frozen grace maturity. Idempotent: a Connection already Reset (or not yet expired) journals
+        /// nothing and returns unchanged.</summary>
         public ConnectionAggregate ReconcileGraceExpiry(ConnectionId id, long serverTimeSeconds)
         {
             var current = GetConnection(id);
             var next = current.ReconcileGraceExpiry(serverTimeSeconds);
-            if (!ReferenceEquals(next, current))
-                _connectionsByKey[id.CanonicalKey] = next;
+            if (ReferenceEquals(next, current)) return next;
+
+            // A real Grace -> Reset transition occurred; persist it so it survives restart. The op id is
+            // derived from the identity + expiry so a repeated reconcile at/after the same expiry replays
+            // idempotently rather than appending duplicate resets.
+            string operationId = "grace-reset|" + id.CanonicalKey + "|"
+                + current.GraceExpiresAtSeconds.ToString(CultureInfo.InvariantCulture);
+            if (!_committedOps.ContainsKey(operationId))
+            {
+                string binding = Digest("grace-reset|" + id.CanonicalKey + "|"
+                    + current.GraceExpiresAtSeconds.ToString(CultureInfo.InvariantCulture));
+                AppendGraceReset(operationId, binding, id, serverTimeSeconds);
+            }
+            _connectionsByKey[id.CanonicalKey] = next;
             return next;
         }
 
@@ -269,6 +295,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
             var current = _connectionsByKey.TryGetValue(key, out var agg)
                 ? agg
                 : ConnectionAggregate.CreateEmpty(derived.ConnectionId);
+            // Reconcile an EXPIRED grace BEFORE resuming (item 2 / spec RD-004): a reconnect after the
+            // 72h grace has elapsed must reset the accumulated age to zero, not restore frozen maturity.
+            // ReconcileGraceExpiry is idempotent and a no-op for Active/None/within-grace connections,
+            // so a within-grace reconnect still resumes the frozen age. This runs on both live apply and
+            // journal replay (same serverTime), so the reset is deterministically durable.
+            current = current.ReconcileGraceExpiry(serverTimeSeconds);
             _connectionsByKey[key] = current.AddSource(derived.Source, serverTimeSeconds);
         }
 
@@ -287,26 +319,6 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
                 _rosterByStone[stoneId.Value] = list;
             }
             return list;
-        }
-
-        private List<string> AffectedForActivation(WorldId world, ProductScope product, StoneId stoneId,
-            AccountId account, string relationshipId, StoneRelationshipRole role)
-        {
-            // For a replay we recompute the affected set from the CURRENT roster (which already includes
-            // the committed newcomer), so callers get a stable list without re-mutating anything.
-            var affected = new List<string>();
-            if (role == StoneRelationshipRole.None) return affected;
-            if (!_rosterByStone.TryGetValue(stoneId.Value, out var roster)) return affected;
-            var self = new StoneParticipant(account, relationshipId, role);
-            foreach (var other in roster)
-            {
-                if (other.Account.Equals(account)
-                    && string.Equals(other.RelationshipId, relationshipId, StringComparison.Ordinal))
-                    continue;
-                var derived = QualifyingSourceRule.DeriveSource(world, product, stoneId, self, other, string.Empty);
-                if (derived.HasValue) affected.Add(derived.Value.ConnectionId.CanonicalKey);
-            }
-            return affected;
         }
 
         // ---- Idempotency ----
@@ -332,12 +344,20 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
 
         // ---- Journal ----
 
+        private const string RecGraceReset = "CGRR";
+
         private void AppendEvent(string operationId, string binding, ConnectionSourceEventKind kind,
             WorldId world, ProductScope product, StoneId stoneId, AccountId account, string relationshipId,
-            int role, long serverTimeSeconds, string activationProvenance)
+            int role, long serverTimeSeconds, string activationProvenance, IReadOnlyList<string> affected)
         {
             Append(SerializeEvent(operationId, binding, kind, world, product, stoneId, account,
-                relationshipId, role, serverTimeSeconds, activationProvenance));
+                relationshipId, role, serverTimeSeconds, activationProvenance, affected));
+            _committedOps[operationId] = binding;
+        }
+
+        private void AppendGraceReset(string operationId, string binding, ConnectionId id, long serverTimeSeconds)
+        {
+            Append(SerializeGraceReset(operationId, binding, id, serverTimeSeconds));
             _committedOps[operationId] = binding;
         }
 
@@ -345,6 +365,19 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
         {
             foreach (var line in ReadDurable())
             {
+                // Grace-reset records replay the terminal Grace -> Reset transition (item 3) so a
+                // restart reconstructs the reset age rather than restoring frozen grace maturity.
+                var reset = ParseGraceReset(line);
+                if (reset != null)
+                {
+                    var r = reset.Value;
+                    if (_committedOps.ContainsKey(r.OperationId)) continue;
+                    _committedOps[r.OperationId] = r.Binding;
+                    if (_connectionsByKey.TryGetValue(r.ConnectionKey, out var agg))
+                        _connectionsByKey[r.ConnectionKey] = agg.ReconcileGraceExpiry(r.ServerTimeSeconds);
+                    continue;
+                }
+
                 var ev = ParseEvent(line);
                 if (ev == null) continue;
                 var e = ev.Value;
@@ -361,6 +394,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
                         (StoneRelationshipRole)e.Role, e.ServerTimeSeconds, e.ActivationProvenance);
                 else if (e.Kind == ConnectionSourceEventKind.RelationshipReleased)
                     ApplyRelease(world, product, stoneId, account, e.RelationshipId, e.ServerTimeSeconds);
+
+                // Rebuild the EXACT recorded affected set so a post-restart replay returns the persisted
+                // set, never a recomputation (item 4).
+                _affectedByOp[e.OperationId] = e.Affected;
             }
         }
 
@@ -377,11 +414,20 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
             public int Role;
             public long ServerTimeSeconds;
             public string ActivationProvenance;
+            public IReadOnlyList<string> Affected;
+        }
+
+        private struct ParsedGraceReset
+        {
+            public string OperationId;
+            public string Binding;
+            public string ConnectionKey;
+            public long ServerTimeSeconds;
         }
 
         private static string SerializeEvent(string operationId, string binding, ConnectionSourceEventKind kind,
             WorldId world, ProductScope product, StoneId stoneId, AccountId account, string relationshipId,
-            int role, long serverTimeSeconds, string activationProvenance)
+            int role, long serverTimeSeconds, string activationProvenance, IReadOnlyList<string> affected)
         {
             return string.Join("|", new[]
             {
@@ -396,14 +442,15 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
                 Encode(relationshipId),
                 role.ToString(CultureInfo.InvariantCulture),
                 serverTimeSeconds.ToString(CultureInfo.InvariantCulture),
-                Encode(activationProvenance ?? string.Empty)
+                Encode(activationProvenance ?? string.Empty),
+                EncodeAffected(affected)
             });
         }
 
         private static ParsedEvent? ParseEvent(string line)
         {
             var parts = line.Split('|');
-            if (parts.Length != 12 || parts[0] != RecEvent) return null;
+            if (parts.Length != 13 || parts[0] != RecEvent) return null;
             return new ParsedEvent
             {
                 OperationId = Decode(parts[1]),
@@ -416,8 +463,55 @@ namespace SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery
                 RelationshipId = Decode(parts[8]),
                 Role = int.Parse(parts[9], CultureInfo.InvariantCulture),
                 ServerTimeSeconds = long.Parse(parts[10], CultureInfo.InvariantCulture),
-                ActivationProvenance = Decode(parts[11])
+                ActivationProvenance = Decode(parts[11]),
+                Affected = DecodeAffected(parts[12])
             };
+        }
+
+        private static string SerializeGraceReset(string operationId, string binding, ConnectionId id,
+            long serverTimeSeconds)
+        {
+            return string.Join("|", new[]
+            {
+                RecGraceReset,
+                Encode(operationId),
+                Encode(binding),
+                Encode(id.CanonicalKey),
+                serverTimeSeconds.ToString(CultureInfo.InvariantCulture)
+            });
+        }
+
+        private static ParsedGraceReset? ParseGraceReset(string line)
+        {
+            var parts = line.Split('|');
+            if (parts.Length != 5 || parts[0] != RecGraceReset) return null;
+            return new ParsedGraceReset
+            {
+                OperationId = Decode(parts[1]),
+                Binding = Decode(parts[2]),
+                ConnectionKey = Decode(parts[3]),
+                ServerTimeSeconds = long.Parse(parts[4], CultureInfo.InvariantCulture)
+            };
+        }
+
+        /// <summary>Encode the ordered affected-Connection-key set as one base64 field. An empty set is
+        /// the empty string; keys are individually base64'd and comma-joined so a key can never contain
+        /// the delimiter.</summary>
+        private static string EncodeAffected(IReadOnlyList<string> affected)
+        {
+            if (affected == null || affected.Count == 0) return string.Empty;
+            var parts = new string[affected.Count];
+            for (int i = 0; i < affected.Count; i++) parts[i] = Encode(affected[i]);
+            return string.Join(",", parts);
+        }
+
+        private static IReadOnlyList<string> DecodeAffected(string field)
+        {
+            if (string.IsNullOrEmpty(field)) return Array.Empty<string>();
+            var parts = field.Split(',');
+            var result = new List<string>(parts.Length);
+            foreach (var p in parts) result.Add(Decode(p));
+            return result;
         }
 
         private static string BindingDigest(ConnectionSourceEventKind kind, WorldId world, ProductScope product,

@@ -3,8 +3,10 @@ using System.IO;
 using SBPR.Niflheim.HomesteadStones.Adapters.Activities;
 using SBPR.Niflheim.HomesteadStones.Application.Commands;
 using SBPR.Niflheim.HomesteadStones.Application.Receipts;
+using SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery;
 using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery;
 using SBPR.Niflheim.HomesteadStones.Persistence.Characters;
 using SBPR.Niflheim.HomesteadStones.Persistence.Stone;
 using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
@@ -36,6 +38,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
     {
         public const string ApJournalFile = "foundational-ap.journal";
         public const string RelationshipJournalFile = "relationships.journal";
+        public const string ConnectionSourceJournalFile = "connection-sources.journal";
+
+        /// <summary>Stable product discriminator for this mod's Connection graph (data-model §Stable
+        /// identities). Keeps another product that happens to share Account IDs out of this graph.</summary>
+        public const string ConnectionProduct = "SBPR.Trailborne";
 
         private FoundationalProgressionServer(
             FoundationalPlacementRuntime runtime,
@@ -48,6 +55,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             StoneAreaMembership stoneAreas,
             PendingRevalidationQueue pendingPlacements,
             BoundSessionPrincipalIndex boundSessions,
+            StoneConnectionSourceRegistry connectionSources,
             string durableDirectory)
         {
             Runtime = runtime;
@@ -60,6 +68,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             StoneAreas = stoneAreas;
             PendingPlacements = pendingPlacements;
             BoundSessions = boundSessions;
+            ConnectionSources = connectionSources;
             DurableDirectory = durableDirectory;
         }
 
@@ -89,6 +98,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// principal from it instead of deriving one from a raw provider subject. Non-durable:
         /// cleared on restart, republished by admission on reconnect.</summary>
         public BoundSessionPrincipalIndex BoundSessions { get; }
+
+        /// <summary>RD-T004 — the durable Connection source coordinator. Every committed
+        /// Bond/Attunement/Release through <see cref="Relationships"/> drives the matching account-pair
+        /// Connection source transition in the SAME logical transaction, and this coordinator's projections
+        /// are reconstructed from the same relationship journal on restart.</summary>
+        public StoneConnectionSourceRegistry ConnectionSources { get; }
 
         public string DurableDirectory { get; }
 
@@ -133,7 +148,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             FoundationalPieceCatalog? catalog = null,
             RuntimePlacementLog? log = null,
             TimeSpan? pendingRevalidationDeadline = null,
-            int pendingRevalidationCapacity = PendingRevalidationQueue.DefaultCapacity)
+            int pendingRevalidationCapacity = PendingRevalidationQueue.DefaultCapacity,
+            WorldId world = default)
         {
             if (string.IsNullOrEmpty(durableDirectory)) throw new ArgumentNullException(nameof(durableDirectory));
             if (familyResolver == null) throw new ArgumentNullException(nameof(familyResolver));
@@ -143,6 +159,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             Directory.CreateDirectory(durableDirectory);
             string apJournal = Path.Combine(durableDirectory, ApJournalFile);
             string relJournal = Path.Combine(durableDirectory, RelationshipJournalFile);
+            string sourceJournal = Path.Combine(durableDirectory, ConnectionSourceJournalFile);
 
             var resolver = new PrincipalResolver();
             var authority = new InMemoryAccountStoneAuthorityStore();
@@ -151,8 +168,14 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             // Rehydrate the relationship authority/character projections from the durable relationship
             // journal (server boot). The SAME authority store is read by the placement authorizer below.
+            // RD-T004: the Connection source coordinator is constructed FIRST (rehydrating its own
+            // journal), then handed to the relationship handler so every committed Bond/Attunement/Release
+            // — including the ones replayed during this boot rehydration — drives the matching account-pair
+            // Connection source transition in the same logical transaction.
+            var connectionSources = new StoneConnectionSourceRegistry(sourceJournal);
             var relationships = new RelationshipCommandHandler(
-                relJournal, resolver, characters, authority, familyResolver, bondAuthority);
+                relJournal, resolver, characters, authority, familyResolver, bondAuthority,
+                connectionSources, world, new ProductScope(ConnectionProduct));
 
             // Rehydrate the AP receipt projections from the durable AP journal (server boot). The Stone
             // AP sink is injected so production re-stamps the world Stone ZDO during this replay.
@@ -177,7 +200,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             return new FoundationalProgressionServer(
                 runtime, relationships, authority, characters, stoneApStore, characterApStore,
-                receipts, stoneAreas, pending, boundSessions, durableDirectory);
+                receipts, stoneAreas, pending, boundSessions, connectionSources, durableDirectory);
         }
     }
 }
