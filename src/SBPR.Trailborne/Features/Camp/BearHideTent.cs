@@ -37,12 +37,19 @@
 //  skeleton from scratch; we attach the bundle mesh as a ZNetView-free cosmetic
 //  child. We never Instantiate a networked prefab and strip it.
 //
-//  SHELTER NOTE (design doc §2): the grafted canopy collider sits on the
-//  "static_solid" layer (in the vanilla Cover ray-mask) and is NOT tagged "leaky",
-//  so the tent reads as underRoof=true (keeps the player dry, keeps a camp fire lit
-//  in rain) — but it is open-sided, so it does NOT reach the 0.8 cover threshold and
-//  is therefore VISUAL-ONLY shelter, exactly as designed. The bedroll's gated
-//  Bed.CheckExposure relax (a later Trailside Camp card) is what makes sleep legal.
+//  SHELTER NOTE (design doc §2): the tent is a genuine WALK-UNDER shelter. Its
+//  collision volume is the donor's OPEN-SIDED MeshCollider (the same tent mesh reused
+//  as a static concave MeshCollider, exactly like the vanilla TraderTent donor), seated
+//  to coincide with the rendered canopy so the collider IS the canopy shape — solid
+//  where the cloth/legs are, open underneath and on the sides. It sits on the
+//  "static_solid" layer (in the vanilla Cover ray-mask) and is NOT tagged "leaky", so
+//  the tent reads as underRoof=true (keeps the player dry, keeps a camp fire lit in
+//  rain) — but because it is open-sided it does NOT reach the 0.8 cover threshold and is
+//  therefore VISUAL-ONLY shelter, exactly as designed. The old solid root BoxCollider
+//  (a wall from the ground to 4.9 m) is DEMOTED to a thin ground pad — a hit/seat target,
+//  not an interior wall (card t_c96a2ea2, bear-hide-tent-collider-fit-impl-spec.md). The
+//  bedroll's gated Bed.CheckExposure relax (a later Trailside Camp card) is what makes
+//  sleep legal.
 //
 //  All gated behind ServerContext.OnSBServer (via Registrar).
 // ============================================================================
@@ -129,18 +136,115 @@ namespace SBPR.Trailborne.Features.Camp
             // Attach the bundle mesh as a ZNetView-free cosmetic child with a runtime-built
             // hide material. Failure is non-fatal: the piece still registers + builds (logs-
             // green≠playable — Daniel verifies the look in-game), it just shows no canopy.
-            if (!TryAttachTentVisual(go))
+            if (!TryAttachTentVisual(go, out var visual) || visual == null)
                 Plugin.Log.LogWarning(
                     $"[Trailborne/Camp] {TentName}: tent visual attach failed; the piece will " +
                     "register and build but show no canopy this load (check the AssetBundle + textures shipped).");
 
-            // Size the root collider to the TraderTent footprint (vprefab: 8.0 × 4.9 × 6.9 m).
-            // A box big enough to receive placement raycasts + hits; exact fit is polish.
-            var box = go.GetComponent<BoxCollider>();
-            if (box != null) { box.size = new Vector3(8.0f, 4.9f, 6.9f); box.center = new Vector3(0f, 2.45f, 0f); }
+            // COLLIDER FIT (spec: bear-hide-tent-collider-fit-impl-spec.md, card t_c96a2ea2).
+            // The as-built used a SOLID 8×4.9×6.9 root BoxCollider — a wall of collision from
+            // the ground up filling the whole footprint — AND left the canopy visual attached
+            // at Vector3.zero with zero measurement, so the mesh (AABB centre ≈ (4.49,2.38,1.46),
+            // foot ≈ -0.055) rendered ~4.7 m off the box. Daniel 2026-06-26: "the collision mesh
+            // has no relationship to the tent mesh / I am not finding a spot where I can get
+            // shelter." Fix has two halves: (1) graft the donor's OPEN-SIDED MeshCollider (the
+            // SAME tent mesh, concave/static) so the collision volume IS the canopy shape — a
+            // real walk-under shelter, exactly like the vanilla TraderTent donor which ships
+            // MeshCollider{convex:false}; (2) SEAT the mesh+collider (same delta) so the measured
+            // foot lands at root y=0 and the canopy centres on X/Z; then demote the shell box to
+            // a thin ground pad (footprint × 0.2 m) so a guaranteed non-trigger hit/seat target
+            // remains without walling the interior (same philosophy as the Ancient Portal walk-up
+            // fix, ancient-portal-impl-spec.md §3.2b).
+            if (visual != null)
+                SeatTentGeometryAndCollider(go, visual);
 
             Assets.RegisterPrefabInZNetScene(go);
             Plugin.Log.LogInfo($"[Trailborne/Camp] Registered Bear Hide Tent piece: {TentName} (additive, AssetBundle mesh).");
+        }
+
+        // ───────────────────────────────────────────────
+        // COLLIDER FIT — graft the open canopy MeshCollider + seat + ground pad
+        // ───────────────────────────────────────────────
+
+        /// <summary>
+        /// Make the placed tent a genuine walk-under shelter whose collision volume coincides
+        /// with the rendered canopy. Grafts the donor's open-sided <see cref="MeshCollider"/>
+        /// (the SAME loaded tent mesh, concave/static — legal because a placed piece is static,
+        /// and the vanilla TraderTent ships exactly this collider), seats the visual + collider
+        /// (identical delta) so the measured mesh foot lands at root y=0 and the canopy centres
+        /// on X/Z, and demotes the shell's solid <see cref="BoxCollider"/> to a thin ground pad
+        /// under the seated footprint. Measured, not guessed — mirrors the Signs/MarkerSigns
+        /// <see cref="Assets.MeasureLocalExtent(GameObject,Transform,int,out float,out float)"/>
+        /// seat machinery. Clean-room safe (public UnityEngine API + base-game donor only).
+        /// </summary>
+        private static void SeatTentGeometryAndCollider(GameObject go, GameObject visual)
+        {
+            var rootT = go.transform;
+
+            // (1) Graft the open canopy MeshCollider as a child of the PIECE ROOT (not the
+            //     visual, not the shell box). Reuse the visual's already-loaded mesh so there
+            //     is no second asset load. Concave + non-trigger: a real shelter surface the
+            //     Cover spherecast can hit; static because a placed build piece is static.
+            var mf = visual.GetComponent<MeshFilter>();
+            var tentMesh = mf != null ? mf.sharedMesh : null;
+            GameObject? colObj = null;
+            if (tentMesh != null)
+            {
+                colObj = new GameObject("SBPR_BearHideTentCollider");
+                colObj.transform.SetParent(rootT, worldPositionStays: false);
+                var mc = colObj.AddComponent<MeshCollider>();
+                mc.sharedMesh = tentMesh;
+                mc.convex     = false;   // open-sided; static piece → concave is legal (donor proves it)
+                mc.isTrigger  = false;   // a real shelter surface (Cover spherecast needs a solid hit)
+                // Layer static_solid: in the vanilla Cover ray-mask, non-leaky → keeps
+                // underRoof=true (design §2). Matches the donor TraderTent's collider layer.
+                int staticSolid = LayerMask.NameToLayer("static_solid");
+                if (staticSolid >= 0) colObj.layer = staticSolid;
+            }
+            else
+            {
+                Plugin.Log.LogWarning(
+                    $"[Trailborne/Camp] {TentName}: no mesh on visual; shelter MeshCollider not grafted " +
+                    "(the piece will still build off the ground pad, but has no walk-under canopy collider).");
+            }
+
+            // (2) Measure the canopy mesh AABB in ROOT space (measure the child mesh in the ROOT
+            //     frame, not its own — a self-frame measure round-trips, the MarkerSigns caveat).
+            Assets.MeasureLocalExtent(visual, rootT, 0, out float minX, out float maxX);
+            Assets.MeasureLocalExtent(visual, rootT, 1, out float minY, out float maxY);
+            Assets.MeasureLocalExtent(visual, rootT, 2, out float minZ, out float maxZ);
+            float centreX = 0.5f * (minX + maxX);   // ≈ 4.49 m for the shipped mesh
+            float centreZ = 0.5f * (minZ + maxZ);   // ≈ 1.46 m
+            float footY   = minY;                    // ≈ -0.055 m
+
+            // Re-seat the MESH (visual + collider, SAME delta) so the foot lands at root y=0 and
+            // the canopy centres over the placement origin on X/Z.
+            Vector3 seat = new Vector3(-centreX, -footY, -centreZ);
+            visual.transform.localPosition += seat;
+            if (colObj != null)
+            {
+                colObj.transform.localPosition = visual.transform.localPosition; // collider tracks visual
+                colObj.transform.localRotation = visual.transform.localRotation;
+                colObj.transform.localScale    = visual.transform.localScale;
+            }
+
+            // (3) Demote the shell's solid root BoxCollider to a thin GROUND PAD: a base-mass
+            //     hit/deconstruct + placement-seat target that does NOT wall the interior, so the
+            //     player can walk under the canopy. Centre it under the SEATED footprint (post-seat
+            //     that is ≈ (0, 0.1, 0)). DESK-ESTIMATED pad height 0.2 m — flagged AT-WALK-UNDER,
+            //     tune in-game if the player snags.
+            var box = go.GetComponent<BoxCollider>();
+            if (box != null)
+            {
+                box.size      = new Vector3(maxX - minX, 0.2f, maxZ - minZ);           // footprint × thin
+                box.center    = new Vector3(centreX + seat.x, 0.1f, centreZ + seat.z); // = (0, 0.1, 0) post-seat
+                box.isTrigger = false;
+            }
+
+            Plugin.Log.LogInfo(
+                $"[Trailborne/Camp] {TentName}: seated canopy (foot→y0, centre X/Z), grafted open " +
+                $"MeshCollider={(colObj != null)}, demoted shell box to ground pad " +
+                $"(footprint {maxX - minX:0.00}×{maxZ - minZ:0.00} m).");
         }
 
         // ───────────────────────────────────────────────
@@ -174,24 +278,26 @@ namespace SBPR.Trailborne.Features.Camp
         // Visual: load the bundle mesh + build a runtime hide material
         // ───────────────────────────────────────────────
 
-        private static bool TryAttachTentVisual(GameObject dst)
+        private static bool TryAttachTentVisual(GameObject dst, out GameObject? visual)
         {
+            visual = null;
             var mesh = LoadTentMesh();
             if (mesh == null) return false;
 
             // Cosmetic child: MeshFilter + MeshRenderer only — no ZNetView, no collider, no
-            // script (ADR-0006 additive visual; the canopy is decoration, the shell owns the
-            // networked collider).
-            var visual = new GameObject("SBPR_BearHideTentVisual");
-            visual.transform.SetParent(dst.transform, worldPositionStays: false);
-            visual.transform.localPosition = Vector3.zero;
-            visual.transform.localRotation = Quaternion.identity;
-            visual.transform.localScale = Vector3.one;
+            // script (ADR-0006 additive visual; the canopy is decoration, the shelter collider
+            // is grafted separately as SBPR_BearHideTentCollider, seated to the SAME TRS).
+            var v = new GameObject("SBPR_BearHideTentVisual");
+            v.transform.SetParent(dst.transform, worldPositionStays: false);
+            v.transform.localPosition = Vector3.zero;
+            v.transform.localRotation = Quaternion.identity;
+            v.transform.localScale = Vector3.one;
 
-            var mf = visual.AddComponent<MeshFilter>();
+            var mf = v.AddComponent<MeshFilter>();
             mf.sharedMesh = mesh;
-            var mr = visual.AddComponent<MeshRenderer>();
+            var mr = v.AddComponent<MeshRenderer>();
             mr.sharedMaterial = BuildHideMaterial();
+            visual = v;
             return true;
         }
 

@@ -429,8 +429,10 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 
 > The portable-camp triad (Bear Hide Tent + special bedroll + covered camp fire) that
 > lets an Explorer sleep out on the trail. Design: `docs/design/trailside-camp.md`.
-> Net-new pillar, NOT in requirements.md v1. **Only the Bear Hide Tent ships so far**
-> (placeholder art); the bedroll + camp fire are later cards on the same design doc.
+> Net-new pillar, NOT in requirements.md v1. **All three triad pieces now ship**
+> (Bear Hide Tent + special bedroll + covered camp fire; placeholder art). Together,
+> under a fixed tent canopy, a lit camp fire + a bedroll let an Explorer skip the night
+> on the trail WITHOUT overwriting their home respawn point.
 
 ### Pieces
 
@@ -447,10 +449,50 @@ the disc, WorldPins rendered via the shared `#100` projection. Card t_cb831069.
 | Recipe (build) | Bear Hide (`BjornHide`) ×4 + Fine Wood ×6 + Leather Scraps ×4 — **PROVISIONAL** pending the design doc's recipe lock |
 | Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`; `EnsureCategory` guards drift) |
 | Function | A trailside tent — **placeholder shelter, VISUAL-ONLY this cut.** Its open canopy reads `underRoof=true` (so it keeps a player dry / a nearby camp fire lit in rain), but it does NOT reach the 0.8 cover threshold, so it does not by itself satisfy vanilla's sleep `CheckExposure` (by design — the special bedroll's gated `Bed.CheckExposure` relax, a later Camp card, is what makes sleep legal). No comfort aura, no sleep mechanic on the tent itself yet. |
-| Visual notes | **🔴 SBPR's FIRST custom AssetBundle.** Placeholder art = the vanilla **TraderTent** mesh (Haldor's market tent; stitched-hide canopy, the closest vanilla look to bear hide; legs kept, native 8.0 × 4.9 × 6.9 m — Daniel 2026-06-24 "make it trader tent… it's placeholder art anyhow"). TraderTent is location decoration in a lazy SoftRef bundle and is **NOT** in ZNetScene (`GetPrefab` returns null — verified vs Jotunn prefab-list + decomp), so it can't be grafted by name like every other SBPR donor. We ship the mesh in `assets/bundles/sbpr_tradertent.unity3d` (a repack of the game's own Unity-6 bundle with the mesh renamed `SBPR_TraderTentMesh`, so the Unity-version metadata matches by construction; built by `scripts/build_bear_hide_tent_bundle.py`, round-trip verified). **Material built at RUNTIME** (the server payload strips shaders): `new Material(leather)` off the vanilla `LeatherScraps` material (real lit shader + hide normal grain) with `_MainTex` swapped to the extracted `sbpr_tradertent_d.png` — a bundle-baked material would render magenta. Additive shell (ADR-0006: `Assets.ConstructPieceShell` + cosmetic mesh child); never instantiates a networked prefab. HP 600 (tunable). |
+| Visual notes | **🔴 SBPR's FIRST custom AssetBundle.** Placeholder art = the vanilla **TraderTent** mesh (Haldor's market tent; stitched-hide canopy, the closest vanilla look to bear hide; legs kept, native 8.0 × 4.9 × 6.9 m — Daniel 2026-06-24 "make it trader tent… it's placeholder art anyhow"). TraderTent is location decoration in a lazy SoftRef bundle and is **NOT** in ZNetScene (`GetPrefab` returns null — verified vs Jotunn prefab-list + decomp), so it can't be grafted by name like every other SBPR donor. We ship the mesh in `assets/bundles/sbpr_tradertent.unity3d` (a repack of the game's own Unity-6 bundle with the mesh renamed `SBPR_TraderTentMesh`, so the Unity-version metadata matches by construction; built by `scripts/build_bear_hide_tent_bundle.py`, round-trip verified). **Material built at RUNTIME** (the server payload strips shaders): `new Material(leather)` off the vanilla `LeatherScraps` material (real lit shader + hide normal grain) with `_MainTex` swapped to the extracted `sbpr_tradertent_d.png` — a bundle-baked material would render magenta. Additive shell (ADR-0006: `Assets.ConstructPieceShell` + cosmetic mesh child); never instantiates a networked prefab. HP 600 (tunable). **COLLIDER FIT (card t_c96a2ea2, 2026-07):** the placed tent is a genuine WALK-UNDER shelter. The as-built used a solid 8×4.9×6.9 root `BoxCollider` (a wall of collision from the ground up) with the canopy visual attached at `Vector3.zero` unmeasured — so the mesh (AABB centre ≈ (4.49, 2.38, 1.46), foot ≈ −0.055) rendered ~4.7 m off the box ("the collision mesh has no relationship to the tent mesh", Daniel 2026-06-26). Fixed by grafting the donor's **open-sided `MeshCollider`** (the same tent mesh reused as a static concave `MeshCollider{convex:false}`, on the `static_solid` cover-mask layer — exactly like the vanilla TraderTent donor, which ships this collider) so the collision volume IS the canopy shape (solid where cloth/legs are, open underneath/sides → walk-under, keeps `underRoof`); **seating** the visual + collider (same delta, measured via `Assets.MeasureLocalExtent` — the Signs/MarkerSigns pattern) so the mesh foot lands at root y=0 and the canopy centres on X/Z; and **demoting** the shell box to a thin ground pad (footprint × 0.2 m, centred under the seated canopy) — a hit/seat target, not an interior wall (same philosophy as the Ancient Portal walk-up fix). No SpecCheck/manifest change (collider geometry only). |
 | Patch surface | None. Registered additively via `BearHideTent.RegisterPrefabs` / `DoObjectDBWiring` (Registrar), added to the spade table in `Trailblazing.DoObjectDBWiring`. The AssetBundle + textures ship into the plugin folder via `pack-modpack.sh` (steps 2b/2c). |
 | Status | **IMPLEMENTED — build 0/0 (2026-06-25).** Code + SpecCheck Piece row + dataset + design doc. `[hold]` for Daniel's review + in-game verify. **logs-green ≠ playable** — the AssetBundle load + runtime material only prove out on a joined client (bundle header verified UnityFS/6000.0.61f1 off-box; in-game render unverified). Recipe is PROVISIONAL pending the design doc's open recipe lock. |
 | Source spec | `docs/design/trailside-camp.md` (§1.2 placeholder art, §1.3 BF tier, §2 visual-only shelter) |
+
+---
+
+#### Bedroll
+
+| Field | Value |
+|---|---|
+| Display name | Bedroll |
+| Prefab name | `piece_sbpr_bedroll` |
+| Type | `Piece` (additive shell + vanilla `Bed` component + `BedrollTag` interactable + `BedrollCheckExposurePatch`) |
+| Mod | Trailborne |
+| Biome tier | Black Forest (`BjornHide` is a BF material; mirrors the tent) |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed via the **Trailblazer's Spade build menu** ('Trail' tab), like every Spade-placed SBPR piece (Pillar 1, never the Hammer) |
+| Recipe (build) | Bear Hide (`BjornHide`) ×2 + Leather Scraps ×3 + Wood ×4 — **PROVISIONAL** pending Daniel's recipe lock |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`; `EnsureCategory` guards drift) |
+| Function | The **sleep** half of the triad. Under the tent canopy beside a lit camp fire, pressing Use skips the night and grants vanilla **`SE_Rested`** — a trail nap that does **NOT** overwrite the player's home respawn. Inspired is deferred (Q7) until `trailside-beautification.md` graduates. |
+| Visual notes | Placeholder = the vanilla `bed` fur mesh grafted as a ZNetView-free cosmetic child (ADR-0006 additive; `Assets.GraftMeshFromBlueprint`), seated flush via a **measured** `MeasureLocalFootY` offset (not hand-guessed). HP 200, Wood material. |
+| Patch surface | **🔴 The interaction is owned by `BedrollTag` (an `Interactable`), NOT vanilla `Bed.Interact`.** Verified against the decomp (`Bed.Interact` :99592-99655): the vanilla sleep branch (:99643) is only reachable when the bed is already your current spawn point, and every path there first calls `SetCustomSpawnPoint`. So a no-spawn night-skip is impossible through `Bed.Interact`. `BedrollTag` reimplements the 5-gate chain (time/enemies/exposure-relaxed/fire/wet) and drives `Player.AttachStart(isBed:true)` directly, setting the `s_inBed` flag the all-asleep vote (`Game.EverybodyIsTryingToSleep` :84716) needs — spawn untouched. **`BedrollCheckExposurePatch`** is a prefab-gated (`BedrollTag`) prefix on `Bed.CheckExposure` that drops ONLY the `cover ≥ 0.8` clause, KEEPS `underRoof` (Q6 — no open-sky sleep); vanilla beds are untouched (AT-BEDROLL-VANILLA). It's belt-and-braces (BedrollTag applies the same relaxed rule inline). |
+| Status | **IMPLEMENTED — build 0/0.** Code + SpecCheck Piece row + dataset + spec. Review-gated; logs-green ≠ playable — the sleep ATs close only on Daniel sleeping in-game under the FIXED tent collider (sibling card). Recipe PROVISIONAL. |
+| Source spec | `docs/v2/planning/bear-hide-tent-triad-build-impl-spec.md` §2; `docs/design/trailside-camp.md` §1.4/§3/§3.1 |
+
+---
+
+#### Camp Fire
+
+| Field | Value |
+|---|---|
+| Display name | Camp Fire |
+| Prefab name | `piece_sbpr_camp_fire` |
+| Type | `Piece` (additive shell + vanilla `Fireplace` + hand-built Heat `EffectArea`) |
+| Mod | Trailborne |
+| Biome tier | Black Forest (Wood + Stone + Coal; mirrors the triad) |
+| Craft station | **NONE to place** (`m_craftingStation = null`) — placed via the **Trailblazer's Spade build menu** ('Trail' tab) (Pillar 1, never the Hammer) |
+| Recipe (build) | Wood ×5 + Stone ×3 + Coal ×2 — **PROVISIONAL** pending Daniel's recipe lock |
+| Build-menu tab | Spade → single **"Trail"** tab (`PieceCategory.Misc`; `EnsureCategory` guards drift) |
+| Function | The **fire** half of the triad. A small additive `Fireplace` whose Heat `EffectArea` satisfies the vanilla bed sleep gate 4 (`Bed.CheckFire` → `EffectArea.IsPointInsideArea(pos, Heat)`). Burns **Wood** (fuel item resolved in the ODB pass). Under the tent canopy it stays lit in rain (`underRoof` beats `Fireplace.CheckWet`'s rain clause); a high-wind storm (canopy 0.47 < 0.7 wind-cover) still douses it — **accepted ordinary behavior** (Q4, Daniel's parent-task resolution: "ordinary rain campfire behavior; no invisible mini-roof"). |
+| Visual notes | Placeholder flame = `Assets.GraftTorchFire` (the cairn's torch-tier flame VFX/light/sfx graft), parented — with the Heat `EffectArea` — under the Fireplace's `m_enabledObject` toggle root so both go inactive when the fire goes out. HP 200, Wood material, ~3.5 m Heat radius (tune so a bedroll under the same canopy sits inside it). |
+| Patch surface | None (no Harmony). **Inverts the Cairns machinery**: cairns STRIP the Heat `EffectArea` (a non-burning marker); the camp fire KEEPS one (built additively — the cairn never does). Registered via `CampFire.RegisterPrefabs` / `DoObjectDBWiring` (Registrar), added to the spade table in `Trailblazing.DoObjectDBWiring`. |
+| Status | **IMPLEMENTED — build 0/0.** Code + SpecCheck Piece row + dataset + spec. Review-gated; logs-green ≠ playable — AT-CAMPFIRE-PLACE / AT-BEDROLL-NOFIRE close only in-game. Recipe PROVISIONAL. |
+| Source spec | `docs/v2/planning/bear-hide-tent-triad-build-impl-spec.md` §3 |
 
 ---
 

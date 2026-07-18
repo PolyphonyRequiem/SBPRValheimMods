@@ -24,7 +24,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
     {
         public FoundationalPlacementObservation(
             StoneId stoneId,
-            string actingPlatformId,
+            string actingAccountId,
             string actingCharacterId,
             string stablePieceId,
             string pieceInstanceProvenance,
@@ -33,7 +33,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             string foundationalCatalogVersion)
         {
             StoneId = stoneId;
-            ActingPlatformId = actingPlatformId ?? string.Empty;
+            ActingAccountId = actingAccountId ?? string.Empty;
             ActingCharacterId = actingCharacterId ?? string.Empty;
             StablePieceId = stablePieceId ?? string.Empty;
             PieceInstanceProvenance = pieceInstanceProvenance ?? string.Empty;
@@ -45,10 +45,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// <summary>The Stone whose Area the placement occurred in (server-derived from world facts).</summary>
         public StoneId StoneId { get; }
 
-        /// <summary>Authenticated platform id of the acting connection (server context, never payload).</summary>
-        public string ActingPlatformId { get; }
+        /// <summary>IAP-007 Tracer 3: internal, server-minted account id from the bound session
+        /// (never a raw provider/platform subject).</summary>
+        public string ActingAccountId { get; }
 
-        /// <summary>Acting character observed at command time (server-attributed peer character).</summary>
+        /// <summary>Acting internal character id from the bound session (server-minted, never a raw
+        /// <c>s_playerID</c> / character ZDOID).</summary>
         public string ActingCharacterId { get; }
 
         /// <summary>Stable Foundational-catalog piece id resolved from the placed prefab identity.</summary>
@@ -70,7 +72,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         public OperationId DeriveOperationId()
         {
             string material = string.IsNullOrEmpty(PieceInstanceProvenance)
-                ? string.Join("|", new[] { "foundational-live", StoneId.Value, ActingPlatformId, ActingCharacterId, StablePieceId })
+                ? string.Join("|", new[] { "foundational-live", StoneId.Value, ActingAccountId, ActingCharacterId, StablePieceId })
                 : string.Join("|", new[] { "foundational-live", StoneId.Value, PieceInstanceProvenance });
             return new OperationId("op-fnd-" + ShortDigest(material));
         }

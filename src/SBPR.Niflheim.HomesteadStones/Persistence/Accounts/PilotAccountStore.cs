@@ -53,6 +53,7 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         public PilotAccountStatus Status;
         public long Revision;
         public readonly List<CredentialBindingId> CredentialBindingIds = new List<CredentialBindingId>();
+        public readonly List<PilotCharacterId> CharacterIds = new List<PilotCharacterId>();
         public string NoticeVersion = string.Empty;
         public long NoticeAcknowledgedAt;
         public string RetentionPolicyVersion = string.Empty;
@@ -68,6 +69,20 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         public string BackendIssuer = string.Empty;
         public SubjectLookupHmac Hmac;
         public CredentialStatus Status;
+        public long Revision;
+    }
+
+    public enum CharacterStatus { Active, Tombstoned, Purged }
+
+    /// <summary>Projected character binding (data-model.md Aggregate 3 "PilotCharacterBinding"). Holds
+    /// only the account-scoped profile HMAC — never the raw s_playerID and never the display name
+    /// (AIP-FR-010/AIP-FR-012). Introduced by IAP-005 Tracer 2.</summary>
+    public sealed class PilotCharacterProjection
+    {
+        public PilotCharacterId CharacterId;
+        public PilotAccountId AccountId;
+        public SubjectLookupHmac ProfileHmac;
+        public CharacterStatus Status;
         public long Revision;
     }
 
@@ -217,11 +232,17 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         private readonly Dictionary<string, PilotAccountProjection> _accounts = new Dictionary<string, PilotAccountProjection>(StringComparer.Ordinal);
         private readonly Dictionary<string, CredentialBindingProjection> _credentials = new Dictionary<string, CredentialBindingProjection>(StringComparer.Ordinal);
         private readonly Dictionary<string, AllowlistEntryProjection> _allowlist = new Dictionary<string, AllowlistEntryProjection>(StringComparer.Ordinal);
+        private readonly Dictionary<string, PilotCharacterProjection> _characters = new Dictionary<string, PilotCharacterProjection>(StringComparer.Ordinal);
 
         // Derived credential lookup index: (providerNs|backendIssuer|keyVersion|hmacHex) -> credentialBindingId (active only).
         private readonly Dictionary<string, string> _credentialIndex = new Dictionary<string, string>(StringComparer.Ordinal);
         // Derived allowlist lookup index: same key shape -> allowlistEntryId (active only).
         private readonly Dictionary<string, string> _allowlistIndex = new Dictionary<string, string>(StringComparer.Ordinal);
+        // Derived profile lookup index: (accountId|keyVersion|profileHmacHex) -> characterId (active only).
+        // Account-scoped by construction: the profile HMAC input already includes the AccountId, and the
+        // index key repeats it, so the same s_playerID under a different account cannot resolve this
+        // character (data-model.md Derived index 2 "ProfileLookupIndex"; AT-AIP-CROSS-ACCOUNT-BLOCK).
+        private readonly Dictionary<string, string> _profileIndex = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // Terminal committed transactions by operationId (idempotency): binding+payload digest and result.
         private readonly Dictionary<string, (string binding, string payload, string result)> _committedOps =
@@ -248,6 +269,27 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
 
         public bool TryGetAllowlistEntry(AllowlistEntryId id, out AllowlistEntryProjection entry) =>
             _allowlist.TryGetValue(id.Value, out entry!);
+
+        public bool TryGetCharacter(PilotCharacterId id, out PilotCharacterProjection character) =>
+            _characters.TryGetValue(id.Value, out character!);
+
+        public int CharacterCount => _characters.Count;
+
+        /// <summary>Indexed, account-scoped profile lookup (NO journal scan). Returns the active
+        /// character bound to this account by the given profile HMAC, or false. The account id is part
+        /// of both the HMAC input and the index key, so a foreign account's identical s_playerID can
+        /// never resolve here (data-model.md Aggregate 3 invariant; AT-AIP-CROSS-ACCOUNT-BLOCK).</summary>
+        public bool TryLookupCharacter(PilotAccountId accountId, SubjectLookupHmac profileHmac, out PilotCharacterProjection character)
+        {
+            character = null!;
+            if (_profileIndex.TryGetValue(ProfileIndexKey(accountId, profileHmac), out var id) &&
+                _characters.TryGetValue(id, out var c) && c.Status == CharacterStatus.Active)
+            {
+                character = c;
+                return true;
+            }
+            return false;
+        }
 
         public int AccountCount => _accounts.Count;
 
@@ -287,6 +329,8 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                 if (e.Status == AllowlistStatus.Active) census.CountAllowlist(e.Hmac.KeyVersion);
             foreach (var c in _credentials.Values)
                 if (c.Status == CredentialStatus.Active) census.CountCredential(c.Hmac.KeyVersion);
+            foreach (var ch in _characters.Values)
+                if (ch.Status == CharacterStatus.Active) census.CountCredential(ch.ProfileHmac.KeyVersion);
             return census;
         }
 
@@ -406,6 +450,16 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                     }
                     break;
                 }
+                case "acct-add-char":
+                {
+                    if (_accounts.TryGetValue(ch.Get("accountId"), out var acct))
+                    {
+                        var chid = new PilotCharacterId(ch.Get("characterId"));
+                        if (!acct.CharacterIds.Contains(chid)) acct.CharacterIds.Add(chid);
+                        acct.Revision = ch.GetLong("revision");
+                    }
+                    break;
+                }
                 case "acct-status":
                 {
                     if (_accounts.TryGetValue(ch.Get("accountId"), out var acct))
@@ -440,6 +494,45 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                         cred.Status = ParseCredentialStatus(ch.Get("status"));
                         cred.Revision = ch.GetLong("revision");
                         ReindexCredential(cred);
+                    }
+                    break;
+                }
+                case "char":
+                {
+                    var character = new PilotCharacterProjection
+                    {
+                        CharacterId = new PilotCharacterId(ch.Get("characterId")),
+                        AccountId = new PilotAccountId(ch.Get("accountId")),
+                        ProfileHmac = new SubjectLookupHmac(ch.Get("hmac"), new LookupKeyVersion(ch.Get("keyVersion"))),
+                        Status = ParseCharacterStatus(ch.Get("status")),
+                        Revision = ch.GetLong("revision"),
+                    };
+                    _characters[character.CharacterId.Value] = character;
+                    ReindexCharacter(character);
+                    break;
+                }
+                case "char-status":
+                {
+                    if (_characters.TryGetValue(ch.Get("characterId"), out var character))
+                    {
+                        RemoveCharacterIndex(character);
+                        character.Status = ParseCharacterStatus(ch.Get("status"));
+                        character.Revision = ch.GetLong("revision");
+                        ReindexCharacter(character);
+                    }
+                    break;
+                }
+                case "char-rekey":
+                {
+                    // In-place profile HMAC re-key: drop the old index key, write the current HMAC/version,
+                    // increment revision, RETAIN the same CharacterId (data-model.md Aggregate 3 invariant;
+                    // AT-AIP-PROFILE-PREVIOUS-KEY-REKEY). No superseded character record is created.
+                    if (_characters.TryGetValue(ch.Get("characterId"), out var character))
+                    {
+                        RemoveCharacterIndex(character);
+                        character.ProfileHmac = new SubjectLookupHmac(ch.Get("hmac"), new LookupKeyVersion(ch.Get("keyVersion")));
+                        character.Revision = ch.GetLong("revision");
+                        ReindexCharacter(character);
                     }
                     break;
                 }
@@ -503,6 +596,25 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
 
         private static string IndexKey(string providerNs, string backendIssuer, SubjectLookupHmac hmac) =>
             providerNs + "|" + backendIssuer + "|" + hmac.KeyVersion.Value + "|" + hmac.Hex;
+
+        private void ReindexCharacter(PilotCharacterProjection character)
+        {
+            if (character.Status == CharacterStatus.Active)
+                _profileIndex[ProfileIndexKey(character.AccountId, character.ProfileHmac)] = character.CharacterId.Value;
+        }
+
+        private void RemoveCharacterIndex(PilotCharacterProjection character)
+        {
+            var key = ProfileIndexKey(character.AccountId, character.ProfileHmac);
+            if (_profileIndex.TryGetValue(key, out var id) && string.Equals(id, character.CharacterId.Value, StringComparison.Ordinal))
+                _profileIndex.Remove(key);
+        }
+
+        private static string ProfileIndexKey(PilotAccountId accountId, SubjectLookupHmac profileHmac) =>
+            accountId.Value + "|" + profileHmac.KeyVersion.Value + "|" + profileHmac.Hex;
+
+        private static CharacterStatus ParseCharacterStatus(string s) =>
+            Enum.TryParse<CharacterStatus>(s, out var v) ? v : CharacterStatus.Active;
 
         private static PilotAccountStatus ParseAccountStatus(string s) =>
             Enum.TryParse<PilotAccountStatus>(s, out var v) ? v : PilotAccountStatus.Active;

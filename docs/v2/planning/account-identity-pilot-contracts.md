@@ -190,6 +190,20 @@ principalBindingDigest = Digest(accountId, characterId)
 
 Provider subject and any plain/truncated hash of it are forbidden. This change must preserve same-operation replay results under the new unreleased proof schema; incompatible old fixtures may be explicitly reset.
 
+> **Implemented (IAP-007 Tracer 3, t_c8c96581).** `OperationReceiptStore.SubmitFoundationalAp` now
+> computes `Digest(accountId|characterId)` for the durable principal binding; `AuthoritativePrincipal`
+> and `AuthenticatedConnection` no longer carry `PlatformId`, and `PrincipalResolver` no longer performs
+> any provider lookup (it binds the bound-internal session principal off the connection). The gameplay
+> principal handed to commands/adapters is `PilotSessionPrincipal` (accountId/characterId/sessionId).
+>
+> **Wired live (IAP-007W, t_9b479948).** The bound-internal principal is now actually PUBLISHED into the
+> live path: on successful account+character session activation the server binds
+> `player:<s_playerID>` → `PilotSessionPrincipal` into `BoundSessionPrincipalIndex`
+> (`BoundSessionAdmission` / `LiveSessionAdmission`), and matching close/disconnect removes it
+> session-qualified (a stale disconnect cannot evict a newer bind). Both ingress shapes resolve that bound
+> principal from the server-observed peer key; an unbound peer credits nothing (fail closed) rather than
+> falling back to a provider/platform subject.
+
 ## Durable lifecycle mutation envelope
 
 ```text

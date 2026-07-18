@@ -133,6 +133,31 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
             return entryId;
         }
 
+        /// <summary>Revoke one HMAC-only allowlist entry by its opaque id (contracts.md
+        /// RevokePilotAllowlistEntry). Allowlist-only: this touches NO account/credential lifecycle, so it
+        /// is safe for the local service-owner bootstrap path. Idempotent on operationId; a revoke of an
+        /// already-revoked/absent entry is a no-op returning false. Requires no raw subject/HMAC selector.</summary>
+        public bool RevokeAllowlistEntry(string operationId, AllowlistEntryId entryId, long occurredAt,
+            IAccountCrashInjector? crash = null)
+        {
+            if (_store.TryGetCommittedOp(operationId, out _, out _, out var result) &&
+                result.StartsWith("revoke:", StringComparison.Ordinal))
+                return true;
+
+            if (!_store.TryGetAllowlistEntry(entryId, out var entry)) return false;
+            if (entry.Status != AllowlistStatus.Active) return false;
+
+            var change = new JournalChange("allow-status")
+                .Set("allowlistEntryId", entryId.Value)
+                .Set("status", AllowlistStatus.Revoked.ToString())
+                .Set("revision", (entry.Revision + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            _store.Commit(operationId, "txn-revoke-" + entryId.Value,
+                PilotAccountStore.Digest("revoke|" + entryId.Value),
+                PilotAccountStore.Digest(operationId), "revoke:" + entryId.Value, occurredAt,
+                new[] { change }, crash);
+            return true;
+        }
+
         // ---- Account resolution / first bind (contracts.md ResolveOrCreatePilotAccount) ----
 
         /// <summary>Resolve an existing account for the verified subject, or mint a new account +

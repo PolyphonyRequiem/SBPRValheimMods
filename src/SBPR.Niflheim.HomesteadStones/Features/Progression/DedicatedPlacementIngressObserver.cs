@@ -117,7 +117,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 var ingress = server.CreateDedicatedIngress(ZdoServerPlacedInstanceSource.Instance);
                 var resolved = server.PendingPlacements.Pump(
                     DateTime.UtcNow.Ticks,
-                    (account, character, key) => ingress.Ingest(account, character, key));
+                    // IAP-007W: the peer key is the server-owned player:<s_playerID> character subject the
+                    // handler captured. The ingress resolves the BOUND INTERNAL principal from it (fail
+                    // closed if unbound) and re-derives every other credit-bearing fact server-side.
+                    (account, character, key) => ingress.Ingest(character, key));
 
                 foreach (var outcome in resolved)
                     Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + outcome.ToOperatorLine());

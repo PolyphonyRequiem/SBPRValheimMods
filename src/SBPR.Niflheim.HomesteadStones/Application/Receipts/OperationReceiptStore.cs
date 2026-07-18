@@ -145,7 +145,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Receipts
         {
             crash = crash ?? NoCrash.Instance;
             string opId = operationId.Value;
-            string principalDigest = Digest(principal.Account.Value + "|" + principal.Character.Value + "|" + principal.PlatformId);
+            // IAP-007 Tracer 3 (AIP-FR-015): the principal binding digest is over INTERNAL identity
+            // only — Digest(accountId, characterId). The raw provider PlatformId (and any unkeyed,
+            // brute-forceable hash of it) is removed from every durable receipt binding.
+            string principalDigest = Digest(principal.Account.Value + "|" + principal.Character.Value);
             string payloadDigest = Digest(evidenceDigest ?? string.Empty);
             string bindingDigest = Digest(opId + "|" + stoneId.Value + "|" + principalDigest);
 

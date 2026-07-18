@@ -39,7 +39,6 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 string durableDir = ResolveDurableDirectory(__instance);
                 var server = FoundationalProgressionServer.Create(
                     durableDir,
-                    accountIdForPlatform: null,               // candidate A: platform/player id as account
                     familyResolver: ServerHomesteadFamilyResolver.Instance,
                     bondAuthority: ServerHomesteadBondPolicy.Instance,
                     stoneApStore: new ZdoStoneProgressionStore());

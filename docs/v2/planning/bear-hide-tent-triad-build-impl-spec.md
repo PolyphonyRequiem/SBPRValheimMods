@@ -1,15 +1,30 @@
 ---
 title: "Bear Hide Tent triad — special bedroll + covered camp fire (finish the sleep-anywhere camp)"
-status: proposed
+status: current
 purpose: "Buildable implementation spec for the two unbuilt Trailside Camp pieces (card t_439f2351, defects 2 + 3): the special bedroll (piece_sbpr_bedroll, gated Bed.CheckExposure relax + skip-night-no-spawn) and the covered camp fire (piece_sbpr_camp_fire, small Fireplace providing the Heat gate). Together with the (separately-fixed) tent collider, these complete the triad so an Explorer can sleep out on the trail. Architect spec-pass from trailside-camp.md, with the open knobs Q3-Q7 closed (Q3/Q5/Q6 resolved by grounded lean; Q4/Q7 proposed, Daniel-gated). Implementer = engineer-systems (the Bed patch is the spine)."
 ---
 
 # Bear Hide Tent triad — special bedroll + covered camp fire
 
-**Status:** PROPOSED (Daniel gates the two flagged knobs Q4/Q7 + doc-review; then →
-current → implement). Architect-authored 2026-06-26 from card `t_439f2351`, graduating the
-buildable half of `docs/design/trailside-camp.md` (which stays `status: living` for the art
-+ time-skip seeds).
+**Status:** CURRENT (gate PASSED — parent card t_439f2351 completed with Daniel's
+resolutions: Q4 "ordinary rain campfire behavior; no invisible mini-roof" = the
+rain-only lean; Q7 "Rested now; Inspired after beautification" = the deferral. Parent
+released implementation children.) Architect-authored 2026-06-26 from card
+`t_439f2351`, graduating the buildable half of `docs/design/trailside-camp.md` (which
+stays `status: living` for the art + time-skip seeds).
+
+> 🔴 **IMPLEMENTATION DIVERGENCE (surfaced for review, verified against decomp).** §2.3
+> flagged that the bedroll "may need BedrollTag to call AttachStart directly." It DOES —
+> and this is not optional. `Bed.Interact` (:99592-99655) only reaches its sleep branch
+> (:99643) when the bed is ALREADY the player's current spawn point, and every path
+> there first calls `SetCustomSpawnPoint`. There is NO vanilla path to skip night via a
+> Bed without claiming spawn. So the shipped bedroll's E-press is owned by `BedrollTag`
+> (an `Interactable` added BEFORE the `Bed` component so it wins `GetComponentInParent`),
+> which reimplements the 5-gate chain and drives `AttachStart(isBed:true)` directly,
+> never touching spawn. `Bed.CheckExposure` is therefore not on the live sleep path
+> today; the prefab-gated `BedrollCheckExposurePatch` (§2.2) still ships as documented
+> belt-and-braces and remains regression-safe for vanilla beds. This is the honest way
+> to honor Daniel's no-spawn-overwrite lock; flagged so review can confirm the approach.
 **Assignee for impl:** `engineer-systems` (owns the gated `Bed.CheckExposure` Harmony patch
 + the skip-night-no-spawn path — the spine of this feature; the camp-fire is a small
 additive `Fireplace` in the same hand).

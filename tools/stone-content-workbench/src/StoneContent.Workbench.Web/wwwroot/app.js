@@ -298,6 +298,7 @@ function wireChrome() {
     canvas(); inspector();
   });
   $$('.ot').forEach(x => x.onclick = () => { out = x.dataset.out; output(); });
+  wireTrayResizer();
   $('#validate').onclick = async () => {
     await refresh(); out = 'problems'; output();
     msg(curDiagnostics.length ? `${curDiagnostics.length} diagnostic${curDiagnostics.length > 1 ? 's' : ''} from core` : 'Core validation passed');
@@ -326,5 +327,66 @@ function wireChrome() {
 }
 
 function render() { counts(); renderTrees(); renderPins(); canvas(); inspector(); output(); }
+
+// ── bottom-tray vertical resize (t_42b44e70) ─────────────────────────────────────────────────
+// The tray height is a CSS custom property (--tray-h on .app). Pointer drag and keyboard
+// ArrowUp/ArrowDown both funnel through setTrayHeight, which clamps to sane bounds that can never
+// collapse the tray or cover the main workspace, mirrors the value onto the separator's ARIA state,
+// and persists it locally. Dragging UP (smaller clientY) enlarges the tray; DOWN shrinks it.
+const TRAY_MIN = 120;
+const TRAY_DEFAULT = 184;
+const TRAY_KEY = 'scw.trayHeight';
+const TRAY_STEP = 24;
+
+// Max leaves room for the header + a usable main workspace, so the tray can never cover it.
+function trayMax() { return Math.max(TRAY_MIN, Math.round(window.innerHeight * 0.72)); }
+
+function setTrayHeight(px) {
+  const h = Math.min(trayMax(), Math.max(TRAY_MIN, Math.round(px)));
+  document.querySelector('.app').style.setProperty('--tray-h', h + 'px');
+  const sep = $('#trayResizer');
+  if (sep) { sep.setAttribute('aria-valuenow', h); sep.setAttribute('aria-valuemax', trayMax()); }
+  try { localStorage.setItem(TRAY_KEY, String(h)); } catch { /* ignore */ }
+  return h;
+}
+
+function currentTrayHeight() {
+  const raw = getComputedStyle(document.querySelector('.app')).getPropertyValue('--tray-h');
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : TRAY_DEFAULT;
+}
+
+function wireTrayResizer() {
+  const sep = $('#trayResizer');
+  if (!sep) return;
+  let restored = TRAY_DEFAULT;
+  try { const s = parseInt(localStorage.getItem(TRAY_KEY) || '', 10); if (Number.isFinite(s)) restored = s; } catch { /* ignore */ }
+  setTrayHeight(restored);
+
+  let dragging = false;
+  const onMove = e => { if (!dragging) return; setTrayHeight(window.innerHeight - e.clientY); e.preventDefault(); };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    sep.classList.remove('dragging');
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+  };
+  sep.addEventListener('pointerdown', e => {
+    dragging = true;
+    sep.classList.add('dragging');
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    e.preventDefault();
+  });
+  sep.addEventListener('keydown', e => {
+    if (e.key === 'ArrowUp') { setTrayHeight(currentTrayHeight() + TRAY_STEP); e.preventDefault(); }
+    else if (e.key === 'ArrowDown') { setTrayHeight(currentTrayHeight() - TRAY_STEP); e.preventDefault(); }
+    else if (e.key === 'Home') { setTrayHeight(trayMax()); e.preventDefault(); }
+    else if (e.key === 'End') { setTrayHeight(TRAY_MIN); e.preventDefault(); }
+  });
+  // Keep the tray within bounds when the viewport shrinks.
+  window.addEventListener('resize', () => setTrayHeight(currentTrayHeight()));
+}
 
 boot().catch(e => { $('#canvas').innerHTML = `<div class="cards"><h2>Startup error</h2><p>${esc(e.message)}</p></div>`; });

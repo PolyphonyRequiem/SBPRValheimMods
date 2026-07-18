@@ -68,6 +68,16 @@ namespace SBPR.Niflheim.HomesteadStones
             // (ZNet.OnNewConnection) and the queue pumps on ZDOMan.Update — no separate bootstrap patch.
             harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressObserver));
 
+            // IAP-007W — live session admission. Composes the shipped account+character admission stack
+            // (Tracer 1/2) on the authoritative server and reconciles it against the connected-peer set on
+            // the ZDOMan.Update cadence: a peer whose server-observed profile s_playerID + authenticated
+            // socket resolve is admitted end-to-end and its BOUND INTERNAL principal is PUBLISHED into the
+            // Foundational runtime's BoundSessionPrincipalIndex; a disconnected peer's session is closed
+            // (lease released + session-qualified unbind). This is what makes the placement observer/ingress
+            // resolve a real bound principal instead of always failing closed. Server-gated; identity is
+            // 100% server-observed off the transport-authenticated peer, never a client payload.
+            harmony.PatchAll(typeof(Features.PilotIdentity.PilotSessionLifecycleObserver));
+
             // T009R3 (Blocker 3) — admin/test relationship provisioning seam. DISABLED by default: the
             // routed handler is only registered when this server-owned flag is ON, and even then only an
             // authenticated Valheim ADMIN sender is accepted. It exists so a real playtest session can

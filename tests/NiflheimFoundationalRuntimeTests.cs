@@ -85,7 +85,6 @@ namespace SBPR.Trailborne.Tests
         {
             var server = FoundationalProgressionServer.Create(
                 _durableDir,
-                accountIdForPlatform: null,                     // candidate A: platform id as account
                 familyResolver: new FixedFamilyResolver(_stone),
                 bondAuthority: new HomesteadBondPolicy(),
                 stoneApStore: stoneStore ?? new InMemoryMirroredStoneApStore());
@@ -318,7 +317,7 @@ namespace SBPR.Trailborne.Tests
         public void OperatorLog_IsBounded_AndCountsCreditedVsTotal()
         {
             var server = FoundationalProgressionServer.Create(
-                _durableDir, null, new FixedFamilyResolver(_stone), new HomesteadBondPolicy(),
+                _durableDir, new FixedFamilyResolver(_stone), new HomesteadBondPolicy(),
                 new InMemoryMirroredStoneApStore(), log: new RuntimePlacementLog(capacity: 4));
             server.StoneAreas.Register(_stone, StoneX, StoneZ, 20.0);
             Seed(server, _character);

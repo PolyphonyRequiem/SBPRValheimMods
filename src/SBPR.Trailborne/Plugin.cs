@@ -68,7 +68,7 @@ namespace SBPR.Trailborne
         internal static ConfigEntry<bool>  BannerAlignToWind      = null!;  // Option A: orient the windsock to the wind (the directional fix)
         internal static ConfigEntry<int>   BannerAlignMode        = null!;  // Option A: which axis maps to the wind (0=StreamYaw, 1=FaceYaw, 2=VanillaFull)
         // ── DIAGNOSTIC (card t_7de074f3 — ATTEMPT #6 Step 1) ──
-        internal static ConfigEntry<bool>  BannerDiagnostic       = null!;  // attach the BannerDiagnostic runtime probe (default ON for this diagnostic build)
+        internal static ConfigEntry<bool>  BannerDiagnostic       = null!;  // attach the BannerDiagnostic runtime probe (default OFF in shipped builds; opt-in via config)
 
         // ── Cartography: NoMap enforcement (card t_2f9fc470, impl-spec §3.5.3) ──
         // The escape hatch for the mod-owned global-map disable. Default ON (enforced):
@@ -437,8 +437,8 @@ namespace SBPR.Trailborne
             // enabled/particle/coefficient counts, a frame-to-frame movement test proving
             // whether the Cloth solver actually integrates, and rest-pose world orientation),
             // then self-disables after ~4 s. This is the Step-1 deliverable: prove the failure
-            // mode BEFORE writing a sixth fix. Default ON for this diagnostic build; set false
-            // (or strip the component) once the attempt-#6 rebuild lands.
+            // mode BEFORE writing a sixth fix. Default OFF in shipped builds; set true (opt-in
+            // via the SBPR_BannerDiagnostic config) while the attempt-#6 banner work stays open.
             BannerDiagnostic = Config.Bind(
                 "CairnBanner", "SBPR_BannerDiagnostic", CairnTag.DefaultBannerDiagnostic,
                 "DIAGNOSTIC (attempt #6, card t_7de074f3). When true, each cairn banner logs a one-shot " +
@@ -1098,6 +1098,16 @@ namespace SBPR.Trailborne
             // fix-client-registration). Server-safe: no local Player, no build
             // menu, so these hooks are inert on the dedicated server.
             harmony.PatchAll(typeof(ClientRefreshPatches));
+
+            // Trailside Camp — special bedroll exposure relax (card t_439f2351 defect 2,
+            // impl-spec §2.2). Prefab-gated (BedrollTag) prefix on Bed.CheckExposure that
+            // drops ONLY the 0.8-cover clause, keeps underRoof (Q6). Regression-safe: no-ops
+            // on every vanilla bed (AT-BEDROLL-VANILLA). MUST be registered here or it ships
+            // dead and PatchCheck ERRORs at boot (the unregistered-patch lesson). See the
+            // class header for why this is belt-and-braces alongside BedrollTag's own inline
+            // gate (BedrollTag owns the E-press so the bedroll can skip night without setting
+            // spawn — vanilla Bed.Interact's sleep branch always claims spawn).
+            harmony.PatchAll(typeof(SBPR.Trailborne.Features.Camp.BedrollCheckExposurePatch));
 
             // Placement-ripple magnitude (Request 1): Player.UpdatePlacementGhost
             // postfix sizes the placement marker's CircleProjector to OUR spade op's

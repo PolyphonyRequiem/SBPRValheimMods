@@ -89,37 +89,64 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Identity
         public string? ClaimedCharacterId { get; }
     }
 
-    /// <summary>Server-owned connection truth. The transport attributes the peer out-of-band
-    /// (the ZRoutedRpc <c>sender</c> set from the authenticated socket, mirroring the in-tree
-    /// TwistedPortalDirectory pattern); the payload can never set these.</summary>
+    /// <summary>Server-owned connection truth. IAP-007 Tracer 3: the transport attributes the peer
+    /// out-of-band from the BOUND INTERNAL SESSION established at admission (Tracer 1/2) — the
+    /// server-minted <see cref="AccountId"/> and <see cref="ActingCharacterId"/> (internal
+    /// <c>CharacterId</c>). The payload can never set these, and no provider/profile subject
+    /// (<c>PlatformId</c>, raw <c>s_playerID</c>) appears here any more (AIP-FR-014/015).</summary>
     public readonly struct AuthenticatedConnection
     {
-        public AuthenticatedConnection(string platformId, string actingCharacterId)
+        public AuthenticatedConnection(string accountId, string actingCharacterId)
         {
-            PlatformId = platformId;
+            AccountId = accountId;
             ActingCharacterId = actingCharacterId;
         }
 
-        /// <summary>Stable platform id derived from the authenticated socket (candidate A).</summary>
-        public string PlatformId { get; }
+        /// <summary>Internal, server-minted account id from the bound session (never a provider subject).</summary>
+        public string AccountId { get; }
 
-        /// <summary>Acting character observed at command time (peer character id).</summary>
+        /// <summary>Internal, server-minted acting character id from the bound session
+        /// (never a raw <c>s_playerID</c> / character ZDOID).</summary>
         public string ActingCharacterId { get; }
     }
 
-    /// <summary>The resolved, authoritative principal a mutation binds to.</summary>
+    /// <summary>The resolved, authoritative principal a mutation binds to. IAP-007 Tracer 3: it
+    /// carries ONLY the internal account/character; the raw provider <c>PlatformId</c> was removed
+    /// from every gameplay binding/receipt/log (AIP-FR-015).</summary>
     public readonly struct AuthoritativePrincipal
     {
-        public AuthoritativePrincipal(AccountId account, CharacterId character, string platformId)
+        public AuthoritativePrincipal(AccountId account, CharacterId character)
         {
             Account = account;
             Character = character;
-            PlatformId = platformId;
         }
 
         public AccountId Account { get; }
         public CharacterId Character { get; }
-        public string PlatformId { get; }
+    }
+
+    /// <summary>The internal gameplay session principal handed to gameplay commands and world
+    /// adapters after admission (contracts.md §"Gameplay principal contract",
+    /// <c>PilotSessionPrincipal</c>). The provider subject, <c>ProviderKey</c>, raw
+    /// <c>s_playerID</c>, and profile HMAC are all absent — it is purely the bound internal
+    /// identity plus the ephemeral session id.</summary>
+    public readonly struct PilotSessionPrincipal
+    {
+        public PilotSessionPrincipal(AccountId account, CharacterId character, string sessionId)
+        {
+            Account = account;
+            Character = character;
+            SessionId = sessionId ?? string.Empty;
+        }
+
+        public AccountId Account { get; }
+        public CharacterId Character { get; }
+
+        /// <summary>Ephemeral process-local session id (not durable identity).</summary>
+        public string SessionId { get; }
+
+        /// <summary>The authoritative binding a gameplay mutation commits under.</summary>
+        public AuthoritativePrincipal ToPrincipal() => new AuthoritativePrincipal(Account, Character);
     }
 
     public enum PrincipalResolution
@@ -130,22 +157,19 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Identity
     }
 
     /// <summary>
-    /// Derives the authoritative principal from the authenticated connection and only
-    /// <em>compares</em> the client claim. Payload identity can never become authority.
-    /// Candidate E (server-owned platform-id -&gt; AccountId map, the R-003 exclusivity index)
-    /// with candidate-A passthrough fallback.
+    /// IAP-007 Tracer 3: binds the authoritative gameplay principal straight from the BOUND INTERNAL
+    /// SESSION carried on the authenticated connection and only <em>compares</em> the client claim.
+    /// Payload identity can never become authority.
+    ///
+    /// The provider-shaped resolver is gone: there is no platform-id -&gt; AccountId lookup function,
+    /// no candidate-A passthrough fallback, and NO provider lookup or network call on this path
+    /// (AIP-FR-014/018, AT-AIP-NO-PROVIDER-HOTPATH). Admission (Tracer 1/2) already minted and bound
+    /// the internal <c>AccountId</c>/<c>CharacterId</c>; this resolver only reads them off the
+    /// connection and validates the claim.
     /// </summary>
     public sealed class PrincipalResolver
     {
-        private readonly Func<string, string?>? _accountIdForPlatform;
-
-        /// <param name="accountIdForPlatform">Server-owned platform-id -&gt; AccountId map
-        /// (candidate E). Null, or a null return, falls back to candidate A (platform id as
-        /// account).</param>
-        public PrincipalResolver(Func<string, string?>? accountIdForPlatform)
-        {
-            _accountIdForPlatform = accountIdForPlatform;
-        }
+        public PrincipalResolver() { }
 
         public PrincipalResolution Resolve(
             AuthenticatedConnection connection,
@@ -154,18 +178,14 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Identity
         {
             principal = default;
 
-            // No server-attributed platform id -> not authenticated. Never synthesise identity
-            // from the payload claim.
-            if (string.IsNullOrEmpty(connection.PlatformId))
+            // No bound internal account id -> no admitted session. Never synthesise identity from the
+            // payload claim, and never fall back to a raw provider subject (there is none here).
+            if (string.IsNullOrEmpty(connection.AccountId))
                 return PrincipalResolution.UnauthenticatedPeer;
 
-            string? mapped = _accountIdForPlatform != null ? _accountIdForPlatform(connection.PlatformId) : null;
-            string accountId = string.IsNullOrEmpty(mapped) ? connection.PlatformId : mapped!;
-
             var resolved = new AuthoritativePrincipal(
-                new AccountId(accountId),
-                new CharacterId(connection.ActingCharacterId ?? string.Empty),
-                connection.PlatformId);
+                new AccountId(connection.AccountId),
+                new CharacterId(connection.ActingCharacterId ?? string.Empty));
 
             // The claim is compared, never trusted. A hostile client that fills the payload with
             // someone else's account/character is rejected here (contracts.md common envelope).

@@ -71,6 +71,14 @@ namespace SBPR.Trailborne.Runtime
                 // Trailside Camp (docs/design/trailside-camp.md): the Bear Hide Tent is a
                 // Spade-placed BF piece whose mesh ships in SBPR's first custom AssetBundle.
                 BearHideTent.RegisterPrefabs(__instance);
+                // Trailside Camp triad (card t_439f2351 defects 2,3): the sleep half
+                // (Bedroll — BedrollTag owns the no-spawn night skip) + the fire half
+                // (Camp Fire — additive Fireplace keeping a Heat EffectArea). Both
+                // Spade-placed BF pieces. Camp Fire's flame reuses Assets.GraftTorchFire,
+                // so it must register AFTER the torch donor exists in ZNetScene (it's a
+                // vanilla prefab, always present by this postfix — order is safe here).
+                Bedroll.RegisterPrefabs(__instance);
+                CampFire.RegisterPrefabs(__instance);
                 LocalMap.RegisterPrefabs(__instance);
                 CartographersKit.RegisterPrefabs(__instance);
                 // v4 Mountains — Seer's Stone (the Explorer's signature wisp-lens accessory,
@@ -176,6 +184,8 @@ namespace SBPR.Trailborne.Runtime
                 Cairns.DoObjectDBWiring(ZNetScene.instance);
                 SurveyorsTable.DoObjectDBWiring(ZNetScene.instance);
                 BearHideTent.DoObjectDBWiring(ZNetScene.instance);
+                Bedroll.DoObjectDBWiring(ZNetScene.instance);
+                CampFire.DoObjectDBWiring(ZNetScene.instance);
                 LocalMap.DoObjectDBWiring(ZNetScene.instance);
                 // Cartographer's Kit recipe consumes the four pigments — Pigments.DoObjectDBWiring
                 // (above) has already registered the pigment items into ObjectDB, so BuildReq

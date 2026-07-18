@@ -166,11 +166,14 @@ namespace SBPR.Trailborne.Tests
             source.Put("1:2", "wood_floor", _character.Value, StoneX, StoneZ);
 
             // An attacker whose transport-authenticated character subject is player:999 tries to claim it by
-            // passing the victim's ACCOUNT string. The ingress binds creator == the SENDER's character
-            // subject, so the attacker's own character (999) is what's compared — mismatch, no credit.
+            // pointing at the victim's piece. The attacker holds a valid bound session of their OWN, but the
+            // ingress binds creator == the ZDO's server-recorded s_creator (the victim), so the attacker's
+            // own character (999) is what's compared — mismatch, no credit.
             var attackerCharacter = "player:999";
+            server.BoundSessions.Bind(attackerCharacter,
+                new PilotSessionPrincipal(new AccountId("acct:attacker"), new CharacterId(attackerCharacter), "sess-att"));
             var outcome = server.CreateDedicatedIngress(source)
-                .Ingest("acct:attacker", attackerCharacter, "1:2");
+                .Ingest(attackerCharacter, "1:2");
 
             Assert.False(outcome.Routed);
             Assert.Equal(DedicatedIngressRejection.CreatorMismatch, outcome.Rejection);
@@ -188,8 +191,11 @@ namespace SBPR.Trailborne.Tests
             var source = new FakeInstanceSource();
             source.Put("1:3", "wood_floor", _character.Value, StoneX, StoneZ);   // creator = victim character
 
+            // The attacker's own bound character subject (player:hacker) != the ZDO creator (victim).
+            server.BoundSessions.Bind("player:hacker",
+                new PilotSessionPrincipal(_account, new CharacterId("player:hacker"), "sess-hacker"));
             var outcome = server.CreateDedicatedIngress(source)
-                .Ingest(_account.Value /* victim account */, "player:hacker", "1:3");
+                .Ingest("player:hacker", "1:3");
 
             Assert.Equal(DedicatedIngressRejection.CreatorMismatch, outcome.Rejection);
         }
@@ -305,14 +311,14 @@ namespace SBPR.Trailborne.Tests
                 queue.Enqueue(_account.Value, _character.Value, "1:40", t0));
 
             // First pump: ZDO still absent, within deadline → kept, no credit.
-            var r1 = queue.Pump(t0 + 1, (a, c, k) => ingress.Ingest(a, c, k));
+            var r1 = queue.Pump(t0 + 1, (a, c, k) => ingress.Ingest(c, k));
             Assert.Empty(r1);
             Assert.Equal(1, queue.Count);
             Assert.Equal(0, stoneStore.GetMirroredStoneAp(_stone));
 
             // ZDO replicates; next pump revalidates and credits, then removes the entry.
             source.Put("1:40", "wood_floor", _character.Value, StoneX, StoneZ);
-            var r2 = queue.Pump(t0 + 2, (a, c, k) => ingress.Ingest(a, c, k));
+            var r2 = queue.Pump(t0 + 2, (a, c, k) => ingress.Ingest(c, k));
             Assert.Single(r2);
             Assert.Equal(RuntimePlacementDisposition.Earned, r2[0].Runtime.Disposition);
             Assert.Equal(0, queue.Count);
@@ -331,7 +337,7 @@ namespace SBPR.Trailborne.Tests
             queue.Enqueue(_account.Value, _character.Value, "1:41", 0);
 
             // Pump past the deadline with the ZDO still absent → dropped, no credit, no lingering entry.
-            var resolved = queue.Pump(Deadline.Ticks + 1, (a, c, k) => ingress.Ingest(a, c, k));
+            var resolved = queue.Pump(Deadline.Ticks + 1, (a, c, k) => ingress.Ingest(c, k));
             Assert.Empty(resolved);
             Assert.Equal(0, queue.Count);
             Assert.Equal(0, stoneStore.GetMirroredStoneAp(_stone));
@@ -355,7 +361,7 @@ namespace SBPR.Trailborne.Tests
                 queue.Enqueue(_account.Value, _character.Value, "1:42", 0));
             Assert.Equal(1, queue.Count);
 
-            var resolved = queue.Pump(1, (a, c, k) => ingress.Ingest(a, c, k));
+            var resolved = queue.Pump(1, (a, c, k) => ingress.Ingest(c, k));
             Assert.Single(resolved);
             Assert.Equal(1, stoneStore.GetMirroredStoneAp(_stone));
         }
@@ -414,7 +420,7 @@ namespace SBPR.Trailborne.Tests
             var queue = new PendingRevalidationQueue(Deadline);
 
             queue.Enqueue(_account.Value, _character.Value, "1:43", 0);
-            var resolved = queue.Pump(1, (a, c, k) => ingress.Ingest(a, c, k));
+            var resolved = queue.Pump(1, (a, c, k) => ingress.Ingest(c, k));
 
             Assert.Single(resolved);
             Assert.Equal(DedicatedIngressRejection.CreatorMismatch, resolved[0].Rejection);
@@ -469,7 +475,6 @@ namespace SBPR.Trailborne.Tests
         {
             var server = FoundationalProgressionServer.Create(
                 _durableDir,
-                accountIdForPlatform: null,
                 familyResolver: new FixedFamilyResolver(_stone, _stoneB),
                 bondAuthority: new HomesteadBondPolicy(),
                 stoneApStore: stoneStore ?? new InMemoryMirroredStoneApStore());
@@ -488,6 +493,10 @@ namespace SBPR.Trailborne.Tests
                 new OperationId("op-att-r4"), RelationshipCommandType.CreateAttunement, _stone,
                 new AuthenticatedConnection(_account.Value, _character.Value), default, "rel-att-r4"));
             Assert.Equal(RelationshipCommandOutcome.Applied, res.Outcome);
+            // IAP-007W: publish the victim character's bound INTERNAL session so the dedicated ingress can
+            // resolve it (the peer key is the player:<s_playerID> subject == _character.Value here).
+            server.BoundSessions.Bind(_character.Value,
+                new PilotSessionPrincipal(_account, _character, "sess-r4"));
         }
     }
 }
