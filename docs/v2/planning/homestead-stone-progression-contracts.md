@@ -284,6 +284,38 @@ core and the listen-host path are unchanged; the integration edges are corrected
   character subject + ZDOID); a timeout writes no credit; the queue is bounded against spam; and because it
   is purely in-memory, a restart starts empty and never scans/awards old pieces.
 
+**Bound-principal provisioning + delimiter-safe journal framing (T009L2, 2026-07-18).** A real
+joined-GPU-client run (evidence `T009L2-FAIL.md`) proved the merged authored Stone path works but the
+progression path did not: an admitted, attuned real placement failed `RelationshipRequired` with zero AP,
+and a post-restart re-provision returned `Applied` instead of `Replayed`. Two integration blockers, both
+now closed; the revalidation core, the authored Stone seat, and the placement architecture are unchanged.
+
+- **Single principal space for provisioning and placement (Blocker 1).** Placement authorizes under the
+  BOUND INTERNAL `(AccountId, CharacterId)` admission publishes into `BoundSessionPrincipalIndex` (IAP-007
+  Tracer 3), keyed by the server-owned `player:<s_playerID>` peer key. Provisioning previously created the
+  Attunement under a DIFFERENT space — the raw provider/socket account subject plus `player:<s_playerID>`
+  character subject (`AuthenticatedSenderBinder`) — so the relationship the placement needed did not exist
+  under the placement's identity. `RelationshipProvisioningAdmin` now reads only the peer's durable
+  `s_playerID` to form the peer key, resolves the SAME bound internal principal from `BoundSessions`, and
+  provisions under it. An UNBOUND peer (no admitted, activated internal session) FAILS CLOSED — no
+  provider/platform fallback principal is ever derived. No raw provider/profile subject enters the gameplay
+  relationship, journal, AP receipt, or operator log: the provisioning log line now carries only a
+  pseudonymous `ProvisioningOperationBinding.CorrelationTag` (a short SHA-256 digest of the bound internal
+  ids), never the account/character verbatim and never the provider subject or raw `s_playerID`.
+- **Delimiter-safe relationship-journal framing (Blocker 2).** `ProvisioningOperationBinding.OperationId`
+  legitimately embeds literal `|` (it joins material fields including a `StoneId` such as
+  `uid:-898655635|3|2` and the world scope). `RelationshipCommandHandler.Record` wrote that operation id —
+  and the `ResultCode` — UNENCODED into a pipe-delimited record, while `ParseRecord` required exactly 14
+  fields; a real op exploded a record into 21 fields and the parser rejected every CRC-valid frame, so the
+  Attunement was process-local despite fsynced writes. The framing invariant is now general: EVERY
+  free-text field (operation id, result code, account, character, Stone, relationship id, snapshots) is
+  base64-encoded before entering the pipe-delimited frame and decoded symmetrically, so the field count is
+  exactly 14 for ANY operation id. A torn/malformed frame (bad field count, bad tag, non-base64 field, or
+  an overflowing revision) is rejected honestly as an unparsed record — never partially applied — and the
+  CRC-framed reader still recovers every intact committed frame before a torn tail. Restart rehydration
+  recovers the committed op and an exact re-provision returns `Replayed`. This is unreleased QA state, so
+  no production migration policy is introduced; the framing simply round-trips correctly from now on.
+
 ### `RecordAlignedActivity`
 
 Used by server adapters for eligible Cooking, Crafting, Archer, or Warrior activity.
