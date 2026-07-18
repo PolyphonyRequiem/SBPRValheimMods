@@ -51,11 +51,35 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             lock (_gate) { _bound[peerKey] = principal; }
         }
 
-        /// <summary>Remove a peer's binding (disconnect/session close). Idempotent.</summary>
+        /// <summary>Operator/hard close: remove a peer's binding unconditionally (idempotent). Used by the
+        /// deterministic operator disable/delete path where the OPERATOR, not the peer, ends the session —
+        /// it does not care which session id currently occupies the key. For an ordinary peer disconnect
+        /// use <see cref="TryUnbind(string,string)"/> so a stale disconnect cannot clobber a newer bind.</summary>
         public void Unbind(string peerKey)
         {
             if (string.IsNullOrEmpty(peerKey)) return;
             lock (_gate) { _bound.Remove(peerKey); }
+        }
+
+        /// <summary>Stale-safe session close: remove the peer's binding ONLY when the currently-bound
+        /// principal's <see cref="PilotSessionPrincipal.SessionId"/> matches <paramref name="sessionId"/>.
+        /// A late disconnect for a superseded session whose id no longer matches the live bind is a no-op,
+        /// so a reconnect that already republished a NEWER session under the same server-owned peer key
+        /// (durable s_playerID) is never torn down by the old connection's delayed close (AIP-FR-013 /
+        /// spec edge "stale disconnect"). Returns true iff a binding was actually removed.</summary>
+        public bool TryUnbind(string peerKey, string sessionId)
+        {
+            if (string.IsNullOrEmpty(peerKey)) return false;
+            lock (_gate)
+            {
+                if (_bound.TryGetValue(peerKey, out var current) &&
+                    string.Equals(current.SessionId, sessionId ?? string.Empty, StringComparison.Ordinal))
+                {
+                    _bound.Remove(peerKey);
+                    return true;
+                }
+                return false;
+            }
         }
 
         public bool TryResolve(string peerKey, out PilotSessionPrincipal principal)

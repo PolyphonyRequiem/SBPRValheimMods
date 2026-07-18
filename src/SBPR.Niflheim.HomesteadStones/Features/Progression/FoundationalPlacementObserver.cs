@@ -93,17 +93,16 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             var membership = server.StoneAreas;
             bool inside = membership.TryResolve(pos.x, pos.z, out var stoneId);
 
-            // Acting identity IAP-007 Tracer 3: the gameplay principal is the acting peer's BOUND
-            // INTERNAL session (server-minted AccountId/CharacterId) published by admission — NOT a raw
-            // provider/platform subject and NOT the character ZDOID. We key the bound-session index by
-            // the local player's durable s_playerID (a server-owned peer key, used only to look up the
-            // internal principal — never itself persisted as gameplay identity). If no internal session
-            // is bound (admission not yet complete), we FAIL CLOSED: credit nothing rather than fall
+            // Acting identity IAP-007 Tracer 3 / IAP-007W: the gameplay principal is the acting peer's
+            // BOUND INTERNAL session (server-minted AccountId/CharacterId) published by admission — NOT a
+            // raw provider/platform subject and NOT the character ZDOID. We key the bound-session index by
+            // the local player's durable s_playerID rendered as the stable player:<s_playerID> character
+            // subject (a server-owned peer key, the SAME key form admission binds under and the dedicated
+            // ingress resolves — never itself persisted as gameplay identity). If no internal session is
+            // bound (admission not yet complete/activated), we FAIL CLOSED: credit nothing rather than fall
             // back to a provider identity.
             long actingPlayerId = actor != null ? actor.GetPlayerID() : 0L;
-            string peerKey = actingPlayerId != 0L
-                ? actingPlayerId.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                : string.Empty;
+            string peerKey = ServerCreatorIdentity.CharacterSubject(actingPlayerId);
             if (string.IsNullOrEmpty(peerKey) ||
                 !server.BoundSessions.TryResolve(peerKey, out var sessionPrincipal))
             {

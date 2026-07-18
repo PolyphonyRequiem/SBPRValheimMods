@@ -149,6 +149,13 @@
          connected peer's minted internal (AccountId, CharacterId, SessionId) here, and the live gameplay
          observer resolves the acting peer's BOUND INTERNAL principal from it instead of a provider subject. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/BoundSessionPrincipalIndex.cs" />
+    <!-- IAP-007W (t_9b479948): the engine-free live session-admission wiring — the BoundSessionAdmission
+         coupler that publishes/removes a peer's BOUND INTERNAL principal on session activate/close, and the
+         LiveSessionAdmission orchestrator that composes the shipped account/character admission cores into
+         one ordered fail-closed admit + transport-keyed close. Engine-free (the net48 ZNet peer-lifecycle
+         seam is not link-compiled), so the whole bind/unbind lifecycle is unit-tested here. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/BoundSessionAdmission.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/LiveSessionAdmission.cs" />
     <!-- Homestead progression Tracer 2 (T009R2): the engine-free DEDICATED-server placement ingress +
          revalidation core — a joined dedicated-server client's build never runs Player.PlacePiece on the
          server, so this revalidates a client notice against the server's own ZDO facts (existence, creator

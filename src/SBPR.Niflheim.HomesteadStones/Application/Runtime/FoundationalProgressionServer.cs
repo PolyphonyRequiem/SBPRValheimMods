@@ -103,7 +103,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         public DedicatedPlacementIngress CreateDedicatedIngress(IServerPlacedInstanceSource instances)
         {
             if (instances == null) throw new ArgumentNullException(nameof(instances));
-            return new DedicatedPlacementIngress(Runtime, instances, StoneAreas, FoundationalPrefabMap.CurrentBuild);
+            return new DedicatedPlacementIngress(Runtime, instances, StoneAreas, BoundSessions, FoundationalPrefabMap.CurrentBuild);
         }
 
         /// <summary>T009R3 (Blocker 3) — build the bounded relationship provisioning ingress over this

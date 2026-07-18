@@ -208,10 +208,32 @@ Deliverables after implementation authorization: executable authenticated-peer s
 > renames `ActingPlatformId`→`ActingAccountId`; `FoundationalProgressionServer.Create` drops the
 > `accountIdForPlatform` parameter. Evidence: all Foundational authority/replay/restart/dedicated/listen
 > suites stay green (868/868 under `dotnet test`, net8) and the mod compiles clean (net48, 0 warnings).
-> Named acceptance `AT-AIP-PRINCIPAL-SCRUB`, `AT-AIP-RECEIPT-REPLAY`, `AT-AIP-HOSTILE-PRINCIPAL`,
+> named acceptance `AT-AIP-PRINCIPAL-SCRUB`, `AT-AIP-RECEIPT-REPLAY`, `AT-AIP-HOSTILE-PRINCIPAL`,
 > `AT-AIP-NO-PROVIDER-HOTPATH`, `AT-AIP-DEFERRED-SURFACE-ABSENT` land in
 > `tests/NiflheimTracer3PrincipalScrubTests.cs`. Incompatible pre-Tracer-3 provider-shaped fixtures are
 > reset per the explicit-reset contract (no legacy migration — data-model.md §"Migration and recovery").
+>
+> **Live wiring completion (IAP-007W, t_9b479948).** The Tracer-3 gameplay hot path RESOLVES a peer's
+> bound internal principal from `BoundSessionPrincipalIndex`, but the pre-merge cut never PUBLISHED into
+> that index on a live server, so the observer/ingress always failed closed. IAP-007W closes the gap:
+> `BoundSessionPrincipalIndex` gains a session-qualified `TryUnbind(peerKey, sessionId)` (a stale
+> disconnect cannot clobber a newer bind); `Application/Runtime/BoundSessionAdmission.cs` couples
+> `PilotCharacterAdmissionService.ActivateSession` to `Bind` (publish on activation, fail closed on a
+> rejected activation) and `CloseSession` to the session-qualified unbind; `Application/Runtime/
+> LiveSessionAdmission.cs` composes the shipped account+character admission cores into ONE ordered,
+> fail-closed admit (account resolve → lease → character → activate+bind) keyed by transport handle for
+> deterministic close. `DedicatedPlacementIngress` now RESOLVES the bound internal principal from the
+> server-owned peer key (the `player:<s_playerID>` character subject) and rejects an unbound peer
+> (`DedicatedIngressRejection.UnboundPeer`) instead of crediting a provider/platform subject; the
+> listen-host observer keys the same index by the same `player:<s_playerID>` subject. The net48 seam
+> `Features/PilotIdentity/PilotSessionLifecycleObserver.cs` composes the durable account store + persisted
+> lookup key ring (`PilotKeyRingFile.cs`) + the Steamworks provider gate and reconciles admitted sessions
+> against the authoritative connected-peer set on the ZDOMan.Update cadence (admit newly-resolvable peers,
+> close disconnected ones) — identity is 100% server-observed off the transport-authenticated peer, never
+> a payload. Evidence: `tests/NiflheimBoundSessionWiringTests.cs` proves listen + dedicated ingress
+> resolve a bound principal, session close removes it, a stale close cannot remove a newer bind, an
+> unbound peer cannot credit, and an un-allowlisted subject fails closed with no bind. Full suite
+> 881/881 (net8 Release); mod builds clean (net48, 0 warnings).
 
 ### Tracer 4 — Operator/privacy lifecycle
 

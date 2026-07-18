@@ -55,36 +55,49 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         private readonly IServerPlacedInstanceSource _instances;
         private readonly StoneAreaMembership _stoneAreas;
         private readonly FoundationalPrefabMap _prefabMap;
+        private readonly IBoundSessionPrincipalSource _boundSessions;
 
         public DedicatedPlacementIngress(
             FoundationalPlacementRuntime runtime,
             IServerPlacedInstanceSource instances,
             StoneAreaMembership stoneAreas,
+            IBoundSessionPrincipalSource boundSessions,
             FoundationalPrefabMap? prefabMap = null)
         {
             _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             _instances = instances ?? throw new ArgumentNullException(nameof(instances));
             _stoneAreas = stoneAreas ?? throw new ArgumentNullException(nameof(stoneAreas));
+            _boundSessions = boundSessions ?? throw new ArgumentNullException(nameof(boundSessions));
             _prefabMap = prefabMap ?? FoundationalPrefabMap.CurrentBuild;
         }
 
-        /// <summary>Ingest one dedicated-server placement NOTICE. <paramref name="senderAccount"/> (the
-        /// authenticated platform/socket account subject) and <paramref name="senderCharacter"/> (the
-        /// stable <c>player:&lt;s_playerID&gt;</c> character subject) are derived by the caller from the
-        /// TRANSPORT-AUTHENTICATED sender (the actual per-peer ZRpc/ZNetPeer, never the forgeable routed
-        /// sender id — Blocker 2). <paramref name="candidateInstanceKey"/> is the opaque physical-instance
-        /// pointer the notice carried (a ZDOID string). The server independently re-derives every
-        /// credit-bearing fact from its own ZDO store, binds the placed piece's CREATOR to the sender's
-        /// CHARACTER subject (both are the server-owned s_playerID), then routes the reconstructed
-        /// observation through the shared runtime. Returns a receipt-free rejection on any revalidation
-        /// failure.</summary>
-        public DedicatedIngressOutcome Ingest(string senderAccount, string senderCharacter, string candidateInstanceKey)
+        /// <summary>Ingest one dedicated-server placement NOTICE. <paramref name="peerKey"/> is the
+        /// server-owned durable peer key (the <c>player:&lt;s_playerID&gt;</c> character subject the net48
+        /// layer read off the TRANSPORT-AUTHENTICATED sender's own character ZDO — never the forgeable
+        /// routed sender id or a payload). It is used for TWO server-owned facts: (1) resolving the acting
+        /// peer's BOUND INTERNAL gameplay principal (AccountId/CharacterId) published by admission
+        /// (Tracer 1/2), and (2) matching the placed ZDO's server-recorded <c>s_creator</c> (vanilla stamps
+        /// it from the placing character's s_playerID, so the creator subject IS this same key).
+        /// <paramref name="candidateInstanceKey"/> is the opaque physical-instance pointer the notice
+        /// carried (a ZDOID string). IAP-007 Tracer 3 / IAP-007W: an UNBOUND peer (no admitted, activated
+        /// session) resolves to nothing and the path FAILS CLOSED (credits nothing) rather than crediting a
+        /// provider/platform subject — there is no candidate-A fallback. The server independently
+        /// re-derives every other credit-bearing fact from its own ZDO store, then routes the reconstructed
+        /// observation (bound INTERNAL principal, never the payload) through the shared runtime.</summary>
+        public DedicatedIngressOutcome Ingest(string peerKey, string candidateInstanceKey)
         {
-            senderAccount ??= string.Empty;
-            senderCharacter ??= string.Empty;
+            peerKey ??= string.Empty;
 
             if (string.IsNullOrEmpty(candidateInstanceKey))
                 return DedicatedIngressOutcome.Rejected(DedicatedIngressRejection.MissingInstanceKey, candidateInstanceKey);
+
+            // IAP-007W fail-closed: the acting peer MUST have an admitted, activated bound internal session.
+            // An unbound peer credits nothing — the live gameplay principal is the bound internal
+            // (AccountId, CharacterId), never a provider/platform subject and never the payload.
+            if (string.IsNullOrEmpty(peerKey) ||
+                !_boundSessions.TryResolve(peerKey, out var principal) ||
+                string.IsNullOrEmpty(principal.Account.Value))
+                return DedicatedIngressOutcome.Rejected(DedicatedIngressRejection.UnboundPeer, candidateInstanceKey);
 
             // Authoritative existence: the physical instance must resolve in the SERVER's own ZDO store.
             // A fabricated / already-destroyed key earns nothing (the notice is only a pointer).
@@ -92,13 +105,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
                 return DedicatedIngressOutcome.Rejected(DedicatedIngressRejection.NoSuchInstance, candidateInstanceKey);
 
             // Creator / actor binding (Blocker 2): vanilla stamps a placed piece's ZDO s_creator with the
-            // placing CHARACTER's s_playerID. The authoritative binding is therefore creator == the
-            // sender's CHARACTER subject (player:<s_playerID>), NOT the account. Both are server-derived and
-            // in one space; a mismatch means the sender did not create the piece (or is spoofing), and
-            // earns nothing. An empty creator is unbindable → reject.
+            // placing CHARACTER's s_playerID, rendered as the same player:<s_playerID> subject as the peer
+            // key. Both are server-derived and in one space; a mismatch means the sender did not create the
+            // piece (or is spoofing), and earns nothing. An empty creator is unbindable → reject.
             if (string.IsNullOrEmpty(facts.CreatorPrincipal) ||
-                string.IsNullOrEmpty(senderCharacter) ||
-                !string.Equals(facts.CreatorPrincipal, senderCharacter, StringComparison.Ordinal))
+                !string.Equals(facts.CreatorPrincipal, peerKey, StringComparison.Ordinal))
                 return DedicatedIngressOutcome.Rejected(DedicatedIngressRejection.CreatorMismatch, candidateInstanceKey);
 
             // Exact prefab → stable catalog identity, re-resolved server-side (never from the notice). An
@@ -110,13 +121,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             // A resolvable resident ZDO IS a materialized successful placement; version comes from the
             // server's pinned catalog tag; provenance is the durable ZDOID so replays converge on one
-            // receipt. IAP-007 Tracer 3: the ACCOUNT is the bound internal AccountId and the CHARACTER
-            // is the bound internal CharacterId (both from the admitted session — Tracer 1/2), never a
-            // provider/platform subject and never the payload.
+            // receipt. IAP-007 Tracer 3 / IAP-007W: the ACCOUNT and CHARACTER are the BOUND INTERNAL
+            // principal published by admission for this peer — never a provider/platform subject, never the
+            // s_playerID, and never the payload.
             var observation = new FoundationalPlacementObservation(
                 inside ? stoneId : default,
-                senderAccount,
-                senderCharacter,
+                principal.Account.Value,
+                principal.Character.Value,
                 stablePieceId,
                 candidateInstanceKey,
                 insideStoneArea: inside,
@@ -187,7 +198,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// <summary>No such instance exists in the server's authoritative ZDO store (fabricated / stale key).</summary>
         NoSuchInstance,
         /// <summary>The ZDO's recorded creator does not match the authenticated sender principal.</summary>
-        CreatorMismatch
+        CreatorMismatch,
+        /// <summary>The acting peer has no admitted, activated bound internal session (IAP-007W fail-closed):
+        /// the live gameplay principal is the bound internal (AccountId, CharacterId), never a
+        /// provider/platform subject, so an unbound peer credits nothing.</summary>
+        UnboundPeer
     }
 
     /// <summary>The outcome of one dedicated-server ingress notice: either a pre-runtime revalidation

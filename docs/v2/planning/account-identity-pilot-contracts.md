@@ -195,6 +195,14 @@ Provider subject and any plain/truncated hash of it are forbidden. This change m
 > and `AuthenticatedConnection` no longer carry `PlatformId`, and `PrincipalResolver` no longer performs
 > any provider lookup (it binds the bound-internal session principal off the connection). The gameplay
 > principal handed to commands/adapters is `PilotSessionPrincipal` (accountId/characterId/sessionId).
+>
+> **Wired live (IAP-007W, t_9b479948).** The bound-internal principal is now actually PUBLISHED into the
+> live path: on successful account+character session activation the server binds
+> `player:<s_playerID>` → `PilotSessionPrincipal` into `BoundSessionPrincipalIndex`
+> (`BoundSessionAdmission` / `LiveSessionAdmission`), and matching close/disconnect removes it
+> session-qualified (a stale disconnect cannot evict a newer bind). Both ingress shapes resolve that bound
+> principal from the server-observed peer key; an unbound peer credits nothing (fail closed) rather than
+> falling back to a provider/platform subject.
 
 ## Durable lifecycle mutation envelope
 

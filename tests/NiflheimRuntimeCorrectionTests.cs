@@ -127,7 +127,11 @@ namespace SBPR.Trailborne.Tests
             AuthenticatedSenderBinder.TryBind(new AuthenticatedSenderCharacter(PlayerId, _account.Value),
                 out string senderAccount, out string senderCharacter);
 
-            var outcome = server.CreateDedicatedIngress(source).Ingest(senderAccount, senderCharacter, "777:9");
+            // IAP-007W: the sender's character subject is the server-owned peer key. Publish its bound
+            // INTERNAL session so the ingress resolves the internal principal (creator == the peer key).
+            server.BoundSessions.Bind(senderCharacter,
+                new PilotSessionPrincipal(new AccountId(senderAccount), new CharacterId(senderCharacter), "sess-corr"));
+            var outcome = server.CreateDedicatedIngress(source).Ingest(senderCharacter, "777:9");
 
             Assert.True(outcome.Routed);
             Assert.Equal(RuntimePlacementDisposition.Earned, outcome.Runtime.Disposition);
