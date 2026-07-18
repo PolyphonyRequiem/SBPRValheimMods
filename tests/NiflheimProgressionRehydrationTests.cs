@@ -33,7 +33,7 @@ namespace SBPR.Trailborne.Tests
         private readonly string _journalPath;
         private readonly StoneId _stone = StoneId.FromHostZone(new WorldId("uid:rehydrate"), 5, -7);
         private readonly AuthoritativePrincipal _owner =
-            new AuthoritativePrincipal(new AccountId("acct-r"), new CharacterId("char-r"), "plat-r");
+            new AuthoritativePrincipal(new AccountId("acct-r"), new CharacterId("char-r"));
 
         public NiflheimProgressionRehydrationTests()
         {

@@ -44,7 +44,7 @@ namespace SBPR.Trailborne.Tests
         private readonly string _journalPath;
         private readonly StoneId _stone = StoneId.FromHostZone(new WorldId("uid:9"), 3, 3);
         private readonly AuthoritativePrincipal _owner =
-            new AuthoritativePrincipal(new AccountId("acct-1"), new CharacterId("char-1"), "plat-1");
+            new AuthoritativePrincipal(new AccountId("acct-1"), new CharacterId("char-1"));
 
         public NiflheimProgressionRecoveryTests()
         {

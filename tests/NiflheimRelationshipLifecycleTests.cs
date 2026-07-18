@@ -79,7 +79,7 @@ namespace SBPR.Trailborne.Tests
 
         private RelationshipCommandHandler NewHandler()
         {
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             return new RelationshipCommandHandler(_journalPath, resolver, _characters, _authority,
                 _families, new StubBondAuthorityPolicy());
         }
@@ -366,7 +366,7 @@ namespace SBPR.Trailborne.Tests
             var characters2 = new InMemoryCharacterAggregateStore();
             characters2.PutCharacter(BuildCharacter(_account, _charA1, 5, 3, true)); // clean seed
             var authority2 = new InMemoryAccountStoneAuthorityStore();
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             var handler2 = new RelationshipCommandHandler(_journalPath, resolver, characters2, authority2,
                 _families, new StubBondAuthorityPolicy());
 
@@ -509,7 +509,7 @@ namespace SBPR.Trailborne.Tests
             var characters2 = new InMemoryCharacterAggregateStore();
             characters2.PutCharacter(BuildCharacter(_account, _charA1, 5, 3, true));
             var authority2 = new InMemoryAccountStoneAuthorityStore();
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             var handler2 = new RelationshipCommandHandler(_journalPath, resolver, characters2, authority2,
                 _families, new StubBondAuthorityPolicy());
 

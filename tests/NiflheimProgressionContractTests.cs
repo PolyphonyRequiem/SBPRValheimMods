@@ -49,8 +49,9 @@ namespace SBPR.Trailborne.Tests
             _characterStore = new InMemoryCharacterApStore();
             _receipts = new OperationReceiptStore(_journalPath, _stoneStore, _characterStore);
 
-            // Candidate-E map: platform "plat-owner" is the owner's account (here identity mapping).
-            var resolver = new PrincipalResolver(platform => platform);
+            // The connection now carries the BOUND INTERNAL account/character (Tracer 3); the resolver
+            // reads them off the connection with no provider lookup.
+            var resolver = new PrincipalResolver();
             var authorizer = new PreconfiguredTestAuthorizer().Allow(_ownerAccount, _stone);
             _pipeline = new ProgressionCommandPipeline(resolver, _receipts, authorizer);
         }
@@ -180,7 +181,7 @@ namespace SBPR.Trailborne.Tests
         public void AtP0HostilePrincipal_UnauthorizedPrincipal_RejectsWithoutMutation()
         {
             // A different, authenticated but NOT preconfigured-authorized account earns nothing.
-            var resolver = new PrincipalResolver(p => p);
+            var resolver = new PrincipalResolver();
             var authorizer = new PreconfiguredTestAuthorizer().Allow(_ownerAccount, _stone);
             var pipeline = new ProgressionCommandPipeline(resolver, _receipts, authorizer);
 

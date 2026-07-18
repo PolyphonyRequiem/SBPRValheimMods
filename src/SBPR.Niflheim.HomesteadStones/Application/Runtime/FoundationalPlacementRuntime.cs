@@ -15,8 +15,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
     // types, so the live path is provably identical to the tested path.
     //
     // Authority chain (never client-authoritative):
-    //   * identity: the observation's ActingPlatformId/ActingCharacterId come from the authenticated
-    //     server connection, and are handed to the pipeline as the AuthenticatedConnection. The claim
+    //   * identity: the observation's ActingAccountId/ActingCharacterId are the BOUND INTERNAL session
+    //     principal (server-minted at admission), and are handed to the pipeline as the AuthenticatedConnection. The claim
     //     is left EMPTY on purpose — the live server has no untrusted client-payload identity to
     //     compare, so PrincipalResolver binds straight from the connection.
     //   * authorization: the runtime consults the injected IFoundationalPlacementAuthorizer, wired in
@@ -68,9 +68,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
                 observation.PlacementSucceeded,
                 observation.FoundationalCatalogVersion);
 
-            // The live server authenticates the connection out-of-band; there is no client claim to
-            // compare, so the claim is empty and PrincipalResolver binds from the connection alone.
-            var connection = new AuthenticatedConnection(observation.ActingPlatformId, observation.ActingCharacterId);
+            // The live server binds the internal session principal out-of-band at admission; there is
+            // no client claim to compare, so the claim is empty and PrincipalResolver binds from the
+            // bound internal account/character alone (no provider lookup — AT-AIP-NO-PROVIDER-HOTPATH).
+            var connection = new AuthenticatedConnection(observation.ActingAccountId, observation.ActingCharacterId);
             var claim = default(ClaimedPrincipal);
 
             var admission = _adapter.Admit(evidence, connection, claim);

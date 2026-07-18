@@ -52,7 +52,7 @@ namespace SBPR.Trailborne.Tests
             _characterStore = new InMemoryCharacterApStore();
             _receipts = new OperationReceiptStore(_journalPath, _stoneStore, _characterStore);
 
-            var resolver = new PrincipalResolver(platform => platform);
+            var resolver = new PrincipalResolver();
             var authorizer = new PreconfiguredTestAuthorizer().Allow(_ownerAccount, _stone);
             _pipeline = new ProgressionCommandPipeline(resolver, _receipts, authorizer);
         }

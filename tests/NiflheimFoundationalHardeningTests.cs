@@ -62,7 +62,7 @@ namespace SBPR.Trailborne.Tests
 
         // ── fixtures ────────────────────────────────────────────────────────────
 
-        private static PrincipalResolver Resolver() => new PrincipalResolver(platform => platform);
+        private static PrincipalResolver Resolver() => new PrincipalResolver();
 
         private CharacterProgressionAggregate SeedCharacter(CharacterId who) =>
             new CharacterProgressionAggregate(_account, who,
