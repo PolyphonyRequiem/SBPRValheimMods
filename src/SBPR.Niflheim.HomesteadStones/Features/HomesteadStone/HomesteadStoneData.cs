@@ -1,4 +1,5 @@
 using System;
+using SBPR.Niflheim.HomesteadStones.Domain;
 
 namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
 {
@@ -19,12 +20,33 @@ namespace SBPR.Niflheim.HomesteadStones.Features.HomesteadStone
         /// coordinate `(zoneX,zoneZ)`. Store the two coordinates explicitly; do not derive
         /// identity from ZDOID, network ownership, world position, or a minted GUID.
         /// </summary>
-        internal const string LocationZoneXKey = ZdoKeyPrefix + "location_zone_x";
-        internal const string LocationZoneZKey = ZdoKeyPrefix + "location_zone_z";
+        // R7 (Blocker 1) — the provenance key names + schema version are OWNED by the engine-free
+        // HomesteadProvenanceCodec (Domain), which is the single source of truth the stamp, read-back
+        // verification, reconciler, and headless tests all share. These members forward to that authority
+        // so there is exactly ONE definition of each key literal (no drift between the codec and this
+        // Features-layer contract). A guard test (ProvenanceKeyContractTests) asserts the codec's key
+        // literals equal the ZdoKeyPrefix-derived names below, catching any accidental divergence.
+        internal const string LocationZoneXKey = HomesteadProvenanceCodec.LocationZoneXKey;
+        internal const string LocationZoneZKey = HomesteadProvenanceCodec.LocationZoneZKey;
 
-        internal const string WorldIdentityKey = ZdoKeyPrefix + "world_identity";
-        internal const string SelectorVersionKey = ZdoKeyPrefix + "selector_version";
-        internal const string HostPrefabKey = ZdoKeyPrefix + "host_prefab";
+        internal const string WorldIdentityKey = HomesteadProvenanceCodec.WorldIdentityKey;
+        internal const string SelectorVersionKey = HomesteadProvenanceCodec.SelectorVersionKey;
+        internal const string HostPrefabKey = HomesteadProvenanceCodec.HostPrefabKey;
+
+        /// <summary>R7 (Blocker 1) — provider/content provenance persisted into ZDO truth. These are the
+        /// versioned keys the stamp writes, read-back verifies, and the reconciler compares, so a Stone's
+        /// creation authority (which provider produced it, from which content/manifest generation) is a
+        /// durable fact — not something re-guessed from bare zone existence. A selector/provider/content
+        /// upgrade is detected by a mismatch on these keys and reaps the stale Stone.</summary>
+        internal const string ProvenanceVersionKey = HomesteadProvenanceCodec.ProvenanceVersionKey;
+        internal const string ProviderKindKey = HomesteadProvenanceCodec.ProviderKindKey;
+        internal const string ProviderVersionKey = HomesteadProvenanceCodec.ProviderVersionKey;
+        internal const string ContentHashKey = HomesteadProvenanceCodec.ContentHashKey;
+        internal const string ManifestGenerationKey = HomesteadProvenanceCodec.ManifestGenerationKey;
+
+        /// <summary>The stamp schema version this build writes. Bumping it invalidates older stamps on read-back
+        /// comparison so a provenance-schema change forces a re-stamp rather than a silent partial match.</summary>
+        internal const int ProvenanceSchemaVersion = HomesteadProvenanceCodec.SchemaVersion;
 
         /// <summary>Future Niflheim account/entity owner identity; not blindly Valheim PlayerID.</summary>
         internal const string ResourceOwnerKey = ZdoKeyPrefix + "resource_owner";
