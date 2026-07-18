@@ -404,17 +404,23 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 
         private static string Record(RelationshipBoundary boundary, CommittedRelationship r)
         {
+            // Delimiter-safe framing invariant (T009L2 Blocker 2): the record is pipe-delimited, so EVERY
+            // free-text field is base64-encoded before it enters the frame — never written raw. The
+            // OperationId in particular is a caller-composed value that legitimately embeds '|' (e.g. a
+            // StoneId such as "uid:-898655635|3|2"); writing it unencoded exploded a 14-field record into
+            // 21 fields and the parser rejected every frame. Encoding it (and the ResultCode) here, and
+            // decoding symmetrically in ParseRecord, keeps the field count exactly 14 for ANY operation id.
             return string.Join("|", new[]
             {
                 "RELREC",
-                r.OperationId,
+                Encode(r.OperationId),
                 ((int)boundary).ToString(CultureInfo.InvariantCulture),
                 r.BindingDigest,
                 r.PayloadDigest,
                 Encode(r.AccountId),
                 Encode(r.CharacterId),
                 Encode(r.StoneId),
-                r.ResultCode,
+                Encode(r.ResultCode),
                 Encode(r.RelationshipId),
                 r.CharacterRevision.ToString(CultureInfo.InvariantCulture),
                 r.AuthorityRevision.ToString(CultureInfo.InvariantCulture),
@@ -426,28 +432,46 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
+            // Exactly 14 base64/tag/integer fields. A torn or malformed frame (wrong field count, bad tag,
+            // or a field that is not valid base64 / integer) is rejected honestly as null — never partially
+            // applied. Because every free-text field is base64-encoded (no raw '|' can appear inside one),
+            // the field count is a reliable structural check for a well-formed record.
             if (parts.Length != 14 || parts[0] != "RELREC") return null;
-            var rec = new CommittedRelationship
+            try
             {
-                OperationId = parts[1],
-                BindingDigest = parts[3],
-                PayloadDigest = parts[4],
-                AccountId = Decode(parts[5]),
-                CharacterId = Decode(parts[6]),
-                StoneId = Decode(parts[7]),
-                ResultCode = parts[8],
-                RelationshipId = Decode(parts[9]),
-                CharacterRevision = long.Parse(parts[10], CultureInfo.InvariantCulture),
-                AuthorityRevision = long.Parse(parts[11], CultureInfo.InvariantCulture),
-                CharacterSnapshot = Decode(parts[12]),
-                AuthoritySnapshot = Decode(parts[13])
-            };
-            return new ParsedRecord
+                string operationId = Decode(parts[1]);
+                var rec = new CommittedRelationship
+                {
+                    OperationId = operationId,
+                    BindingDigest = parts[3],
+                    PayloadDigest = parts[4],
+                    AccountId = Decode(parts[5]),
+                    CharacterId = Decode(parts[6]),
+                    StoneId = Decode(parts[7]),
+                    ResultCode = Decode(parts[8]),
+                    RelationshipId = Decode(parts[9]),
+                    CharacterRevision = long.Parse(parts[10], CultureInfo.InvariantCulture),
+                    AuthorityRevision = long.Parse(parts[11], CultureInfo.InvariantCulture),
+                    CharacterSnapshot = Decode(parts[12]),
+                    AuthoritySnapshot = Decode(parts[13])
+                };
+                return new ParsedRecord
+                {
+                    OperationId = operationId,
+                    Boundary = (RelationshipBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
+                    Record = rec
+                };
+            }
+            catch (FormatException)
             {
-                OperationId = parts[1],
-                Boundary = (RelationshipBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
-                Record = rec
-            };
+                // A field that is not valid base64 (a corrupted/torn frame that still had 14 pipe-separated
+                // pieces and a RELREC tag) is not a well-formed record. Reject honestly rather than throw.
+                return null;
+            }
+            catch (OverflowException)
+            {
+                return null;   // a revision field that overflowed long — malformed, reject honestly.
+            }
         }
 
         private void Append(string text)

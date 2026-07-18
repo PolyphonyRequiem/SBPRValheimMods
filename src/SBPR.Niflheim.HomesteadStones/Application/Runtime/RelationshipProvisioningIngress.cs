@@ -139,6 +139,24 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         public static string RelationshipId(string character, RelationshipCommandType commandType) =>
             "rel-provision-" + ((int)commandType).ToString(System.Globalization.CultureInfo.InvariantCulture)
             + "-" + (character ?? string.Empty);
+
+        /// <summary>A PII-free, stable pseudonymous correlation tag for operator logs, derived from the
+        /// BOUND INTERNAL (account, character) — which are already server-minted opaque ids, never a
+        /// provider/socket subject or a raw s_playerID. We still emit only a short SHA-256 digest so no
+        /// gameplay subject value is echoed verbatim into the operator log or any export path (T009L2
+        /// Blocker 1: no raw provider/profile subject in the provisioning log). The same input always yields
+        /// the same tag, so an operator can correlate repeated provisioning of one character.</summary>
+        public static string CorrelationTag(string account, string character)
+        {
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] h = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(
+                    (account ?? string.Empty) + "|" + (character ?? string.Empty)));
+                var sb = new System.Text.StringBuilder(12);
+                for (int i = 0; i < 6; i++) sb.Append(h[i].ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                return "corr-" + sb.ToString();
+            }
+        }
     }
 
     /// <summary>Outcome of a provisioning attempt: either a pre-command rejection (no handler call), or the

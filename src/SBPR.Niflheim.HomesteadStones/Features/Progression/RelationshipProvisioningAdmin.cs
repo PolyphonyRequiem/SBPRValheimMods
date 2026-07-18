@@ -110,11 +110,34 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                     return;
                 }
 
-                // Server-derive the subject identity (account + stable character) entirely from the peer.
+                // Server-derive the subject identity ENTIRELY from server-owned state, and — critically —
+                // in the SAME principal space placement authorizes under (T009L2 Blocker 1). Placement
+                // (FoundationalPlacementObserver / DedicatedPlacementIngress) keys the bound-session index
+                // by the durable player:<s_playerID> character subject and credits under the BOUND INTERNAL
+                // (AccountId, CharacterId) admission published there. Provisioning MUST resolve the identical
+                // bound internal principal, or the Attunement it creates lives under a different identity than
+                // the placement that needs it (the live T009L2 FAIL: relationship under provider subject,
+                // placement under bound internal → RelationshipRequired, zero AP).
+                //
+                // We read ONLY the peer's server-owned durable s_playerID off its character ZDO to form the
+                // peer key; the raw provider/socket account subject is never carried into the gameplay
+                // relationship, receipt, journal, or log. An UNBOUND peer (no admitted, activated internal
+                // session) FAILS CLOSED — we never fabricate or provider-derive a gameplay principal.
                 if (!ZdoAuthenticatedSenderSource.Instance.TryResolveFromPeer(peer, out var senderFacts))
                     return;
-                if (!AuthenticatedSenderBinder.TryBind(senderFacts, out string account, out string character))
+                string peerKey = ServerCreatorIdentity.CharacterSubject(senderFacts.PlayerId);
+                if (string.IsNullOrEmpty(peerKey) ||
+                    !server.BoundSessions.TryResolve(peerKey, out var boundPrincipal) ||
+                    string.IsNullOrEmpty(boundPrincipal.Account.Value) ||
+                    string.IsNullOrEmpty(boundPrincipal.Character.Value))
+                {
+                    Plugin.Log.LogWarning(
+                        "[Niflheim/HomesteadStones] Relationship provisioning: sender has no bound internal session (fail closed).");
                     return;
+                }
+
+                string account = boundPrincipal.Account.Value;
+                string character = boundPrincipal.Character.Value;
 
                 if (!TryResolveSenderStone(peer, server, out var stoneId))
                 {
@@ -126,8 +149,9 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 var subject = new AuthoritativeSubject(new AccountId(account), new CharacterId(character));
                 var ingress = server.CreateRelationshipProvisioningIngress();
 
-                // Blocker 3: bind the operation id + relationship id to ALL material fields (account, stable
-                // character, Stone, command, range) so an exact retry replays and a changed binding conflicts.
+                // Blocker 3: bind the operation id + relationship id to ALL material fields (bound internal
+                // account, bound internal character, Stone, command, range) so an exact retry replays and a
+                // changed binding conflicts.
                 string worldScope = SafeWorldScope(znet);
                 string requestedRange = commandType == CmdBond ? "Homestead:All" : string.Empty;
                 string opId = ProvisioningOperationBinding.OperationId(
@@ -137,8 +161,14 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 var result = ingress.Provision(subject, stoneId, (RelationshipCommandType)commandType,
                     opId, relId, worldScope, requestedRange);
 
+                // PII-free operator log: the outcome line + a pseudonymous correlation tag derived from the
+                // bound internal character (never the raw provider/socket account or the s_playerID). The
+                // bound internal AccountId/CharacterId are already server-minted opaque ids, but we still emit
+                // only a short digest so the operator log carries a stable correlation handle without echoing
+                // any subject that could enter an export.
                 Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + result.ToOperatorLine()
-                    + " account=" + account + " character=" + character + " stone=" + stoneId.Value);
+                    + " subject=" + ProvisioningOperationBinding.CorrelationTag(account, character)
+                    + " stone=" + stoneId.Value);
             }
             catch (Exception ex)
             {
