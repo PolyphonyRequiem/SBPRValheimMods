@@ -124,8 +124,9 @@ namespace SBPR.Trailborne.Tests
 
             Assert.Equal(CharacterAdmissionOutcome.Created, res.Outcome);
             Assert.StartsWith("char-", res.CharacterId.Value);
-            // Opaque, 128-bit tagged id — not the s_playerID.
-            Assert.DoesNotContain("42", res.CharacterId.Value);
+            // Opaque, 128-bit CSPRNG-minted tagged id — never derived from s_playerID.
+            Assert.NotEqual("42", res.CharacterId.Value);
+            Assert.NotEqual("char-42", res.CharacterId.Value);
             Assert.Equal(37, res.CharacterId.Value.Length); // "char-" (5) + 32 hex
             Assert.Equal(1, store.CharacterCount);
             // Account membership updated.

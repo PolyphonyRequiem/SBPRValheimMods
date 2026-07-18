@@ -33,6 +33,15 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
     public enum PilotAccountStatus { Active, Disabled, DeletionPending, Deleted }
     public enum CredentialStatus { Active, Revoked, Superseded, Purged }
 
+    // IAP-012 Tracer 4 — pilot lifecycle + artifact-catalog + retention-hold status vocabularies.
+    public enum PilotLifecycleStatus { Active, Closing, Purged }
+    public enum ArtifactStatus { Active, PurgePending, Purged }
+    public enum RetentionHoldStatus { Active, Released }
+
+    /// <summary>The catalogable artifact classes (data-model.md Aggregate 5). Every generation of any of
+    /// these that can contain pilot-linked data MUST be cataloged before use/success is acknowledged.</summary>
+    public enum PilotArtifactType { AccountJournal, GameplayJournal, WorldSave, SecurityLog, Export, Backup, QuarantineReport, ResetAudit }
+
     /// <summary>Projected allowlist entry (data-model.md Aggregate 0). No raw subject.</summary>
     public sealed class AllowlistEntryProjection
     {
@@ -84,6 +93,45 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         public SubjectLookupHmac ProfileHmac;
         public CharacterStatus Status;
         public long Revision;
+    }
+
+    /// <summary>Projected pilot lifecycle record (data-model.md Aggregate 5 PilotLifecycleRecord).</summary>
+    public sealed class PilotLifecycleProjection
+    {
+        public PilotId PilotId;
+        public PilotLifecycleStatus Status;
+        public long Revision;
+        public long StartedAt;
+        public long EndedAt;        // 0 until ClosePilot
+        public long PurgeDueAt;     // 0 until ClosePilot; derived from EndedAt + policy
+        public string PolicyVersion = string.Empty;
+    }
+
+    /// <summary>Projected cataloged artifact record (data-model.md Aggregate 5 PilotDataArtifactRecord).
+    /// The storage locator is operator-only and never exported to players.</summary>
+    public sealed class PilotDataArtifactProjection
+    {
+        public DataArtifactId DataArtifactId;
+        public PilotArtifactType ArtifactType;
+        public string StorageLocator = string.Empty;
+        public long CreatedAt;
+        public long ExpiresAt;
+        public ArtifactStatus Status;
+        public long Revision;
+        public string PurgeEvidenceDigest = string.Empty;
+    }
+
+    /// <summary>Projected retention hold (data-model.md RetentionHold). Scoped, reasoned, and expiring;
+    /// a hold can never target everything by default or omit an expiry.</summary>
+    public sealed class RetentionHoldProjection
+    {
+        public RetentionHoldId RetentionHoldId;
+        public string Scope = string.Empty;
+        public string Reason = string.Empty;
+        public long Revision;
+        public long CreatedAt;
+        public long ExpiresAt;
+        public RetentionHoldStatus Status;
     }
 
     /// <summary>One version-census line (data-model.md RunLookupKeyVersionCensus). Counts by key version
@@ -234,6 +282,11 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         private readonly Dictionary<string, AllowlistEntryProjection> _allowlist = new Dictionary<string, AllowlistEntryProjection>(StringComparer.Ordinal);
         private readonly Dictionary<string, PilotCharacterProjection> _characters = new Dictionary<string, PilotCharacterProjection>(StringComparer.Ordinal);
 
+        // IAP-012 Tracer 4 — pilot lifecycle, artifact catalog, and retention-hold projections.
+        private readonly Dictionary<string, PilotLifecycleProjection> _pilots = new Dictionary<string, PilotLifecycleProjection>(StringComparer.Ordinal);
+        private readonly Dictionary<string, PilotDataArtifactProjection> _artifacts = new Dictionary<string, PilotDataArtifactProjection>(StringComparer.Ordinal);
+        private readonly Dictionary<string, RetentionHoldProjection> _holds = new Dictionary<string, RetentionHoldProjection>(StringComparer.Ordinal);
+
         // Derived credential lookup index: (providerNs|backendIssuer|keyVersion|hmacHex) -> credentialBindingId (active only).
         private readonly Dictionary<string, string> _credentialIndex = new Dictionary<string, string>(StringComparer.Ordinal);
         // Derived allowlist lookup index: same key shape -> allowlistEntryId (active only).
@@ -292,6 +345,34 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         }
 
         public int AccountCount => _accounts.Count;
+
+        // ---- IAP-012 Tracer 4 read projections (bounded, indexed) ----
+
+        public bool TryGetPilot(PilotId id, out PilotLifecycleProjection pilot) =>
+            _pilots.TryGetValue(id.Value, out pilot!);
+
+        public bool TryGetArtifact(DataArtifactId id, out PilotDataArtifactProjection artifact) =>
+            _artifacts.TryGetValue(id.Value, out artifact!);
+
+        public bool TryGetRetentionHold(RetentionHoldId id, out RetentionHoldProjection hold) =>
+            _holds.TryGetValue(id.Value, out hold!);
+
+        public IReadOnlyCollection<PilotDataArtifactProjection> Artifacts => _artifacts.Values;
+        public IReadOnlyCollection<RetentionHoldProjection> RetentionHolds => _holds.Values;
+        public IReadOnlyCollection<PilotLifecycleProjection> Pilots => _pilots.Values;
+
+        /// <summary>True when a cataloged, non-purged WorldSave artifact exists at the given storage
+        /// locator. Admission fails closed when the active world fixture is NOT cataloged
+        /// (AT-AIP-ARTIFACT-CATALOG; contracts §Performance and failure).</summary>
+        public bool IsWorldFixtureCataloged(string storageLocator)
+        {
+            foreach (var a in _artifacts.Values)
+                if (a.ArtifactType == PilotArtifactType.WorldSave &&
+                    a.Status != ArtifactStatus.Purged &&
+                    string.Equals(a.StorageLocator, storageLocator, StringComparison.Ordinal))
+                    return true;
+            return false;
+        }
 
         /// <summary>Indexed credential lookup (NO journal scan). Returns the active binding whose HMAC
         /// matches under the given version, or false.</summary>
@@ -565,6 +646,84 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                     }
                     break;
                 }
+                // ---- IAP-012 Tracer 4 catalog / lifecycle / hold projections ----
+                case "pilot":
+                {
+                    var pilot = new PilotLifecycleProjection
+                    {
+                        PilotId = new PilotId(ch.Get("pilotId")),
+                        Status = ParsePilotStatus(ch.Get("status")),
+                        Revision = ch.GetLong("revision"),
+                        StartedAt = ch.GetLong("startedAt"),
+                        EndedAt = ch.GetLong("endedAt"),
+                        PurgeDueAt = ch.GetLong("purgeDueAt"),
+                        PolicyVersion = ch.Get("policyVersion"),
+                    };
+                    _pilots[pilot.PilotId.Value] = pilot;
+                    break;
+                }
+                case "pilot-status":
+                {
+                    if (_pilots.TryGetValue(ch.Get("pilotId"), out var pilot))
+                    {
+                        pilot.Status = ParsePilotStatus(ch.Get("status"));
+                        pilot.Revision = ch.GetLong("revision");
+                        if (ch.Get("endedAt").Length > 0) pilot.EndedAt = ch.GetLong("endedAt");
+                        if (ch.Get("purgeDueAt").Length > 0) pilot.PurgeDueAt = ch.GetLong("purgeDueAt");
+                        if (ch.Get("policyVersion").Length > 0) pilot.PolicyVersion = ch.Get("policyVersion");
+                    }
+                    break;
+                }
+                case "artifact":
+                {
+                    var art = new PilotDataArtifactProjection
+                    {
+                        DataArtifactId = new DataArtifactId(ch.Get("dataArtifactId")),
+                        ArtifactType = ParseArtifactType(ch.Get("artifactType")),
+                        StorageLocator = ch.Get("storageLocator"),
+                        CreatedAt = ch.GetLong("createdAt"),
+                        ExpiresAt = ch.GetLong("expiresAt"),
+                        Status = ParseArtifactStatus(ch.Get("status")),
+                        Revision = ch.GetLong("revision"),
+                        PurgeEvidenceDigest = ch.Get("purgeEvidenceDigest"),
+                    };
+                    _artifacts[art.DataArtifactId.Value] = art;
+                    break;
+                }
+                case "artifact-status":
+                {
+                    if (_artifacts.TryGetValue(ch.Get("dataArtifactId"), out var art))
+                    {
+                        art.Status = ParseArtifactStatus(ch.Get("status"));
+                        art.Revision = ch.GetLong("revision");
+                        if (ch.Get("purgeEvidenceDigest").Length > 0) art.PurgeEvidenceDigest = ch.Get("purgeEvidenceDigest");
+                    }
+                    break;
+                }
+                case "hold":
+                {
+                    var hold = new RetentionHoldProjection
+                    {
+                        RetentionHoldId = new RetentionHoldId(ch.Get("retentionHoldId")),
+                        Scope = ch.Get("scope"),
+                        Reason = ch.Get("reason"),
+                        Revision = ch.GetLong("revision"),
+                        CreatedAt = ch.GetLong("createdAt"),
+                        ExpiresAt = ch.GetLong("expiresAt"),
+                        Status = ParseHoldStatus(ch.Get("status")),
+                    };
+                    _holds[hold.RetentionHoldId.Value] = hold;
+                    break;
+                }
+                case "hold-status":
+                {
+                    if (_holds.TryGetValue(ch.Get("retentionHoldId"), out var hold))
+                    {
+                        hold.Status = ParseHoldStatus(ch.Get("status"));
+                        hold.Revision = ch.GetLong("revision");
+                    }
+                    break;
+                }
             }
         }
 
@@ -622,6 +781,14 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
             Enum.TryParse<CredentialStatus>(s, out var v) ? v : CredentialStatus.Active;
         private static AllowlistStatus ParseAllowlistStatus(string s) =>
             Enum.TryParse<AllowlistStatus>(s, out var v) ? v : AllowlistStatus.Active;
+        private static PilotLifecycleStatus ParsePilotStatus(string s) =>
+            Enum.TryParse<PilotLifecycleStatus>(s, out var v) ? v : PilotLifecycleStatus.Active;
+        private static ArtifactStatus ParseArtifactStatus(string s) =>
+            Enum.TryParse<ArtifactStatus>(s, out var v) ? v : ArtifactStatus.Active;
+        private static PilotArtifactType ParseArtifactType(string s) =>
+            Enum.TryParse<PilotArtifactType>(s, out var v) ? v : PilotArtifactType.WorldSave;
+        private static RetentionHoldStatus ParseHoldStatus(string s) =>
+            Enum.TryParse<RetentionHoldStatus>(s, out var v) ? v : RetentionHoldStatus.Active;
 
         // ---- Framed append-only journal (shared discipline with OperationReceiptStore) ----
 

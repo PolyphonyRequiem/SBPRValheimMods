@@ -269,6 +269,24 @@ Deliverables after implementation authorization: executable authenticated-peer s
 > `AT-AIP-RESET-EXPLICIT`, `AT-AIP-QUARANTINE`, `AT-AIP-NO-TIME-TRAVEL`, `AT-AIP-BREACH-RUNBOOK`,
 > `AT-AIP-OPERATOR-RUNBOOK`) are the privacy/purge lifecycle, deferred to a later pass. Live joined-client
 > operator proof is IAP-010; independent adversarial verification is IAP-011.
+>
+> **Implementation status (IAP-012, t_38e47d2f):** the privacy/artifact-control subset of Tracer 4 is
+> IMPLEMENTED and green. Over the merged Tracer-1 foundation (PR #330), the engine-free CLEAN-side privacy
+> core adds `Domain/Accounts/PilotRetentionPolicy.cs` (configurable positive 14/30 retention, zero/negative
+> rejected, decrease-immediate / increase-requires-renotice gate) and `Application/Accounts/PilotPrivacyService.cs`
+> (player-safe cataloged export, mandatory pre-use artifact cataloging with fail-closed admission on an
+> uncataloged world fixture, evidence-digest-gated artifact purge, scoped/reasoned/expiring incident holds,
+> and pilot closure with a derived purge deadline), backed by new pilot-lifecycle/artifact-catalog/hold
+> projections in `Persistence/Accounts/PilotAccountStore.cs`. The eight IAP-012 acceptance IDs —
+> `AT-AIP-EXPORT-SAFE`, `AT-AIP-RETENTION-CONFIG`, `AT-AIP-RETENTION-INCREASE-RENOTICE`, `AT-AIP-HOLD-EXPIRY`,
+> `AT-AIP-ARTIFACT-CATALOG`, `AT-AIP-PILOT-CLOSURE-DEADLINE`, `AT-AIP-DISCLOSURE-COMPLETE`,
+> `AT-AIP-DATA-INVENTORY-BASIS` — are green under `dotnet test` (854/854 total, 0 warnings). Evidence:
+> [`account-identity-pilot-tracer4-evidence.md`](account-identity-pilot-tracer4-evidence.md). The remaining
+> Tracer-4 IDs (`AT-AIP-ADMIN-INSPECT`, `AT-AIP-ADMIN-DISABLE`, `AT-AIP-LOCAL-BOOTSTRAP-SCOPE`,
+> `AT-AIP-DELETE-PURGE`, `AT-AIP-DELETE-REVOKES-ALLOWLIST`, `AT-AIP-PURGE-FALLBACK-RESET`,
+> `AT-AIP-FULL-RESET-ROTATES-KEY`, `AT-AIP-BACKUP-PURGE`, `AT-AIP-RETENTION-PURGE`, `AT-AIP-RESET-EXPLICIT`,
+> `AT-AIP-QUARANTINE`, `AT-AIP-NO-TIME-TRAVEL`, `AT-AIP-NONADMIN-REJECT`, `AT-AIP-BREACH-RUNBOOK`) and the
+> dedicated-server proof remain outstanding.
 
 ### Final gate — Dedicated joined-client pilot proof
 
