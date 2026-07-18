@@ -338,5 +338,186 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(50, h.CurrentInventory()["Wood"]);
             Assert.False(h.CurrentStock().ContainsKey("Wood"));
         }
+
+        // ── Partial-resume interleaving: an intervening commit serializes competing transfers ───
+        //
+        // REGRESSION (RD Gate B partial-resume interleaving overdraw). Operation A journals intent
+        // against opening revision 0 and CRASHES before committing. Operation B then commits against
+        // that same opening revision 0, consuming source items and advancing the revision. When A
+        // RESUMES it must revalidate against CURRENT state bound to its intent-time revision — an
+        // intervening commit makes A stale, so A rejects with NO mutation. Before the fix, A skipped
+        // validation, re-applied its stale journaled debit, and projected negative (overdrawn) items.
+
+        [Fact]
+        public void PartialResume_AfterInterveningCommit_RejectsStale_NoOverdraw()
+        {
+            // Player holds exactly 20 Wood: enough for ONE 20-wood donation, not two.
+            Dictionary<string, long> Inv() => new Dictionary<string, long> { { "Wood", 20 } };
+            StockTransactionHarness H() => new StockTransactionHarness(_journal, CapacityPolicy.Level2Stock,
+                CapacityPolicy.PlayerCarry, Inv(), new Dictionary<string, long>(), AuthoredOptions());
+
+            // Operation A journals intent against revision 0, then crashes before committing.
+            Assert.Throws<InvalidOperationException>(() =>
+                H().SubmitDonation("op-A", "opt-20wood", 0, 0, new CrashAfter(StockTransferBoundary.IntentJournaled)));
+
+            // No terminal record yet → A is invisible; both ledgers still at opening.
+            Assert.Equal(20, H().CurrentInventory()["Wood"]);
+            Assert.Equal(0, H().StockRevision());
+
+            // Operation B commits against the SAME opening revision 0, consuming all 20 Wood.
+            var b = H().SubmitDonation("op-B", "opt-20wood", 0, 0);
+            Assert.Equal(StockTransferOutcome.Applied, b.Outcome);
+            Assert.Equal(0, H().CurrentInventory().GetValueOrDefault("Wood")); // player drained
+            Assert.Equal(20, H().CurrentStock()["Wood"]);
+            Assert.Equal(1, H().StockRevision());
+
+            // A RESUMES. It was version-bound to revision 0; B advanced to 1 → A is stale and rejects.
+            var resumeA = H().SubmitDonation("op-A", "opt-20wood", 0, 0);
+            Assert.Equal(StockTransferOutcome.StaleInventoryRevision, resumeA.Outcome);
+            Assert.Equal(1, resumeA.InventoryRevision); // caller told the current revision to refetch
+
+            // No overdraw: exactly one transfer survived, no negative projection.
+            var final = H();
+            Assert.Equal(0, final.CurrentInventory().GetValueOrDefault("Wood"));
+            Assert.Equal(20, final.CurrentStock()["Wood"]);
+            Assert.Equal(1, final.StockRevision());
+            Assert.All(final.CurrentInventory().Values, v => Assert.True(v >= 0));
+            Assert.All(final.CurrentStock().Values, v => Assert.True(v >= 0));
+        }
+
+        [Fact]
+        public void PartialResume_Withdrawal_AfterInterveningCommit_RejectsStale_NoOverdraw()
+        {
+            // Stock holds exactly 20 Wood: enough for ONE 20-wood withdrawal, not two.
+            Dictionary<string, long> Stk() => new Dictionary<string, long> { { "Wood", 20 } };
+            StockTransactionHarness H() => new StockTransactionHarness(_journal, CapacityPolicy.Level2Stock,
+                CapacityPolicy.PlayerCarry, new Dictionary<string, long>(), Stk(), AuthoredOptions());
+
+            // Withdrawal A journals intent against revision 0, then crashes before committing.
+            Assert.Throws<InvalidOperationException>(() =>
+                H().WithdrawStock("op-A", V(("Wood", 20)), 0, 0, new CrashAfter(StockTransferBoundary.IntentJournaled)));
+
+            Assert.Equal(20, H().CurrentStock()["Wood"]); // no terminal → nothing moved
+            Assert.Equal(0, H().StockRevision());
+
+            // Withdrawal B commits against the same opening revision 0, draining the Stock.
+            var b = H().WithdrawStock("op-B", V(("Wood", 20)), 0, 0);
+            Assert.Equal(StockTransferOutcome.Applied, b.Outcome);
+            Assert.Equal(0, H().CurrentStock().GetValueOrDefault("Wood"));
+            Assert.Equal(20, H().CurrentInventory()["Wood"]);
+
+            // A resumes: bound to revision 0, now stale → rejects, no negative Stock. Both revisions
+            // advance together, and validation checks inventory first, so the reported outcome is
+            // StaleInventoryRevision (cosmetic ordering — the point is the stale rejection with no write).
+            var resumeA = H().WithdrawStock("op-A", V(("Wood", 20)), 0, 0);
+            Assert.Equal(StockTransferOutcome.StaleInventoryRevision, resumeA.Outcome);
+            Assert.Equal(1, resumeA.InventoryRevision);
+
+            var final = H();
+            Assert.Equal(0, final.CurrentStock().GetValueOrDefault("Wood"));
+            Assert.Equal(20, final.CurrentInventory()["Wood"]);
+            Assert.Equal(1, final.StockRevision());
+            Assert.All(final.CurrentStock().Values, v => Assert.True(v >= 0));
+        }
+
+        [Fact]
+        public void PartialResume_AfterInterveningCommit_DrainsSource_RejectsSourceMissing()
+        {
+            // Distinct framing from the same-item case: A donates Wood (crashes at intent), B donates
+            // the same Wood against opening revision 0 (commits, rev→1), draining the source. A naive
+            // resume that trusts its stale journaled intent would re-debit already-gone Wood and
+            // overdraw. The version binding catches it first: A is bound to rev 0 and is now stale.
+            Dictionary<string, long> Inv() => new Dictionary<string, long> { { "Wood", 20 }, { "Stone", 20 } };
+            StockTransactionHarness H() => new StockTransactionHarness(_journal, CapacityPolicy.Level2Stock,
+                CapacityPolicy.PlayerCarry, Inv(), new Dictionary<string, long>(), AuthoredOptions());
+
+            Assert.Throws<InvalidOperationException>(() =>
+                H().SubmitDonation("op-A", "opt-20wood", 0, 0, new CrashAfter(StockTransferBoundary.IntentJournaled)));
+
+            // B donates the Wood A intended, against opening revision 0 → advances to rev 1.
+            var b = H().SubmitDonation("op-B", "opt-20wood", 0, 0);
+            Assert.Equal(StockTransferOutcome.Applied, b.Outcome);
+            Assert.Equal(0, H().CurrentInventory().GetValueOrDefault("Wood"));
+
+            // A resumes bound to rev 0 → stale reject; source Wood is gone but we reject BEFORE touching it.
+            var resumeA = H().SubmitDonation("op-A", "opt-20wood", 0, 0);
+            Assert.Equal(StockTransferOutcome.StaleInventoryRevision, resumeA.Outcome);
+
+            var final = H();
+            Assert.Equal(0, final.CurrentInventory().GetValueOrDefault("Wood"));
+            Assert.Equal(20, final.CurrentStock()["Wood"]);
+            Assert.All(final.CurrentInventory().Values, v => Assert.True(v >= 0));
+        }
+
+        [Fact]
+        public void PartialResume_NoIntervening_ResumeStillCommitsExactlyOnce()
+        {
+            // Idempotency preserved: with NO intervening commit, a resumed partial's bound revision
+            // still matches, so it drives forward and commits exactly one transfer (the happy resume).
+            Dictionary<string, long> Inv() => new Dictionary<string, long> { { "Wood", 50 } };
+            StockTransactionHarness H() => new StockTransactionHarness(_journal, CapacityPolicy.Level2Stock,
+                CapacityPolicy.PlayerCarry, Inv(), new Dictionary<string, long>(), AuthoredOptions());
+
+            Assert.Throws<InvalidOperationException>(() =>
+                H().SubmitDonation("op-A", "opt-20wood", 0, 0, new CrashAfter(StockTransferBoundary.SourceDebited)));
+
+            var resume = H().SubmitDonation("op-A", "opt-20wood", 0, 0);
+            Assert.Equal(StockTransferOutcome.Applied, resume.Outcome);
+            Assert.Equal(30, H().CurrentInventory()["Wood"]);
+            Assert.Equal(20, H().CurrentStock()["Wood"]);
+            Assert.Equal(1, H().StockRevision());
+        }
+
+        [Fact]
+        public void PartialResume_TerminalReplay_StillIdempotent_AcrossInterleave()
+        {
+            // Once A has a terminal record, replay must ALWAYS win regardless of later commits — the
+            // committed transfer is durable and version binding never re-gates a terminal replay.
+            Dictionary<string, long> Inv() => new Dictionary<string, long> { { "Wood", 50 }, { "Stone", 50 } };
+            StockTransactionHarness H() => new StockTransactionHarness(_journal, CapacityPolicy.Level2Stock,
+                CapacityPolicy.PlayerCarry, Inv(), new Dictionary<string, long>(), AuthoredOptions());
+
+            var a = H().SubmitDonation("op-A", "opt-20wood", 0, 0); // commits, rev→1
+            Assert.Equal(StockTransferOutcome.Applied, a.Outcome);
+            var b = H().SubmitDonation("op-B", "opt-20stone", 1, 1); // intervening commit, rev→2
+            Assert.Equal(StockTransferOutcome.Applied, b.Outcome);
+
+            // A replays with its original (now-stale) expected revisions → Replayed, not stale.
+            var replayA = H().SubmitDonation("op-A", "opt-20wood", 0, 0);
+            Assert.Equal(StockTransferOutcome.Replayed, replayA.Outcome);
+            Assert.Equal(a.ReceiptId, replayA.ReceiptId);
+            Assert.Equal(30, H().CurrentInventory()["Wood"]); // still exactly one A-transfer
+            Assert.Equal(2, H().StockRevision());
+        }
+
+        [Fact]
+        public void PartialResume_CapacityRevalidated_AfterInterveningDeposit()
+        {
+            // A donation A journals intent while Stock has room, crashes; B deposits enough that A's
+            // vector would now overflow Stock capacity. A's resume rejects stale (rev advanced) — the
+            // deposit that ate the capacity is exactly the commit that advances the revision, so the
+            // optimistic-revision gate and the capacity gate are consistent (no over-capacity write).
+            var tightStock = new CapacityPolicy(16, 30, 500); // total cap 30 units
+            StockTransactionHarness H() => new StockTransactionHarness(_journal, tightStock,
+                CapacityPolicy.PlayerCarry,
+                new Dictionary<string, long> { { "Wood", 50 }, { "Stone", 50 } },
+                new Dictionary<string, long>(), AuthoredOptions());
+
+            Assert.Throws<InvalidOperationException>(() =>
+                H().SubmitDonation("op-A", "opt-20wood", 0, 0, new CrashAfter(StockTransferBoundary.IntentJournaled)));
+
+            // B deposits 20 Stone (Stock now 20/30) against rev 0 → rev 1.
+            var b = H().SubmitDonation("op-B", "opt-20stone", 0, 0);
+            Assert.Equal(StockTransferOutcome.Applied, b.Outcome);
+
+            // A resumes: bound to rev 0, now stale. Rejects before any write — Stock never exceeds cap.
+            var resumeA = H().SubmitDonation("op-A", "opt-20wood", 0, 0);
+            Assert.Equal(StockTransferOutcome.StaleInventoryRevision, resumeA.Outcome);
+            var final = H();
+            Assert.False(final.CurrentStock().ContainsKey("Wood"));
+            Assert.Equal(20, final.CurrentStock()["Stone"]);
+            long total = 0; foreach (var v in final.CurrentStock().Values) total += v;
+            Assert.True(total <= 30); // capacity never violated
+        }
     }
 }

@@ -301,15 +301,30 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
                 // A partial record under this op id with a DIFFERENT binding is ambiguous — never guess.
                 return Reject(StockTransferOutcome.OperationConflict, "OperationConflict");
 
-            // ── Validation (only a brand-new operation is gated; a resumed partial already passed) ──
-            if (!view.SawAnyRecord)
+            // ── Validation gate — applies to BOTH a brand-new operation AND a resumed partial. ──
+            //
+            // CORRECTNESS HOLE FIXED HERE (RD Gate B partial-resume interleaving): a non-terminal
+            // operation projects NOTHING, so a crash after journaling intent leaves both ledgers at
+            // their opening state. If a COMPETING operation then commits against that same opening
+            // revision, the depleted source and the advanced revision mean the crashed operation's
+            // journaled intent is now STALE. A resume must therefore revalidate against CURRENT state
+            // exactly like a fresh operation — it must NOT trust its own stale journaled intent — or
+            // it would apply a second debit and project negative (overdrawn) inventory.
+            //
+            // The authoritative expected revisions for a resumed partial are the ones BOUND at intent
+            // time (persisted in the intent record), not whatever the resume caller re-supplies. An
+            // intervening commit advances the live revision past that bound value, so optimistic
+            // concurrency serializes the two transfers: the loser rejects stale with no mutation.
             {
                 long invRev = InventoryRevision();
                 long stkRev = StockRevision();
-                if (expectedInventoryRevision != invRev)
+                long boundInvExpected = view.SawAnyRecord ? view.ExpectedInventoryRevision : expectedInventoryRevision;
+                long boundStkExpected = view.SawAnyRecord ? view.ExpectedStockRevision : expectedStockRevision;
+
+                if (boundInvExpected != invRev)
                     return new StockTransferResult(StockTransferOutcome.StaleInventoryRevision,
                         "StaleInventoryRevision", string.Empty, invRev, stkRev);
-                if (expectedStockRevision != stkRev)
+                if (boundStkExpected != stkRev)
                     return new StockTransferResult(StockTransferOutcome.StaleStockRevision,
                         "StaleStockRevision", string.Empty, invRev, stkRev);
 
@@ -337,6 +352,12 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
                 }
             }
 
+            // The revisions this operation is version-bound to for the life of its journal: fixed at
+            // intent time and re-persisted on every forward record so a later resume reads the same
+            // binding regardless of what the resume caller passes.
+            long recordInvExpected = view.SawAnyRecord ? view.ExpectedInventoryRevision : expectedInventoryRevision;
+            long recordStkExpected = view.SawAnyRecord ? view.ExpectedStockRevision : expectedStockRevision;
+
             // ── Drive the durable state machine forward from wherever the last crash left us ──
             var phase = view.LastPhase;
             // Signed deltas: donation debits player (−) / credits Stock (+); withdrawal is the mirror.
@@ -345,7 +366,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
 
             if (phase < StockTransferBoundary.IntentJournaled)
             {
-                Append(Serialize(operationId, StockTransferBoundary.IntentJournaled, bindingDigest, vectorDigest, null, null));
+                Append(Serialize(operationId, StockTransferBoundary.IntentJournaled, bindingDigest, vectorDigest, recordInvExpected, recordStkExpected, null, null));
                 crash.AfterBoundary(StockTransferBoundary.IntentJournaled);
                 phase = StockTransferBoundary.IntentJournaled;
             }
@@ -354,7 +375,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
                 // The debit delta lands on whichever ledger is the SOURCE for this kind.
                 var invPart = kind == StockTransferKind.Donation ? inventoryDelta : (IReadOnlyDictionary<string, long>?)null;
                 var stkPart = kind == StockTransferKind.Donation ? (IReadOnlyDictionary<string, long>?)null : stockDelta;
-                Append(Serialize(operationId, StockTransferBoundary.SourceDebited, bindingDigest, vectorDigest, invPart, stkPart));
+                Append(Serialize(operationId, StockTransferBoundary.SourceDebited, bindingDigest, vectorDigest, recordInvExpected, recordStkExpected, invPart, stkPart));
                 crash.AfterBoundary(StockTransferBoundary.SourceDebited);
                 phase = StockTransferBoundary.SourceDebited;
             }
@@ -362,13 +383,13 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
             {
                 var invPart = kind == StockTransferKind.Donation ? (IReadOnlyDictionary<string, long>?)null : inventoryDelta;
                 var stkPart = kind == StockTransferKind.Donation ? stockDelta : (IReadOnlyDictionary<string, long>?)null;
-                Append(Serialize(operationId, StockTransferBoundary.DestinationCredited, bindingDigest, vectorDigest, invPart, stkPart));
+                Append(Serialize(operationId, StockTransferBoundary.DestinationCredited, bindingDigest, vectorDigest, recordInvExpected, recordStkExpected, invPart, stkPart));
                 crash.AfterBoundary(StockTransferBoundary.DestinationCredited);
                 phase = StockTransferBoundary.DestinationCredited;
             }
             if (phase < StockTransferBoundary.Committed)
             {
-                Append(Serialize(operationId, StockTransferBoundary.Committed, bindingDigest, vectorDigest, null, null));
+                Append(Serialize(operationId, StockTransferBoundary.Committed, bindingDigest, vectorDigest, recordInvExpected, recordStkExpected, null, null));
                 crash.AfterBoundary(StockTransferBoundary.Committed);
             }
 
@@ -505,18 +526,27 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
 
         private readonly struct JournalView
         {
-            public JournalView(bool sawAnyRecord, bool hasTerminal, StockTransferBoundary lastPhase, string? bindingDigest)
+            public JournalView(bool sawAnyRecord, bool hasTerminal, StockTransferBoundary lastPhase, string? bindingDigest,
+                long expectedInventoryRevision, long expectedStockRevision)
             {
                 SawAnyRecord = sawAnyRecord;
                 HasTerminal = hasTerminal;
                 LastPhase = lastPhase;
                 BindingDigest = bindingDigest;
+                ExpectedInventoryRevision = expectedInventoryRevision;
+                ExpectedStockRevision = expectedStockRevision;
             }
 
             public bool SawAnyRecord { get; }
             public bool HasTerminal { get; }
             public StockTransferBoundary LastPhase { get; }
             public string? BindingDigest { get; }
+
+            /// <summary>The inventory revision the operation was version-bound to at intent time. A
+            /// resumed partial revalidates against THIS, not whatever the resume caller re-supplies,
+            /// so an intervening commit renders the resume stale.</summary>
+            public long ExpectedInventoryRevision { get; }
+            public long ExpectedStockRevision { get; }
         }
 
         private JournalView InspectJournal(string operationId)
@@ -524,16 +554,24 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
             bool sawAny = false, hasTerminal = false;
             var lastPhase = StockTransferBoundary.None;
             string? binding = null;
+            long expectedInv = 0, expectedStk = 0;
             foreach (var line in ReadDurable())
             {
                 var rec = Parse(line);
                 if (rec == null || rec.OperationId != operationId) continue;
                 sawAny = true;
                 binding = rec.BindingDigest;
+                // The intent record carries the authoritative version binding; every forward record
+                // re-persists the same values, so reading the earliest-bound record is equivalent.
+                if (rec.Phase == StockTransferBoundary.IntentJournaled)
+                {
+                    expectedInv = rec.ExpectedInventoryRevision;
+                    expectedStk = rec.ExpectedStockRevision;
+                }
                 if (rec.Phase > lastPhase) lastPhase = rec.Phase;
                 if (rec.Phase == StockTransferBoundary.Committed) hasTerminal = true;
             }
-            return new JournalView(sawAny, hasTerminal, lastPhase, binding);
+            return new JournalView(sawAny, hasTerminal, lastPhase, binding, expectedInv, expectedStk);
         }
 
         private static StockTransferResult Reject(StockTransferOutcome outcome, string code) =>
@@ -549,31 +587,38 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery
             public StockTransferBoundary Phase;
             public string BindingDigest = string.Empty;
             public string VectorDigest = string.Empty;
+            public long ExpectedInventoryRevision;
+            public long ExpectedStockRevision;
             public IReadOnlyDictionary<string, long>? InventoryDelta;
             public IReadOnlyDictionary<string, long>? StockDelta;
         }
 
         private static string Serialize(string opId, StockTransferBoundary phase, string binding, string vectorDigest,
+            long expectedInventoryRevision, long expectedStockRevision,
             IReadOnlyDictionary<string, long>? inventoryDelta, IReadOnlyDictionary<string, long>? stockDelta) =>
             string.Join("|", new[]
             {
                 Rec, Encode(opId), ((int)phase).ToString(CultureInfo.InvariantCulture),
                 Encode(binding), Encode(vectorDigest),
+                expectedInventoryRevision.ToString(CultureInfo.InvariantCulture),
+                expectedStockRevision.ToString(CultureInfo.InvariantCulture),
                 Encode(EncodeDelta(inventoryDelta)), Encode(EncodeDelta(stockDelta))
             });
 
         private static RecordData? Parse(string line)
         {
             var parts = line.Split('|');
-            if (parts.Length != 7 || parts[0] != Rec) return null;
+            if (parts.Length != 9 || parts[0] != Rec) return null;
             return new RecordData
             {
                 OperationId = Decode(parts[1]),
                 Phase = (StockTransferBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
                 BindingDigest = Decode(parts[3]),
                 VectorDigest = Decode(parts[4]),
-                InventoryDelta = DecodeDelta(Decode(parts[5])),
-                StockDelta = DecodeDelta(Decode(parts[6]))
+                ExpectedInventoryRevision = long.Parse(parts[5], CultureInfo.InvariantCulture),
+                ExpectedStockRevision = long.Parse(parts[6], CultureInfo.InvariantCulture),
+                InventoryDelta = DecodeDelta(Decode(parts[7])),
+                StockDelta = DecodeDelta(Decode(parts[8]))
             };
         }
 

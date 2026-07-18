@@ -31,9 +31,10 @@ proves the mechanism the plan requires before those Tracers may begin.
 | Exact debit requires no trusted client quantity | `SubmitDonation` resolves the item vector from the server-authored option id; `Donation_ServerResolvesExactAuthoredVector_ClientSuppliesNoQuantity`, `Donation_UnknownOption_Rejected_NoMutation` |
 | Full debit/credit fit requires no trusted client fit claim | insufficient source (`Donation_InsufficientPlayerItems_*`, `Withdrawal_StockLacksFullVector_*`), over-capacity deposit (`Donation_ExceedsStockCapacity_*`), player cannot fit (`Withdrawal_PlayerInventoryCannotFit_*`) — all non-mutating |
 | Stale revisions never duplicate or lose resources | `Donation_StaleInventoryRevision_*`, `Donation_StaleStockRevision_*`, `SecondOp_WithCurrentRevisions_Applies` |
+| Partial-resume interleaving cannot overdraw | a resumed partial revalidates and reserves against **current** state bound to its intent-time revision; an intervening commit serializes the loser to a stale rejection with no mutation — `PartialResume_AfterInterveningCommit_RejectsStale_NoOverdraw`, `PartialResume_Withdrawal_AfterInterveningCommit_RejectsStale_NoOverdraw`, `PartialResume_AfterInterveningCommit_DrainsSource_RejectsSourceMissing`, `PartialResume_CapacityRevalidated_AfterInterveningDeposit`, `PartialResume_NoIntervening_ResumeStillCommitsExactlyOnce`, `PartialResume_TerminalReplay_StillIdempotent_AcrossInterleave` |
 | Conflicting replay never duplicates | `Replay_SameOpAndBinding_ReturnsRecordedResult_NoDoubleTransfer`, `Replay_AcrossRestart_*`, `ConflictingBinding_UnderSameOpId_Rejected` |
 | Disconnect / process death converge to one transfer or none | `CrashBeforeCommit_LeavesNoTransfer_ResumeCompletesExactlyOnce` (Theory over intent/source/destination boundaries), `CrashAfterCommit_RecoversTransfer_ReplayReturnsWinner`, `Withdrawal_CrashBeforeCommit_*` |
-| Success acknowledged only after the terminal operation is recoverable | balances/revisions project from durable, terminal-bearing records only; a partial op projects nothing |
+| Success acknowledged only after the terminal operation is recoverable | balances/revisions project from durable, terminal-bearing records only; a partial op projects nothing **and, on resume, revalidates + version-binds against current state so it cannot apply a now-stale intent** |
 | Conservation | `DonateThenWithdraw_ConservesTotalUnits` |
 
 ## Design — reuse of the proven Gate-A mechanism
@@ -49,6 +50,13 @@ and `FinalLinkHandshakeStore`:
 2. **Both ledgers commit together.** A reader only ever observes balances derived from
    a terminal-bearing record. There is no window where the source ledger moved but the
    destination did not — a crash before the terminal record projects neither delta.
+   Because a partial op is invisible, a **competing** op can commit against the same
+   opening revision while a crashed op is mid-flight; a resume therefore re-runs the full
+   validation gate (revision, source sufficiency, capacity fit) **bound to the revision
+   captured in its intent record**, not to whatever the resume caller re-supplies. An
+   intervening commit advances the live revision past that bound value, so optimistic
+   concurrency serializes the two transfers and the loser rejects stale with no mutation —
+   it can never re-apply a now-stale journaled debit and overdraw.
 3. **One transfer machine, two directions.** Donation debits player / credits Stock;
    withdrawal is the mirror. Fit is checked against the destination's capacity policy
    (Stock: provisional Level-2 16 kinds / 1,000 units / 500 per item; player: carry).
@@ -60,12 +68,11 @@ and `FinalLinkHandshakeStore`:
 
 - Engine-free seam (`.../Application/ResourceDelivery/StockTransactionHarness.cs`)
   link-compiles into the net8 test project under `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`.
-- Full suite: **1041/1041 passed** (1022 pre-existing + 19 new Gate-B tests); no
-  existing Homestead/Resource-Delivery test changed or regressed. The shipped 20/13/7
-  roster and the RD-T001 guard are untouched — Gate B adds no gameplay.
-- The net48 mod assembly build requires the Valheim managed assemblies (supplied by CI,
-  not present in this worktree); the spike adds no engine surface, so the net8 clean
-  compile is the applicable local proof.
+- Full suite: **1086/1086 passed** (1080 pre-existing + 6 new partial-resume interleaving
+  regression tests); no existing Homestead/Resource-Delivery test changed or regressed. The
+  shipped 20/13/7 roster and the RD-T001 guard are untouched — the fix adds no gameplay.
+- The net48 mod assembly build (Valheim managed + BepInEx refs supplied via repo `.env`)
+  completes with **0 warnings / 0 errors**; the fix adds no engine surface.
 
 ## Boundary
 
