@@ -27,3 +27,4 @@ Acceptance: `AT-READY-HANDS-BOTH-HALVES`, `AT-READY-HANDS-EXCLUSIONS`.
 | R11 | Engine-free CLEAN provider: no UnityEngine/BepInEx/Harmony/Valheim type in `EquipDurationProvider.cs`; net8 link-compile = real execution. NO joined-client/playable claim — the in-world equip/unequip timing artifact is deferred and re-run at T032 | `T030-ready-hands-implementation.md` §"Honesty" |
 
 - [T030-ready-hands-implementation.md](T030-ready-hands-implementation.md) — full analysis
+- [QA-joined-client-T030.md](QA-joined-client-T030.md) — DoD item 9 joined-client timing QA verdict (**PASS**, head `3e10acf`): the `Player` rebind resolves live against `assembly_valheim.dll` (old `Humanoid` binding resolves ZERO — the FAIL excluded), patch installs on a live boot with zero failures, both-halves-shorten / exclusion / fail-closed grammar green (10/10, suite 1375/1375)
