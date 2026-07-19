@@ -48,6 +48,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             DevelopmentCommandHandler development,
             LocalPolicyCommandHandler localPolicy,
             LocalActivationService activation,
+            PersonalActivationService personalActivation,
             GovernorPresenceResolver governorPresence,
             HomesteadProgressionCatalog catalog,
             string durableDirectory)
@@ -61,6 +62,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             Development = development;
             LocalPolicy = localPolicy;
             Activation = activation;
+            PersonalActivation = personalActivation;
             GovernorPresence = governorPresence;
             Catalog = catalog;
             DurableDirectory = durableDirectory;
@@ -83,6 +85,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         /// <summary>The bounded server→client Local Effect delivery authority. Derives per-occupant read
         /// models from <see cref="Stones"/> + server-observed presence and emits bounded notifications.</summary>
         public LocalActivationService Activation { get; }
+
+        /// <summary>T026 remediation — the bounded server→client PERSONAL Character-Effect delivery authority.
+        /// Derives per-(occupant, character) read models from <see cref="Stones"/>/<see cref="Characters"/>/
+        /// <see cref="Authority"/> (purchase record AND active relationship, via the shipped
+        /// DerivedActivationView) and emits bounded notifications. This is the channel Field Fletching I needs
+        /// so a pure joined client can craft; the Local channel above carries Stone-owned Local nodes only.</summary>
+        public PersonalActivationService PersonalActivation { get; }
 
         /// <summary>T016 fix-forward — derives the two cross-account governance facts (Stone-wide
         /// authorized-Governor presence and this-account ownership) from COMMITTED relationship/authority
@@ -177,11 +186,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
                 Path.Combine(durableDirectory, LocalPolicyJournalFile), resolver, stones, ownerAuthority);
 
             var activation = new LocalActivationService(stones, effectiveCatalog);
+            var personalActivation = new PersonalActivationService(stones, characters, authority);
             var governorPresence = new GovernorPresenceResolver(characters, authority);
 
             return new LocalProgressionServer(
                 stones, characters, authority, relationships, facets, activities, development, localPolicy,
-                activation, governorPresence, effectiveCatalog, durableDirectory);
+                activation, personalActivation, governorPresence, effectiveCatalog, durableDirectory);
         }
     }
 }

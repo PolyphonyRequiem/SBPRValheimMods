@@ -527,6 +527,38 @@ These are derived-provider contracts, not direct ledger writes.
   client it consumes the server-delivered snapshot via `LocalActivationClientCache`. Both fail closed absent an
   authoritative active projection.
 - `BushcraftRecipeProvider`: active Field Fletching I exposes unchanged Wood Arrows through Bushcraft.
+  **Implemented (T026, `Adapters/Archer/BushcraftRecipeProvider.cs`):** a pure `Resolve(stone, character,
+  authority)` returns a capability whose `WoodArrowRecipeExposed` mirrors whether the personal Field
+  Fletching I Character Effect is active for the caller — derived through the shipped T004
+  `DerivedActivationView` (a purchase record for `FieldFletchingI@1` at this Stone AND an active
+  relationship to it; no second active-effects ledger). While active it exposes the EXACT unchanged vanilla
+  Wood Arrow recipe (`ArrowWood`) made station-free (Bushcraft); it authors and mutates NOTHING about the
+  recipe's ordinary inputs, yield, or authority — it is an exposure gate only (spec line 160; research.md
+  defers wider ammunition/input changes to later Field Fletching levels). Dormant/unpurchased/undeveloped
+  callers, and a sibling character's reservation, all expose nothing. **Live-wired (T026, net48):** the pure
+  provider is consumed on the authoritative host by `Features/Archer/FieldFletchingRecipeGate` — a postfix
+  on `Player.RequiredCraftingStation` that rescues the exact vanilla Wood Arrow recipe to station-free when
+  the provider reports it exposed for the local occupant. **Pure-client delivery (T026 remediation,
+  `t_3a899381`):** the host-only lookup was replaced by a bounded authoritative Personal Character-Effect
+  delivery channel so a real joined (non-host) client can craft — the T026 review (PR #373) correctly
+  refused merge while Field Fletching I was host-occupant-only. The gate now resolves exposure two ways,
+  both authoritative and both fail-closed: on the authoritative HOST it reads the composed server stores
+  (`LocalProgressionObserver.Server`) directly through the pure provider; on a PURE CLIENT it reads ONLY the
+  server-stamped `PersonalActivationSnapshot` the server pushed into
+  `LocalProgressionObserver.PersonalClientCache` over the `PersonalActivationDeliveryObserver` transport,
+  requesting a fresh snapshot for the Stone the local player stands in on a bounded interval. The delivery
+  substrate (`Application/Activation/PersonalActivationDelivery.cs` + `PersonalActivationService.cs` +
+  `PersonalActivationClientCache.cs`, composed into `LocalProgressionServer.PersonalActivation`) derives the
+  per-`(occupant, character)` read model from the authoritative Stone/character/authority aggregates via the
+  same shipped `DerivedActivationView` — a purchase record AND an active relationship, per character, no
+  second active-effects ledger. It preserves Personal ownership semantics: unlike the Local channel it is
+  NOT gated by occupancy, the Settlement Local policy, or governor presence; the client authors no
+  entitlement; stale/reordered snapshots are dropped by a monotonic delivery sequence; and relationship
+  loss / disconnect / dormancy flip Active to false with zero writes (the client cache invalidates and
+  clears on teardown). The server resolves the requesting peer's BOUND INTERNAL principal from the
+  delivering ZRpc, never the payload, so a hostile client cannot forge whose effect it asks for or author
+  an active row. Listen-host and pure-client consumers share the one provider/derivation; there is no second
+  ledger on either side.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.
 

@@ -244,6 +244,18 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationDelivery.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationService.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationClientCache.cs" />
+    <!-- T026 remediation (t_3a899381): the engine-free bounded server→client PERSONAL Character-Effect
+         delivery substrate — the channel the T026 review found missing so a pure joined client could never
+         craft Field Fletching I. The snapshot/notification wire contract, the server-side
+         PersonalActivationService that derives per-(occupant, character) read models from the authoritative
+         Stone/character/authority aggregates via the shipped DerivedActivationView (purchase record AND
+         active relationship, no second ledger), and the client-side cache that drops stale/reordered
+         snapshots and decides refetch. All engine-free (System.* only), so they compile under net8 here AND
+         net48 in the mod. Mirrors the accepted Local Effect substrate above; preserves personal ownership
+         semantics (not area/policy/governor gated). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/PersonalActivationDelivery.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/PersonalActivationService.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/PersonalActivationClientCache.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
@@ -280,6 +292,9 @@
          later Fletcher's Habit roll (T027) yields to. Engine-free. Named acceptance AT-PRACTICE-RANGE,
          AT-PRACTICE-ARROW-DAMAGE, AT-TARGET-RETURN. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/PracticeRangeProvider.cs" />
+    <!-- T026 Archer node 2: Field Fletching I personal Character Effect exposes the unchanged vanilla
+         Wood Arrow recipe through Bushcraft (station-free) while active. Engine-free — link-compiled. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/BushcraftRecipeProvider.cs" />
     <!-- Homestead progression Tracer 6 (T021, US4): Refined Workshop real-versus-effective station-level
          policy. The pure crafting adapter surface (Adapters/Crafting/EffectiveStationLevelProvider.cs)
          composes over the shipped LocalEffectActivationView to grant +1 EFFECTIVE station level only for

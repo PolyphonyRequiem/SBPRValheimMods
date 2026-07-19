@@ -124,6 +124,15 @@ namespace SBPR.Niflheim.HomesteadStones
             // gameplay-family consumer (Refined Workshop below, and the later Savor/Practice/T.W.I.G.).
             harmony.PatchAll(typeof(Features.Progression.LocalActivationDeliveryObserver));
 
+            // T026 remediation — the BOUNDED server→client PERSONAL Character-Effect activation delivery
+            // transport (per-peer request/snapshot ZRpc). The Local transport above carries Stone-owned LOCAL
+            // snapshots only, so Field Fletching I (a personal Character Effect) had no server→client read
+            // model and a pure joined client always failed closed. This transport delivers the per-(occupant,
+            // character) personal read model (purchase record + active relationship, via DerivedActivationView)
+            // so the Field Fletching recipe gate below can craft on a real joined client. Identity is the
+            // transport-authenticated bound principal; the client authors nothing.
+            harmony.PatchAll(typeof(Features.Progression.PersonalActivationDeliveryObserver));
+
             // T021 Refined Workshop — the CLIENT-side consumer that wires the shipped, engine-free
             // EffectiveStationLevelProvider into the vanilla crafting runtime. It postfixes the
             // Player.RequiredCraftingStation level gate (rescuing an eligible-portable level-only shortfall
@@ -141,6 +150,15 @@ namespace SBPR.Niflheim.HomesteadStones
             // driven (zero-damage Ammo item) so the bow's own draw damage is retained with no patch.
             harmony.PatchAll(typeof(Features.Archer.ArcherContentRegistrar));
             harmony.PatchAll(typeof(Features.Archer.ArcheryTargetPlacementGate));
+
+            // T026 — Archer / Field Fletching I runtime seam. A personal Character Effect that, while
+            // active for the acting occupant (purchase record + active relationship, via the shipped
+            // BushcraftRecipeProvider), exposes the UNCHANGED vanilla Wood Arrow recipe through Bushcraft —
+            // i.e. makes ArrowWood craftable without its ordinary station. Exposure only: no recipe input/
+            // yield/authority is authored or mutated. The gate reads the authoritative host projection on a
+            // listen-host, or the server-stamped personal snapshot (PersonalActivationDeliveryObserver
+            // transport above) on a pure joined client, and fails closed when neither is present.
+            harmony.PatchAll(typeof(Features.Archer.FieldFletchingRecipeGate));
 
             // T016 — Savor the Hearth live food-timer delivery seam. The net48 Player.UpdateFood prefix
             // scales ONLY the elapsed food-drain slice for the local player by the shipped
