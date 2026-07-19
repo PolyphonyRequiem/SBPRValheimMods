@@ -1,0 +1,20 @@
+Jul 19 00:30:54 supervisord: valheim-server [Info   :   BepInEx] 2 plugins to load
+Jul 19 00:30:54 supervisord: valheim-server [Info   :   BepInEx] Loading [SBPR Niflheim — Homestead Stones 0.0.1]
+Jul 19 00:30:54 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim.HomesteadStones] Harmony patches installed.
+Jul 19 00:30:54 supervisord: valheim-server [Info   :   BepInEx] Loading [SBPR Trailborne 0.2.40]
+Jul 19 00:31:07 supervisord: valheim-server 07/19/2026 00:31:07: Load world: homesteadt009l (homesteadt009l)
+Jul 19 00:31:07 supervisord: valheim-server 07/19/2026 00:31:07: Game server connected
+Jul 19 00:33:16 supervisord: valheim-server [Info   :   BepInEx] 3 plugins to load
+Jul 19 00:33:16 supervisord: valheim-server [Info   :   BepInEx] Loading [SBPR Niflheim — Homestead Stones 0.0.1]
+Jul 19 00:33:16 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim.HomesteadStones] Harmony patches installed.
+Jul 19 00:33:16 supervisord: valheim-server [Info   :   BepInEx] Loading [SBPR QADiag T017 Field Prep 0.0.1]
+Jul 19 00:33:16 supervisord: valheim-server [Info   :SBPR QADiag T017 Field Prep] [QADiag-T017] armed — will inspect Player.RequiredCraftingStation patch info at ZNetScene.Awake.
+Jul 19 00:33:16 supervisord: valheim-server [Info   :   BepInEx] Loading [SBPR Trailborne 0.2.40]
+Jul 19 00:33:29 supervisord: valheim-server [Info   :SBPR QADiag T017 Field Prep] [QADiag-T017] --- Player.RequiredCraftingStation patch info ---
+Jul 19 00:33:29 supervisord: valheim-server [Info   :SBPR QADiag T017 Field Prep] [QADiag-T017]   all owners=[net.danielgreen.sbpr.niflheim.homesteadstones]
+Jul 19 00:33:29 supervisord: valheim-server [Info   :SBPR QADiag T017 Field Prep] [QADiag-T017]   SBPR postfixes=[RefinedWorkshopStationLevelPatch.RequiredCraftingStation_Postfix,FieldPrepRecipeGate.RequiredCraftingStation_Postfix]
+Jul 19 00:33:29 supervisord: valheim-server [Info   :SBPR QADiag T017 Field Prep] [QADiag-T017]   EXPECT SBPR plugin owns a patch on RequiredCraftingStation -> PASS
+Jul 19 00:33:29 supervisord: valheim-server [Info   :SBPR QADiag T017 Field Prep] [QADiag-T017]   EXPECT SBPR owner is a POSTFIX (station-gate rescuer) -> PASS
+Jul 19 00:33:29 supervisord: valheim-server [Info   :SBPR QADiag T017 Field Prep] [QADiag-T017]   EXPECT the postfix is FieldPrepRecipeGate -> PASS
+Jul 19 00:33:29 supervisord: valheim-server 07/19/2026 00:33:29: Load world: homesteadt009l (homesteadt009l)
+Jul 19 00:33:30 supervisord: valheim-server 07/19/2026 00:33:30: Game server connected

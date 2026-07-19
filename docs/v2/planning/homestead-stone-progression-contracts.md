@@ -470,7 +470,21 @@ These are derived-provider contracts, not direct ledger writes.
   ⇒ food timers consume elapsed time at factor 0.5. Exit/policy loss restores factor 1 immediately. No item/stat
   mutation or retroactive duration.
 - `CookingCraftPolicy`: Field Prep eligibility plus normal Cooking skill XP, speed, and bonus-output behavior for
-  unchanged Boar Jerky/Queen's Jam recipes through Bushcraft.
+  unchanged Boar Jerky/Queen's Jam recipes through Bushcraft. **Implemented (T017,
+  `Adapters/Cooking/CookingCraftPolicy.cs`):** the shared Cooking-aware Bushcraft policy's first consumer. Field
+  Prep is a personal Character Effect, so `Resolve(stone, character, authority)` derives active/dormant through the
+  shipped T004 `DerivedActivationView` (a purchase record for the node at this Stone AND an active relationship —
+  neither the Settlement Local policy nor build Permission is a conjunct, unlike the Local Savor/Practice Range
+  gates). While active it exposes the UNCHANGED vanilla `BoarJerky` and `QueensJam` recipes through Bushcraft
+  (station-free); it is an exposure gate only — `PreservesVanillaInputsYieldAuthority` and
+  `PreservesNormalCookingXpSpeedBonus` are always true, so the recipes' ordinary inputs/yield/authority and the
+  normal Cooking XP/craft-speed/bonus-output mechanics are untouched. Pure/no ledger: flip the relationship and
+  re-derive with zero writes. **Live-wired (T017, net48):** `Features/Cooking/FieldPrepRecipeGate` postfixes
+  `Player.RequiredCraftingStation` to rescue exactly those two recipes to station-free for the LOCAL occupant when
+  the pure policy reports Field Prep active, reading the authoritative host projection (composed
+  `LocalProgressionObserver.Server` stores) and failing closed off-host / outside every Stone Area / without an
+  active purchase. A personal-effect client delivery channel is a follow-up (the bounded transport carries
+  Local-effect snapshots only), exactly as the sibling Field Fletching / Refined Workshop seams documented.
 - `FoodRefreshThresholdProvider`: Iron Stomach supplies threshold 0.75, highest applicable provider wins; three
   slots and normal food debit remain.
 - `MenuCraftDurationProvider`: Swift Preparation supplies factor 1/3 after vanilla Cooking-skill adjustment for

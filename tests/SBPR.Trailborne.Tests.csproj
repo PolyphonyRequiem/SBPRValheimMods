@@ -273,6 +273,14 @@
          Engine-free (value objects + double arithmetic), link-compiled like the rest. Named acceptance
          AT-SAVOR-AREA-EXIT. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingProviders.cs" />
+    <!-- T017 (Tracer 5 — Cooking, node 2/4): the shared Cooking-aware Bushcraft policy's first consumer,
+         Field Prep. CookingCraftPolicy derives whether the Field Prep personal Character Effect is active
+         for a caller (purchase record AND active relationship, via the shipped T004 DerivedActivationView —
+         no second ledger) and, while active, exposes the UNCHANGED vanilla Boar Jerky + Queen's Jam recipes
+         through Bushcraft (station-free) with normal Cooking XP/speed/bonus preserved. Exposure gate only —
+         no recipe/mechanic mutation. Engine-free (value objects + the pure activation view), link-compiled
+         like the rest. Named acceptance AT-FIELD-PREP-COOKING-POLICY. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingCraftPolicy.cs" />
     <!-- T016 remediation: the engine-free live delivery seam for Savor. SavorFoodDrainResolver derives the
          live LocalEffectActivationView + drain factor and scales the elapsed food slice; the context index +
          factory build the established active-Savor Stone context. The net48 Player.UpdateFood prefix and the

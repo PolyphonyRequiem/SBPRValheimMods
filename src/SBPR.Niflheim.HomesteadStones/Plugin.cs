@@ -177,6 +177,13 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Cooking.SavorProvisioningAdmin));
             harmony.PatchAll(typeof(Features.Cooking.SavorProvisioningConsole));
 
+            // T017 — Field Prep personal Character Effect. The net48 station-gate seam that exposes the
+            // unchanged vanilla Boar Jerky / Queen's Jam recipes through Bushcraft (station-free) while the
+            // effect is active for the local occupant, reading the authoritative host projection through the
+            // shipped pure CookingCraftPolicy. Postfix on Player.RequiredCraftingStation only; fails closed
+            // off-host / outside any Stone Area / without an active purchase (see FieldPrepRecipeGate).
+            harmony.PatchAll(typeof(Features.Cooking.FieldPrepRecipeGate));
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 

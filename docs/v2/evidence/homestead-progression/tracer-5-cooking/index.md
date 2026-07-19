@@ -2,7 +2,7 @@
 status: current
 ---
 
-# Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth)
+# Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth; T017: Field Prep)
 
 Node: **T016 [US4]** — Savor the Hearth, first Cooking vertical slice (node 1 of 4).
 Acceptance target: `AT-SAVOR-AREA-EXIT`. Status: **QA PASS (data + delivery-seam
@@ -10,6 +10,34 @@ layer verified) at merge head `1019c92`** — the live `Player.UpdateFood` seam 
 installed SBPR Harmony prefix (verified on the booted server); the in-world 0.5x
 food-bar last mile remains REASONED (headless has no local Player). Independent
 Tracer-5 verdict is T020.
+
+Node: **T017 [US4]** — Field Prep, Cooking node 2 of 4. Acceptance target:
+`AT-FIELD-PREP-COOKING-POLICY`. Status: **implementation landed under review + QA
+PASS (data + delivery-seam layer verified)** — the live
+`Player.RequiredCraftingStation` station-gate seam is an installed SBPR Harmony
+postfix (`FieldPrepRecipeGate`, verified on the booted server); the in-world
+station-free Boar Jerky / Queen's Jam craft last mile remains REASONED (headless
+has no local Player). Independent Tracer-5 verdict is T020.
+
+## T017 Field Prep manifest
+
+| id | claim | artifact |
+|----|-------|----------|
+| F1 | AT-FIELD-PREP-COOKING-POLICY: active Field Prep exposes EXACTLY the unchanged vanilla Boar Jerky + Queen's Jam recipes through Bushcraft (station-free), preserving inputs/yield/authority AND normal Cooking XP/speed/bonus | `tests/NiflheimFieldPrepTests.cs` — `ActiveEffect_ExposesUnchangedBoarJerkyAndQueensJamThroughBushcraft` |
+| F2 | Purchased-but-no-relationship → dormant, exposes nothing | `tests/NiflheimFieldPrepTests.cs` — `PurchasedButNoRelationship_EffectDormant_ExposesNothing` |
+| F3 | Relationship-but-no-purchase → nothing (no second ledger) | `tests/NiflheimFieldPrepTests.cs` — `RelationshipButNoPurchase_ExposesNothing` |
+| F4 | Undeveloped node even with purchase + relationship → nothing | `tests/NiflheimFieldPrepTests.cs` — `UndevelopedNode_EvenWithPurchaseAndRelationship_ExposesNothing` |
+| F5 | A sibling character's active reservation never leaks exposure to the purchased caller (personal per-character effect) | `tests/NiflheimFieldPrepTests.cs` — `SiblingCharacterActive_DoesNotLeakExposureToUnpurchasedCaller` |
+| F6 | Relationship loss→restore flips exposure with zero writes (pure re-derivation) | `tests/NiflheimFieldPrepTests.cs` — `RelationshipLossThenRestore_FlipsExposureWithNoWrites` |
+| F7 | Exposes ONLY the two Field Prep recipes, never Savor / Wood Arrow / arbitrary items; dormant per-item = false; inert None | `tests/NiflheimFieldPrepTests.cs` — `ExposesOnlyFieldPrepRecipes_NotSavorOrOtherItems`, `ExposedRecipeContent_IsStationFreeUnchangedAndNormalCooking`, `DormantEffect_ExposesRecipeFor_ReturnsFalseEvenForFieldPrepItems`, `NoneCapability_IsInert` |
+| F8 | Full suite 1338/1338 (Field Prep subset 10/10, red-first verified); both net48 Release builds 0w/0e (HomesteadStones + Trailborne); docs-lint OK; `git diff --check` clean | build/test logs (this run) |
+| F9 | Engine-free CLEAN policy: no UnityEngine/BepInEx/ZNetView/Harmony/Valheim type in `Adapters/Cooking/CookingCraftPolicy.cs`; net8 link-compile = real execution. NO playable/live-client claim | `src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingCraftPolicy.cs`; `joined-client-t017-field-prep.md` §"What is REASONED" |
+| F10 | Live delivery-seam VERIFIED on the booted throwaway server: `FieldPrepRecipeGate.RequiredCraftingStation_Postfix` is an installed SBPR Harmony postfix on `Player.RequiredCraftingStation` (coexists with T021 RefinedWorkshop postfix; fails closed off-host/outside Area/without active purchase). In-world station-free craft last mile is client-only, REASONED | `joined-client-t017-field-prep.md`; `capture/t017-boot-capture.log`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/FieldPrepRecipeGate.cs` |
+
+- [joined-client-t017-field-prep.md](joined-client-t017-field-prep.md) — T017 full analysis + live-seam verification
+- [capture/t017-boot-capture.log](capture/t017-boot-capture.log) — raw booted-server QADiag-T017 patch-info excerpt
+
+## T016 Savor the Hearth manifest
 
 | id | claim | artifact |
 |----|-------|----------|
