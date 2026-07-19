@@ -294,6 +294,134 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal("Unauthenticated", attempt.ResultCode);
         }
 
+        // ── T027 remediation: full personal-node OWNERSHIP through accepted handlers ─────────
+        //
+        // The missing runtime seam the T027 Fletcher's Habit joined-client verdict found: no code path
+        // could make a character OWN (developed + purchased) a personal Offered node on a joined client,
+        // so the OWNER in-world proof was structurally unreachable. ProvisionPersonalNodeOwnership is that
+        // ingress — it drives Bond→develop→release→Attune→purchase entirely through the accepted handlers.
+
+        // Archer / Fletcher's Habit — the T027 personal Permanent-Effect node the seam must reach OWNED.
+        private static readonly VersionedId Archer = HomesteadProgressionCatalog.ArcherTree;
+        private static readonly VersionedId FletchersHabit = new VersionedId("FletchersHabit", 1);
+        private static readonly VersionedId FieldFletchingI = new VersionedId("FieldFletchingI", 1);
+
+        // A fresh admin subject that pre-holds NO relationship: the seam must establish everything itself.
+        private readonly AccountId _owner = new AccountId("acct-owner");
+        private readonly CharacterId _ownerChar = new CharacterId("char-owner");
+
+        private bool OwnsFletchers(LocalProgressionServer server)
+        {
+            var stone = ((InMemoryStoneAggregateStore)server.Stones).GetStone(_stone);
+            var character = server.Characters.GetCharacter(_owner, _ownerChar);
+            if (stone == null || character == null) return false;
+            var authority = server.Authority.GetAuthority(_owner, _stone);
+            return new SBPR.Niflheim.HomesteadStones.Adapters.Archer.ProjectileRecoveryProvider(server.Catalog)
+                .OwnsFletchersHabit(stone, character, authority);
+        }
+
+        [Fact]
+        public void Ownership_ingress_makes_fresh_subject_OWN_fletchers_habit_via_accepted_commands()
+        {
+            var (server, _) = Bootstrapped();
+            var ingress = server.CreateLocalProvisioningIngress();
+
+            var result = ingress.ProvisionPersonalNodeOwnership(
+                new AuthoritativeSubject(_owner, _ownerChar), _stone, Archer, FletchersHabit,
+                "qa-fletcher", "t021r2/trailborne");
+
+            // The terminal accepted-handler outcome is a real purchase (or idempotent replay), not a stub.
+            Assert.True(result.Succeeded, result.ResultCode + "/" + result.Step);
+            Assert.Contains(result.Kind, new[] { "Purchased", "Replayed" });
+
+            // The durable ownership truth the recovery provider reads is now true: developed + purchased.
+            Assert.True(OwnsFletchers(server));
+        }
+
+        [Fact]
+        public void Ownership_persists_after_relationship_release_permanent_effect()
+        {
+            // The seam releases the develop-Bond before attuning; ownership is a Permanent-Effect truth that
+            // persists regardless of the currently-active relationship. After the whole flow the caller owns
+            // the node even though the seam's final Attunement is what remains active.
+            var (server, _) = Bootstrapped();
+            var ok = server.CreateLocalProvisioningIngress().ProvisionPersonalNodeOwnership(
+                new AuthoritativeSubject(_owner, _ownerChar), _stone, Archer, FletchersHabit,
+                "qa-fletcher", "t021r2/trailborne");
+            Assert.True(ok.Succeeded, ok.ResultCode + "/" + ok.Step);
+            Assert.True(OwnsFletchers(server));
+        }
+
+        [Fact]
+        public void Ownership_ingress_is_idempotent_on_replay()
+        {
+            var (server, _) = Bootstrapped();
+            var ingress = server.CreateLocalProvisioningIngress();
+            var first = ingress.ProvisionPersonalNodeOwnership(
+                new AuthoritativeSubject(_owner, _ownerChar), _stone, Archer, FletchersHabit,
+                "qa-fletcher", "t021r2/trailborne");
+            Assert.True(first.Succeeded, first.ResultCode + "/" + first.Step);
+
+            int purchasesAfterFirst = PurchaseCount(server, FletchersHabit);
+
+            // Re-run the SAME provisioning: every accepted command replays, exactly one purchase record.
+            var again = ingress.ProvisionPersonalNodeOwnership(
+                new AuthoritativeSubject(_owner, _ownerChar), _stone, Archer, FletchersHabit,
+                "qa-fletcher", "t021r2/trailborne");
+            Assert.True(again.Succeeded, again.ResultCode + "/" + again.Step);
+            Assert.Equal(purchasesAfterFirst, PurchaseCount(server, FletchersHabit));
+            Assert.Equal(1, purchasesAfterFirst);
+        }
+
+        [Fact]
+        public void Ownership_ingress_also_reaches_field_fletching_i_the_t026_sibling()
+        {
+            var (server, _) = Bootstrapped();
+            var result = server.CreateLocalProvisioningIngress().ProvisionPersonalNodeOwnership(
+                new AuthoritativeSubject(_owner, _ownerChar), _stone, Archer, FieldFletchingI,
+                "qa-fieldfletch", "t021r2/trailborne");
+            Assert.True(result.Succeeded, result.ResultCode + "/" + result.Step);
+            Assert.Equal(1, PurchaseCount(server, FieldFletchingI));
+        }
+
+        [Fact]
+        public void Ownership_ingress_rejects_a_non_personal_node_without_mutation()
+        {
+            var (server, stones) = Bootstrapped();
+            // RefinedWorkshop is a Stone-cultivated Local node, never a personal Offered purchase.
+            var attempt = server.CreateLocalProvisioningIngress().ProvisionPersonalNodeOwnership(
+                new AuthoritativeSubject(_owner, _ownerChar), _stone, Crafting, RefinedWorkshop,
+                "qa-bad", "t021r2/trailborne");
+            Assert.False(attempt.Succeeded);
+            Assert.Equal("NotAPersonalNode", attempt.ResultCode);
+            // No purchase and no develop of the Local node crept in.
+            Assert.Equal(0, PurchaseCount(server, RefinedWorkshop));
+        }
+
+        [Fact]
+        public void Ownership_ingress_rejects_unauthenticated_before_any_command()
+        {
+            var (server, stones) = Bootstrapped();
+            var attempt = server.CreateLocalProvisioningIngress().ProvisionPersonalNodeOwnership(
+                new AuthoritativeSubject(new AccountId(""), new CharacterId("")), _stone, Archer, FletchersHabit,
+                "qa-x", "t021r2/trailborne");
+            Assert.False(attempt.Succeeded);
+            Assert.Equal("Unauthenticated", attempt.ResultCode);
+            Assert.Null(server.Characters.GetCharacter(new AccountId(""), new CharacterId("")));
+        }
+
+        private int PurchaseCount(LocalProgressionServer server, VersionedId node)
+        {
+            var c = server.Characters.GetCharacter(_owner, _ownerChar);
+            if (c == null) return 0;
+            int n = 0;
+            foreach (var sr in c.StoneRecords)
+                if (sr.StoneId.Equals(_stone))
+                    foreach (var p in sr.Purchases)
+                        if (p.Node.Key == node.Key) n++;
+            return n;
+        }
+
         // ── Stubs (server-owned authority policies; mirror the shared-suite fixtures) ──
 
         private sealed class FixedFamilyResolver : IStoneFamilyResolver

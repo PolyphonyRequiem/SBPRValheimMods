@@ -122,6 +122,167 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
                 : LocalProvisioningResult.Purchased(result);
         }
 
+        /// <summary>Provision full personal-node OWNERSHIP (developed + purchased) for one QA subject using
+        /// ONLY accepted, receipt-backed handlers — the missing runtime seam a joined-client OWNER in-world
+        /// proof structurally depends on (T027 Fletcher's Habit R2 verdict / T026 Field Fletching I). It is
+        /// the personal-purchase sibling of <see cref="DevelopLocalNode"/>: where that reaches a Stone-owned
+        /// developed Local node, this reaches a personal <c>NodePurchaseRecord</c>, the only durable truth by
+        /// which <c>ProjectileRecoveryProvider.OwnsFletchersHabit</c> (and any personal Permanent/Character
+        /// Effect) returns owned.
+        ///
+        /// The sequence crosses the SAME accepted handlers a real session would, in the order the spec's state
+        /// machine requires, on ONE server-derived subject:
+        ///   1. Establish a Governor Bond (RelationshipCommandHandler.CreateBond) — cultivation authority.
+        ///   2. Develop the personal node to Offered through the accepted Facet→BP→development handlers
+        ///      (LocalNodeProvisioningDriver.ProvisionPersonalOffered).
+        ///   3. RELEASE the Bond (ReleaseRelationship). A single character cannot ACTIVELY hold both a Bond
+        ///      and an Attunement to one Stone (the authority index is sibling/self exclusive), and the
+        ///      accepted purchase gate requires an active Attunement — so the Governor Bond that developed
+        ///      the node is released first. Ownership is unaffected: the node stays Offered (Stone-owned) and
+        ///      the buyer holds no purchase yet.
+        ///   4. Establish an Attunement (CreateAttunement) — purchase authority.
+        ///   5. Purchase the node through the accepted PurchaseCommandHandler (every content/level/prior-
+        ///      Offered-Set/price/authority/idempotency gate is the handler's).
+        ///
+        /// The one thing this seam SEEDS is the bare Stone envelope (like <see cref="DevelopLocalNode"/>) and,
+        /// before the purchase, the buyer's authored Personal AP price on their character record — the empty
+        /// funded owner row the accepted purchase debit needs to exist (no runtime handler credits aggregate
+        /// Personal AP; this is the purchase analogue of seeding the bare Stone the develop handlers need). It
+        /// is NOT a purchase-state write: the debit + the single durable <c>NodePurchaseRecord</c> are still
+        /// produced by the accepted handler, and any handler rejection surfaces verbatim so a QA run that
+        /// "owns" a node has provably crossed the real authority/price/idempotency gates.
+        ///
+        /// <paramref name="opPrefix"/> makes every derived operation id deterministic so an exact re-run
+        /// replays idempotently through the accepted handlers. Returns the terminal purchase outcome (or the
+        /// first failing step's verbatim result code).</summary>
+        public LocalProvisioningResult ProvisionPersonalNodeOwnership(
+            AuthoritativeSubject subject,
+            StoneId stoneId,
+            VersionedId tree,
+            VersionedId node,
+            string opPrefix,
+            string worldProductScope)
+        {
+            if (string.IsNullOrEmpty(opPrefix))
+                return LocalProvisioningResult.Rejected("MissingOpPrefix", "prefix");
+            if (string.IsNullOrEmpty(subject.Account.Value) || string.IsNullOrEmpty(subject.Character.Value))
+                return LocalProvisioningResult.Rejected("Unauthenticated", "subject");
+
+            var def = _catalog.TryResolveNode(node);
+            if (def == null)
+                return LocalProvisioningResult.Rejected("NodeNotFound", "resolve");
+            if (def.Ownership != NodeOwnership.PersonalOffered)
+                return LocalProvisioningResult.Rejected("NotAPersonalNode", "resolve");
+
+            SeedBareStoneIfAbsent(stoneId);
+
+            // 1. Governor Bond — cultivation authority for the develop steps. (Seeds the character
+            //    aggregate if absent, exactly like the relationship provisioning seam.)
+            string bondOp = opPrefix + "-bond";
+            string bondRel = opPrefix + "-rel-bond";
+            var bond = ProvisionRelationship(subject, stoneId, RelationshipCommandType.CreateBond,
+                bondOp, bondRel, worldProductScope, "Homestead:All");
+            if (bond.Outcome == RelationshipCommandOutcome.Rejected)
+                return LocalProvisioningResult.Rejected(bond.ResultCode, "bond");
+
+            // 2. Develop the personal node to Offered through accepted commands only.
+            var develop = _driver.ProvisionPersonalOffered(subject, stoneId, node, opPrefix + "-dev");
+            if (!develop.IsDeveloped)
+                return LocalProvisioningResult.Rejected(develop.ResultCode, develop.FailedStep);
+
+            // 3. Release the Bond — a character cannot actively hold Bond AND Attunement to one Stone, and
+            //    purchase requires an active Attunement. Ownership is unaffected (node stays Offered).
+            string releaseOp = opPrefix + "-release";
+            var release = ProvisionRelationshipRelease(subject, stoneId, releaseOp, bondRel, worldProductScope);
+            if (release.Outcome == RelationshipCommandOutcome.Rejected)
+                return LocalProvisioningResult.Rejected(release.ResultCode, "release");
+
+            // 4. Attunement — purchase authority.
+            string attOp = opPrefix + "-attune";
+            string attRel = opPrefix + "-rel-att";
+            var attune = ProvisionRelationship(subject, stoneId, RelationshipCommandType.CreateAttunement,
+                attOp, attRel, worldProductScope, string.Empty);
+            if (attune.Outcome == RelationshipCommandOutcome.Rejected)
+                return LocalProvisioningResult.Rejected(attune.ResultCode, "attune");
+
+            // 5. Fund the authored Personal AP price (the empty funded owner row the accepted purchase debit
+            //    needs — no runtime handler credits aggregate Personal AP), then purchase through the handler.
+            int price = def.Pricing.PurchaseApPrice ?? 0;
+            FundPersonalApIfNeeded(subject, stoneId, price);
+
+            return PurchaseNode(subject, stoneId, tree, node, VersionedId.None,
+                PurchasePaymentSource.PersonalAp, opPrefix + "-purchase");
+        }
+
+        private RelationshipCommandResult ProvisionRelationship(
+            AuthoritativeSubject subject, StoneId stoneId, RelationshipCommandType commandType,
+            string operationId, string relationshipId, string worldProductScope, string requestedRange)
+        {
+            // Seed the character aggregate ONLY when absent — never overwrite existing progression. This is
+            // the empty owner row the accepted relationship handler requires (it rejects CharacterNotFound
+            // otherwise), exactly like RelationshipProvisioningIngress.
+            if (_server.Characters.GetCharacter(subject.Account, subject.Character) == null)
+            {
+                _server.Characters.PutCharacter(new CharacterProgressionAggregate(
+                    subject.Account, subject.Character,
+                    worldProductScope: worldProductScope ?? string.Empty, revision: 0,
+                    bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "qa-personal-node-provision",
+                    stoneRecords: new[] { new CharacterStoneRecord(stoneId, 0, 0, 0, null, null) }));
+            }
+
+            var connection = new AuthenticatedConnection(subject.Account.Value, subject.Character.Value);
+            return _server.Relationships.Handle(new RelationshipCommand(
+                new OperationId(operationId), commandType, stoneId, connection, default,
+                relationshipId, responsibilityRange: requestedRange ?? string.Empty));
+        }
+
+        private RelationshipCommandResult ProvisionRelationshipRelease(
+            AuthoritativeSubject subject, StoneId stoneId, string operationId, string relationshipId,
+            string worldProductScope)
+        {
+            var connection = new AuthenticatedConnection(subject.Account.Value, subject.Character.Value);
+            return _server.Relationships.Handle(new RelationshipCommand(
+                new OperationId(operationId), RelationshipCommandType.ReleaseRelationship, stoneId,
+                connection, default, relationshipId));
+        }
+
+        /// <summary>Seed the acting subject's authored Personal AP price onto their character record ONLY when
+        /// the current balance cannot fund it — the empty funded owner row the accepted purchase debit needs.
+        /// No runtime handler credits aggregate Personal AP (Foundational AP lands in a separate receipt sink,
+        /// BP is the only aggregate-credited balance), so this is the purchase analogue of seeding the bare
+        /// Stone the develop handlers require. It NEVER writes purchase/relationship state and preserves every
+        /// other balance/record verbatim; the debit itself is still the accepted handler's.</summary>
+        private void FundPersonalApIfNeeded(AuthoritativeSubject subject, StoneId stoneId, int price)
+        {
+            if (price <= 0) return;
+            var character = _server.Characters.GetCharacter(subject.Account, subject.Character);
+            if (character == null) return;
+
+            var newStoneRecords = new System.Collections.Generic.List<CharacterStoneRecord>(character.StoneRecords.Count + 1);
+            bool found = false;
+            foreach (var sr in character.StoneRecords)
+            {
+                if (sr.StoneId.Equals(stoneId))
+                {
+                    found = true;
+                    if (sr.PersonalAp >= price) return; // already funded; do not overwrite/inflate.
+                    newStoneRecords.Add(new CharacterStoneRecord(sr.StoneId, price, sr.CumulativeAp,
+                        sr.PersonalBp, sr.FacetCredits, sr.Purchases, sr.Relationships));
+                }
+                else
+                {
+                    newStoneRecords.Add(sr);
+                }
+            }
+            if (!found)
+                newStoneRecords.Add(new CharacterStoneRecord(stoneId, price, 0, 0, null, null, null));
+
+            _server.Characters.PutCharacter(new CharacterProgressionAggregate(
+                character.Account, character.Character, character.WorldProductScope,
+                character.Revision + 1, character.BondSlots, character.AttunementSlots,
+                character.LastAppliedReceiptId, newStoneRecords, character.SchemaVersion));
+        }
+
         /// <summary>Seed the bare, pre-progression Stone envelope ONLY when the Stone aggregate is absent.
         /// Never overwrites an existing Stone (including one the boot Facet/Development journals already
         /// rehydrated on restart). This is the empty owner row the accepted commands require, not a node-

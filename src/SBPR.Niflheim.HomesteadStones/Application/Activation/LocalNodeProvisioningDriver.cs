@@ -122,6 +122,81 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             return LocalNodeProvisioningResult.Failed("DevelopmentBudgetExhausted", "develop");
         }
 
+        /// <summary>Develop one personal Offered node to Offered for QA using ONLY accepted commands, the
+        /// exact sibling of <see cref="Provision"/> but for a personal (PersonalOffered) node whose terminal
+        /// state is Offered rather than a Stone-cultivated Local node's Developed. <paramref name="governor"/>
+        /// must already hold an active Bond with a Responsibility Range covering the node's Tree (the accepted
+        /// Facet/Activity/Development handlers enforce it). Commits the owning Tree, then credits + spends BP
+        /// through the accepted handlers until the node completes (Offered). <paramref name="opPrefix"/> makes
+        /// every derived operation id deterministic so a re-run replays idempotently. Returns a structured
+        /// result naming the first failing accepted-command step so a QA harness asserts the real gate.</summary>
+        public LocalNodeProvisioningResult ProvisionPersonalOffered(
+            AuthoritativeSubject governor,
+            StoneId stoneId,
+            VersionedId personalNode,
+            string opPrefix)
+        {
+            if (string.IsNullOrEmpty(opPrefix))
+                return LocalNodeProvisioningResult.Failed("MissingOpPrefix", "prefix");
+            if (string.IsNullOrEmpty(governor.Account.Value) || string.IsNullOrEmpty(governor.Character.Value))
+                return LocalNodeProvisioningResult.Failed("Unauthenticated", "subject");
+
+            var def = _server.Catalog.TryResolveNode(personalNode);
+            if (def == null)
+                return LocalNodeProvisioningResult.Failed("NodeNotFound", "resolve");
+            if (def.Ownership != NodeOwnership.PersonalOffered)
+                return LocalNodeProvisioningResult.Failed("NotAPersonalNode", "resolve");
+
+            var connection = new AuthenticatedConnection(governor.Account.Value, governor.Character.Value);
+            var tree = def.Tree;
+            string facetId = FacetForTree(tree);
+
+            var stone = _server.Stones.GetStone(stoneId);
+            if (stone == null)
+                return LocalNodeProvisioningResult.Failed("StoneNotFound", "commit");
+            if (!IsTreeCommitted(stone, tree))
+            {
+                var commit = _server.Facets.Handle(new CommitTreeToFacetCommand(
+                    new OperationId(opPrefix + "-commit"), stoneId, connection, default,
+                    facetId, tree.Key, tree.Version, paletteVersion: 1));
+                if (commit.Outcome == FacetCommandOutcome.Rejected)
+                    return LocalNodeProvisioningResult.Failed(commit.ResultCode, "commit");
+            }
+
+            int authoredCost = def.Pricing.DevelopmentBpPrice ?? 0;
+            if (authoredCost <= 0)
+                return LocalNodeProvisioningResult.Failed("NodeHasNoDevelopmentPrice", "develop");
+
+            const int MaxSteps = 16;
+            for (int step = 0; step < MaxSteps; step++)
+            {
+                var current = _server.Stones.GetStone(stoneId);
+                if (current == null)
+                    return LocalNodeProvisioningResult.Failed("StoneNotFound", "develop");
+                if (NodeOffered(current, personalNode))
+                    return LocalNodeProvisioningResult.Developed(personalNode, tree, step);
+
+                string s = step.ToString(CultureInfo.InvariantCulture);
+
+                var credit = _server.Activities.Handle(new RecordAlignedActivityCommand(
+                    new OperationId(opPrefix + "-bp-" + s), stoneId, connection, default,
+                    tree, authoredCost, evidenceDigest: opPrefix + "-ev-" + s));
+                if (credit.Outcome == ActivityCommandOutcome.Rejected)
+                    return LocalNodeProvisioningResult.Failed(credit.ResultCode, "credit");
+
+                var develop = _server.Development.Handle(new ApplyBPToNodeCommand(
+                    new OperationId(opPrefix + "-dev-" + s), stoneId, connection, default,
+                    tree.Key, tree.Version, personalNode.Key, personalNode.Version, authoredCost));
+                if (develop.Outcome == DevelopmentCommandOutcome.Rejected)
+                    return LocalNodeProvisioningResult.Failed(develop.ResultCode, "develop");
+            }
+
+            var final = _server.Stones.GetStone(stoneId);
+            if (final != null && NodeOffered(final, personalNode))
+                return LocalNodeProvisioningResult.Developed(personalNode, tree, MaxSteps);
+            return LocalNodeProvisioningResult.Failed("DevelopmentBudgetExhausted", "develop");
+        }
+
         /// <summary>Set the single Settlement Local policy through the accepted owner-only handler. The
         /// caller-supplied <paramref name="owner"/> must be the validated Homestead owner (the injected
         /// IHomesteadOwnerAuthority proves it). Returns the handler's result code.</summary>
@@ -154,6 +229,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         {
             foreach (var d in stone.NodeDevelopment)
                 if (string.Equals(d.Node.Key, node.Key, StringComparison.Ordinal) && d.Developed) return true;
+            return false;
+        }
+
+        private static bool NodeOffered(StoneProgressionAggregate stone, VersionedId node)
+        {
+            foreach (var d in stone.NodeDevelopment)
+                if (string.Equals(d.Node.Key, node.Key, StringComparison.Ordinal) && d.Offered) return true;
             return false;
         }
     }

@@ -710,6 +710,44 @@ is the smallest server-authoritative seam that closes it, mirroring `Relationshi
   No provisional activation, no direct node-state write, no second ledger, no bypass of Local policy/governance/
   dormancy; Refined Workshop mechanics are unchanged.
 
+**Implementation (isolated-QA personal-node OWNERSHIP ingress, T027 remediation).** The `PurchaseNode`
+routing above is a real reachable caller only for the *purchase* step, but the T027 Fletcher's Habit
+joined-client verdict (`tracer-7-archer/t027-fletchers-habit/R2-joined-client-verdict.md`) proved that at
+reviewed head no runtime seam could make a character *own* a personal Offered node (developed **and**
+purchased): the sole runtime caller of the ingress drove `DevelopLocalNode`, never `PurchaseNode`, so
+`ProjectileRecoveryProvider.OwnsFletchersHabit` (which needs a durable `NodePurchaseRecord`) could never
+return owned on a joined client, and the required OWNER in-world proof was structurally unreachable. The
+sibling T026 Field Fletching I owner proof had the same gap. `LocalProvisioningIngress.ProvisionPersonalNodeOwnership`
+is the smallest server-authoritative seam that closes it, reaching a personal purchase through the accepted
+handlers on ONE server-derived subject in the order the spec's state machine requires:
+
+- **Bond → develop → release → attune → purchase.** It (1) establishes a Governor Bond via the accepted
+  `RelationshipCommandHandler` (cultivation authority), (2) develops the personal node to Offered through the
+  accepted Facet→BP→development handlers (`LocalNodeProvisioningDriver.ProvisionPersonalOffered`), (3) RELEASES
+  that Bond — a single character cannot ACTIVELY hold both a Bond and an Attunement to one Stone (the authority
+  index is sibling/self exclusive) and purchase requires an active Attunement, and a personal Permanent/Character
+  Effect's ownership persists through relationship loss so the release is harmless — (4) establishes an
+  Attunement (purchase authority), and (5) purchases the node through the accepted `PurchaseCommandHandler`.
+  Every content/level/prior-Offered-Set/price/authority/idempotency gate is the shipped handler's; an exact
+  re-run replays idempotently (single durable `NodePurchaseRecord`).
+- **Seeds only the empty funded owner row.** Like `DevelopLocalNode` seeds the bare Stone envelope and
+  `RelationshipProvisioningIngress` seeds an absent character aggregate, this seam additionally seeds the
+  acting subject's authored Personal AP *price* onto their character record before the purchase — no runtime
+  handler credits aggregate Personal AP (Foundational AP lands in a separate receipt sink; BP is the only
+  aggregate-credited balance), so this is the purchase analogue of seeding the row the accepted debit needs to
+  exist. It is NOT a purchase-state write: the debit and the single purchase record are still produced by the
+  accepted handler, and a disabled-funding run rejects `InsufficientPersonalAP` at the real gate — proving the
+  seam crosses it rather than fabricating ownership. It never inflates an already-sufficient balance.
+- The net48 seam is `Features/Progression/PersonalNodeProvisioningAdmin.cs`: a DIRECT per-peer `ZRpc` handler
+  (`SBPR_Niflheim_ProvisionPersonalNode`) + the `sbpr_purchase fletcher|fieldfletch` console command, registered
+  ONLY when the server-owned `Progression.EnableAdminPersonalNodeProvisioning` flag is true (default false) AND
+  the transport-authenticated sender is a normalized server ADMIN — the exact gate/identity model of the
+  `sbpr_develop` (`LocalProgressionProvisioningAdmin`) and `sbpr_provision` (`RelationshipProvisioningAdmin`)
+  siblings. Identity is the peer's bound-internal principal (never a client claim); the target Stone is resolved
+  from the peer's server-owned character ZDO position. Outside that gate the handler is never registered or
+  rejects — production fails closed. It unblocks the T027 Fletcher's Habit AND T026 Field Fletching I owner
+  in-world proofs; the node's gameplay mechanics are unchanged.
+
 ## Security and hostile-client contract
 
 The verifier must attempt:
