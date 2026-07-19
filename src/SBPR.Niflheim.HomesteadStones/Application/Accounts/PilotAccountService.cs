@@ -30,6 +30,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
         AccountDisabled,
         AccountDeletionPending,
         AccountDeleted,
+        AccountQuarantined,
         OperationConflict,
         DisclosureIncomplete,
         StoreUnavailable,
@@ -300,6 +301,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
                 case PilotAccountStatus.Disabled: return PilotAccountResolution.Reject(AccountRejectionCode.AccountDisabled);
                 case PilotAccountStatus.DeletionPending: return PilotAccountResolution.Reject(AccountRejectionCode.AccountDeletionPending);
                 case PilotAccountStatus.Deleted: return PilotAccountResolution.Reject(AccountRejectionCode.AccountDeleted);
+                case PilotAccountStatus.Quarantined: return PilotAccountResolution.Reject(AccountRejectionCode.AccountQuarantined);
             }
             return new PilotAccountResolution(AccountAdmissionOutcome.Resolved, AccountRejectionCode.None,
                 cred.AccountId, cred.CredentialBindingId, acct.Revision, "Resolved");

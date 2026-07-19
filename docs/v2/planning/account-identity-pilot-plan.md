@@ -308,6 +308,28 @@ Deliverables after implementation authorization: executable authenticated-peer s
 > `dotnet test` (1100/1100, 0 warnings) and the mod compiles clean under net48 (0 warnings). This card gates
 > IAP-013 (destruction/purge), which may not proceed until this merges and passes independent review.
 
+> **Implementation status (IAP-013 Tracer 5, this card):** the DESTRUCTIVE privacy lifecycle is
+> IMPLEMENTED and green over the merged IAP-012 fix-forward (PR #353). The engine-free CLEAN-side core
+> adds `Application/Accounts/PilotDestructionService.cs` (operator-gated, idempotent, fenced) backed by
+> new store surface in `Persistence/Accounts/PilotAccountStore.cs`: a `Quarantined` account status, a
+> lookup-key `KeyEpoch` lifecycle, a selector-free `PilotPurgeCertificate` projection, and two physical
+> purge primitives — account-scoped journal compaction (`CompactRemovingAccounts`, which rewrites the
+> framed journal dropping the account's records and PROVES absence, not a tombstone) and whole-fixture
+> reset (`ResetWholeFixture`). The service exposes: `CompleteAccountDeletion` (purge account artifacts +
+> compact + `Deleted`), `RunPilotRetentionPurge` (every due/unheld artifact to `Purged` with a
+> per-artifact evidence digest, reporting counts/evidence ids by category — never a player/provider
+> selector, including backups), `ResetScoped` (explicit named-scope reset that never infers by recency),
+> `FullPilotReset` (whole-fixture reset emitting the selector-free certificate + retiring the old key
+> epoch + opening a fresh active epoch), and `Quarantine` with a `no-time-travel` transition guard.
+> The twelve IAP-013 acceptance IDs — `AT-AIP-DELETE-PURGE`, `AT-AIP-DELETE-REVOKES-ALLOWLIST`,
+> `AT-AIP-DELETE-DRAIN-BARRIER`, `AT-AIP-PURGE-FALLBACK-RESET`, `AT-AIP-FULL-RESET-ROTATES-KEY`,
+> `AT-AIP-BACKUP-PURGE`, `AT-AIP-RETENTION-PURGE`, `AT-AIP-RESET-EXPLICIT`, `AT-AIP-QUARANTINE`,
+> `AT-AIP-NO-TIME-TRAVEL`, `AT-AIP-BREACH-RUNBOOK`, `AT-AIP-PILOT-CLOSURE-DEADLINE` — are green under
+> `dotnet test` (1410/1410 total, 0 warnings). The breach-response runbook is
+> [`../runbooks/account-identity-pilot-breach-runbook.md`](../runbooks/account-identity-pilot-breach-runbook.md).
+> Evidence: `tests/NiflheimPrivacyDestructionTests.cs` (15 tests). Live joined-client operator proof of
+> delete/reset/purge remains the final dedicated-server gate.
+
 ### Final gate — Dedicated joined-client pilot proof
 
 **Goal:** prove the whole journey in the real game and rehearse recovery/privacy operations.

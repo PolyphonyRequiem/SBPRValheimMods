@@ -30,13 +30,22 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
     // No UnityEngine/Valheim/BepInEx — ships under net48 AND link-compiles under net8.
 
     public enum AllowlistStatus { Active, Superseded, Revoked, Purged }
-    public enum PilotAccountStatus { Active, Disabled, DeletionPending, Deleted }
+    // IAP-013 Tracer 5 — Quarantined is a terminal-until-operator-decision state for durable ambiguity
+    // (AT-AIP-QUARANTINE): a quarantined account admits nothing and cannot be silently repaired; an
+    // operator must explicitly delete/reset it. It is NOT reachable from Deleted (no time travel).
+    public enum PilotAccountStatus { Active, Disabled, DeletionPending, Deleted, Quarantined }
     public enum CredentialStatus { Active, Revoked, Superseded, Purged }
 
     // IAP-012 Tracer 4 — pilot lifecycle + artifact-catalog + retention-hold status vocabularies.
     public enum PilotLifecycleStatus { Active, Closing, Purged }
     public enum ArtifactStatus { Active, PurgePending, Purged }
     public enum RetentionHoldStatus { Active, Released }
+
+    // IAP-013 Tracer 5 — lookup-key epoch lifecycle. A full pilot reset RETIRES the current epoch and
+    // opens a FRESH active epoch under a new key version so old bindings can never resolve again
+    // (AT-AIP-FULL-RESET-ROTATES-KEY). The epoch record is the durable, censusable epoch fact; the raw
+    // key bytes live only in the key ring, never here.
+    public enum KeyEpochStatus { Active, Retired }
 
     /// <summary>The catalogable artifact classes (data-model.md Aggregate 5). Every generation of any of
     /// these that can contain pilot-linked data MUST be cataloged before use/success is acknowledged.</summary>
@@ -139,6 +148,34 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         public long ExpiresAt;
         public RetentionHoldStatus Status;
         public string ReceiptId = string.Empty;
+    }
+
+    /// <summary>IAP-013 Tracer 5 — one durable lookup-key epoch record (AT-AIP-FULL-RESET-ROTATES-KEY).
+    /// The active epoch names the current key version; a full reset retires it and opens a new one. The
+    /// raw key bytes are NEVER here — only the version + status + audit timestamps.</summary>
+    public sealed class KeyEpochProjection
+    {
+        public string KeyVersion = string.Empty;
+        public KeyEpochStatus Status;
+        public long Revision;
+        public long OpenedAt;
+        public long RetiredAt;
+        public string ReceiptId = string.Empty;
+    }
+
+    /// <summary>IAP-013 Tracer 5 — a selector-free whole-fixture purge certificate (data-model.md
+    /// PilotPurgeCertificate). It preserves bounded proof (artifact ids + evidence digests + retired key
+    /// version) AFTER the old catalog/journals are destroyed, and carries NO AccountId, CharacterId,
+    /// HMAC, or provider/profile subject (AT-AIP-PURGE-FALLBACK-RESET).</summary>
+    public sealed class PilotPurgeCertificateProjection
+    {
+        public string PurgeReceiptId = string.Empty;
+        public string PilotId = string.Empty;
+        public long CompletedAt;
+        public string RetiredKeyVersion = string.Empty;
+        public string FreshKeyVersion = string.Empty;
+        public readonly List<string> PurgedArtifactIds = new List<string>();
+        public readonly List<string> EvidenceDigests = new List<string>();
     }
 
     /// <summary>One version-census line (data-model.md RunLookupKeyVersionCensus). Counts by key version
@@ -294,6 +331,10 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         private readonly Dictionary<string, PilotDataArtifactProjection> _artifacts = new Dictionary<string, PilotDataArtifactProjection>(StringComparer.Ordinal);
         private readonly Dictionary<string, RetentionHoldProjection> _holds = new Dictionary<string, RetentionHoldProjection>(StringComparer.Ordinal);
 
+        // IAP-013 Tracer 5 — lookup-key epochs + whole-fixture purge certificates.
+        private readonly Dictionary<string, KeyEpochProjection> _keyEpochs = new Dictionary<string, KeyEpochProjection>(StringComparer.Ordinal);
+        private readonly Dictionary<string, PilotPurgeCertificateProjection> _purgeCertificates = new Dictionary<string, PilotPurgeCertificateProjection>(StringComparer.Ordinal);
+
         // Derived credential lookup index: (providerNs|backendIssuer|keyVersion|hmacHex) -> credentialBindingId (active only).
         private readonly Dictionary<string, string> _credentialIndex = new Dictionary<string, string>(StringComparer.Ordinal);
         // Derived allowlist lookup index: same key shape -> allowlistEntryId (active only).
@@ -367,6 +408,30 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
         public IReadOnlyCollection<PilotDataArtifactProjection> Artifacts => _artifacts.Values;
         public IReadOnlyCollection<RetentionHoldProjection> RetentionHolds => _holds.Values;
         public IReadOnlyCollection<PilotLifecycleProjection> Pilots => _pilots.Values;
+
+        // IAP-013 Tracer 5 — destructive-lifecycle read surface. These expose live projections so the
+        // destruction service can enumerate account-linked records for purge and prove absence.
+        public IReadOnlyCollection<PilotAccountProjection> Accounts => _accounts.Values;
+        public IReadOnlyCollection<CredentialBindingProjection> Credentials => _credentials.Values;
+        public IReadOnlyCollection<AllowlistEntryProjection> AllowlistEntries => _allowlist.Values;
+        public IReadOnlyCollection<PilotCharacterProjection> Characters => _characters.Values;
+        public IReadOnlyCollection<KeyEpochProjection> KeyEpochs => _keyEpochs.Values;
+        public IReadOnlyCollection<PilotPurgeCertificateProjection> PurgeCertificates => _purgeCertificates.Values;
+
+        public bool TryGetKeyEpoch(string keyVersion, out KeyEpochProjection epoch) =>
+            _keyEpochs.TryGetValue(keyVersion ?? string.Empty, out epoch!);
+
+        public bool TryGetPurgeCertificate(string purgeReceiptId, out PilotPurgeCertificateProjection cert) =>
+            _purgeCertificates.TryGetValue(purgeReceiptId ?? string.Empty, out cert!);
+
+        /// <summary>The single Active key epoch's version, or empty if no epoch has been opened. A full
+        /// reset guarantees exactly one Active epoch after it commits (AT-AIP-FULL-RESET-ROTATES-KEY).</summary>
+        public string ActiveKeyEpochVersion()
+        {
+            foreach (var e in _keyEpochs.Values)
+                if (e.Status == KeyEpochStatus.Active) return e.KeyVersion;
+            return string.Empty;
+        }
 
         /// <summary>True when a cataloged, non-purged WorldSave artifact exists at the given storage
         /// locator. Admission fails closed when the active world fixture is NOT cataloged
@@ -472,6 +537,132 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
             ProjectCommitted(committed);
             _committedOps[operationId] = (bindingDigest, payloadDigest, resultCode);
             return committed;
+        }
+
+        // ---- IAP-013 Tracer 5: physical purge (compaction) + whole-fixture reset ----
+
+        /// <summary>Account-scoped journal compaction (data-model.md "Delete/purge account" step 4). Rewrites
+        /// the durable journal DROPPING every committed transaction that references any of the target
+        /// accounts or their owned credential/character/allowlist/export-artifact ids, then rehydrates from
+        /// the rewritten journal and proves ABSENCE: no target account/credential/character resolves and no
+        /// account-scoped artifact remains. A tombstone is NOT purge — the records are physically gone.
+        /// Returns the ids actually removed as artifact-specific evidence; throws if a target id still
+        /// resolves after compaction (the caller must then fall back to a whole-fixture reset).</summary>
+        public CompactionEvidence CompactRemovingAccounts(IReadOnlyCollection<string> targetAccountIds)
+        {
+            if (targetAccountIds == null || targetAccountIds.Count == 0)
+                return new CompactionEvidence(Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+
+            var accounts = new HashSet<string>(targetAccountIds, StringComparer.Ordinal);
+
+            // Collect every id transitively owned by the target accounts from the CURRENT projections.
+            var linkedIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var a in accounts) linkedIds.Add(a);
+            var removedCreds = new List<string>();
+            var removedChars = new List<string>();
+            foreach (var c in _credentials.Values)
+                if (accounts.Contains(c.AccountId.Value)) { linkedIds.Add(c.CredentialBindingId.Value); linkedIds.Add(c.AllowlistEntryId.Value); removedCreds.Add(c.CredentialBindingId.Value); }
+            foreach (var ch in _characters.Values)
+                if (accounts.Contains(ch.AccountId.Value)) { linkedIds.Add(ch.CharacterId.Value); removedChars.Add(ch.CharacterId.Value); }
+            var removedArtifacts = new List<string>();
+            foreach (var art in _artifacts.Values)
+                if (accounts.Contains(art.AccountId)) { linkedIds.Add(art.DataArtifactId.Value); removedArtifacts.Add(art.DataArtifactId.Value); }
+
+            // Rewrite the journal keeping only committed transactions that reference NONE of the linked ids.
+            var kept = new List<JournalRecord>();
+            foreach (var rec in ReadDurable(out _))
+            {
+                if (rec.Phase != TransactionPhase.Committed) continue;
+                if (ReferencesAny(rec, linkedIds)) continue;   // physically drop the account's records
+                kept.Add(rec);
+            }
+            RewriteJournal(kept);
+            ClearProjections();
+            RehydrateFromJournal();
+
+            // Prove absence: no target account/credential/character/account-scoped artifact survives.
+            foreach (var a in accounts)
+                if (_accounts.ContainsKey(a))
+                    throw new InvalidOperationException("Compaction failed to remove account " + a + "; whole-fixture reset required.");
+            foreach (var id in removedCreds)
+                if (_credentials.ContainsKey(id))
+                    throw new InvalidOperationException("Compaction failed to remove credential " + id + "; whole-fixture reset required.");
+            foreach (var id in removedChars)
+                if (_characters.ContainsKey(id))
+                    throw new InvalidOperationException("Compaction failed to remove character " + id + "; whole-fixture reset required.");
+            foreach (var id in removedArtifacts)
+                if (_artifacts.ContainsKey(id))
+                    throw new InvalidOperationException("Compaction failed to remove artifact " + id + "; whole-fixture reset required.");
+
+            return new CompactionEvidence(removedCreds, removedChars, removedArtifacts);
+        }
+
+        /// <summary>Whole-fixture reset (data-model.md "Explicit pilot reset" step 5; AT-AIP-PURGE-FALLBACK-RESET).
+        /// DESTROYS the entire durable journal + every projection, then re-seeds the fixture with ONLY the
+        /// selector-free purge certificate and the fresh key epoch as its new genesis records. After this,
+        /// no old account/credential/character/artifact/HMAC survives on disk — the old key epoch is retired
+        /// and a fresh active epoch is opened, so old bindings can never resolve again.</summary>
+        public void ResetWholeFixture(JournalChange purgeCertificate, JournalChange retireEpoch,
+            JournalChange freshEpoch, string operationId, long occurredAt)
+        {
+            RewriteJournal(new List<JournalRecord>());     // truncate: everything old is gone
+            ClearProjections();
+            _committedOps.Clear();
+            // Re-seed genesis: certificate + retired old epoch + fresh active epoch, one terminal txn.
+            Commit(operationId, "reset-genesis-" + operationId, Digest("reset|" + operationId),
+                Digest(operationId), "pilot-reset:" + operationId, occurredAt,
+                new[] { purgeCertificate, retireEpoch, freshEpoch });
+        }
+
+        private static bool ReferencesAny(JournalRecord rec, HashSet<string> ids)
+        {
+            foreach (var ch in rec.Changes)
+                foreach (var kv in ch.Fields)
+                    if (ids.Contains(kv.Value)) return true;
+            return false;
+        }
+
+        private void ClearProjections()
+        {
+            _accounts.Clear(); _credentials.Clear(); _allowlist.Clear(); _characters.Clear();
+            _pilots.Clear(); _artifacts.Clear(); _holds.Clear(); _keyEpochs.Clear(); _purgeCertificates.Clear();
+            _credentialIndex.Clear(); _allowlistIndex.Clear(); _profileIndex.Clear();
+        }
+
+        private void RewriteJournal(List<JournalRecord> committedRecords)
+        {
+            string tmp = _journalPath + ".compact";
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
+            {
+                foreach (var rec in committedRecords)
+                {
+                    byte[] payload = Encoding.UTF8.GetBytes(rec.Encode());
+                    bw.Write(payload.Length);
+                    bw.Write(Crc32(payload));
+                    bw.Write(payload);
+                }
+                bw.Flush();
+                fs.Flush(true);
+            }
+            File.Delete(_journalPath);
+            File.Move(tmp, _journalPath);
+        }
+
+        /// <summary>Evidence returned by an account-scoped compaction: the physically-removed ids by class.
+        /// These are artifact-specific proof of purge (data-model.md invariant "counts alone do not prove
+        /// purge") — each id no longer resolves in any projection after the rewrite.</summary>
+        public sealed class CompactionEvidence
+        {
+            public CompactionEvidence(IReadOnlyList<string> credentials, IReadOnlyList<string> characters, IReadOnlyList<string> artifacts)
+            {
+                RemovedCredentialIds = credentials;
+                RemovedCharacterIds = characters;
+                RemovedArtifactIds = artifacts;
+            }
+            public IReadOnlyList<string> RemovedCredentialIds { get; }
+            public IReadOnlyList<string> RemovedCharacterIds { get; }
+            public IReadOnlyList<string> RemovedArtifactIds { get; }
         }
 
         // ---- Journal replay / recovery ----
@@ -740,6 +931,51 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
                     }
                     break;
                 }
+                // ---- IAP-013 Tracer 5 key-epoch + purge-certificate projections ----
+                case "key-epoch":
+                {
+                    var epoch = new KeyEpochProjection
+                    {
+                        KeyVersion = ch.Get("keyVersion"),
+                        Status = ParseEpochStatus(ch.Get("status")),
+                        Revision = ch.GetLong("revision"),
+                        OpenedAt = ch.GetLong("openedAt"),
+                        RetiredAt = ch.GetLong("retiredAt"),
+                        ReceiptId = ch.Get("receiptId"),
+                    };
+                    _keyEpochs[epoch.KeyVersion] = epoch;
+                    break;
+                }
+                case "key-epoch-status":
+                {
+                    if (_keyEpochs.TryGetValue(ch.Get("keyVersion"), out var epoch))
+                    {
+                        epoch.Status = ParseEpochStatus(ch.Get("status"));
+                        epoch.Revision = ch.GetLong("revision");
+                        if (ch.Get("retiredAt").Length > 0) epoch.RetiredAt = ch.GetLong("retiredAt");
+                        if (ch.Get("receiptId").Length > 0) epoch.ReceiptId = ch.Get("receiptId");
+                    }
+                    break;
+                }
+                case "purge-cert":
+                {
+                    var cert = new PilotPurgeCertificateProjection
+                    {
+                        PurgeReceiptId = ch.Get("purgeReceiptId"),
+                        PilotId = ch.Get("pilotId"),
+                        CompletedAt = ch.GetLong("completedAt"),
+                        RetiredKeyVersion = ch.Get("retiredKeyVersion"),
+                        FreshKeyVersion = ch.Get("freshKeyVersion"),
+                    };
+                    string artIds = ch.Get("purgedArtifactIds");
+                    if (artIds.Length > 0)
+                        foreach (var a in artIds.Split('~')) if (a.Length > 0) cert.PurgedArtifactIds.Add(a);
+                    string digests = ch.Get("evidenceDigests");
+                    if (digests.Length > 0)
+                        foreach (var d in digests.Split('~')) if (d.Length > 0) cert.EvidenceDigests.Add(d);
+                    _purgeCertificates[cert.PurgeReceiptId] = cert;
+                    break;
+                }
             }
         }
 
@@ -805,6 +1041,8 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
             Enum.TryParse<PilotArtifactType>(s, out var v) ? v : PilotArtifactType.WorldSave;
         private static RetentionHoldStatus ParseHoldStatus(string s) =>
             Enum.TryParse<RetentionHoldStatus>(s, out var v) ? v : RetentionHoldStatus.Active;
+        private static KeyEpochStatus ParseEpochStatus(string s) =>
+            Enum.TryParse<KeyEpochStatus>(s, out var v) ? v : KeyEpochStatus.Active;
 
         // ---- Framed append-only journal (shared discipline with OperationReceiptStore) ----
 
