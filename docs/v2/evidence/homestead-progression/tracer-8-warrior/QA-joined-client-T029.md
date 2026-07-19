@@ -1,6 +1,12 @@
 ---
-status: current
+status: superseded
+superseded_by: QA-joined-client-T029-PASS.md
 ---
+
+> **SUPERSEDED (t_a811a842).** This FAIL captured the unwired-seam state at head
+> `be3ce33`. The remediation (`78bb66e`) wired the net48 Warrior placement seam;
+> the joined-client re-verification is `QA-joined-client-T029-PASS.md` (PASS at
+> reconciled head `84c51ad`). Preserved verbatim below for the audit trail.
 
 # T029 T.W.I.G. Training — joined-client QA verdict: **FAIL (blocking, unwired seam)**
 

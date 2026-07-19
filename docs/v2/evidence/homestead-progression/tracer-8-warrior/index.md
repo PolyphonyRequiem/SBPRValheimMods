@@ -24,5 +24,8 @@ independent Tracer-8 gate verdict is T032 (non-author).
 | W12 | **Remediation** — the pure provider is now WIRED: `WarriorLocalPlacementGate` (the missing runtime caller) + a provisional server-owned Stone-state source + net48 listen-host observer + dedicated ingress, armed in `Plugin.cs`; refused placements are undone (destroyed) | `T029-remediation-runtime-wiring.md`; `src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorLocalPlacementGate.cs`, `Features/Progression/WarriorTwigPlacementObserver.cs` |
 | W13 | Runtime wiring exercised against the composed `FoundationalProgressionServer` (real production wiring): admit / no-permission-undo / outside-policy-undo / unbound-fail-closed / outside-area / non-twig-decline / governance-dormancy / dedicated creator-mismatch / race-safe pump | `tests/NiflheimWarriorTwigRuntimeGateTests.cs` (18 tests) |
 | W14 | Full suite 1224/1224; both net48 Release builds 0w/0e; docs-lint OK 185; `git diff --check` clean; SpecCheck recipe count unchanged | build/test logs (remediation run) |
+| Q1 | **QA joined-client PASS (non-author, `t_a811a842`)** — the wired seam binds live: `warriorTwigArmed=True` on a server-authoritative isolated-server boot, 0 `Failed to patch` / 0 SBPR exceptions from the live-boot line onward, drift watchdog green, SpecCheck 31; full admit/refuse/undo matrix executes against the real authoritative runtime (30/30 `~WarriorTwig`, suite 1328/1328, both net48 0w/0e) at reconciled head `84c51ad` (fresh-`origin/main` merged) | `QA-joined-client-T029-PASS.md` |
+
+- [QA-joined-client-T029-PASS.md](QA-joined-client-T029-PASS.md) — independent QA verdict (PASS)
 
 - [README.md](README.md) — full analysis
