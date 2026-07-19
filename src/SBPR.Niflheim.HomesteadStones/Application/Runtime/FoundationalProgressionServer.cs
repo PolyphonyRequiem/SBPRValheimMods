@@ -56,6 +56,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             PendingRevalidationQueue pendingPlacements,
             BoundSessionPrincipalIndex boundSessions,
             StoneConnectionSourceRegistry connectionSources,
+            SavorLocalContextIndex savorContexts,
             string durableDirectory)
         {
             Runtime = runtime;
@@ -69,6 +70,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             PendingPlacements = pendingPlacements;
             BoundSessions = boundSessions;
             ConnectionSources = connectionSources;
+            SavorContexts = savorContexts;
             DurableDirectory = durableDirectory;
         }
 
@@ -104,6 +106,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// Connection source transition in the SAME logical transaction, and this coordinator's projections
         /// are reconstructed from the same relationship journal on restart.</summary>
         public StoneConnectionSourceRegistry ConnectionSources { get; }
+
+        /// <summary>T016 — the process-local index of established ACTIVE Savor Local contexts, keyed by
+        /// StoneId. The playtest establishment seam (SavorProvisioningAdmin) sets/clears an entry; the
+        /// live food-timer observer (SavorFoodTimerObserver) reads it per tick to derive the drain factor.
+        /// Non-durable: cleared on restart, republished by the seam. Never a second active-effects ledger —
+        /// it holds only the developed Stone context + governance fact the ACTIVE status is DERIVED from.</summary>
+        public SavorLocalContextIndex SavorContexts { get; }
 
         public string DurableDirectory { get; }
 
@@ -198,9 +207,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             var boundSessions = new BoundSessionPrincipalIndex();
 
+            var savorContexts = new SavorLocalContextIndex();
+
             return new FoundationalProgressionServer(
                 runtime, relationships, authority, characters, stoneApStore, characterApStore,
-                receipts, stoneAreas, pending, boundSessions, connectionSources, durableDirectory);
+                receipts, stoneAreas, pending, boundSessions, connectionSources, savorContexts,
+                durableDirectory);
         }
     }
 }

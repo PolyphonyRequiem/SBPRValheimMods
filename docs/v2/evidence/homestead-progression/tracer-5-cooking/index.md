@@ -20,6 +20,8 @@ mid-session on a live Valheim client). Independent Tracer-5 verdict is T020.
 | S7 | Provider is stateless across interleaved evaluations; attuned guest admitted when relationship + policy allow | `tests/NiflheimSavorTheHearthTests.cs` — `Provider_is_stateless_across_repeated_evaluations`, `Guest_gains_slow_when_relationship_and_policy_admit` |
 | S8 | Full suite 1205/1205 (Savor subset 10/10); both net48 Release builds 0w/0e (HomesteadStones + Trailborne); docs-lint OK; `git diff --check` clean | build/test logs (this run) |
 | S9 | Engine-free CLEAN slice: no UnityEngine/BepInEx/ZNetView/Harmony/Valheim type in `Adapters/Cooking/CookingProviders.cs`; net8 link-compile = real execution. NO playable/live-client claim | `src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingProviders.cs`; README §"Joined-client in-area/exit artifact — BLOCKED" |
-| S10 | Joined-client in-area/exit in-world proof (net48 Harmony food-timer seam on a QA client) — NOT produced; deferred under the safety gate | README §"Joined-client in-area/exit artifact — BLOCKED (pending QA clearance)" |
+| S10 | Joined-client in-area/exit in-world proof (net48 Harmony food-timer seam on a QA client) — live seam WIRED by remediation t_803e92f6 (`Player.UpdateFood` prefix + engine-free `SavorFoodDrainResolver` + playtest establishment seam; 11 new live-seam tests); in-world 0.5/1.0 artifact remains QA's to capture via the documented operator steps | `live-seam-wired-t_803e92f6.md`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/SavorFoodTimerObserver.cs`; `src/SBPR.Niflheim.HomesteadStones/Application/Runtime/SavorFoodDrainResolver.cs`; `tests/NiflheimSavorLiveSeamTests.cs` |
 
-- [README.md](README.md) — full analysis, provider description, and the blocked joined-client leg
+- [README.md](README.md) — full analysis, provider description, and the wired joined-client seam
+- [live-seam-wired-t_803e92f6.md](live-seam-wired-t_803e92f6.md) — remediation: the live food-timer delivery seam + QA operator steps
+- [joined-client-FAIL-t_0fb85725.md](joined-client-FAIL-t_0fb85725.md) — superseded FAIL evidence (live path absent, pre-remediation)

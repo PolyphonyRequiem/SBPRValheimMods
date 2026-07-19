@@ -56,20 +56,26 @@ derivation into the net8 test host (no mocks):
 - `python3 scripts/docs-lint.py`: **OK**.
 - `git diff --check`: clean.
 
-## Joined-client in-area/exit artifact — BLOCKED (pending QA clearance)
+## Joined-client in-area/exit artifact — live seam WIRED (remediation t_803e92f6)
 
-**Logs-green is NEVER playable.** The definition of done requires this node's own
-smallest joined-client in-world artifact proving a food timer visibly drains at
-0.5 inside the Stone Area and snaps back to 1.0 on exit, without item/stat
-mutation. That artifact is **not produced yet** and is **explicitly not claimed**.
+The T016 engine-free slice above shipped the pure provider only; the net48
+food-timer seam was absent, so the first joined-client proof returned **FAIL
+(live path absent)** — see
+[`joined-client-FAIL-t_0fb85725.md`](joined-client-FAIL-t_0fb85725.md).
 
-Reason: at implementation time the owner (Daniel) had a live `valheim.x86_64 -console`
-client running (single-desktop ownership). Per the task's joined-client safety
-gate, no QA client was deployed or launched — the live session was preserved and
-the in-world evidence is deferred until explicit clearance. Engine-free CLEAN work
-(this slice) proceeded; the joined-client leg is the only outstanding item.
+Remediation `t_803e92f6` wires the exact missing hook — a `Player.UpdateFood`
+prefix that scales ONLY the elapsed food-drain slice by the shipped provider
+factor, plus a playtest-gated admin seam that establishes the active Savor
+context. Full description, the 11 new engine-free live-seam tests, the
+listen-host vs. dedicated-client scope, and the QA operator steps for the
+in-world 0.5/1.0 artifact are in
+[`live-seam-wired-t_803e92f6.md`](live-seam-wired-t_803e92f6.md).
 
-What the in-world artifact must still capture, once cleared:
+**Logs-green is STILL NEVER playable.** The in-world artifact (a joined client's
+food timer visibly draining at 0.5 inside the Area, snapping to 1.0 on exit,
+without item/stat mutation) is captured by QA using the operator steps in that
+doc; it is **not claimed** by this remediation. What the in-world artifact must
+still capture, once QA runs it:
 
 1. The net48 Harmony seam that scales an active food timer by the provider factor
    (the engine adapter over `SavorTheHearthProvider`), deployed to a QA client.

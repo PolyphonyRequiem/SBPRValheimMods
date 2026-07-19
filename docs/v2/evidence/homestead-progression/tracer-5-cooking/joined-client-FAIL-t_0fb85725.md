@@ -1,3 +1,8 @@
+---
+status: superseded
+superseded_by: remediation task t_803e92f6 (PR wiring the live food-timer seam)
+---
+
 # T016 Savor the Hearth — Joined-client proof: **FAIL (live path absent)**
 
 - Task: `t_0fb85725` (qa-playtest)
