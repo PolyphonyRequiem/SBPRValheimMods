@@ -479,7 +479,14 @@ These are derived-provider contracts, not direct ledger writes.
 ### Crafting
 
 - `EffectiveStationLevelProvider`: Refined Workshop supplies +1 for eligible portable-item operations inside the
-  active Homestead; real observed station level remains unchanged and visible.
+  active Homestead; real observed station level remains unchanged and visible. **Implemented (T021,
+  `Adapters/Crafting/EffectiveStationLevelProvider.cs`):** a pure `Resolve(...)` returns both the unchanged real
+  level and the derived effective level; the +1 is granted only when the Refined Workshop Local Effect is
+  currently active for the occupant (via `LocalEffectActivationView`) AND the operation is one of the three
+  portable-item kinds (production/upgrade/repair) on an eligible portable item AND a real station is present
+  (level ≥ 1). Structure production and build placement never receive it, an ineligible item never receives it,
+  the +1 never conjures a station, and it never mutates the real level or satisfies a Stone-level place-state
+  objective.
 - `WorkmanshipIssuanceProvider`: active Masterwork may issue one deterministic property on an eligible exact
   non-stackable durable output.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on
