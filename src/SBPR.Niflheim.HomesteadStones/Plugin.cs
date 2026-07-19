@@ -140,6 +140,23 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Progression.LocalProgressionProvisioningAdmin));
             harmony.PatchAll(typeof(Features.Progression.LocalProgressionProvisioningConsole));
 
+            // T027 remediation — the personal-node OWNERSHIP provisioning seam. Same gate/identity model as
+            // the Local-node seam above, but reaches a personal NodePurchaseRecord (developed + purchased)
+            // instead of a Stone-owned Local develop: it drives the accepted Bond→develop→release→Attune→
+            // purchase handlers so a personal Permanent/Character Effect (Fletcher's Habit T027 / Field
+            // Fletching I T026) can actually be OWNED at runtime before a joined-client OWNER in-world proof
+            // (the ingress the T027 joined-client verdict found structurally missing). Never a shipping
+            // gameplay command; never client-open; production fails closed.
+            Features.Progression.PersonalNodeProvisioningAdmin.EnableProvisioning = Config.Bind(
+                "Progression", "EnableAdminPersonalNodeProvisioning", false,
+                "Isolated-QA ONLY. When true, server admins may come to OWN a personal Homestead node (Fletcher's "
+                + "Habit / Field Fletching I) for themselves via the SBPR_Niflheim_ProvisionPersonalNode direct "
+                + "RPC — driving the accepted develop→purchase handlers — so an OWNER in-world recovery/effect "
+                + "proof can be produced on a joined client. Server-owned; not client-settable. Leave false on "
+                + "any non-QA server.");
+            harmony.PatchAll(typeof(Features.Progression.PersonalNodeProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Progression.PersonalNodeProvisioningConsole));
+
             // T016 shared runtime substrate — the BOUNDED server→client Local Effect activation delivery
             // transport (per-peer request/snapshot ZRpc). The T016 PR (#368) shipped this observer class but
             // never installed its Harmony patches, so the channel was dead: server never registered the
