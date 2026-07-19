@@ -496,7 +496,13 @@ These are derived-provider contracts, not direct ledger writes.
   eligibility alone or build Permission alone unlocks neither. The Practice Arrow recipe is exactly 100 arrows for
   8 Wood; the Practice Arrow contributes 0 ammo damage while the fired shot retains the bow's own draw damage; and
   a practice arrow that terminally impacts the Archery Target is deterministically returned exactly once (no roll),
-  which is the path a later Fletcher's Habit recovery roll must yield to.
+  which is the path a later Fletcher's Habit recovery roll must yield to. The exact vanilla build-piece prefab is
+  `piece_ArcheryTarget` (capital A/T — corrected from the earlier `piece_archery_target`); the Practice Arrow item
+  `ArrowPractice` is new SBPR content (not a vanilla arrow id). The net48 runtime seam
+  (`Features/Archer/ArcherContent` + `ArcheryTargetPlacementGate` + `ArcherContentRegistrar`) makes this joinable:
+  the Practice Arrow item/recipe are registered additively (ADR-0006), 0 ammo damage is data-driven (zero-damage
+  Ammo item), the deterministic return is wired via the vanilla `ArcheryTarget.m_returnAmmo` list, and the
+  placement AND is enforced by a `Player.PlacePiece` gate that fails closed absent capability.
 - `BushcraftRecipeProvider`: active Field Fletching I exposes unchanged Wood Arrows through Bushcraft.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.

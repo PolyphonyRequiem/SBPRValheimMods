@@ -91,6 +91,15 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdmin));
             harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningConsole));
 
+            // T025-RT — Archer / Practice Range runtime seam. Registers the Practice Arrow item + its
+            // 100-for-8-Wood recipe, wires the deterministic vanilla target return (ArrowPractice added to
+            // ArcheryTarget.m_returnAmmo), and adds the exact vanilla piece_ArcheryTarget build piece to
+            // the Hammer table. The per-attempt placement capability AND (active Local Effect AND ordinary
+            // build Permission, spec FR-016) is enforced by the placement gate. 0 ammo damage is data-
+            // driven (zero-damage Ammo item) so the bow's own draw damage is retained with no patch.
+            harmony.PatchAll(typeof(Features.Archer.ArcherContentRegistrar));
+            harmony.PatchAll(typeof(Features.Archer.ArcheryTargetPlacementGate));
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 

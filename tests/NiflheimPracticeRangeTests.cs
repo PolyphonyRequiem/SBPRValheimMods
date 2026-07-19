@@ -209,6 +209,11 @@ namespace SBPR.Trailborne.Tests
 
             // The placement capability is the EXACT vanilla Archery Target piece prefab.
             Assert.Equal(PracticeRangeContent.ArcheryTargetPrefab, cap.ArcheryTargetPrefab);
+            // Pin the CORRECTED vanilla prefab id (capital A/T). Verified against the running build's
+            // StreamingAssets/SoftRef/manifest_extended + the decompiled ArcheryTarget component; the
+            // earlier `piece_archery_target` was wrong and orphaned the runtime piece binding.
+            Assert.Equal("piece_ArcheryTarget", PracticeRangeContent.ArcheryTargetPrefab);
+            Assert.Equal("ArrowPractice", PracticeRangeContent.PracticeArrowItem);
             // The recipe capability is the authored Practice Arrow recipe: 100 for 8 Wood.
             Assert.Equal(PracticeRangeContent.PracticeArrowRecipe.OutputItem, cap.PracticeArrowRecipe.OutputItem);
             Assert.Equal(100, cap.PracticeArrowRecipe.OutputCount);
