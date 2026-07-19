@@ -164,6 +164,34 @@ namespace SBPR.Niflheim.HomesteadStones.Adapters.Cooking
         public bool CanRefresh(CharacterProgressionAggregate character, double remainingFraction) =>
             Resolve(character).CanRefresh(remainingFraction);
 
+        /// <summary>The EatFood-level refresh decision (the ACTUAL in-world refresh path, not just the
+        /// outer CanEat gate). Vanilla decides whether a matching food already in a slot may be refreshed
+        /// via <c>Player.Food.CanEatAgain()</c> == <c>m_time &lt; m_foodBurnTime / 2f</c> (the hardcoded
+        /// 0.5 inner guard). This node-own live-QA defect (t_6b73a3de) proved that patching CanEat alone
+        /// leaves that inner guard intact, so in the 0.5..0.75 band the food is debited from inventory yet
+        /// never refreshed. This predicate is the single authority the EatFood seam consults:
+        ///
+        ///   * It NEVER lowers vanilla — if vanilla would already refresh (<paramref name="vanillaWouldRefresh"/>
+        ///     true, i.e. the food is below the vanilla 0.5 threshold), it returns true unconditionally, so a
+        ///     non-acquired occupant keeps the EXACT vanilla behaviour (strict <c>&lt; 0.5</c>).
+        ///   * It only RAISES — when Iron Stomach is durably acquired, it additionally permits the refresh
+        ///     up to the raised threshold (0.75, boundary-inclusive), matching the CanEat gate exactly so the
+        ///     gate and the refresh path agree in the 0.5..0.75 band.
+        ///
+        /// This keeps the vanilla authority in vanilla (the seam passes vanilla's own verdict in) and adds
+        /// only the durable Permanent-Effect raise, so the three-slot cap and normal debit/stats/duration
+        /// stay entirely in vanilla EatFood.</summary>
+        public bool ShouldRefreshOnEat(CharacterProgressionAggregate character, double remainingFraction,
+            bool vanillaWouldRefresh)
+        {
+            if (character == null) throw new ArgumentNullException(nameof(character));
+
+            if (vanillaWouldRefresh) return true;               // never lower vanilla — below 0.5 always refreshes.
+
+            var cap = Resolve(character);
+            return cap.Acquired && remainingFraction <= cap.Threshold; // raise to 0.75 only while acquired.
+        }
+
         /// <summary>Whether the character durably holds Iron Stomach: a purchase record for the exact
         /// Iron Stomach node identity whose outcome class is the durable Permanent Effect class. Matches
         /// across every Stone record — the Permanent Effect is not scoped to a single Stone's current

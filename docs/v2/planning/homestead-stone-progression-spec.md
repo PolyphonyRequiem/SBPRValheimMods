@@ -146,7 +146,10 @@ activation path.
 
 1. **Cooking:** Savor the Hearth drains active food timers 50% slower for eligible characters inside the
    Stone Area; Field Prep exposes unchanged Boar Jerky and Queen's Jam recipes through the shared Cooking-aware
-   Bushcraft policy; Iron Stomach permanently permits food refresh/replacement at 75% remaining; Swift
+   Bushcraft policy; Iron Stomach permanently permits food refresh/replacement at 75% remaining — the raise
+   applies to the ACTUAL eat/refresh path (the food's remaining timer, health, stamina, and eitr are reset), not
+   merely the eat-permission gate, so an eaten in-band food is refreshed rather than debited-without-effect, while
+   the three food slots and normal food debit remain; Swift
    Preparation makes eligible menu-crafted food take one-third of the vanilla skill-adjusted duration.
 2. **Crafting:** Refined Workshop grants +1 effective Workbench level only for portable-item production,
    upgrade, and repair: a qualifying real Level-2 Workbench may perform an eligible effective-Level-3

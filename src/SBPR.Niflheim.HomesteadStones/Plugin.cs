@@ -187,10 +187,14 @@ namespace SBPR.Niflheim.HomesteadStones
             // T018 — Iron Stomach personal Permanent Effect. The net48 food-eat seam that raises the food
             // refresh/replacement threshold from the vanilla 0.5 to 0.75 (refresh at 75% remaining) for the
             // local occupant, reading the authoritative host projection through the shipped pure
-            // FoodRefreshThresholdProvider keyed on the character's durable purchase. Postfix on
-            // Player.CanEat only; rescues a same-food refresh refusal in the 0.5..0.75 band, never the
-            // three-slot cap; fails closed off-host / without a durable Iron Stomach purchase (see
-            // IronStomachRefreshGate). Permanent Effect ⇒ no relationship/policy/Stone-Area conjunct.
+            // FoodRefreshThresholdProvider keyed on the character's durable purchase. TWO seams that must
+            // agree: a postfix on Player.CanEat (the OUTER gate) AND a transpiler on Player.EatFood that
+            // rewrites the inner Food.CanEatAgain() 0.5 guard (the ACTUAL refresh path — reset
+            // m_time/health/stamina/eitr) so the in-world refresh actually happens in the 0.5..0.75 band and
+            // is not silently no-oped while ConsumeItem debits the food (node-own live-QA defect t_6b73a3de).
+            // Both rescue only the same-food refresh, never the three-slot cap; fail closed off-host /
+            // without a durable Iron Stomach purchase (see IronStomachRefreshGate). Permanent Effect ⇒ no
+            // relationship/policy/Stone-Area conjunct.
             harmony.PatchAll(typeof(Features.Cooking.IronStomachRefreshGate));
 
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");

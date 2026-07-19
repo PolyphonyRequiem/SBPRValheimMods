@@ -5,13 +5,17 @@ status: current
 # Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth; T017: Field Prep; T018: Iron Stomach)
 
 Node: **T018 [US4]** — Iron Stomach, Cooking node 3 of 4. Acceptance target:
-`AT-IRON-STOMACH-75`. Status: **implementation landed under review** — the pure
-`FoodRefreshThresholdProvider` (durable Permanent-Effect, threshold 0.75,
-highest-wins, three-slots/debit preserved) is fully unit-tested, and the live
-`Player.CanEat` refresh-threshold seam is an installed SBPR Harmony postfix
-(`IronStomachRefreshGate`, armed in `Plugin.cs`); the in-world refresh-at-75%
-last mile is client-only, REASONED (headless has no local Player). Independent
-Tracer-5 verdict is T020.
+`AT-IRON-STOMACH-75`. Status: **remediation landed under review (node-own live-QA
+FAIL t_6b73a3de fixed)** — the pure `FoodRefreshThresholdProvider` (durable
+Permanent-Effect, threshold 0.75, highest-wins, three-slots/debit preserved) is
+fully unit-tested. The live raise is now delivered by TWO agreeing net48 seams: a
+postfix on `Player.CanEat` (outer gate) AND a transpiler on `Player.EatFood` that
+rewrites the inner `Food.CanEatAgain()` 0.5 guard through
+`IronStomachRefreshGate.ShouldRefreshOnEat` so the ACTUAL in-world refresh
+(m_time/health/stamina/eitr reset) happens in the 0.5..0.75 band — closing the
+gap the node-own live QA found (CanEat-only patch left EatFood a silent no-op
+while ConsumeItem debited the food). Node-own live re-QA of the EatFood refresh on
+a host is the independent Tracer-5 verdict (T020).
 
 Node: **T016 [US4]** — Savor the Hearth, first Cooking vertical slice (node 1 of 4).
 Acceptance target: `AT-SAVOR-AREA-EXIT`. Status: **QA PASS (data + delivery-seam
@@ -58,7 +62,8 @@ has no local Player). Independent Tracer-5 verdict is T020.
 | I6 | Threshold provider ONLY: three food slots (== 3) and normal debit/stats/duration preserved untouched; inert None is vanilla baseline | `tests/NiflheimIronStomachTests.cs` — `PreservesThreeSlotsAndNormalDebitStatsDuration`, `NoneCapability_IsVanillaBaselineAndInert` |
 | I7 | Full suite 1379/1379 (Iron Stomach subset 14/14, red-first verified via CS0246 type-missing); both net48 Release builds 0w/0e (HomesteadStones + Trailborne); docs-lint OK; `git diff --check` clean; SpecCheck recipe manifest unchanged | build/test logs (this run) |
 | I8 | Engine-free CLEAN provider: no UnityEngine/BepInEx/ZNetView/Harmony/Valheim type in `Adapters/Cooking/FoodRefreshThresholdProvider.cs`; net8 link-compile = real execution. NO playable/live-client claim | `src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/FoodRefreshThresholdProvider.cs`; `joined-client-t018-iron-stomach.md` §"Honest scope" |
-| I9 | Live delivery seam armed: `IronStomachRefreshGate.CanEat_Postfix` is an installed SBPR Harmony postfix on `Player.CanEat` (armed in `Plugin.cs`; rescues only the same-food 0.5..0.75 refresh band, never the three-slot cap; fails closed off-host / without a durable purchase) | `joined-client-t018-iron-stomach.md`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/IronStomachRefreshGate.cs` |
+| I9 | Live delivery seam (T018 remediation): the raise is delivered by TWO agreeing net48 seams — `IronStomachRefreshGate.CanEat_Postfix` on `Player.CanEat` AND `IronStomachRefreshGate.EatFood_Transpiler` rewriting the SINGLE inner `Food.CanEatAgain()` 0.5 guard inside `Player.EatFood` to `ShouldRefreshOnEat` (both armed in `Plugin.cs`; rescue only the same-food 0.5..0.75 refresh band, never the three-slot cap; fail closed off-host / without a durable purchase; the transpiler asserts EXACTLY 1 rewrite) | `joined-client-t018-iron-stomach.md`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/IronStomachRefreshGate.cs` |
+| I11 | **T018 remediation of the I10 node-own live-QA FAIL:** the ACTUAL in-world refresh in the 0.5..0.75 band now happens (not just the CanEat gate) — `Player.EatFood` transpiler routes the inner `Food.CanEatAgain()` guard through the pure `ShouldRefreshOnEat`, which returns vanilla's verdict UNCHANGED (never lowered) and additionally permits the in-band refresh only for a durable-Iron-Stomach local occupant, so `EatFood` resets m_time/health/stamina/eitr instead of silently no-oping while `ConsumeItem` debits the food. 6 new EatFood-level unit tests pin the decision (never-lower-vanilla, in-band only-acquirer, boundary-inclusive/deny-above, above-threshold none, gate/refresh agreement, non-acquirer never refreshes when vanilla refused); full suite 1449/1449; a latent CanEat-postfix bug (granting at the 0.5 baseline without acquisition) also fixed. Node-own live re-QA on a host is T020 | `tests/NiflheimIronStomachTests.cs`; `src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/FoodRefreshThresholdProvider.cs`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/IronStomachRefreshGate.cs` |
 | I10 | **Node-own JOINED-CLIENT live QA = FAIL.** On the GABS-hosted `T018IronQA` listen-host running the byte-identical PR#378 DLL, the live `Player.CanEat` gate is correctly raised to 0.75 (boundary-inclusive, deny-above, durable, fails-closed dormant) and the three-slot/no-fourth-slot cap holds — BUT the actual in-world refresh in the 0.5..0.75 band does NOT happen: vanilla `Player.EatFood` re-checks the unpatched `Food.CanEatAgain()` 0.5 inner guard, so `EatFood` no-ops (item still consumed from inventory via `ConsumeItem`). `AT-IRON-STOMACH-75` NOT met in-world. Control at 0.40 refreshes → real seam gap, not a harness artifact | `capture/t018-iron-stomach-nodeown-live-20260719-102248.log`; `joined-client-t018-iron-stomach.md` §Verdict |
 
 - [joined-client-t018-iron-stomach.md](joined-client-t018-iron-stomach.md) — T018 full analysis + delivery-seam wiring

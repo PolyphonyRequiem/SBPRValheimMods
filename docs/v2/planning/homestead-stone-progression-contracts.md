@@ -486,7 +486,17 @@ These are derived-provider contracts, not direct ledger writes.
   active purchase. A personal-effect client delivery channel is a follow-up (the bounded transport carries
   Local-effect snapshots only), exactly as the sibling Field Fletching / Refined Workshop seams documented.
 - `FoodRefreshThresholdProvider`: Iron Stomach supplies threshold 0.75, highest applicable provider wins; three
-  slots and normal food debit remain.
+  slots and normal food debit remain. **Live-wired (T018, net48):** the raise is delivered by TWO seams that
+  MUST agree — a postfix on `Player.CanEat` (the outer gate) AND a transpiler on `Player.EatFood` that rewrites
+  the SINGLE inner `Player.Food.CanEatAgain()` 0.5 guard (decomp 17486) to `IronStomachRefreshGate.ShouldRefreshOnEat`.
+  The EatFood seam is load-bearing: `EatFood` is the ACTUAL refresh path (it resets `m_time/m_health/m_stamina/m_eitr`
+  for a matching food), and `Humanoid.ConsumeItem` debits the food from inventory UNCONDITIONALLY after calling it —
+  so a CanEat-only patch leaves the in-band refresh a silent no-op that consumes the item without refreshing it
+  (node-own live-QA defect t_6b73a3de). `ShouldRefreshOnEat` returns vanilla's own verdict UNCHANGED (never lowered)
+  and additionally permits the 0.5..0.75 in-band refresh only for a durable-Iron-Stomach LOCAL occupant, reading the
+  authoritative host projection (composed `LocalProgressionObserver.Server` character store) and failing closed
+  off-host / without a durable purchase. Boundary-inclusive at 0.75, deny-above, so the gate and the refresh path
+  agree across the band; the three-slot cap and normal debit/stats/duration stay entirely in vanilla `EatFood`.
 - `MenuCraftDurationProvider`: Swift Preparation supplies factor 1/3 after vanilla Cooking-skill adjustment for
   eligible menu-crafted food only.
 

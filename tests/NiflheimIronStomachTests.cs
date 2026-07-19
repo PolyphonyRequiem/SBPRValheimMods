@@ -37,7 +37,14 @@
 //                        provider wins over the vanilla baseline, the raised
 //                        threshold survives relationship loss and a restart, and
 //                        the three slots + normal debit/stats/duration are
-//                        preserved untouched.
+//                        preserved untouched. The EatFood-level refresh/DEBIT path
+//                        (ShouldRefreshOnEat) is covered too: the ACTUAL in-world
+//                        refresh — not just the outer CanEat gate — happens in the
+//                        0.5..0.75 band for an acquirer and NEVER for a
+//                        non-acquirer (so the food is never debited-without-refresh),
+//                        vanilla is never lowered, and the gate and refresh path
+//                        agree across the band (node-own live-QA remediation
+//                        t_6b73a3de: gate-only tests could not catch the seam gap).
 // ============================================================================
 
 using SBPR.Niflheim.HomesteadStones.Adapters.Cooking;
@@ -259,6 +266,105 @@ namespace SBPR.Trailborne.Tests
             var withIron = BuildCharacter(ironStomachAcquired: true);
             Assert.True(_provider.CanRefresh(withIron, 0.75));
             Assert.False(_provider.CanRefresh(withIron, 0.7500001));
+        }
+
+        // ── AT-IRON-STOMACH-75 refresh/DEBIT path (EatFood-level) ──────────────
+        //
+        // The node-own live QA (t_6b73a3de) proved that the CanEat gate + the 14
+        // provider tests above only exercise the OUTER gate — never the vanilla
+        // Player.EatFood refresh path, which re-checks its own hardcoded 0.5
+        // Food.CanEatAgain() inner guard before it resets m_time/health/stamina/
+        // eitr. In the 0.5..0.75 band that inner guard stays false, so EatFood
+        // silently no-ops while Humanoid.ConsumeItem still debits the food. The
+        // remediation transpiles EatFood to route that inner guard through
+        // ShouldRefreshOnEat; these tests pin the EXACT decision that seam
+        // delegates here — the gate and the refresh path must AGREE, and vanilla
+        // must never be lowered.
+
+        [Fact]
+        public void ShouldRefreshOnEat_VanillaWouldRefresh_AlwaysTrue_NeverLowered()
+        {
+            // When vanilla's own guard already permits the refresh (food below the
+            // vanilla 0.5 threshold), the seam must return true UNCONDITIONALLY —
+            // even without Iron Stomach, and even at a fraction ABOVE the Iron
+            // Stomach threshold (a nonsensical input that can only mean vanilla
+            // said yes). We never lower vanilla.
+            var vanilla = BuildCharacter(ironStomachAcquired: false);
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            Assert.True(_provider.ShouldRefreshOnEat(vanilla, 0.40, vanillaWouldRefresh: true));
+            Assert.True(_provider.ShouldRefreshOnEat(withIron, 0.40, vanillaWouldRefresh: true));
+            Assert.True(_provider.ShouldRefreshOnEat(vanilla, 0.99, vanillaWouldRefresh: true));
+        }
+
+        [Fact]
+        public void ShouldRefreshOnEat_InBand_OnlyIronStomachRefreshes()
+        {
+            // The exact defect band: vanilla refused (0.5..0.75, so vanillaWouldRefresh
+            // is false). Without Iron Stomach the refresh must NOT happen — this is the
+            // "item debited but not refreshed" trap the seam must NOT create. WITH Iron
+            // Stomach the in-band refresh IS permitted, matching the raised CanEat gate.
+            var vanilla = BuildCharacter(ironStomachAcquired: false);
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            Assert.False(_provider.ShouldRefreshOnEat(vanilla, 0.60, vanillaWouldRefresh: false));
+            Assert.True(_provider.ShouldRefreshOnEat(withIron, 0.60, vanillaWouldRefresh: false));
+        }
+
+        [Fact]
+        public void ShouldRefreshOnEat_AtBoundary075_Inclusive_DeniedJustAbove()
+        {
+            // Boundary-inclusive at 0.75 (refresh AT 75% remaining), denied just above —
+            // identical semantics to the CanEat gate so the two seams cannot disagree.
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            Assert.True(_provider.ShouldRefreshOnEat(withIron, 0.75, vanillaWouldRefresh: false));
+            Assert.False(_provider.ShouldRefreshOnEat(withIron, 0.7500001, vanillaWouldRefresh: false));
+        }
+
+        [Fact]
+        public void ShouldRefreshOnEat_AboveIronStomachThreshold_NeitherRefreshes()
+        {
+            // A food too fresh for even Iron Stomach (above 0.75) and above vanilla —
+            // vanilla refused and the raise does not apply, so no refresh for anyone.
+            var vanilla = BuildCharacter(ironStomachAcquired: false);
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            Assert.False(_provider.ShouldRefreshOnEat(vanilla, 0.90, vanillaWouldRefresh: false));
+            Assert.False(_provider.ShouldRefreshOnEat(withIron, 0.90, vanillaWouldRefresh: false));
+        }
+
+        [Fact]
+        public void ShouldRefreshOnEat_AgreesWithCanEatGate_AcrossTheBand()
+        {
+            // The whole point of the remediation: for an ACQUIRER, the EatFood refresh
+            // decision and the raised-gate decision (CanRefresh, threshold 0.75) must
+            // return the SAME answer for a food vanilla refused, so a refresh the gate
+            // promised actually lands. vanillaWouldRefresh=false models "vanilla's inner
+            // guard said no" (fraction at/above 0.5), which is exactly where the raise
+            // does its work.
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            foreach (var frac in new[] { 0.50, 0.60, 0.74, 0.75, 0.7500001, 0.90 })
+            {
+                Assert.Equal(_provider.CanRefresh(withIron, frac),
+                    _provider.ShouldRefreshOnEat(withIron, frac, vanillaWouldRefresh: false));
+            }
+        }
+
+        [Fact]
+        public void ShouldRefreshOnEat_NonAcquirer_NeverRefreshesWhenVanillaRefused()
+        {
+            // Load-bearing: unlike the provider's own CanRefresh (which uses the 0.5
+            // baseline threshold and would say true at exactly 0.50), the EatFood seam
+            // DEFERS to the actual vanilla verdict handed in. When vanilla refused
+            // (vanillaWouldRefresh=false), a non-acquirer NEVER refreshes — this is what
+            // prevents the "item debited without refresh" trap. This is precisely why the
+            // seam takes vanilla's own verdict rather than recomputing the baseline.
+            var vanilla = BuildCharacter(ironStomachAcquired: false);
+
+            foreach (var frac in new[] { 0.50, 0.60, 0.74, 0.75, 0.90 })
+                Assert.False(_provider.ShouldRefreshOnEat(vanilla, frac, vanillaWouldRefresh: false));
         }
 
         [Fact]
