@@ -2,7 +2,16 @@
 status: current
 ---
 
-# Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth; T017: Field Prep)
+# Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth; T017: Field Prep; T018: Iron Stomach)
+
+Node: **T018 [US4]** — Iron Stomach, Cooking node 3 of 4. Acceptance target:
+`AT-IRON-STOMACH-75`. Status: **implementation landed under review** — the pure
+`FoodRefreshThresholdProvider` (durable Permanent-Effect, threshold 0.75,
+highest-wins, three-slots/debit preserved) is fully unit-tested, and the live
+`Player.CanEat` refresh-threshold seam is an installed SBPR Harmony postfix
+(`IronStomachRefreshGate`, armed in `Plugin.cs`); the in-world refresh-at-75%
+last mile is client-only, REASONED (headless has no local Player). Independent
+Tracer-5 verdict is T020.
 
 Node: **T016 [US4]** — Savor the Hearth, first Cooking vertical slice (node 1 of 4).
 Acceptance target: `AT-SAVOR-AREA-EXIT`. Status: **QA PASS (data + delivery-seam
@@ -36,6 +45,22 @@ has no local Player). Independent Tracer-5 verdict is T020.
 
 - [joined-client-t017-field-prep.md](joined-client-t017-field-prep.md) — T017 full analysis + live-seam verification
 - [capture/t017-boot-capture.log](capture/t017-boot-capture.log) — raw booted-server QADiag-T017 patch-info excerpt
+
+## T018 Iron Stomach manifest
+
+| id | claim | artifact |
+|----|-------|----------|
+| I1 | AT-IRON-STOMACH-75: a durably-acquired Iron Stomach Permanent Effect raises the food refresh/replacement threshold to 0.75 (refresh at 75% remaining); vanilla baseline is 0.5 | `tests/NiflheimIronStomachTests.cs` — `AcquiredIronStomach_RaisesThresholdTo075`, `WithoutIronStomach_ThresholdIsVanillaBaseline` |
+| I2 | Highest applicable provider wins (MAXIMUM composition): 0.5 ⊔ 0.75 = 0.75, a stronger 0.9 baseline is never lowered, no-candidate → safe 0.5 floor | `tests/NiflheimIronStomachTests.cs` — `HighestApplicableProviderWins_IronStomachOverBaseline`, `HighestApplicableProviderWins_NeverLowersAStrongerBaseline`, `Compose_TakesTheMaximumCandidate` |
+| I3 | Refresh permitted at exactly 75% remaining (boundary-inclusive) and denied just above; 0.5..0.75 band only Iron Stomach refreshes | `tests/NiflheimIronStomachTests.cs` — `CanRefreshAt75PercentRemaining_OnlyWithIronStomach`, `CanRefreshAt74PercentRemaining_UnderBothThresholds`, `RemainingFractionAtOrBelowThreshold_IsRefreshable_BoundaryInclusive` |
+| I4 | Durable Permanent Effect: the raised threshold survives relationship loss, a serialized-restart round-trip, and Tree revocation of development (no relationship/Stone conjunct) | `tests/NiflheimIronStomachTests.cs` — `ThresholdSurvivesRelationshipLoss`, `ThresholdSurvivesRestart_RoundTripsThroughSerializedCharacter`, `ThresholdSurvivesTreeRevocationOfDevelopment` |
+| I5 | Keys on the exact Iron Stomach node identity + PermanentEffect outcome class; a same-Stone Field Prep Character-Effect purchase never grants it | `tests/NiflheimIronStomachTests.cs` — `OnlyPermanentEffectPurchaseCounts_NotACharacterEffect` |
+| I6 | Threshold provider ONLY: three food slots (== 3) and normal debit/stats/duration preserved untouched; inert None is vanilla baseline | `tests/NiflheimIronStomachTests.cs` — `PreservesThreeSlotsAndNormalDebitStatsDuration`, `NoneCapability_IsVanillaBaselineAndInert` |
+| I7 | Full suite 1379/1379 (Iron Stomach subset 14/14, red-first verified via CS0246 type-missing); both net48 Release builds 0w/0e (HomesteadStones + Trailborne); docs-lint OK; `git diff --check` clean; SpecCheck recipe manifest unchanged | build/test logs (this run) |
+| I8 | Engine-free CLEAN provider: no UnityEngine/BepInEx/ZNetView/Harmony/Valheim type in `Adapters/Cooking/FoodRefreshThresholdProvider.cs`; net8 link-compile = real execution. NO playable/live-client claim | `src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/FoodRefreshThresholdProvider.cs`; `joined-client-t018-iron-stomach.md` §"Honest scope" |
+| I9 | Live delivery seam armed: `IronStomachRefreshGate.CanEat_Postfix` is an installed SBPR Harmony postfix on `Player.CanEat` (armed in `Plugin.cs`; rescues only the same-food 0.5..0.75 refresh band, never the three-slot cap; fails closed off-host / without a durable purchase). In-world refresh-at-75% last mile is client-only, REASONED | `joined-client-t018-iron-stomach.md`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/IronStomachRefreshGate.cs` |
+
+- [joined-client-t018-iron-stomach.md](joined-client-t018-iron-stomach.md) — T018 full analysis + delivery-seam wiring
 
 ## T016 Savor the Hearth manifest
 
