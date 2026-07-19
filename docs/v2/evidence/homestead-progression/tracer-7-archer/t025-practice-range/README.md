@@ -65,9 +65,39 @@ net8 link-compiled suite; full suite 1216/1216).
 - `dotnet build src/SBPR.Trailborne/...csproj -c Release` → 0w/0e.
 - `python3 scripts/docs-lint.py` → OK. `git diff --check` → clean.
 
-## Vanilla-binding note
+## Runtime seam (T025-RT — net48 engine binding, shipped)
 
-The exact Archery Target prefab (`piece_archery_target`) and Practice Arrow item
-(`ArrowPractice`) are authored as single binding points in `PracticeRangeContent`
-(cf. `FoundationalPrefabMap`); the concrete ZNetScene prefab/item names are
-confirmed against the running build during the joined-client capture.
+The engine-free projection above is now backed by a real net48 runtime seam in
+`src/SBPR.Niflheim.HomesteadStones/Features/Archer/`:
+
+- `ArcherContent` / `ArcherContentAssets` — additively construct the Practice
+  Arrow item (`ArrowPractice`, ADR-0006: `new GameObject` + AddComponent, never a
+  vanilla-arrow clone), register it into ZNetScene + ObjectDB, add the recipe
+  (exactly **100 for 8 Wood**, hand-craftable), append it to the vanilla
+  `piece_ArcheryTarget`'s `ArcheryTarget.m_returnAmmo` list (deterministic single
+  return — no roll), and add `piece_ArcheryTarget` to the Hammer build table.
+- `ArcheryTargetPlacementGate` — a `Player.PlacePiece` prefix that refuses an
+  Archery Target placement unless the Practice Range capability holds (active Local
+  Effect AND ordinary build Permission, spec FR-016); resolves the server-observed
+  facts (Stone Area membership, bound principal, active relationship) and **fails
+  closed** where live state is not yet composed.
+- `ArcherContentRegistrar` — ZNetScene.Awake / ObjectDB.Awake+CopyOtherDB hooks
+  (Priority.Last, idempotent), wired into `Plugin.Awake`.
+
+**0 ammo damage is data-driven, not a patch:** the Practice Arrow is an Ammo item
+with a fresh all-zero `HitData.DamageTypes`, so vanilla `Attack.FireProjectileBurst`
+(`hitData.m_damage.Add(m_weapon.GetDamage())` then `.Add(ammoItem.GetDamage())`)
+adds nothing from the arrow while retaining the bow's own draw damage — exactly
+`PracticeRangeProvider.ResolvePracticeArrowDamage`.
+
+## Vanilla-binding note (CORRECTED)
+
+The exact Archery Target build-piece prefab is **`piece_ArcheryTarget`** (capital A,
+capital T) — verified against the running build's
+`StreamingAssets/SoftRef/manifest_extended` and the decompiled `ArcheryTarget`
+component (localization tokens `$piece_archerytarget_*`). The earlier const
+`piece_archery_target` was WRONG and has been fixed in `PracticeRangeContent`. The
+Practice Arrow item (`ArrowPractice`) is **new SBPR content** (vanilla arrows are
+`ArrowWood`/`ArrowBronze`/… only), authored additively — not bound to a vanilla
+prefab. Both are the single authored binding points (cf. `FoundationalPrefabMap`);
+the joined-client capture confirms them against the running build in-world.

@@ -93,10 +93,13 @@ namespace SBPR.Niflheim.HomesteadStones.Adapters.Archer
     /// FoundationalPrefabMap. Provisional proof values (not final balance/compatibility locks).</summary>
     public static class PracticeRangeContent
     {
-        /// <summary>The exact vanilla Archery Target build-piece prefab Practice Range unlocks. Vanilla
-        /// names the archery practice target piece "piece_archery_target" — verified at the joined-client
-        /// evidence step; this is the single authored binding point (cf. FoundationalPrefabMap).</summary>
-        public const string ArcheryTargetPrefab = "piece_archery_target";
+        /// <summary>The exact vanilla Archery Target build-piece prefab Practice Range unlocks. The real
+        /// vanilla build-piece prefab id is <c>piece_ArcheryTarget</c> (capital A, capital T) — verified
+        /// against the running build's StreamingAssets/SoftRef/manifest_extended and the decompiled
+        /// <c>ArcheryTarget</c> component (localization tokens <c>$piece_archerytarget_*</c>). This is the
+        /// single authored binding point (cf. FoundationalPrefabMap); the runtime registrar/gate
+        /// (Features/Archer) consumes it verbatim.</summary>
+        public const string ArcheryTargetPrefab = "piece_ArcheryTarget";
 
         /// <summary>The stable Practice Arrow output item id.</summary>
         public const string PracticeArrowItem = "ArrowPractice";
