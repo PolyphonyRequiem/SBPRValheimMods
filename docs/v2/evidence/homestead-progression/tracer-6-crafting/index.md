@@ -69,5 +69,23 @@ Ingress: `src/SBPR.Niflheim.HomesteadStones/Application/Runtime/LocalProvisionin
 `Progression.EnableAdminLocalNodeProvisioning` default OFF). See
 `T021-REMEDIATION-2-PROVISIONING-RUNTIME.md`.
 
-Joined-client effective-Level-3 transport proof: re-run downstream by qa-playtest
-(`t_8261a415`) against the merged head.
+## T021 joined-client effective-Level-3 rerun — PASS (t_87538341)
+
+After both remediations merged, the joined-client gate was re-run at `origin/main`
+head `d5256ac`. The shipped `LocalProvisioningIngress` was driven from an empty
+Stone store against a persistent durable directory; the accepted receipt-backed
+handlers wrote real `facet-commit` / `node-development` journals; the real snapshot
+service derived `Active`; and the real `EffectiveStationLevelProvider` yielded
+effective Level 3 for all three portable operations at a real Level-2 station, no
+bonus for every negative case, and reproduced effective Level 3 after a restart that
+rehydrated only from the durable journals. Data/durable layer **PASS**; the GPU
+pixel last mile is reasoned (headless `-nographics` box, no user client present),
+not claimed observed. Full detail + raw capture: `T021-JOINED-CLIENT-RERUN-PASS.md`.
+The historical FAIL (`T021-JOINED-CLIENT-RERUN-FAIL.md`) is retained honestly.
+
+| id | claim | evidence |
+|----|-------|----------|
+| RWJ1 | Ingress develops Refined Workshop from an empty durable store; journals written | `T021-JOINED-CLIENT-RERUN-PASS.md` §1–2 |
+| RWJ2 | Developed node derives Active; real L2 station operates as effective L3 (prod/upgrade/repair) | `T021-JOINED-CLIENT-RERUN-PASS.md` §3 |
+| RWJ3 | Structures/build/absent-station/ineligible/area-exit/no-governor all no-bonus | `T021-JOINED-CLIENT-RERUN-PASS.md` §4 |
+| RWJ4 | Restart rehydrates developed state from durable journals; effective L3 reproduced | `T021-JOINED-CLIENT-RERUN-PASS.md` §5 |

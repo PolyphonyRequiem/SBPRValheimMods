@@ -39,6 +39,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         private readonly PilotAccountService _accounts;
         private readonly PilotCharacterAdmissionService _characters;
         private readonly BoundSessionAdmission _binder;
+        // IAP-012 fix-forward (t_f6c8c748): the privacy fail-closed admission gate. A closed pilot or an
+        // uncataloged/expired/purged world fixture rejects admission BEFORE any account resolution or bind,
+        // so a live principal can never be published into a closed/uncataloged pilot. Optional so the
+        // pre-privacy composition path (and Tracer-1/2 tests) continue to work unchanged.
+        private readonly IPrivacyAdmissionGate? _privacyGate;
 
         // Per-transport live session ledger so a disconnect (which carries only the transport handle) can
         // deterministically close the exact (peerKey, account, session) it opened. Serialized so a
@@ -50,11 +55,24 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             PilotAccountService accounts,
             PilotCharacterAdmissionService characters,
             BoundSessionPrincipalIndex boundSessions)
+            : this(accounts, characters, boundSessions, null)
+        {
+        }
+
+        /// <summary>Compose with a privacy fail-closed admission gate (t_f6c8c748). The gate is evaluated
+        /// FIRST on every admission; a closed pilot or uncataloged/expired world fixture rejects before any
+        /// account resolution so nothing binds.</summary>
+        public LiveSessionAdmission(
+            PilotAccountService accounts,
+            PilotCharacterAdmissionService characters,
+            BoundSessionPrincipalIndex boundSessions,
+            IPrivacyAdmissionGate? privacyGate)
         {
             _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
             _characters = characters ?? throw new ArgumentNullException(nameof(characters));
             if (boundSessions == null) throw new ArgumentNullException(nameof(boundSessions));
             _binder = new BoundSessionAdmission(characters, boundSessions);
+            _privacyGate = privacyGate;
         }
 
         private readonly struct LiveSession
@@ -90,6 +108,15 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
                 return LiveAdmissionResult.Fail(LiveAdmissionStage.Account, "ProviderSubjectInvalid");
             if (!profile.IsResolved)
                 return LiveAdmissionResult.Fail(LiveAdmissionStage.Character, "ProfileSubjectInvalid");
+
+            // 0) Privacy fail-closed gate FIRST (t_f6c8c748): a closed pilot or an uncataloged/expired/
+            //    purged world fixture rejects here, before any account resolution or bind, so nothing binds.
+            if (_privacyGate != null)
+            {
+                var privacyReject = _privacyGate.EvaluateAdmission(occurredAt);
+                if (privacyReject != PrivacyRejectionCode.None)
+                    return LiveAdmissionResult.Fail(LiveAdmissionStage.Privacy, privacyReject.ToString());
+            }
 
             opSeed ??= peerKey;
 
@@ -145,7 +172,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
     }
 
     /// <summary>Which stage of live admission a peer reached before rejection (fail-closed diagnostics).</summary>
-    public enum LiveAdmissionStage { None, PeerKey, Account, Admission, Character, Activation }
+    public enum LiveAdmissionStage { None, PeerKey, Privacy, Account, Admission, Character, Activation }
 
     /// <summary>The outcome of one end-to-end live admission. On success it carries the bound internal
     /// principal; on failure the stage + a stable, subject-free result code.</summary>

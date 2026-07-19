@@ -282,7 +282,9 @@ Processes:
 
 - ordinary security logs older than configured `SecurityLogRetentionDays` (shipped default 14);
 - closed account/pilot data older than configured `ClosedDataRetentionDays` (shipped default 30) unless a valid scoped hold exists;
-- every due `PilotDataArtifactRecord`, including backups, exports, journals, world fixture, logs, quarantine/reset records.
+- every due `PilotDataArtifactRecord`, including backups, exports, journals, world fixture, logs, and expiring quarantine records.
+
+Durable proof-class artifacts carry no retention deadline (`expiresAt <= 0`) and are treated as never-expiring: retention purge preserves them (e.g. the `ResetAudit` a scoped reset emits to prove removal). Zero/unset on an artifact's `expiresAt` means "no deadline / never sweep", never "already due" — a proof that a scoped reset happened must outlive the sweep.
 
 Each artifact reaches `Purged` only with a terminal receipt and artifact-specific evidence digest; aggregate counts alone are insufficient. Whole-fixture reset emits a new clean `PilotPurgeCertificate` with artifact IDs/evidence digests but no account/character/provider/profile selectors. Returns counts/evidence IDs by category, not player/provider identifiers.
 
