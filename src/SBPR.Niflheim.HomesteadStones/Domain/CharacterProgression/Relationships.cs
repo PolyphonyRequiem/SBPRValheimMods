@@ -442,7 +442,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             if (!replaced) rels.Add(record);
 
             return new CharacterStoneRecord(sr.StoneId, sr.PersonalAp, sr.CumulativeAp, sr.PersonalBp,
-                sr.FacetCredits, sr.Purchases, rels);
+                sr.FacetCredits, sr.Purchases, rels, sr.SkillCapChoices);
         }
     }
 }
