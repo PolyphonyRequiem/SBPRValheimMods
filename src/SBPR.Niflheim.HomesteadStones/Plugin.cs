@@ -91,6 +91,32 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdmin));
             harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningConsole));
 
+            // T016 shared runtime substrate — the BOUNDED server→client Local Effect activation delivery
+            // transport (per-peer request/snapshot ZRpc). The T016 PR (#368) shipped this observer class but
+            // never installed its Harmony patches, so the channel was dead: server never registered the
+            // request handler and clients never received snapshots. Registering it here is what actually makes
+            // the replicated activation read model reach a joined client — the precondition for every
+            // gameplay-family consumer (Refined Workshop below, and the later Savor/Practice/T.W.I.G.).
+            harmony.PatchAll(typeof(Features.Progression.LocalActivationDeliveryObserver));
+
+            // T021 Refined Workshop — the CLIENT-side consumer that wires the shipped, engine-free
+            // EffectiveStationLevelProvider into the vanilla crafting runtime. It postfixes the
+            // Player.RequiredCraftingStation level gate (rescuing an eligible-portable level-only shortfall
+            // with the effective +1 when the Refined Workshop Local Effect is active for the local occupant,
+            // read from the replicated activation cache — fail closed) and the InventoryGui requirement UI
+            // (recoloring the required-level text when the +1 satisfies it, so real vs +1 is visible). Every
+            // decision routes through the same pure provider; structure/build gates are never eligible ops.
+            harmony.PatchAll(typeof(Features.Progression.RefinedWorkshopStationLevelPatch));
+
+            // T025-RT — Archer / Practice Range runtime seam. Registers the Practice Arrow item + its
+            // 100-for-8-Wood recipe, wires the deterministic vanilla target return (ArrowPractice added to
+            // ArcheryTarget.m_returnAmmo), and adds the exact vanilla piece_ArcheryTarget build piece to
+            // the Hammer table. The per-attempt placement capability AND (active Local Effect AND ordinary
+            // build Permission, spec FR-016) is enforced by the placement gate. 0 ammo damage is data-
+            // driven (zero-damage Ammo item) so the bow's own draw damage is retained with no patch.
+            harmony.PatchAll(typeof(Features.Archer.ArcherContentRegistrar));
+            harmony.PatchAll(typeof(Features.Archer.ArcheryTargetPlacementGate));
+
             // T016 — Savor the Hearth live food-timer delivery seam. The net48 Player.UpdateFood prefix
             // scales ONLY the elapsed food-drain slice for the local player by the shipped
             // SavorTheHearthProvider factor (0.5 active / 1.0 otherwise), reading the established active

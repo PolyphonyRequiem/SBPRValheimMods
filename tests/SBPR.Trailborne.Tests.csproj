@@ -253,6 +253,21 @@
          playtest admin/console seam (Features/Cooking/) reference Valheim and are NOT link-compiled — only
          this pure resolver is exercised under net8. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/SavorFoodDrainResolver.cs" />
+    <!-- T025 (Tracer 7, Archer node 1/3): the engine-free Practice Range Local placement/recipe
+         capability provider. Reuses the T014 LocalEffectActivationView to derive whether the Practice
+         Range Local Effect is active for an occupant, ANDs it with ordinary build Permission to expose
+         the exact vanilla Archery Target placement + Practice Arrow recipe (100 for 8 Wood, 0 ammo
+         damage, bow damage retained), and makes the deterministic vanilla target-return decision the
+         later Fletcher's Habit roll (T027) yields to. Engine-free. Named acceptance AT-PRACTICE-RANGE,
+         AT-PRACTICE-ARROW-DAMAGE, AT-TARGET-RETURN. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/PracticeRangeProvider.cs" />
+    <!-- Homestead progression Tracer 6 (T021, US4): Refined Workshop real-versus-effective station-level
+         policy. The pure crafting adapter surface (Adapters/Crafting/EffectiveStationLevelProvider.cs)
+         composes over the shipped LocalEffectActivationView to grant +1 EFFECTIVE station level only for
+         eligible portable-item production/upgrade/repair inside the active Homestead, never mutating the
+         real observed level and never affecting structure/build gates. Engine-free; the crafting nodes
+         T022–T023 extend this same adapter surface. Named acceptance AT-REFINED-REAL-VS-EFFECTIVE. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/EffectiveStationLevelProvider.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
