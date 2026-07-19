@@ -4,9 +4,11 @@ status: current
 
 # T025 Practice Range — machine manifest
 
-Node: Archer / Practice Range (Local Effect, executable). Joined-client proof
-PENDING owner clearance (live `valheim.x86_64` running at implementation time;
-safety gate preserves the occupied client). Engine-free vertical shipped green.
+Node: Archer / Practice Range (Local Effect, executable). R2 joined-client /
+data-layer proof: **PASS** (data layer verified on isolated headless server at
+head `22600ff`; client-only placement-UX last mile REASONED — see
+[R2-joined-client-proof.md](R2-joined-client-proof.md)). Engine-free vertical
+shipped green.
 
 | id | claim | artifact |
 |----|-------|----------|
