@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using BepInEx;
 using HarmonyLib;
+using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Application.Commands;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
@@ -49,6 +50,41 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                     "[Niflheim/HomesteadStones] Foundational live runtime composed (server-authoritative). " +
                     $"durable='{durableDir}' observed={server.Runtime.Log.TotalObserved} " +
                     $"rehydratedReceipts={server.Receipts.DurableOperationIds().Count}.");
+
+                // T016 shared runtime substrate: compose the LIVE Local progression runtime over the SAME
+                // durable directory + the Foundational server's shared character/authority stores and
+                // relationship handler. This wires the accepted Facet/Development/LocalPolicy handlers +
+                // the LocalActivationService into the live server so a Local node can actually reach
+                // Developed at runtime and per-occupant activation can be derived + delivered (the whole
+                // substrate the T021 investigation found was never composed). The Stone aggregate store is
+                // seeded in-memory and rehydrated from the four durable progression journals at handler
+                // construction; production shares it alongside the world Stone ZDO.
+                try
+                {
+                    var stoneAggregates = new InMemoryStoneAggregateStore();
+                    var ownerAuthority = new ServerHomesteadOwnerAuthority(
+                        stone => LocalProgressionObserver.OwnerByStone.TryGetValue(stone.Value, out var acct) ? acct : null);
+
+                    var localServer = LocalProgressionServer.Create(
+                        durableDir,
+                        stones: stoneAggregates,
+                        characters: server.Characters,
+                        authority: server.Authority,
+                        relationships: server.Relationships,
+                        familyResolver: ServerHomesteadFamilyResolver.Instance,
+                        governorAuthority: ServerHomesteadGovernorAuthority.Instance,
+                        developmentAuthority: ServerHomesteadDevelopmentAuthority.Instance,
+                        ownerAuthority: ownerAuthority);
+
+                    LocalProgressionObserver.Server = localServer;
+                    Plugin.Log.LogInfo(
+                        "[Niflheim/HomesteadStones] Local progression runtime composed (server-authoritative). " +
+                        $"durable='{durableDir}'.");
+                }
+                catch (Exception lex)
+                {
+                    Plugin.Log.LogError("[Niflheim/HomesteadStones] Local progression composition failed: " + lex);
+                }
             }
             catch (Exception ex)
             {
@@ -64,6 +100,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             {
                 composedFor = null;
                 FoundationalPlacementObserver.Server = null;
+                LocalProgressionObserver.Clear();
             }
         }
 

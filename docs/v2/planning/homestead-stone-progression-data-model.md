@@ -285,6 +285,13 @@ No result from this view is persisted as an independently mutable authority. Run
 visibility, placement capabilities, skill-cap providers, item properties, and timing modifiers are delivery
 mechanisms refreshed from this view.
 
+**Implementation (shared Local Effect runtime substrate, `t_02c13405`).** The per-occupant Local delivery is a
+fresh derivation, never a stored ledger: `Application/Activation/LocalActivationService.Derive` builds a
+`LocalActivationSnapshot` from `LocalEffectActivationView` each time, and the only state it keeps is a
+monotonic per-occupant delivery sequence (delivery ordering metadata, not gameplay authority). A restart
+re-derives identical active/dormant status from the durable Stone journals; the sequence resetting cannot
+resurrect a stale effect because the derivation, not the sequence, is authoritative.
+
 ## ProgressionReadModel
 
 One Stone-identity projection suitable for the temporary local panel and future Stones UI.

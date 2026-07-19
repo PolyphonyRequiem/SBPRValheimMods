@@ -553,6 +553,21 @@ After a committed operation, publish a bounded invalidation/event containing sta
 and result code. Do not broadcast entire character ledgers or trust notification order as authority. Clients
 that miss or reorder notifications fetch the current read model.
 
+**Implementation (shared Local Effect runtime substrate, `t_02c13405`).** The bounded delivery seam is
+`Application/Activation/LocalActivationDelivery.cs` + `LocalActivationService.cs` + `LocalActivationClientCache.cs`:
+
+- `LocalActivationNotification` is the bounded invalidation event: stable `StoneId` + occupant `AccountId`, the
+  new Stone and policy revisions, a monotonic per-occupant delivery `Sequence`, and a result code — never the
+  full read model, never a copied active-state ledger.
+- `LocalActivationSnapshot` is the per-occupant read model a client refetches. It is a pure projection of
+  `LocalEffectActivationView` (Stone-owned developed state + derived active/dormant/policy-eligible per Local
+  node) carrying the authoritative revisions + delivery sequence. `Denied(...)` is the fail-closed empty,
+  all-inactive snapshot returned when authority is missing/stale.
+- The client cache applies a snapshot only when its `Sequence ≥` the last applied one (stale/reordered
+  dropped) and decides refetch from a notification whose sequence or revisions moved ahead. Clients never
+  author activation. The net48 transport is `Features/Progression/LocalActivationDeliveryObserver.cs` (client
+  requests by Stone id + server-observed position; server derives from authoritative state and replies).
+
 ## Security and hostile-client contract
 
 The verifier must attempt:
