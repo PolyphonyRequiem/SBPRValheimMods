@@ -382,6 +382,10 @@
          player-safe export. Engine-free (System.* + LINQ), link-compiled here and shipped under net48. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Accounts/PilotRetentionPolicy.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotPrivacyService.cs" />
+    <!-- IAP-013 (Tracer 5): destructive privacy lifecycle — delete/purge, retention purge, backup purge,
+         explicit + whole-fixture reset (key-epoch rotation + selector-free purge certificate), quarantine,
+         and no-time-travel. Engine-free (System.*+LINQ). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotDestructionService.cs" />
     <!-- RD-T004 (Tracer 1): qualifying loyalty sources — the pure role-pairing rule and the durable,
          event-sourced Connection source coordinator. Named acceptance AT-RD-002. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/QualifyingSourceRule.cs" />
