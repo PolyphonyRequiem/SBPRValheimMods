@@ -126,7 +126,22 @@ Character semantics) and the new `IsOwned` (developed AND purchased, relationshi
 independent — Permanent semantics), proven in `tests/NiflheimFletchersHabitTests.cs`
 (a relationship-dormant snapshot reports `IsOwned == true`, `IsActive == false`).
 
-## Joined-client / in-world artifact — status: PENDING owner clearance
+## Joined-client / in-world artifact — status: BLOCKED (see R2-joined-client-verdict.md)
+
+> **Update (QA card `t_275c5173`, @ 9b48670):** the owner in-world proof this section
+> defers was attempted on a real GUI client under cleared safety gate and found
+> **structurally unreachable** — no runtime seam (gameplay or QA) can make a character
+> OWN Fletcher's Habit (develop + purchase) on a joined client, so the owner recovery
+> matrix cannot be captured at this head. The T027 recovery gate is loaded + Harmony-
+> patched live and the live net48 provider resolves every decision branch correctly
+> (including exact-provenance recovery and target-return suppression), but that is
+> decision-logic verification, not the human-pixel owner proof. Full analysis, reachable
+> in-world evidence, and the required remediation are in
+> [`R2-joined-client-verdict.md`](R2-joined-client-verdict.md). PR #380 stays open,
+> unmerged, pending a Fletcher's Habit ownership-provisioning seam + a subsequent owner
+> in-world proof.
+
+## Joined-client / in-world artifact — original authoring note: PENDING owner clearance
 
 Everything server-authoritative and client-consumable is verified at the unit +
 layer level: the one-authoritative-result decision, exact-provenance recovery,

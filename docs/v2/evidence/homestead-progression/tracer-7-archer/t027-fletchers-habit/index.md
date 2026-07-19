@@ -8,8 +8,9 @@ Node: Archer / Fletcher's Habit (Permanent Effect, personal Offered, executable)
 Acceptance: `AT-FLETCHER-HIT-LIFECYCLE`, `AT-FLETCHER-NO-DUP`. First personal
 Permanent Effect: ownership is durable (developed + purchased), relationship-
 independent (spec line 130 / line 260). Engine-free vertical + host/pure-client
-runtime seam shipped green. Joined-client in-world recovery pending T028. Logs-green
-is never playability.
+runtime seam shipped green. Joined-client owner in-world recovery **BLOCKED** — no
+runtime seam provisions Fletcher's Habit ownership on a joined client
+(`R2-joined-client-verdict.md`). Logs-green is never playability.
 
 | id | claim | artifact |
 |----|-------|----------|
@@ -27,3 +28,4 @@ is never playability.
 | T12 | No new SBPR recipe/buildable (patches vanilla arrow recovery), so the SpecCheck recipe manifest count is unchanged | `src/SBPR.Trailborne/Runtime/SpecCheck.cs` (unchanged) |
 
 - [README.md](README.md) — full node writeup
+- [R2-joined-client-verdict.md](R2-joined-client-verdict.md) — joined-client / in-world QA verdict (BLOCKED: ownership unreachable)
