@@ -45,10 +45,32 @@ namespace SBPR.Niflheim.HomesteadStones.Adapters.Cooking
     // like the sibling adapters (CookingProviders, CookingCraftPolicy, PracticeRangeProvider,
     // EffectiveStationLevelProvider).
 
-    /// <summary>The resolved Iron Stomach food-refresh capability for one caller. Pure projection:
-    /// whether the durable Permanent Effect is acquired, the resulting refresh/replacement threshold,
-    /// and the preserved-invariant markers (three slots, normal debit/stats/duration). Carries no
-    /// mutable state — flip the acquisition and re-derive with zero writes.</summary>
+    /// <summary>What the net48 <c>Player.EatFood</c> seam must do for a single eat attempt, once the pure
+    /// Iron Stomach capability is resolved for the acting occupant. This is the engine-free heart of the
+    /// inner-guard fix: vanilla <c>Player.EatFood</c> independently re-checks <c>Player.Food.CanEatAgain()</c>
+    /// (== remaining &lt; 0.5) inside its same-food branch and REFUSES the refresh above 50% remaining even
+    /// when the outer <c>Player.CanEat</c> was already rescued — so a durable Iron Stomach at, say, 60%
+    /// remaining left <c>EatFood</c> returning false while <c>Humanoid.ConsumeItem</c> debited the item
+    /// anyway (the shipped defect). This disposition tells the seam exactly when to REPLACE that refused
+    /// inner branch with the same refresh vanilla would have performed at &lt; 50%.</summary>
+    public enum IronStomachEatDisposition
+    {
+        /// <summary>Do nothing — run vanilla <c>Player.EatFood</c> unchanged. Covers: Iron Stomach not
+        /// acquired; no matching food already in a slot (new-food / three-slot logic is pure vanilla and
+        /// never touched); the food is below the vanilla 0.5 threshold (vanilla already refreshes it); and
+        /// the food is above the Iron Stomach 0.75 threshold (too fresh — vanilla's refusal is the correct
+        /// deny, and the outer gate never rescued it so no item is debited).</summary>
+        PassThroughToVanilla = 0,
+
+        /// <summary>Perform the SAME same-food refresh vanilla runs below 0.5 — reset the matching slot's
+        /// duration/health/stamina/eitr from the item and force a food update — because the food sits in
+        /// the raised 0.5..0.75 band that only durable Iron Stomach unlocks. The seam does this in place of
+        /// the refused vanilla inner branch and reports success so the normal one-item debit proceeds
+        /// exactly once. Slots, debit, stats, and duration remain vanilla; only the refresh THRESHOLD
+        /// moved.</summary>
+        RescueSameFoodRefresh = 1,
+    }
+
     public readonly struct FoodRefreshCapability
     {
         public FoodRefreshCapability(bool acquired, double threshold)
@@ -163,6 +185,52 @@ namespace SBPR.Niflheim.HomesteadStones.Adapters.Cooking
         /// this caller under the resolved threshold. Inclusive at the boundary.</summary>
         public bool CanRefresh(CharacterProgressionAggregate character, double remainingFraction) =>
             Resolve(character).CanRefresh(remainingFraction);
+
+        /// <summary>The engine-free decision the net48 <c>Player.EatFood</c> inner-guard seam delegates
+        /// here for ONE eat attempt. This is the fix for the shipped defect: the outer <c>Player.CanEat</c>
+        /// postfix rescues the attempt, but vanilla <c>Player.EatFood</c> then re-checks
+        /// <c>Player.Food.CanEatAgain()</c> (remaining &lt; <see cref="VanillaBaselineThreshold"/>) in its
+        /// same-food branch and refuses the refresh above 50% remaining — so the item is debited by
+        /// <c>Humanoid.ConsumeItem</c> with no refresh (no-loss violation). This method says when the seam
+        /// must instead perform the refresh in place of that refused branch.
+        ///
+        /// Returns <see cref="IronStomachEatDisposition.RescueSameFoodRefresh"/> ONLY when ALL hold:
+        ///   * Iron Stomach is durably acquired (<paramref name="capability"/>.Acquired);
+        ///   * a MATCHING food is already in a slot (<paramref name="matchingFoodPresent"/>) — the new-food
+        ///     and three-slot paths are pure vanilla and never touched;
+        ///   * the matching food is ABOVE the vanilla baseline (vanilla would already refresh it below 0.5,
+        ///     so the seam must not double-refresh) AND at/below the Iron Stomach threshold — i.e. the exact
+        ///     raised band (VanillaBaselineThreshold, IronStomachThreshold].
+        /// In every other case it returns <see cref="IronStomachEatDisposition.PassThroughToVanilla"/> so
+        /// vanilla runs unchanged (deny above 0.75, normal refresh below 0.5, vanilla three-slot/new-food
+        /// handling, and the fail-closed no-Iron-Stomach case).</summary>
+        public IronStomachEatDisposition DecideEat(
+            FoodRefreshCapability capability, bool matchingFoodPresent, double remainingFraction)
+        {
+            if (!capability.Acquired) return IronStomachEatDisposition.PassThroughToVanilla;
+            if (!matchingFoodPresent) return IronStomachEatDisposition.PassThroughToVanilla;
+
+            // Below the vanilla baseline vanilla ALREADY refreshes (Food.CanEatAgain is a strict
+            // remaining < 0.5), so the seam must never double-handle it. But vanilla's strictness means at
+            // EXACTLY the baseline it does NOT refresh, while the outer CanEat postfix DID rescue it
+            // (CanRefresh is inclusive: 0.5 <= 0.75) — so to avoid a no-loss gap the seam must own the whole
+            // rescued band, inclusive at the baseline floor: [VanillaBaselineThreshold, IronStomachThreshold].
+            bool inRaisedBand =
+                remainingFraction >= VanillaBaselineThreshold &&
+                remainingFraction <= capability.Threshold;
+
+            return inRaisedBand
+                ? IronStomachEatDisposition.RescueSameFoodRefresh
+                : IronStomachEatDisposition.PassThroughToVanilla;
+        }
+
+        /// <summary>Convenience overload resolving the capability from the character first, then deciding
+        /// the eat disposition — the exact call the net48 seam makes against the authoritative host
+        /// projection.</summary>
+        public IronStomachEatDisposition DecideEat(
+            CharacterProgressionAggregate character, bool matchingFoodPresent, double remainingFraction) =>
+            DecideEat(Resolve(character), matchingFoodPresent, remainingFraction);
+
 
         /// <summary>Whether the character durably holds Iron Stomach: a purchase record for the exact
         /// Iron Stomach node identity whose outcome class is the durable Permanent Effect class. Matches

@@ -270,5 +270,133 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(3, none.FoodSlots);
             Assert.True(none.PreservesNormalDebitStatsDuration);
         }
+
+        // ── EatFood INNER-GUARD disposition (the shipped defect's fix) ──────────────────────────────────
+        //
+        //  These pin the engine-free decision the net48 Player.EatFood PREFIX delegates to. The shipped
+        //  T018 only rescued the OUTER Player.CanEat; vanilla Player.EatFood then independently re-checks
+        //  Food.CanEatAgain() (remaining < 0.5) inside its same-food branch and refuses the refresh above
+        //  50% remaining — so a durable Iron Stomach at 60% remaining had CanEat=True but EatFood=False,
+        //  and Humanoid.ConsumeItem debited the item anyway (no-loss violation). DecideEat says exactly when
+        //  the seam must perform the refresh in place of that refused vanilla branch. Control at 40% (below
+        //  0.5) must PASS THROUGH — vanilla already refreshes there, the seam must never double-handle it.
+
+        [Fact]
+        public void DecideEat_InRaisedBand_WithIronStomach_RescuesTheRefresh()
+        {
+            // The exact live-QA failure: 60% remaining, durable Iron Stomach, matching food already in a
+            // slot. Vanilla EatFood refuses (0.60 !< 0.5); the seam must rescue and perform the refresh so
+            // the debited item is not lost.
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            var d = _provider.DecideEat(withIron, matchingFoodPresent: true, remainingFraction: 0.60);
+
+            Assert.Equal(IronStomachEatDisposition.RescueSameFoodRefresh, d);
+        }
+
+        [Fact]
+        public void DecideEat_InRaisedBand_WithoutIronStomach_PassesThroughToVanilla()
+        {
+            // Fail-closed: no durable Iron Stomach ⇒ the seam must NOT rescue; vanilla's 0.5 refusal stands
+            // (and CanEat was never rescued, so ConsumeItem never debits — no loss).
+            var vanilla = BuildCharacter(ironStomachAcquired: false);
+
+            var d = _provider.DecideEat(vanilla, matchingFoodPresent: true, remainingFraction: 0.60);
+
+            Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla, d);
+        }
+
+        [Fact]
+        public void DecideEat_BelowVanillaBaseline_PassesThroughToVanilla_NoDoubleRefresh()
+        {
+            // The CONTROL from the QA log: 40% remaining. Vanilla EatFood ALREADY refreshes below 0.5, so
+            // the seam must pass through and let vanilla handle it — never a second refresh, never a second
+            // debit. Holds with or without Iron Stomach.
+            foreach (var acquired in new[] { true, false })
+            {
+                var character = BuildCharacter(ironStomachAcquired: acquired);
+                var d = _provider.DecideEat(character, matchingFoodPresent: true, remainingFraction: 0.40);
+                Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla, d);
+            }
+        }
+
+        [Fact]
+        public void DecideEat_AboveIronStomachThreshold_PassesThroughToVanilla_VanillaDenies()
+        {
+            // Above 0.75 the food is too fresh: the outer CanEat is NOT rescued, so CanConsumeItem denies
+            // and no item is debited. The EatFood prefix must also pass through so vanilla's deny stands —
+            // no rescue, no mutation.
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            var d = _provider.DecideEat(withIron, matchingFoodPresent: true, remainingFraction: 0.90);
+
+            Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla, d);
+        }
+
+        [Fact]
+        public void DecideEat_BandBoundaries_AreExact()
+        {
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            // At exactly the vanilla baseline (0.5): vanilla's Food.CanEatAgain() is STRICT (m_time <
+            // burn/2), so at exactly 0.5 vanilla does NOT refresh — yet the outer CanEat postfix DID rescue
+            // it (0.5 <= 0.75). To avoid a no-loss gap the seam must own this boundary and rescue it.
+            Assert.Equal(IronStomachEatDisposition.RescueSameFoodRefresh,
+                _provider.DecideEat(withIron, true, 0.50));
+            // Just above baseline: the seam owns it.
+            Assert.Equal(IronStomachEatDisposition.RescueSameFoodRefresh,
+                _provider.DecideEat(withIron, true, 0.5000001));
+            // Just below baseline: vanilla already refreshes — pass through, no double-handling.
+            Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla,
+                _provider.DecideEat(withIron, true, 0.4999999));
+            // At exactly the Iron Stomach threshold (0.75): inclusive — the seam rescues ("refresh at 75%").
+            Assert.Equal(IronStomachEatDisposition.RescueSameFoodRefresh,
+                _provider.DecideEat(withIron, true, 0.75));
+            // Just above 0.75: too fresh — pass through, vanilla denies.
+            Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla,
+                _provider.DecideEat(withIron, true, 0.7500001));
+        }
+
+        [Fact]
+        public void DecideEat_NoMatchingFood_PassesThroughToVanilla_SlotsUntouched()
+        {
+            // No matching food already in a slot ⇒ this is vanilla's new-food / three-slot path, which the
+            // seam NEVER touches (three slots preserved, no fourth). Even with Iron Stomach in the raised
+            // band, the disposition is pass-through.
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            var d = _provider.DecideEat(withIron, matchingFoodPresent: false, remainingFraction: 0.60);
+
+            Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla, d);
+        }
+
+        [Fact]
+        public void DecideEat_RescueBand_SurvivesRelationshipLoss_AndRestart()
+        {
+            // The rescue is a Permanent-Effect decision: it keys on the durable purchase alone. It holds
+            // after a serialized restart round-trip (durability is structural), matching the provider's
+            // Resolve durability guarantees — so the inner-guard fix inherits the same durability.
+            var character = BuildCharacter(ironStomachAcquired: true);
+            var restored = CharacterProgressionAggregate.Deserialize(character.Serialize());
+
+            Assert.Equal(IronStomachEatDisposition.RescueSameFoodRefresh,
+                _provider.DecideEat(restored, matchingFoodPresent: true, remainingFraction: 0.60));
+        }
+
+        [Fact]
+        public void DecideEat_CapabilityOverload_AgreesWithCharacterOverload()
+        {
+            // The capability-first overload (what the seam uses when it already resolved the capability) and
+            // the character-first convenience overload must agree for the same inputs.
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+            var cap = _provider.Resolve(withIron);
+
+            foreach (var frac in new[] { 0.30, 0.50, 0.60, 0.75, 0.90 })
+            {
+                Assert.Equal(
+                    _provider.DecideEat(cap, true, frac),
+                    _provider.DecideEat(withIron, true, frac));
+            }
+        }
     }
 }

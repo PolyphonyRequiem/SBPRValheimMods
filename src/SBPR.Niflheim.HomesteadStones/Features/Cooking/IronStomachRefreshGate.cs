@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Adapters.Cooking;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
+using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
 using SBPR.Niflheim.HomesteadStones.Features.Progression;
 using UnityEngine;
@@ -21,16 +22,27 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Cooking
     ///
     /// WHAT THIS BRIDGES (decomp seam — vanilla is fair game to read/adapt, AGENTS.md / ADR-0001):
     ///   * <c>Player.CanEat(ItemDrop.ItemData item, bool showMessages)</c> — the gate <c>Player.EatFood</c>
-    ///     and the inventory UI consult before allowing a food to be (re-)eaten. Vanilla's per-food
-    ///     "already have this, can I refresh it?" decision is <c>Player.Food.CanEatAgain()</c> ==
+    ///     and <c>Player.CanConsumeItem</c> consult before allowing a food to be (re-)eaten. Vanilla's
+    ///     per-food "already have this, can I refresh it?" decision is <c>Player.Food.CanEatAgain()</c> ==
     ///     <c>m_time &lt; m_foodBurnTime / 2f</c> — i.e. refresh allowed only once the remaining fraction
-    ///     drops below 0.5 (the vanilla baseline threshold). This postfix RESCUES a vanilla FALSE to TRUE
-    ///     when (and only when) the refusal was caused solely by an ALREADY-PRESENT matching food whose
+    ///     drops below 0.5 (the vanilla baseline threshold). The CanEat postfix RESCUES a vanilla FALSE to
+    ///     TRUE when (and only when) the refusal was caused solely by an ALREADY-PRESENT matching food whose
     ///     remaining fraction is at or below the Iron Stomach threshold (0.75) but above the vanilla 0.5 —
-    ///     the exact "refresh at 75% remaining" band. When vanilla already PASSED we never flip it to
-    ///     false; we never touch the three-slot cap or the "different food, slots full" refusal (those are
-    ///     the preserved slots/debit invariants), only the remaining-duration refresh threshold for a food
-    ///     the player already holds.
+    ///     the exact "refresh at 75% remaining" band. This unlocks the CanConsumeItem entry so the eat can
+    ///     proceed; above 0.75 CanEat is NOT rescued, so CanConsumeItem still denies and no item is debited.
+    ///   * <c>Player.EatFood(ItemDrop.ItemData item)</c> — the INNER guard. Rescuing CanEat is NOT enough:
+    ///     vanilla EatFood INDEPENDENTLY re-checks <c>Food.CanEatAgain()</c> at the same hardcoded 0.5 inside
+    ///     its same-food branch (decomp: <c>if (food2.CanEatAgain()) { refresh; return true; } return false;</c>).
+    ///     So at, e.g., 60% remaining, the rescued CanEat lets <c>Humanoid.ConsumeItem</c> pass and debit the
+    ///     item via <c>inventory.RemoveOneItem</c>, but EatFood returns false WITHOUT refreshing — the item
+    ///     is consumed with no effect (the shipped defect, live-QA proven). The EatFood PREFIX closes this:
+    ///     when the durable Iron Stomach projection says the matching food is in the raised 0.5..0.75 band,
+    ///     it performs EXACTLY the refresh vanilla runs below 0.5 (reset the matching slot's
+    ///     m_time/health/stamina/eitr from the item, forceUpdate the food), reports success, and skips
+    ///     vanilla so the single debit proceeds once. When vanilla already PASSES (below 0.5) or should DENY
+    ///     (above 0.75) the prefix does nothing and vanilla runs unchanged. We never add a fourth slot, never
+    ///     touch the three-slot cap or the most-depleted replacement, and mutate only the already-present
+    ///     matching slot — the identical fields vanilla's below-0.5 branch writes, only the THRESHOLD moved.
     ///
     /// PRESERVED INVARIANTS (contracts.md "three slots and normal food debit remain"; research.md
     /// "preserves three slots, debit, stats, and duration"): this seam changes ONLY the refresh-threshold
@@ -122,13 +134,114 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Cooking
         /// false (foods keep the vanilla 0.5 threshold). No client-supplied claim is ever trusted.</summary>
         private static bool ResolveCanRefreshForLocalOccupant(float remainingFraction)
         {
+            var character = ResolveLocalOccupantCharacter();
+            if (character == null) return false;
+
+            // Single authority: the shipped, unit-tested pure projection keyed on the durable purchase.
+            return Provider.CanRefresh(character, remainingFraction);
+        }
+
+        /// <summary>Prefix on <c>Player.EatFood</c> — the INNER-GUARD fix. The outer <see cref="CanEat_Postfix"/>
+        /// only rescues <c>Player.CanEat</c>, but vanilla <c>Player.EatFood</c> INDEPENDENTLY re-checks
+        /// <c>Player.Food.CanEatAgain()</c> (== remaining &lt; 0.5) inside its same-food branch and refuses
+        /// the refresh above 50% remaining. With a durable Iron Stomach at, e.g., 60% remaining vanilla
+        /// <c>CanEat</c> is rescued to TRUE (so <c>CanConsumeItem</c> passes and <c>Humanoid.ConsumeItem</c>
+        /// debits the item), yet vanilla <c>EatFood</c> returns FALSE without refreshing — the item is lost
+        /// with no effect. This prefix reproduces EXACTLY the refresh vanilla performs below 0.5 (reset the
+        /// matching slot's m_time/health/stamina/eitr from the item, forceUpdate the food) when — and only
+        /// when — the durable Iron Stomach projection says this attempt sits in the raised 0.5..0.75 band,
+        /// then skips vanilla and reports success so the one-item debit proceeds exactly once.
+        ///
+        /// It NEVER touches the new-food path, the three-slot cap, or the most-depleted-replacement path
+        /// (those are left entirely to vanilla when it runs), and it mutates only the ALREADY-PRESENT
+        /// matching slot — the same fields, from the same item, that vanilla's below-0.5 branch writes.
+        /// Fails closed (returns true → run vanilla unchanged) off-host / without a durable purchase / on
+        /// any resolution gap.</summary>
+        [HarmonyPatch(typeof(Player), nameof(Player.EatFood))]
+        [HarmonyPrefix]
+        private static bool EatFood_Prefix(Player __instance, ItemDrop.ItemData item, ref bool __result)
+        {
+            try
+            {
+                if (__instance == null || item == null || item.m_shared == null) return true;
+                if (__instance != Player.m_localPlayer) return true;   // local player only, mirror the postfix.
+
+                // Locate the already-present matching food (vanilla's same-food branch subject). Only a food
+                // ALREADY in a slot is subject to the raised refresh threshold; new-food / three-slot logic
+                // stays 100% vanilla.
+                var foods = __instance.GetFoods();
+                if (foods == null) return true;
+                Player.Food match = null!;
+                foreach (var f in foods)
+                {
+                    if (f != null && f.m_item != null && f.m_item.m_shared != null &&
+                        f.m_item.m_shared.m_name == item.m_shared.m_name)
+                    {
+                        match = f;
+                        break;
+                    }
+                }
+                if (match == null) return true;                        // no matching food — pure vanilla path.
+
+                float burn = match.m_item.m_shared.m_foodBurnTime;
+                if (burn <= 0f) return true;
+                float remainingFraction = Mathf.Clamp01(match.m_time / burn);
+
+                var character = ResolveLocalOccupantCharacter();
+                if (character == null) return true;                    // fail closed → vanilla decides.
+
+                var disposition = Provider.DecideEat(character, matchingFoodPresent: true, remainingFraction);
+                if (disposition != IronStomachEatDisposition.RescueSameFoodRefresh)
+                    return true;                                       // below 0.5 vanilla refreshes; above 0.75 vanilla denies.
+
+                // In the raised (0.5..0.75] band: perform EXACTLY vanilla's below-0.5 same-food refresh, then
+                // suppress vanilla and report success so the single debit in ConsumeItem proceeds once. Same
+                // fields, same source item — slots/debit/stats/duration remain vanilla; only the threshold moved.
+                match.m_time = item.m_shared.m_foodBurnTime;
+                match.m_health = item.m_shared.m_food;
+                match.m_stamina = item.m_shared.m_foodStamina;
+                match.m_eitr = item.m_shared.m_foodEitr;
+                InvokeUpdateFood(__instance);
+                __result = true;
+                return false;                                          // skip vanilla EatFood — we handled this attempt.
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning("[Niflheim/Cooking] Iron Stomach EatFood prefix threw (ignored, running vanilla): " + ex.Message);
+                return true;                                           // fail closed → run vanilla unchanged.
+            }
+        }
+
+        // Cached reflection handle for the private vanilla Player.UpdateFood(float, bool). Read via decomp
+        // (Player.EatFood calls UpdateFood(0f, forceUpdate: true) after a refresh); resolved once.
+        private static readonly System.Reflection.MethodInfo UpdateFoodMethod =
+            AccessTools.Method(typeof(Player), "UpdateFood", new[] { typeof(float), typeof(bool) });
+
+        /// <summary>Force the same post-refresh food recompute vanilla runs (<c>UpdateFood(0f, forceUpdate:
+        /// true)</c>) so the refreshed slot's derived stats settle identically. Best-effort: a resolution
+        /// gap is swallowed (the slot's duration/stat fields are already reset; the next tick recomputes).</summary>
+        private static void InvokeUpdateFood(Player player)
+        {
+            try { UpdateFoodMethod?.Invoke(player, new object[] { 0f, true }); }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning("[Niflheim/Cooking] Iron Stomach UpdateFood invoke failed (ignored): " + ex.Message);
+            }
+        }
+
+        /// <summary>Resolve the acting local occupant's durable character aggregate from the authoritative
+        /// HOST projection (the composed server's character store, keyed to the bound internal principal).
+        /// Returns null — the fail-closed signal — on a pure client (no server runtime), an unresolvable
+        /// identity, or an absent character aggregate. No client-supplied claim is ever trusted.</summary>
+        private static CharacterProgressionAggregate? ResolveLocalOccupantCharacter()
+        {
             var server = LocalProgressionObserver.Server;
-            if (server == null) return false;                       // pure client — no personal-effect snapshot yet.
+            if (server == null) return null;                        // pure client — no personal-effect snapshot yet.
 
             var foundational = FoundationalPlacementObserver.Server;
             var player = Player.m_localPlayer;
             var znet = ZNet.instance;
-            if (foundational == null || player == null || znet == null) return false;
+            if (foundational == null || player == null || znet == null) return null;
 
             // Acting bound INTERNAL principal (server-minted account/character), keyed by the same
             // player:<s_playerID> subject the character admission binds under — never the payload. Iron
@@ -138,17 +251,13 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Cooking
             string peerKey = ServerCreatorIdentity.CharacterSubject(actingPlayerId);
             if (string.IsNullOrEmpty(peerKey) ||
                 !foundational.BoundSessions.TryResolve(peerKey, out var principal))
-                return false;
+                return null;
 
             var occupant = principal.Account;
             var character = principal.Character;
-            if (string.IsNullOrEmpty(occupant.Value)) return false;
+            if (string.IsNullOrEmpty(occupant.Value)) return null;
 
-            var characterAgg = server.Characters.GetCharacter(occupant, character);
-            if (characterAgg == null) return false;
-
-            // Single authority: the shipped, unit-tested pure projection keyed on the durable purchase.
-            return Provider.CanRefresh(characterAgg, remainingFraction);
+            return server.Characters.GetCharacter(occupant, character);
         }
     }
 }
