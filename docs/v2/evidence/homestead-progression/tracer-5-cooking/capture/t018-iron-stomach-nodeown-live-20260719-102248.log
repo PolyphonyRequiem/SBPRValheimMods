@@ -1,0 +1,39 @@
+==================== QADiag T018 BEGIN ====================
+host lp=YES pid=974561124 isServer=True scene=main
+composed servers present: lp=LocalProgressionServer fp=FoundationalProgressionServer
+session bound: peerKey=player:974561124 BoundCount=1
+PHASE A DORMANT provider: Acquired=False Threshold=0.5 slots=3 preservesDebit=True
+test food: prefab-name='$item_honey' foodBurnTime=900.0 food=8.0 stam=35.0 eitr=0.0
+--- PHASE A DORMANT: live Player.CanEat sweep (expect vanilla 0.5: True only <=0.50) ---
+  [A/DORMANT] remain=0.80 CanEat=False
+  [A/DORMANT] remain=0.76 CanEat=False
+  [A/DORMANT] remain=0.75 CanEat=False
+  [A/DORMANT] remain=0.74 CanEat=False
+  [A/DORMANT] remain=0.60 CanEat=False
+  [A/DORMANT] remain=0.51 CanEat=False
+  [A/DORMANT] remain=0.50 CanEat=True
+  [A/DORMANT] remain=0.49 CanEat=True
+PHASE B ACTIVE provider: Acquired=True Threshold=0.75 slots=3 preservesDebit=True
+--- PHASE B ACTIVE: live Player.CanEat sweep (expect 0.75: True <=0.75, deny 0.76/0.80) ---
+  [B/ACTIVE] remain=0.80 CanEat=False
+  [B/ACTIVE] remain=0.76 CanEat=False
+  [B/ACTIVE] remain=0.75 CanEat=True
+  [B/ACTIVE] remain=0.74 CanEat=True
+  [B/ACTIVE] remain=0.60 CanEat=True
+  [B/ACTIVE] remain=0.51 CanEat=True
+  [B/ACTIVE] remain=0.50 CanEat=True
+  [B/ACTIVE] remain=0.49 CanEat=True
+--- PHASE C: three-slot cap under ACTIVE Iron Stomach (expect 4th distinct food DENIED) ---
+distinct foods: $item_honey, $item_mushroomyellow, $item_raspberries, $item_blueberries
+  slotsFilled=3 distinct4th='$item_blueberries' CanEat(4th)=False -> EXPECT False (no 4th slot) -> PASS
+  EatFood(4th distinct)=False foodCountAfter=3 -> EXPECT count stays 3 -> PASS
+--- PHASE D: debit/stats/duration on ACTIVE-band refresh (expect vanilla EatFood values) ---
+  pre-refresh remain=0.60 CanEat=True -> EXPECT True (ACTIVE rescue) -> PASS
+  EatFood(refresh)=False -> m_time=540.00/900.00 health=4.80/8.00 stam=21.00/35.00 eitr=0.00/0.00 slots=1
+  EXPECT time/health/stam/eitr all reset to food's normal values (vanilla debit) -> FAIL
+  EXPECT refresh keeps single slot (no new slot) -> PASS
+--- PHASE E CONTROL: EatFood at remain=0.40 (below vanilla 0.5) MUST refresh ---
+  remain=0.40 CanEat=True EatFood=True m_time=899.00/900.00 -> EXPECT refresh to full (harness OK) -> PASS
+VERDICT: CanEat gate (provider+postfix) raised to 0.75 correctly (PHASE A/B/C PASS); but in-world REFRESH in the 0.5..0.75 band FAILS because vanilla Player.EatFood re-checks the unpatched Food.CanEatAgain() 0.5 gate (PHASE D FAIL, PHASE E control confirms harness).
+restored original food slots count=0
+==================== QADiag T018 END ====================

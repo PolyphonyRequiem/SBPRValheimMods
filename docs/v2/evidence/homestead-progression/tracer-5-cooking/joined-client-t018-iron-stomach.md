@@ -2,117 +2,92 @@
 status: current
 ---
 
-# T018 Iron Stomach — food refresh-threshold proof (Cooking node 3 of 4)
+# T018 Iron Stomach — node-own JOINED-CLIENT live proof (Cooking node 3 of 4)
 
-- Task: `t_0b072a31` — T018 [US4] Implement Iron Stomach as a durable
-  refresh-threshold provider. Acceptance: `AT-IRON-STOMACH-75`.
-- Branch: `feat/hs-t018-iron-stomach` (off `origin/main@d5256ac`, which already
-  contains the merged T017 Field Prep Cooking policy `d5256ac` and the T016
-  Cooking adapter surface).
-- Safety: pre-work check for a user-owned graphical `valheim.x86_64` found NONE
-  (only the persistent dedicated `valheim_server.x86_64` infra + a Steam desktop
-  with no game running). No user session altered.
-- Fresh net48 DLL md5 (this run, HomesteadStones):
-  `4e82326612bda16e21a903440f6d5748`.
+- Task: `t_6b73a3de` (QA continuation 3) — close the T018 Iron Stomach node-own
+  live invariants for PR #378. Continuation of `t_0867cafd` / `t_0b072a31`.
+- Acceptance under test: `AT-IRON-STOMACH-75` (spec §US4 sc1 "Iron Stomach
+  permanently permits food refresh/replacement at 75% remaining").
+- Branch/head proved: `feat/hs-t018-iron-stomach` @ **c547532** (PR #378).
+- Raw capture: `capture/t018-iron-stomach-nodeown-live-20260719-102248.log`.
 
-## Verdict: PASS (provider + delivery-seam layer verified) — in-world refresh-at-75% last mile REASONED, to be observed at the QA/T020 rerun
+## Verdict: **FAIL — decision-grade product defect** (in-world refresh does not happen in the 0.5..0.75 band)
 
-Iron Stomach is a personal **Permanent Effect** that, once durably acquired,
-permanently raises the vanilla food refresh/replacement threshold from 50%
-remaining to **75% remaining** (spec §US4 sc1), while preserving the three food
-slots and the normal food debit, stats, and duration. Being a Permanent Effect
-it **survives relationship loss and Tree revocation** (data-model.md
-§CharacterProgression) — the raised threshold keys on the character's durable
-purchase record ALONE, with no relationship / Settlement-policy / build-Permission
-/ Stone-node-development conjunct.
+The `CanEat` **gate** is correctly raised to 0.75, but the actual in-world food
+**refresh** in the 0.5..0.75 band silently no-ops, because vanilla
+`Player.EatFood` re-checks an unpatched inner 0.5 guard. The acceptance criterion
+is **not met on a live host**. This was not caught by CI because the shipped 14
+unit tests + the `Player.CanEat` postfix only exercise the gate, never the
+vanilla `EatFood` refresh path — the classic "logs green ≠ playable" gap.
 
-This run verifies the layers a headless box can decisively prove, and states
-honestly which last mile is client-only.
+## Topology (node-own, not reasoned)
 
-## What was VERIFIED
+- Host: the GABS-owned graphical QA client (PID 486027, cgroup
+  `app.slice/gabs.service`, parent `gabs server`) hosting the isolated world
+  **`T018IronQA`** with character `Developer` (Odev). `IsServer=True`,
+  local playerID **974561124**, scene `main`. Production Niflheim (2456) and
+  Heistan (2466) untouched throughout.
+- **Byte-identical head proof:** the `SBPR.Niflheim.HomesteadStones.dll` loaded
+  in the live client is md5 `e3e4d19aab5167c7d7a14fd13d021de2`, identical to a
+  fresh Release build of the PR #378 worktree @ c547532. The live process runs
+  the exact reviewed assembly.
+- Instrument: a throwaway compiled BepInEx-free helper `SBPR.QADiag.T018`
+  (references the shipped SBPR public surface + base-game types) invoked via ONE
+  tiny `run_script` (`Assembly.LoadFrom(...).GetMethod("Run").Invoke`) so the
+  heavy establishment + live gate sweep never compiles through the in-client
+  Mono evaluator (the path that wedged the main thread in three prior runs). It
+  establishes a durable Iron Stomach purchase into the LIVE composed
+  `LocalProgressionServer.Characters`, binds the acting session
+  (`BoundSessions.Bind("player:974561124", …)`, BoundCount=1), then drives the
+  REAL `Player.CanEat` / `Player.EatFood` gates and reads back the live food
+  slots + health/stamina/eitr. Food slots restored afterward.
 
-### Build + suite (this run)
-- net48 `SBPR.Niflheim.HomesteadStones` Release: **0 warnings / 0 errors**.
-- net48 `SBPR.Trailborne` Release: **0 warnings / 0 errors**.
-- Full test suite: **1379 / 1379 passed** (baseline 1365 + 14 new Iron Stomach
-  provider tests).
-- `python3 scripts/docs-lint.py`: **OK — 204 docs checked**.
-- `git diff --check`: **clean**.
-- SpecCheck recipe manifest: **unchanged** (Iron Stomach ships no SBPR recipe).
+## What was OBSERVED (live)
 
-### Pure provider layer (`FoodRefreshThresholdProvider`, 14 tests)
-The engine-free provider is the single authority for the threshold decision, and
-its behavior is pinned by `tests/NiflheimIronStomachTests.cs`:
-- A durably-acquired Iron Stomach (purchase record, outcome class
-  `PermanentEffect`, exact `IronStomach@1` node identity) raises the threshold to
-  **0.75**; without it the threshold is the vanilla baseline **0.5**.
-- "Highest applicable provider wins" is a MAXIMUM composition: 0.5 ⊔ 0.75 = 0.75,
-  and a stronger baseline (0.9) is never lowered by the 0.75 candidate; the
-  no-candidate case returns the safe 0.5 floor, never a fabricated grant.
-- Refresh is permitted at exactly **75% remaining** (boundary-inclusive) and
-  denied just above it; in the 0.5..0.75 band only Iron Stomach refreshes, below
-  0.5 both do, above 0.75 neither does.
-- **Durability** (the load-bearing Permanent-Effect property): the raised
-  threshold survives relationship loss (the provider takes no authority argument
-  at all), survives a serialized-restart round-trip of the character aggregate,
-  and survives Tree revocation of development (the provider reads no Stone
-  aggregate — there is no development conjunct to lose).
-- A same-Stone Field Prep **Character-Effect** purchase is never mistaken for
-  Iron Stomach (exact node-identity + outcome-class match).
-- The three food slots (`FoodSlots == 3`) and normal debit/stats/duration
-  (`PreservesNormalDebitStatsDuration == true`) are preserved untouched.
+| Phase | Check | Result |
+|-------|-------|--------|
+| A DORMANT | provider Acquired=False, Threshold=0.5 | PASS |
+| A DORMANT | live `CanEat` sweep: False ≥0.51, True ≤0.50 (exact vanilla 0.5, fails closed) | PASS |
+| B ACTIVE | durable purchase established; provider Acquired=True, Threshold=0.75 | PASS |
+| B ACTIVE | live `CanEat` sweep: **False 0.80/0.76, True 0.75/0.74/0.60/0.51/0.50/0.49** (boundary-inclusive 0.75, deny-above) | PASS |
+| C SLOTS | 3 distinct foods filled; `CanEat(4th distinct)=False`, `EatFood(4th)=False`, count stays 3 (no fourth slot) | PASS |
+| D DEBIT/DUR | `CanEat(0.60)=True` but **`EatFood=False`, food NOT refreshed** (m_time stays 540/900; health/stam unchanged) | **FAIL** |
+| E CONTROL | same `EatFood` at 0.40 (vanilla band) DOES refresh (m_time→899≈900) → Phase-D FAIL is a real seam gap, not a harness artifact | PASS |
 
-### Delivery-seam wiring (`IronStomachRefreshGate`, net48)
-The net48 seam that makes the raised threshold manifest on a joined client is a
-Harmony **postfix on `Player.CanEat(ItemDrop.ItemData, bool)`** (armed in
-`Plugin.cs` via `harmony.PatchAll(typeof(Features.Cooking.IronStomachRefreshGate))`).
-Decomp basis (vanilla is fair game to read/adapt, AGENTS.md / ADR-0001): vanilla's
-per-food refresh predicate is `Player.Food.CanEatAgain()` == `m_time <
-m_foodBurnTime / 2f` (remaining fraction < 0.5, where `m_time` counts down from
-`m_foodBurnTime` — verified in `assembly_valheim.dll` `Player.UpdateFood`, which
-decrements `food.m_time -= 1f` each tick). The postfix:
-- rescues a vanilla FALSE to TRUE **only** when the refusal was caused by an
-  ALREADY-PRESENT matching food whose remaining fraction is at/below the Iron
-  Stomach threshold (0.75) — i.e. exactly the 0.5..0.75 "refresh at 75%
-  remaining" band;
-- never overrides a vanilla PASS, never touches the `m_foods.Count >= 3`
-  three-slot "different food, slots full" refusal (slots preserved), and mutates
-  no `m_time`/`m_health`/`m_stamina`/`m_eitr` (debit/stats/duration run entirely
-  in vanilla `EatFood`);
-- resolves the acquired verdict from the authoritative **host projection**
-  (`LocalProgressionObserver.Server`'s character store, keyed to the bound
-  internal principal), routing through the shipped pure provider — no
-  client-supplied claim is trusted.
+So three of the four T018 items — the raised **CanEat threshold** (0.75,
+boundary-inclusive, deny-above, durable/host-authoritative, fails-closed
+dormant), the **three food slots / no fourth slot**, and the **single-slot**
+refresh shape — hold live. The fourth — an actual **refresh** at up to 75%
+remaining that applies the food's normal debit/stats/duration — does **not**.
 
-## Honest scope — what is NOT yet observed in-world here
+## Root cause
 
-Iron Stomach is a personal Permanent Effect, and the bounded server→client
-delivery transport that Savor / Practice Range / Refined Workshop use carries
-LOCAL-effect snapshots only — there is not yet a personal-effect replication
-channel. So the seam reads the authoritative projection where it EXISTS
-in-process: on the authoritative **host** (listen-server / singleplayer host) the
-composed server holds the character store and the gate resolves the durable
-purchase directly. On a **pure remote client** the server runtime is null and the
-gate **fails closed** (foods keep the vanilla 0.5 threshold) rather than inventing
-an unauthenticated grant. The proven topology for T018 is therefore the host
-occupant; a personal-effect client delivery channel is a separate follow-up,
-exactly as the sibling Field Prep / Field Fletching / Refined Workshop seams
-documented their host-only scope.
+`Features/Cooking/IronStomachRefreshGate.cs` is a Harmony **postfix on
+`Player.CanEat(ItemDrop.ItemData, bool)` only**. Vanilla, however, decides the
+refresh in two independent places:
 
-The in-world last mile — a host occupant with a durable Iron Stomach observing a
-food become re-eatable at up to 75% remaining while a non-acquiring occupant
-cannot — is the node's own joined-client artifact, to be captured at the
-independent Tracer-5 verification (T020) on the isolated throwaway-server topology
-the sibling Cooking nodes used. This box marks code + tests + docs landed under
-review with the seam armed, not gate sign-off.
+1. `Player.CanEat` — the outer "may I (re-)eat this?" gate. **Patched.** Now
+   returns true down to 0.75 remaining for a durable-Iron-Stomach local occupant.
+2. `Player.EatFood` (decomp `assembly_valheim` 17462) — after its own internal
+   `CanEat` check it loops the food slots and, for a matching food, gates the
+   real refresh on **`food2.CanEatAgain()`** (decomp 15335) ==
+   `m_time < m_foodBurnTime / 2f` — the hardcoded **0.5** threshold. **Not
+   patched.** In the 0.5..0.75 band this returns false, so `EatFood` returns
+   without resetting `m_time/health/stamina/eitr`.
 
-## Spec/code synchronization (AGENTS.md "the one rule")
+Because the real consume path `Humanoid.ConsumeItem` (decomp 20930) calls
+`EatFood(item)` and then `inventory.RemoveOneItem(item)` **unconditionally**, a
+player in the 0.5..0.75 band who eats a matching food **loses the item from
+inventory but gets no refresh** — strictly worse than a no-op.
 
-- `docs/v2/planning/homestead-stone-progression-tasks.md` — T018 checkbox checked
-  with a full landing note (this PR).
-- No change to the data-model roster (Iron Stomach was already authored as
-  `Cooking | 1 | Iron Stomach | Permanent Effect | personal Offered`), the
-  contracts `FoodRefreshThresholdProvider` entry (already specified threshold
-  0.75 / highest-wins / three-slots-and-debit-preserved), or the SpecCheck recipe
-  manifest (no SBPR recipe). Code implements the already-locked spec; the two
-  agree.
+## Fix direction (spec + code + SpecCheck move together — AGENTS.md)
+
+The seam must also raise the refresh threshold inside the **actual refresh
+path**, not just the gate: e.g. a transpiler/prefix on `Player.EatFood` (or a
+patch of `Player.Food.CanEatAgain`) that, for a durable-Iron-Stomach local
+occupant, permits and performs the in-band refresh (reset m_time/health/stamina/
+eitr) — while still preserving the three-slot cap and touching nothing else. The
+spec and `tests/NiflheimIronStomachTests.cs` must add an **EatFood-level**
+acceptance test (a gate-only test cannot catch this class of defect). This is a
+focused engineer remediation, tracked as a separate card; PR #378 must not merge
+as-is.
