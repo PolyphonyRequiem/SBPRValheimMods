@@ -82,9 +82,16 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                         ownerAuthority: ownerAuthority);
 
                     LocalProgressionObserver.Server = localServer;
+
+                    // T029 — arm the Warrior T.W.I.G. placement gate against the SAME authoritative Stone
+                    // aggregate store + governance resolver this Local runtime composes. This is the rebind
+                    // that removed the provisional Stone-state source: the T.W.I.G. gate and a Local Effect
+                    // snapshot now read one progression truth.
+                    server.ArmWarriorTwig(stoneAggregates, ownerPresence);
+
                     Plugin.Log.LogInfo(
                         "[Niflheim/HomesteadStones] Local progression runtime composed (server-authoritative). " +
-                        $"durable='{durableDir}'.");
+                        $"durable='{durableDir}' warriorTwigArmed={server.WarriorTwigGate != null}.");
                 }
                 catch (Exception lex)
                 {
