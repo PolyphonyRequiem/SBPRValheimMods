@@ -23,15 +23,24 @@ prefab mutation". It registers **no** SBPR recipe or buildable, so the
 
 ## The vanilla seam (decomp — vanilla is fair game, AGENTS.md / ADR-0001)
 
-Weapon switching is a queued minor action. `Humanoid.ToggleEquipped`
-(assembly_valheim decomp :22087) routes an equipable with a positive
-`m_equipDuration` to `QueueEquipAction` (:22237) or `QueueUnequipAction`
-(:22262). Each builds a fresh `MinorActionData` whose `m_duration` is **COPIED**
-off `item.m_shared.m_equipDuration` (:22252 equip, :22275 unequip) and appended
-to the private `m_actionQueue`. `UpdateActionQueue` ticks that per-action copy
-(:22211-22212) and, on completion, performs the real `EquipItem`/`UnequipItem`
-(:22223-22228). Reload is a **third** `MinorActionData` type built from
-`GetWeaponLoadingTime()` (:22292), never from `m_equipDuration`.
+Weapon switching is a queued minor action. `Player.ToggleEquipped`
+(`Player.cs` decomp :6785 — a `protected override` of the `Humanoid` virtual)
+routes an equipable with a positive `m_equipDuration` to the PRIVATE
+`Player.QueueEquipAction` (:6935) or `Player.QueueUnequipAction`
+(:6960). Each builds a fresh `MinorActionData` whose `m_duration` is **COPIED**
+off `item.m_shared.m_equipDuration` (:6950 equip, :6973 unequip) and appended
+to the private `Player.m_actionQueue`. `Player.UpdateActionQueue` ticks that
+per-action copy and, on completion, performs the real `EquipItem`/`UnequipItem`.
+Reload is a **third** `MinorActionData` type built from
+`GetWeaponLoadingTime()` (`Player.QueueReloadAction` :6980), never from `m_equipDuration`.
+
+> **T030 remediation note.** These queue methods and `m_actionQueue` are declared
+> on **`Player`**, not on the `Humanoid` base. The accepted PR #376 bound the
+> Harmony patch to `typeof(Humanoid)`, so patch discovery attached to **zero**
+> methods and Ready Hands never shortened a swap on a joined client (reproduced by
+> QA `t_2b1e690d`). The binding is now `typeof(Player)`, verified against
+> `assembly_valheim.dll` metadata, and a CI reflection guard fails the build if
+> either method (or `m_actionQueue`) stops resolving on `Player`.
 
 Because the queued `m_duration` is a throwaway per-action copy, scaling it
 shortens the action **without ever writing the shared prefab** — the exact
@@ -57,13 +66,13 @@ fail-safe.
   else the full `base`. The `0.5` factor is a provisional playtest value (mirrors
   the Savor precedent) and the sole tuning knob; final balance is deferred.
 - `src/SBPR.Niflheim.HomesteadStones/Features/Warrior/ReadyHandsEquipDurationPatch.cs`
-  — the net48 runtime seam. Postfixes `Humanoid.QueueEquipAction` /
-  `QueueUnequipAction`, maps the equipped item's `m_shared.m_skillType` to the
+  — the net48 runtime seam. Postfixes the private `Player.QueueEquipAction` /
+  `Player.QueueUnequipAction`, maps the equipped item's `m_shared.m_skillType` to the
   engine-free `WeaponSkillClass`, resolves the Ready Hands active bit
   authoritatively (fail-closed), and scales ONLY the just-appended
   `MinorActionData.m_duration` copy. Local player only; skips instant toggles
   (`m_equipDuration <= 0`) and any re-queued/cancelled action (vanilla removes it,
-  :22243, leaving nothing to scale).
+  leaving nothing to scale).
 
 ## Activation source (fail closed — mirrors FieldFletchingRecipeGate)
 
@@ -92,13 +101,18 @@ fail-safe.
   resolving mutates no persisted state (character aggregate byte-identical — no
   ledger to poke).
 
-## Gate results (this PR, pre-merge)
+## Gate results (this remediation, pre-merge)
 
-- Full suite: **1365/1365** passing.
+- Full suite: **1375/1375** passing.
 - net48 Release builds: **0 warnings / 0 errors** (HomesteadStones and Trailborne).
-- `python3 scripts/docs-lint.py`: **OK (202 docs)**.
+- `python3 scripts/docs-lint.py`: **OK (207 docs)**.
 - `git diff --check`: clean.
 - `SpecCheck.cs` recipe manifest: **unchanged** (Ready Hands registers no recipe).
+- CI reflection guard (`.github/workflows/ci.yml`) now asserts
+  `Player.QueueEquipAction(ItemDrop.ItemData)`, `Player.QueueUnequipAction(ItemDrop.ItemData)`,
+  and `Player.m_actionQueue` resolve on the live `assembly_valheim.dll`. Verified
+  locally the corrected `Player` binding resolves all three while the old
+  `Humanoid` binding resolves zero — the regression that shipped in PR #376.
 
 ## Honesty — logs-green ≠ playable
 

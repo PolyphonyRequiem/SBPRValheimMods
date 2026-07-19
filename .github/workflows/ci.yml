@@ -186,6 +186,17 @@ jobs:
               var player = a.GetType("Player");
               Check("Player.UpdateKnownRecipesList()", player?.GetMethod("UpdateKnownRecipesList", ALL) != null);
               Check("Player.OnSpawned(bool)", player?.GetMethod("OnSpawned", ALL) != null);
+              // T030 Ready Hands runtime binding: ReadyHandsEquipDurationPatch postfixes these two PRIVATE
+              // Player methods. QA t_2b1e690d proved the accepted PR bound them to Humanoid (zero methods
+              // resolved) so the effect never fired in-world. Fail the build if the live binding target
+              // regresses — a non-tautological guard that a joined client can actually be patched.
+              var itemData = a.GetType("ItemDrop+ItemData");
+              var equipArgs = itemData != null ? new[] { itemData } : null;
+              Check("Player.QueueEquipAction(ItemDrop.ItemData)  [T030 Ready Hands bind]",
+                  equipArgs != null && player?.GetMethod("QueueEquipAction", ALL, null, equipArgs, null) != null);
+              Check("Player.QueueUnequipAction(ItemDrop.ItemData)  [T030 Ready Hands bind]",
+                  equipArgs != null && player?.GetMethod("QueueUnequipAction", ALL, null, equipArgs, null) != null);
+              Check("Player.m_actionQueue  [T030 Ready Hands scale target]", player?.GetField("m_actionQueue", ALL) != null);
               var pt = a.GetType("PieceTable");
               Check("PieceTable.UpdateAvailable", pt?.GetMethod("UpdateAvailable", ALL) != null);
               Check("PieceTable.m_availablePieces", pt?.GetField("m_availablePieces", ALL) != null);

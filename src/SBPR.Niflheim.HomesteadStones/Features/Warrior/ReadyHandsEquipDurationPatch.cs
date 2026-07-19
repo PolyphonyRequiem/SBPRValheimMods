@@ -23,16 +23,18 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Warrior
     /// consuming the shipped, unit-tested <see cref="EquipDurationProvider"/> as its single authority.
     ///
     /// WHAT THIS BRIDGES (decomp seam — vanilla is fair game to read/adapt, AGENTS.md / ADR-0001):
-    ///   * <c>Humanoid.QueueEquipAction(ItemData)</c> (decomp assembly_valheim :22237) and
-    ///     <c>Humanoid.QueueUnequipAction(ItemData)</c> (:22262). Each builds a fresh
+    ///   * <c>Player.QueueEquipAction(ItemData)</c> (decomp Player.cs :6935) and
+    ///     <c>Player.QueueUnequipAction(ItemData)</c> (:6960) — both PRIVATE members declared on Player,
+    ///     NOT on the Humanoid base (the T030 remediation: the original binding targeted Humanoid, resolved
+    ///     zero methods, and never fired in-world). Each builds a fresh
     ///     <c>MinorActionData</c> whose <c>m_duration</c> is COPIED from
-    ///     <c>item.m_shared.m_equipDuration</c> (:22252 / :22275) and appends it to the private
-    ///     <c>m_actionQueue</c>. The queue ticks that per-action COPY (UpdateActionQueue :22211), never the
-    ///     shared field. A postfix reads the just-appended action and, when Ready Hands is active for the
+    ///     <c>item.m_shared.m_equipDuration</c> (:6950 / :6973) and appends it to the private
+    ///     <c>Player.m_actionQueue</c>. The queue ticks that per-action COPY (Player.UpdateActionQueue), never
+    ///     the shared field. A postfix reads the just-appended action and, when Ready Hands is active for the
     ///     local occupant and the item is an eligible melee weapon, scales its <c>m_duration</c> by the
     ///     provider's factor. Reload is a THIRD action type built from <c>GetWeaponLoadingTime()</c>
-    ///     (:22292), never from <c>m_equipDuration</c>, and is never queued through these two methods — so
-    ///     it is structurally outside this patch (AT-READY-HANDS-EXCLUSIONS: reload).
+    ///     (Player.QueueReloadAction :6980), never from <c>m_equipDuration</c>, and is never queued through
+    ///     these two methods — so it is structurally outside this patch (AT-READY-HANDS-EXCLUSIONS: reload).
     ///
     /// WHY NO SHARED-PREFAB MUTATION: we only ever write <c>MinorActionData.m_duration</c> — a value that
     /// vanilla already COPIED off the shared prefab into a throwaway per-action struct. The shared
@@ -71,14 +73,20 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Warrior
 
         // ── Both halves: postfix the two queue methods and scale the just-appended action's copy ─────
 
-        [HarmonyPatch(typeof(Humanoid), "QueueEquipAction")]
+        // BINDING (T030 remediation): QueueEquipAction / QueueUnequipAction, m_actionQueue, and the
+        // MinorActionData action struct are PRIVATE members declared on Player (decomp Player.cs:6935 /
+        // :6960 / m_actionQueue field), NOT on the Humanoid base. The prior binding targeted
+        // typeof(Humanoid) and resolved ZERO methods at patch discovery, so Ready Hands never shortened a
+        // swap in-world. Verified against assembly_valheim.dll metadata; the CI apiprobe now fails the build
+        // if either private method stops resolving on Player.
+        [HarmonyPatch(typeof(Player), "QueueEquipAction")]
         [HarmonyPostfix]
-        private static void QueueEquipAction_Postfix(Humanoid __instance, ItemDrop.ItemData item)
+        private static void QueueEquipAction_Postfix(Player __instance, ItemDrop.ItemData item)
             => ScaleLastQueuedAction(__instance, item, QueuedEquipAction.Equip);
 
-        [HarmonyPatch(typeof(Humanoid), "QueueUnequipAction")]
+        [HarmonyPatch(typeof(Player), "QueueUnequipAction")]
         [HarmonyPostfix]
-        private static void QueueUnequipAction_Postfix(Humanoid __instance, ItemDrop.ItemData item)
+        private static void QueueUnequipAction_Postfix(Player __instance, ItemDrop.ItemData item)
             => ScaleLastQueuedAction(__instance, item, QueuedEquipAction.Unequip);
 
         /// <summary>Scale the duration of the action the vanilla queue method just appended (the last entry
@@ -86,7 +94,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Warrior
         /// occupant and the item is an eligible melee weapon. Only the per-action COPY is written; the
         /// shared prefab is untouched. Local player only, and only if the queue actually grew (vanilla
         /// toggles a re-queued action off — decomp :22243 — leaving nothing of ours to scale).</summary>
-        private static void ScaleLastQueuedAction(Humanoid instance, ItemDrop.ItemData item, QueuedEquipAction action)
+        private static void ScaleLastQueuedAction(Player instance, ItemDrop.ItemData item, QueuedEquipAction action)
         {
             try
             {
