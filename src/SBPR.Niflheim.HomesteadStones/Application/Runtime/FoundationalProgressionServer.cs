@@ -200,7 +200,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             return new FoundationalProgressionServer(
                 runtime, relationships, authority, characters, stoneApStore, characterApStore,
-                receipts, stoneAreas, pending, boundSessions, connectionSources, durableDirectory);
+                receipts, stoneAreas, pending, boundSessions, connectionSources,
+                durableDirectory);
         }
     }
 }

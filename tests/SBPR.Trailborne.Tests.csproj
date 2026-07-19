@@ -240,6 +240,19 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
+    <!-- T016 (Tracer 5 — Cooking, node 1/4): the engine-free Cooking effect-delivery provider surface.
+         SavorTheHearthProvider translates the T014 LocalEffectActivationView Savor active-state into the
+         vanilla food-timer drain factor (0.5 active / 1.0 not), with no item/stat mutation and no
+         retroactive duration. Establishes the shared Cooking adapter/provider surface T017–T019 extend.
+         Engine-free (value objects + double arithmetic), link-compiled like the rest. Named acceptance
+         AT-SAVOR-AREA-EXIT. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingProviders.cs" />
+    <!-- T016 remediation: the engine-free live delivery seam for Savor. SavorFoodDrainResolver derives the
+         live LocalEffectActivationView + drain factor and scales the elapsed food slice; the context index +
+         factory build the established active-Savor Stone context. The net48 Player.UpdateFood prefix and the
+         playtest admin/console seam (Features/Cooking/) reference Valheim and are NOT link-compiled — only
+         this pure resolver is exercised under net8. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/SavorFoodDrainResolver.cs" />
     <!-- T021 remediation 2 (t_79588427): the isolated-QA Local-node development / personal-node purchase
          ingress — the runtime caller the T021 joined-client rerun found missing. Engine-free (routes
          server-derived subjects through the shipped driver/purchase handlers); link-compiled so every
