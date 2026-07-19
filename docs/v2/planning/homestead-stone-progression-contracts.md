@@ -527,6 +527,21 @@ These are derived-provider contracts, not direct ledger writes.
   client it consumes the server-delivered snapshot via `LocalActivationClientCache`. Both fail closed absent an
   authoritative active projection.
 - `BushcraftRecipeProvider`: active Field Fletching I exposes unchanged Wood Arrows through Bushcraft.
+  **Implemented (T026, `Adapters/Archer/BushcraftRecipeProvider.cs`):** a pure `Resolve(stone, character,
+  authority)` returns a capability whose `WoodArrowRecipeExposed` mirrors whether the personal Field
+  Fletching I Character Effect is active for the caller — derived through the shipped T004
+  `DerivedActivationView` (a purchase record for `FieldFletchingI@1` at this Stone AND an active
+  relationship to it; no second active-effects ledger). While active it exposes the EXACT unchanged vanilla
+  Wood Arrow recipe (`ArrowWood`) made station-free (Bushcraft); it authors and mutates NOTHING about the
+  recipe's ordinary inputs, yield, or authority — it is an exposure gate only (spec line 160; research.md
+  defers wider ammunition/input changes to later Field Fletching levels). Dormant/unpurchased/undeveloped
+  callers, and a sibling character's reservation, all expose nothing. **Live-wired (T026, net48):** the pure
+  provider is consumed on the authoritative host by `Features/Archer/FieldFletchingRecipeGate` — a postfix
+  on `Player.RequiredCraftingStation` that rescues the exact vanilla Wood Arrow recipe to station-free when
+  the provider reports it exposed for the local occupant, resolving the occupant's purchase + relationship
+  from the composed server stores (`LocalProgressionObserver.Server`) and failing closed on a pure client
+  (no personal Character-Effect delivery channel exists yet; that is a scoped follow-up, mirroring the
+  Refined Workshop listen-host self-delivery gap).
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.
 

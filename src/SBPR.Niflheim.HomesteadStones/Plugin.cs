@@ -117,6 +117,14 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Archer.ArcherContentRegistrar));
             harmony.PatchAll(typeof(Features.Archer.ArcheryTargetPlacementGate));
 
+            // T026 — Archer / Field Fletching I runtime seam. A personal Character Effect that, while
+            // active for the acting occupant (purchase record + active relationship, via the shipped
+            // BushcraftRecipeProvider), exposes the UNCHANGED vanilla Wood Arrow recipe through Bushcraft —
+            // i.e. makes ArrowWood craftable without its ordinary station. Exposure only: no recipe input/
+            // yield/authority is authored or mutated. The gate reads the authoritative host projection and
+            // fails closed on a pure client (no personal-effect delivery channel exists yet — follow-up).
+            harmony.PatchAll(typeof(Features.Archer.FieldFletchingRecipeGate));
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 
