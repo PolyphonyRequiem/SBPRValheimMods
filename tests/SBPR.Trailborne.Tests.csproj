@@ -201,6 +201,16 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Stone/StoneAggregateStore.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/FacetCommands.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/Progression/HomesteadProgressionPanel.cs" />
+    <!-- T012 (Tracer 4): aligned-activity BP credit + Stone-wide personal BP development, node
+         development that also counts as cumulative Tree investment, and BP-driven Tree advancement
+         1->2 with no direct level meter and configurable escalating costs. Pure BondPower + pure
+         TreeDevelopment transitions, the aligned-activity evidence adapter, and the receipt-backed
+         RecordAlignedActivity + ApplyBPToNode command handlers. All engine-free. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/BondPower.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/TreeDevelopment.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Activities/AlignedActivityAdapter.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/ActivityCommands.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/DevelopmentCommands.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
