@@ -217,6 +217,15 @@
          PurchaseNode command handler. All engine-free; DerivedActivationView already derives Offered. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/NodePurchases.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/PurchaseCommands.cs" />
+    <!-- T014 (t_8e33d773): the single Settlement-wide Local beneficiary policy + relationship-driven
+         dormancy projection. The pure SettlementLocalPolicy value object + Stone-aggregate policy field,
+         the receipt-backed SetSettlementLocalPolicy command handler (owner-only, dual-revision CAS,
+         zero-mutation reject, replay/recovery), and the pure LocalEffectActivationView that derives
+         active/dormant/policy-eligible Local Effects (never a second ledger) and ANDs Local policy with
+         ordinary build Permission. All engine-free. Named acceptance AT-LOCAL-POLICY,
+         AT-RELATIONSHIP-DORMANCY. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/SettlementLocalPolicy.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/LocalPolicyCommands.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and

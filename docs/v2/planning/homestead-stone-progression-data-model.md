@@ -376,8 +376,13 @@ One atomic/recoverable operation:
 
 ### Dormancy
 
-Dormancy is modeled but decay-driven rollback is outside this proof. If a preconfigured test or later tracer
-enters dormancy:
+Dormancy is modeled but decay-driven rollback is outside this proof. Dormancy is a DERIVED per-occupant
+projection (`LocalEffectActivationView`), never a stored active-effects ledger: a missing authorized
+Governor, the owning Tree no longer committed, or an Active Stone Level below the node's authored level
+dormants a developed Local Effect while retaining its Stone-owned development; relationship release/rejoin
+and a Settlement-policy change during occupancy re-derive active/dormant deterministically from the same
+persisted Stone with zero writes, and restart rebuilds the identical result. If a preconfigured test or
+later tracer enters dormancy:
 
 - keep the Tree Committed;
 - create no AP refund;
