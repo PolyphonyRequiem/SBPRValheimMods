@@ -128,6 +128,19 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         /// a denied (authority-absent) snapshot delivers nothing regardless of any row.</summary>
         public bool IsActive(VersionedId node) => AuthorityPresent && RowFor(node).Active;
 
+        /// <summary>Whether the caller OWNS <paramref name="node"/> — a durable PERMANENT-Effect question
+        /// (T027 Fletcher's Habit): the node is developed on the Stone AND the caller holds a purchase
+        /// record, INDEPENDENT of the currently-active relationship. Unlike <see cref="IsActive"/>, a
+        /// relationship loss does NOT revoke ownership (spec line 130 "Permanent Effects remain active"; line
+        /// 260 "A released character retains Permanent Effects"). Fail closed: a denied (authority-absent)
+        /// snapshot owns nothing.</summary>
+        public bool IsOwned(VersionedId node)
+        {
+            if (!AuthorityPresent) return false;
+            var row = RowFor(node);
+            return row.Developed && row.Purchased;
+        }
+
         /// <summary>A fail-closed EMPTY snapshot for a caller the server cannot authoritatively resolve
         /// (missing/stale Stone/character/authority). All effects inactive; AuthorityPresent=false. The
         /// client delivers nothing.</summary>
