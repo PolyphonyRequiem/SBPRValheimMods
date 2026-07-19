@@ -303,6 +303,12 @@
     <!-- T026 Archer node 2: Field Fletching I personal Character Effect exposes the unchanged vanilla
          Wood Arrow recipe through Bushcraft (station-free) while active. Engine-free — link-compiled. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/BushcraftRecipeProvider.cs" />
+    <!-- T027 Archer node 3: Fletcher's Habit personal Permanent Effect — one authoritative terminal-impact
+         recovery decision for one exact consumed eligible arrow instance, target-return exclusion, and the
+         once-per-instance / multishot no-duplication session guard. Engine-free — link-compiled. Named
+         acceptance AT-FLETCHER-HIT-LIFECYCLE, AT-FLETCHER-NO-DUP. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/ProjectileRecoveryProvider.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/ProjectileRecoverySession.cs" />
     <!-- Homestead progression Tracer 6 (T021, US4): Refined Workshop real-versus-effective station-level
          policy. The pure crafting adapter surface (Adapters/Crafting/EffectiveStationLevelProvider.cs)
          composes over the shipped LocalEffectActivationView to grant +1 EFFECTIVE station level only for

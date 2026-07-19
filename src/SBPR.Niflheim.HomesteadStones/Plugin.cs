@@ -160,6 +160,18 @@ namespace SBPR.Niflheim.HomesteadStones
             // transport above) on a pure joined client, and fails closed when neither is present.
             harmony.PatchAll(typeof(Features.Archer.FieldFletchingRecipeGate));
 
+            // T027 — Archer / Fletcher's Habit runtime seam. A personal PERMANENT Effect: once purchased it
+            // is OWNED durably (through relationship loss / revocation, spec line 130 / line 260). While the
+            // shooter owns it, a fired eligible Wood Arrow that terminally impacts a recoverable surface gets
+            // ONE authoritative recovery chance (via the shipped ProjectileRecoveryProvider) to respawn the
+            // EXACT consumed arrow instance once. Provenance is captured at Projectile.Setup; the single
+            // terminal decision + at-most-once recovery is made in the Projectile.OnHit postfix and guarded by
+            // a per-projectile-ZDOID session (multishot no-duplication). Deterministic Practice Range target
+            // return SUPPRESSES the roll (spec Edge case). Ownership resolves from the composed server on a
+            // host, or the server-stamped personal snapshot's durable Purchased bit on a pure client; fails
+            // closed (vanilla behaviour) when neither confirms ownership.
+            harmony.PatchAll(typeof(Features.Archer.ProjectileRecoveryGate));
+
             // T016 — Savor the Hearth live food-timer delivery seam. The net48 Player.UpdateFood prefix
             // scales ONLY the elapsed food-drain slice for the local player by the shipped
             // SavorTheHearthProvider factor (0.5 active / 1.0 otherwise), reading the established active
