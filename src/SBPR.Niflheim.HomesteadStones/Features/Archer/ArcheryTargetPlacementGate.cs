@@ -1,49 +1,46 @@
 using System;
 using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Adapters.Archer;
+using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Features.Progression;
 using UnityEngine;
 
 namespace SBPR.Niflheim.HomesteadStones.Features.Archer
 {
     /// <summary>
-    /// T025-RT — the per-attempt placement gate for the Practice Range Archery Target. Enforces the
-    /// load-bearing AND from spec FR-016 (also encoded engine-free in
-    /// <see cref="PracticeRangeProvider.Resolve"/> / <c>PracticeRangeCapability.CanPlaceArcheryTarget</c>):
-    /// a build attempt on <c>piece_ArcheryTarget</c> is refused unless BOTH conjuncts hold —
+    /// T025R — the per-attempt placement gate for the Practice Range Archery Target, ported onto the
+    /// independently-reviewed authoritative Local Effect activation runtime (PR #368). It refuses a build
+    /// attempt on <c>piece_ArcheryTarget</c> unless the acting occupant holds the Practice Range Local
+    /// PLACEMENT capability — the load-bearing AND from spec FR-016:
     ///
-    ///   * the Practice Range Local Effect is ACTIVE for the acting occupant, AND
-    ///   * the occupant is inside the Stone Area with an active relationship reservation to that Stone
-    ///     (the server-observed inputs the shipped provider requires: occupancy + active Attunement/Bond).
+    ///   * the Practice Range Local Effect is ACTIVE for the acting occupant (developed + Tree committed +
+    ///     Active Stone Level + authorized Governor present + policy-eligible + inside the Stone Area — the
+    ///     full dormancy/governance/policy/area derivation the <see cref="LocalActivationService"/> owns),
+    ///     AND
+    ///   * the occupant independently passes ORDINARY build Permission (vanilla PrivateArea/ward).
     ///
-    /// Vanilla already enforces the ordinary build ACL (PrivateArea / ward) as its own gate; this gate
-    /// adds the Local-Effect conjunct on top, so neither policy eligibility alone nor build Permission
-    /// alone unlocks the target — exactly the provider's contract.
+    /// Neither policy eligibility alone nor build Permission alone unlocks the target, exactly the shipped
+    /// <see cref="PracticeRangeProvider"/> contract.
     ///
-    /// AUTHORITY + a HONEST seam boundary (net48-only, not link-compiled into net8):
-    ///   * The building player's <c>Player.PlacePiece</c> runs client-side; this prefix cancels the
-    ///     placement on that client when the capability is absent, giving the immediate "refused" UX.
-    ///   * The live server runtime composed by <see cref="FoundationalRuntimeBootstrap"/> exposes the
-    ///     resolvable server-observed facts (Stone Area membership via <c>StoneAreas</c>, the acting bound
-    ///     principal via <c>BoundSessions</c>, and the active relationship via <c>Authority</c>). Those are
-    ///     the facts <see cref="ResolveServerCapability"/> reads. Where the live composition does not yet
-    ///     surface a full <see cref="Domain.StoneProgression.StoneProgressionAggregate"/> at placement
-    ///     time (the same live-state gap the Foundational observer documents for the dedicated path), the
-    ///     gate FAILS CLOSED on the Local-Effect conjunct rather than smuggling the target in — a stricter,
-    ///     never a looser, decision than the spec requires. The remaining live wiring (feeding the fully
-    ///     composed aggregate into <c>PracticeRangeProvider.Resolve</c> so the effect's active/dormant
-    ///     status is re-derived per attempt) is the joined-client-proof follow-up.
+    /// AUTHORITY — this gate does NOT re-derive activation itself and holds NO parallel Local-effect ledger
+    /// or provisional grant. It reads the authoritative projection the reviewed runtime already produces:
+    ///   * On the authoritative HOST (listen-server / singleplayer host), the placing player's PlacePiece
+    ///     runs server-side, so the composed <see cref="LocalProgressionObserver.Server"/> is present and
+    ///     the gate FETCHES the acting occupant's read model directly from the authoritative
+    ///     <see cref="LocalActivationService"/> (via the same server-owned occupant/relationship/occupancy
+    ///     facts the delivery channel uses) and asks it the FR-016 AND question.
+    ///   * On a pure remote CLIENT, PlacePiece runs client-side for the immediate "refused" UX. The client
+    ///     never holds the authoritative inputs; it consults the bounded read model the server pushed into
+    ///     <see cref="LocalProgressionObserver.ClientCache"/>. The server only ever delivers a snapshot with
+    ///     the effect active when IT confirmed (server-side occupancy + committed governance/policy) the
+    ///     occupant is entitled, so an active held snapshot is authoritative proof, and the absence of one
+    ///     FAILS CLOSED. The server remains the source of truth for the replicated piece regardless.
     /// </summary>
     [HarmonyPatch]
     internal static class ArcheryTargetPlacementGate
     {
-        // Set by FoundationalRuntimeBootstrap on the authoritative server (shared with the Foundational
-        // observer). Null on a pure client — the client-side gate then relies on the conservative
-        // resolvable facts it can read locally (see ClientCapabilityHeuristic).
-        internal static FoundationalProgressionServer? Server =>
-            SBPR.Niflheim.HomesteadStones.Features.Progression.FoundationalPlacementObserver.Server;
-
         [HarmonyPatch(typeof(Player), nameof(Player.PlacePiece))]
         [HarmonyPrefix]
         private static bool BeforePlacePiece(Player __instance, Piece piece)
@@ -77,40 +74,66 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Archer
 
         private static bool IsPlacementPermitted(Player actor, Piece piece)
         {
-            var server = Server;
-            Vector3 pos = piece.transform != null ? piece.transform.position : actor.transform.position;
+            Vector3 pos = piece.transform != null ? piece.transform.position
+                : (actor != null ? actor.transform.position : Vector3.zero);
 
+            // Ordinary build Permission is a HARD, SEPARATE conjunct (spec FR-016 final sentence): vanilla's
+            // PrivateArea/ward ACL, evaluated at the placement point. Policy/relationship never grants it and
+            // it never smuggles the effect in outside the policy.
+            bool hasBuildPermission = PrivateArea.CheckAccess(pos, 0f, flash: false);
+            if (!hasBuildPermission) return false;
+
+            var server = LocalProgressionObserver.Server;
             if (server != null)
-                return ResolveServerCapability(actor, pos, server);
+                return ResolveHostCapability(actor, pos, server, hasBuildPermission);
 
-            // No server runtime resolvable in this process (pure remote client). Fail closed on the
-            // Local-Effect conjunct — the authoritative server is the source of truth and will not have
-            // replicated a target the occupant had no capability to place. This keeps the gate strict.
-            return false;
+            // Pure remote client: consult the authoritative read model the server pushed. Fail closed when no
+            // active snapshot for the Practice Range node is held.
+            return LocalProgressionObserver.ClientCache.CanExercisePlacementForNode(
+                PracticeRangeProvider.PracticeRangeNode, hasBuildPermission);
         }
 
-        /// <summary>Resolve the placement capability from the live server's resolvable, server-observed
-        /// facts: the acting bound principal, Stone Area membership at the placement point, and an active
-        /// relationship reservation to that Stone. Fails closed if any is absent.</summary>
-        private static bool ResolveServerCapability(Player actor, Vector3 pos, FoundationalProgressionServer server)
+        /// <summary>Authoritative HOST path: fetch the acting occupant's read model straight from the
+        /// composed <see cref="LocalActivationService"/> using the SAME server-owned facts the delivery
+        /// channel resolves (transport-authenticated bound principal, Stone Area membership at the placement
+        /// point resolved server-side, and the occupant's committed relationship reservation). Then ask the
+        /// authoritative snapshot the FR-016 AND question. No re-derivation, no provisional ledger — the
+        /// service owns every activation input (policy/governance/level/dormancy/occupancy). Fail closed if
+        /// any server-owned fact is absent.</summary>
+        private static bool ResolveHostCapability(Player? actor, Vector3 pos, LocalProgressionServer server,
+            bool hasBuildPermission)
         {
-            // Stone Area membership (world-owned identity, never a client claim).
-            if (!server.StoneAreas.TryResolve(pos.x, pos.z, out var stoneId))
+            var foundational = FoundationalPlacementObserver.Server;
+            if (foundational == null || actor == null) return false;
+
+            // Stone Area membership (world-owned identity, resolved from the server-owned placement point).
+            if (!foundational.StoneAreas.TryResolve(pos.x, pos.z, out var stoneId))
                 return false;
 
-            // Acting bound principal (server-minted account/character), keyed by the same peer-key form
-            // admission binds under — the identical resolution the Foundational observer uses.
-            long actingPlayerId = actor != null ? actor.GetPlayerID() : 0L;
+            // Acting bound INTERNAL principal (server-minted account/character), keyed by the same
+            // player:<s_playerID> character subject admission binds under — never the payload.
+            long actingPlayerId = actor.GetPlayerID();
             string peerKey = ServerCreatorIdentity.CharacterSubject(actingPlayerId);
-            if (string.IsNullOrEmpty(peerKey) || !server.BoundSessions.TryResolve(peerKey, out var principal))
+            if (string.IsNullOrEmpty(peerKey) || !foundational.BoundSessions.TryResolve(peerKey, out var principal))
                 return false;
 
-            // Active relationship reservation (Attunement/Bond) to THIS Stone — the low-bar relationship
-            // that (with occupancy) makes the Practice Range Local Effect active for the occupant. Ordinary
-            // build Permission is enforced separately by vanilla's PrivateArea/ward system.
-            var authoritative = principal.ToPrincipal();
-            var authority = server.Authority.GetAuthority(principal.Account, stoneId);
-            return authority.HasActive(authoritative.Character);
+            var occupant = principal.Account;
+            var character = principal.Character;
+            if (string.IsNullOrEmpty(occupant.Value)) return false;
+
+            // The occupant's committed relationship reservation to THIS Stone (a server-owned fact). The
+            // owner + Stone-wide authorized-Governor-presence facts are DERIVED inside ComposePresence from
+            // committed state, never a client claim. Occupancy is true: PlacePiece fired at a point the Stone
+            // Area resolver just confirmed is inside this Stone.
+            bool hasRelationship = server.Authority.GetAuthority(occupant, stoneId).HasActive(character);
+            var presence = server.ComposePresence(stoneId, occupant, character, hasRelationship,
+                insideStoneArea: true);
+
+            // Fetch (not Publish) the current read model — a placement check must not bump the delivery
+            // sequence. This is the authoritative projection; the FR-016 AND is asked of it directly.
+            var snapshot = server.Activation.Fetch(stoneId, presence);
+            return snapshot.AuthorityPresent
+                && snapshot.CanExercisePlacement(PracticeRangeProvider.PracticeRangeNode, hasBuildPermission);
         }
 
         private static string StripCloneSuffix(string name)

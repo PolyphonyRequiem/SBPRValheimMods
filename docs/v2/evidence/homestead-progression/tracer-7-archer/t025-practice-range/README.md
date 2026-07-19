@@ -59,8 +59,8 @@ net8 link-compiled suite; full suite 1216/1216).
 
 ## Build / suite
 
-- `dotnet test tests/SBPR.Trailborne.Tests.csproj -c Release` → 1216/1216 passed
-  (+21 for this node).
+- `dotnet test tests/SBPR.Trailborne.Tests.csproj` → 1242/1242 passed
+  (+21 provider facts, +8 T025R gate-runtime facts for this node).
 - `dotnet build src/SBPR.Niflheim.HomesteadStones/...csproj -c Release` → 0w/0e.
 - `dotnet build src/SBPR.Trailborne/...csproj -c Release` → 0w/0e.
 - `python3 scripts/docs-lint.py` → OK. `git diff --check` → clean.
@@ -78,11 +78,43 @@ The engine-free projection above is now backed by a real net48 runtime seam in
   return — no roll), and add `piece_ArcheryTarget` to the Hammer build table.
 - `ArcheryTargetPlacementGate` — a `Player.PlacePiece` prefix that refuses an
   Archery Target placement unless the Practice Range capability holds (active Local
-  Effect AND ordinary build Permission, spec FR-016); resolves the server-observed
-  facts (Stone Area membership, bound principal, active relationship) and **fails
-  closed** where live state is not yet composed.
+  Effect AND ordinary build Permission, spec FR-016).
 - `ArcherContentRegistrar` — ZNetScene.Awake / ObjectDB.Awake+CopyOtherDB hooks
   (Priority.Last, idempotent), wired into `Plugin.Awake`.
+
+## T025R — ported onto the authoritative Local Effect activation runtime (PR #368)
+
+The original PR #367 gate re-derived a **provisional** capability itself
+(relationship-only, occupancy fabricated, fail-closed everywhere else) — a
+parallel path that bypassed the authoritative activation projection. T025R
+replaces that with a **consumer of the independently-reviewed authoritative
+runtime** (PR #368, merged as `fbea39c`). No parallel Local-effect ledger, no
+provisional grant:
+
+- **Ordinary build Permission** is now the hard, separate FR-016 conjunct via
+  vanilla `PrivateArea.CheckAccess(pos, 0f)` at the placement point — evaluated
+  BEFORE and independently of the Local Effect.
+- **Host path** (listen-server / singleplayer host): the gate resolves the acting
+  bound INTERNAL principal + Stone Area membership from the composed
+  `FoundationalPlacementObserver.Server`, composes the server-owned
+  `OccupantPresence` via `LocalProgressionServer.ComposePresence` (owner /
+  authorized-Governor presence DERIVED from committed state, never a flag), then
+  `LocalActivationService.Fetch`es the authoritative per-occupant read model and
+  asks it `CanExercisePlacement(PracticeRangeNode, buildPermission)`. The service
+  owns every activation input (policy / governance / Active Stone Level / dormancy
+  / occupancy). The gate re-derives nothing.
+- **Client path** (pure remote client): the gate consults
+  `LocalActivationClientCache.CanExercisePlacementForNode(PracticeRangeNode,
+  buildPermission)` — the bounded consumer of the snapshot the server pushed. The
+  server only ever delivers an active snapshot after IT confirmed server-side
+  occupancy + committed governance/policy, so an active held snapshot is
+  authoritative proof; the absence of one FAILS CLOSED.
+
+`tests/NiflheimPracticeRangeGateRuntimeTests.cs` (8 facts) drives that exact
+authoritative projection through the real shared runtime: host Fetch + FR-016 AND
+(active/permission, outside-area, missing-Governor) and the client consumer
+(active-with-permission, no-snapshot fail-closed, denied-snapshot, dormant
+snapshot, hostile occupant).
 
 **0 ammo damage is data-driven, not a patch:** the Practice Arrow is an Ammo item
 with a fresh all-zero `HitData.DamageTypes`, so vanilla `Attack.FireProjectileBurst`

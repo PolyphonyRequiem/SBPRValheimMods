@@ -502,7 +502,12 @@ These are derived-provider contracts, not direct ledger writes.
   (`Features/Archer/ArcherContent` + `ArcheryTargetPlacementGate` + `ArcherContentRegistrar`) makes this joinable:
   the Practice Arrow item/recipe are registered additively (ADR-0006), 0 ammo damage is data-driven (zero-damage
   Ammo item), the deterministic return is wired via the vanilla `ArcheryTarget.m_returnAmmo` list, and the
-  placement AND is enforced by a `Player.PlacePiece` gate that fails closed absent capability.
+  placement AND is enforced by a `Player.PlacePiece` gate. That gate holds NO parallel Local-effect ledger and
+  re-derives nothing: it evaluates ordinary build Permission via vanilla `PrivateArea.CheckAccess`, and reads the
+  active Local Effect from the authoritative activation runtime — on the host it `Fetch`es the per-occupant read
+  model from `LocalActivationService` (occupant/occupancy/governance/owner composed server-side), and on a pure
+  client it consumes the server-delivered snapshot via `LocalActivationClientCache`. Both fail closed absent an
+  authoritative active projection.
 - `BushcraftRecipeProvider`: active Field Fletching I exposes unchanged Wood Arrows through Bushcraft.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.
