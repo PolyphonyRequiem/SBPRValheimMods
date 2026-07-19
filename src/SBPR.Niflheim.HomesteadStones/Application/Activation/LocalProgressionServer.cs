@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using SBPR.Niflheim.HomesteadStones.Application.Commands;
+using SBPR.Niflheim.HomesteadStones.Application.Runtime;
 using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
 using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
@@ -35,6 +36,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         public const string DevelopmentJournalFile = "node-development.journal";
         public const string ActivityJournalFile = "aligned-activity.journal";
         public const string LocalPolicyJournalFile = "local-policy.journal";
+        public const string PurchaseJournalFile = "node-purchase.journal";
 
         private LocalProgressionServer(
             IStoneAggregateStore stones,
@@ -110,6 +112,21 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
 
         public HomesteadProgressionCatalog Catalog { get; }
         public string DurableDirectory { get; }
+
+        /// <summary>T021 remediation 2 — build the isolated-QA Local-node development / personal-node
+        /// purchase ingress over this server's accepted handlers + shared stores. The PurchaseCommandHandler
+        /// is composed here over the SAME character/authority/Stone stores and a durable node-purchase
+        /// journal alongside the four progression journals, so a purchase crosses the real receipt-backed
+        /// path and rehydrates on restart. The ingress never writes node/purchase state directly — it only
+        /// routes server-derived subjects through the shipped handlers. Constructed and driven ONLY by the
+        /// net48 admin/isolated-QA seam (config-flag + Valheim-admin gated); production fails closed.</summary>
+        public LocalProvisioningIngress CreateLocalProvisioningIngress()
+        {
+            var purchases = new PurchaseCommandHandler(
+                Path.Combine(DurableDirectory, PurchaseJournalFile), new PrincipalResolver(),
+                Stones, Characters, Authority, Catalog);
+            return new LocalProvisioningIngress(this, purchases);
+        }
 
         /// <summary>Compose the live Local progression runtime over a stable server-owned durable directory
         /// and the shared character/authority stores the Foundational runtime already rehydrated. The four

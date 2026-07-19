@@ -46,7 +46,28 @@ reading the replicated `LocalActivationClientCache` filled by the now-registered
 `LocalActivationDeliveryObserver` transport. Client Stone lookup:
 `Features/Progression/HomesteadStoneClientIndex`.
 
-Joined-client effective-Level-3 transport proof: **PENDING** — deferred to the
-downstream qa-playtest rerun (`t_8261a415`) on a dedicated-server + joined-client
-topology. Listen-host self-delivery is a noted follow-up (the peer-to-peer transport
-does not round-trip to the host itself). See `README.md`.
+## T021 remediation 2 — durable develop/purchase ingress (t_79588427)
+
+The T016 activation substrate + provider wiring were correct, but the T021 joined-
+client rerun (`T021-JOINED-CLIENT-RERUN-FAIL.md`, retained here) proved the accepted
+develop/purchase handlers had **zero runtime callers**, so Refined Workshop could
+never reach Developed/Active at runtime. This remediation adds the missing ingress.
+
+| id | claim | artifact |
+|----|-------|----------|
+| RWP1 | Refined Workshop develops from an empty store via accepted commands only | `tests/NiflheimLocalProvisioningIngressTests.cs::Ingress_develops_refined_workshop_from_empty_store_via_accepted_commands` |
+| RWP2 | Developed node derives Active for an eligible occupant (dormant on exit / no Governor) | `tests/NiflheimLocalProvisioningIngressTests.cs::Developed_refined_workshop_derives_active_for_eligible_occupant` |
+| RWP3 | Replay is idempotent (no double-develop) | `tests/NiflheimLocalProvisioningIngressTests.cs::Ingress_is_idempotent_on_replay` |
+| RWP4 | Seed never overwrites an existing Stone | `tests/NiflheimLocalProvisioningIngressTests.cs::Seed_never_overwrites_an_existing_stone` |
+| RWP5 | Restart rehydrates the developed node from durable journals, not the seed | `tests/NiflheimLocalProvisioningIngressTests.cs::Restart_rehydrates_developed_node_from_durable_journals_not_the_seed` |
+| RWP6 | Hostile/unauthenticated/non-Local-node reject with no mutation | `tests/NiflheimLocalProvisioningIngressTests.cs::Hostile_subject_without_bond_cannot_develop` + `Unauthenticated_subject_rejects_before_any_command` + `Non_local_node_rejects_without_mutation` |
+| RWP7 | Personal-node purchase authority gate is a real reachable caller | `tests/NiflheimLocalProvisioningIngressTests.cs::Purchase_without_attunement_rejects_relationship_required` + `Purchase_unauthenticated_rejects_before_handler` |
+
+Ingress: `src/SBPR.Niflheim.HomesteadStones/Application/Runtime/LocalProvisioningIngress.cs`
++ `LocalProgressionServer.CreateLocalProvisioningIngress()`. net48 admin seam:
+`Features/Progression/LocalProgressionProvisioningAdmin.cs` (`sbpr_develop`,
+`Progression.EnableAdminLocalNodeProvisioning` default OFF). See
+`T021-REMEDIATION-2-PROVISIONING-RUNTIME.md`.
+
+Joined-client effective-Level-3 transport proof: re-run downstream by qa-playtest
+(`t_8261a415`) against the merged head.
