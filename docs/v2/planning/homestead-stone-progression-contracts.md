@@ -508,7 +508,24 @@ These are derived-provider contracts, not direct ledger writes.
 ### Archer
 
 - `PracticeRangeProvider`: inside the active Homestead, eligible users with ordinary build Permission receive the
-  exact Archery Target placement and Practice Arrow recipe capability.
+  exact Archery Target placement and Practice Arrow recipe capability. The capability is the load-bearing AND of
+  the active Practice Range Local Effect (derived through the single Settlement Local policy + relationship/
+  governance/level dormancy, never a second ledger) and the occupant's ordinary build Permission — policy
+  eligibility alone or build Permission alone unlocks neither. The Practice Arrow recipe is exactly 100 arrows for
+  8 Wood; the Practice Arrow contributes 0 ammo damage while the fired shot retains the bow's own draw damage; and
+  a practice arrow that terminally impacts the Archery Target is deterministically returned exactly once (no roll),
+  which is the path a later Fletcher's Habit recovery roll must yield to. The exact vanilla build-piece prefab is
+  `piece_ArcheryTarget` (capital A/T — corrected from the earlier `piece_archery_target`); the Practice Arrow item
+  `ArrowPractice` is new SBPR content (not a vanilla arrow id). The net48 runtime seam
+  (`Features/Archer/ArcherContent` + `ArcheryTargetPlacementGate` + `ArcherContentRegistrar`) makes this joinable:
+  the Practice Arrow item/recipe are registered additively (ADR-0006), 0 ammo damage is data-driven (zero-damage
+  Ammo item), the deterministic return is wired via the vanilla `ArcheryTarget.m_returnAmmo` list, and the
+  placement AND is enforced by a `Player.PlacePiece` gate. That gate holds NO parallel Local-effect ledger and
+  re-derives nothing: it evaluates ordinary build Permission via vanilla `PrivateArea.CheckAccess`, and reads the
+  active Local Effect from the authoritative activation runtime — on the host it `Fetch`es the per-occupant read
+  model from `LocalActivationService` (occupant/occupancy/governance/owner composed server-side), and on a pure
+  client it consumes the server-delivered snapshot via `LocalActivationClientCache`. Both fail closed absent an
+  authoritative active projection.
 - `BushcraftRecipeProvider`: active Field Fletching I exposes unchanged Wood Arrows through Bushcraft.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.

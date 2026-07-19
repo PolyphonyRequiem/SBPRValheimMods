@@ -98,6 +98,23 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
                 && current.CanExercisePlacement(node, hasOrdinaryBuildPermission);
         }
 
+        /// <summary>Whether ANY held snapshot currently grants the local occupant a Local PLACEMENT
+        /// capability for <paramref name="node"/>, ANDed with ordinary build Permission. A client only ever
+        /// holds snapshots the authoritative server derived for ITS OWN occupant (the delivery channel
+        /// resolves the occupant server-side and never sends another account's read model), and the server
+        /// marks a Local Effect active only when it confirmed the occupant stands inside that Stone's Area.
+        /// So a held snapshot with the node active is proof the server authoritatively placed this client
+        /// inside an entitled Stone — the exact authoritative projection the pure-client placement gate
+        /// consumes instead of self-deriving occupancy/policy (which it cannot). Fail closed: no held
+        /// snapshot (or only denied ones) ⇒ false.</summary>
+        public bool CanExercisePlacementForNode(VersionedId node, bool hasOrdinaryBuildPermission)
+        {
+            foreach (var snapshot in _byStone.Values)
+                if (snapshot.AuthorityPresent && snapshot.CanExercisePlacement(node, hasOrdinaryBuildPermission))
+                    return true;
+            return false;
+        }
+
         /// <summary>Explicitly invalidate the held snapshot for one (Stone, occupant) — e.g. on relog or
         /// area exit before a fresh fetch arrives. After this, IsActive fails closed until a new snapshot
         /// is applied.</summary>
