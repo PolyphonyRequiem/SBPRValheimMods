@@ -310,6 +310,16 @@
          real observed level and never affecting structure/build gates. Engine-free; the crafting nodes
          T022–T023 extend this same adapter surface. Named acceptance AT-REFINED-REAL-VS-EFFECTIVE. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/EffectiveStationLevelProvider.cs" />
+    <!-- T022 Crafting node 2 (US4): Masterwork exact-instance Workmanship issuance. The engine-free
+         item-provenance codec (Domain/CharacterProgression/ItemProvenance.cs) stamps/reads/validates one
+         deterministic visible Workmanship Property onto an item's custom-data map behind a server-keyed
+         HMAC integrity token, restricted to eligible non-stackable durable outputs, degrading tampered/
+         unknown metadata to vanilla; the pure provider (Adapters/Crafting/WorkmanshipIssuanceProvider.cs)
+         issues it only while the personal Masterwork Character Effect is active (purchase + active
+         relationship, no second ledger). Named acceptance AT-MASTERWORK-ISSUE, AT-ITEM-UPGRADE-PRESERVE,
+         AT-ITEM-TRANSFER, AT-ITEM-TAMPER-DEGRADE. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/ItemProvenance.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/WorkmanshipIssuanceProvider.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and

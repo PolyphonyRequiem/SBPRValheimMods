@@ -142,6 +142,16 @@ namespace SBPR.Niflheim.HomesteadStones
             // decision routes through the same pure provider; structure/build gates are never eligible ops.
             harmony.PatchAll(typeof(Features.Progression.RefinedWorkshopStationLevelPatch));
 
+            // T022-RT — Crafting / Masterwork runtime seam. On the authoritative host, a postfix on
+            // InventoryGui.DoCrafting stamps one deterministic, server-keyed-integrity-protected Workmanship
+            // Property onto a freshly crafted/upgraded eligible non-stackable durable item while the
+            // crafter's personal Masterwork Character Effect is active, explicitly dirtying persistence. The
+            // stamp rides ItemData.m_customData through clone/inventory/container transfer and survives a
+            // preserving upgrade; a hand-edited/foreign/partial stamp degrades to vanilla. Consumes the
+            // shipped, unit-tested WorkmanshipIssuanceProvider + WorkmanshipCodec. Armed with the durable
+            // integrity key by the runtime bootstrap below.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkIssuanceObserver));
+
             // T025-RT — Archer / Practice Range runtime seam. Registers the Practice Arrow item + its
             // 100-for-8-Wood recipe, wires the deterministic vanilla target return (ArrowPractice added to
             // ArcheryTarget.m_returnAmmo), and adds the exact vanilla piece_ArcheryTarget build piece to

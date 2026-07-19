@@ -89,6 +89,14 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                     // snapshot now read one progression truth.
                     server.ArmWarriorTwig(stoneAggregates, ownerPresence);
 
+                    // T022 — arm the Masterwork issuance seam with the durable, server-owned Workmanship
+                    // integrity key over the SAME durable directory. The key protects every issued
+                    // Workmanship stamp with an HMAC token so a hand-edited/foreign/partial stamp degrades to
+                    // vanilla; issuance runs only on this authoritative host where both the key and the
+                    // composed server stores exist.
+                    var workmanshipKey = SBPR.Niflheim.HomesteadStones.Features.Crafting.WorkmanshipIntegrityKeyFile.LoadOrCreate(durableDir);
+                    SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkIssuanceObserver.Arm(workmanshipKey);
+
                     Plugin.Log.LogInfo(
                         "[Niflheim/HomesteadStones] Local progression runtime composed (server-authoritative). " +
                         $"durable='{durableDir}' warriorTwigArmed={server.WarriorTwigGate != null}.");
@@ -112,6 +120,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             {
                 composedFor = null;
                 FoundationalPlacementObserver.Server = null;
+                SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkIssuanceObserver.Disarm();
                 LocalProgressionObserver.Clear();
             }
         }
