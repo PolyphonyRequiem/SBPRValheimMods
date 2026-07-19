@@ -565,8 +565,14 @@ that miss or reorder notifications fetch the current read model.
   all-inactive snapshot returned when authority is missing/stale.
 - The client cache applies a snapshot only when its `Sequence ≥` the last applied one (stale/reordered
   dropped) and decides refetch from a notification whose sequence or revisions moved ahead. Clients never
-  author activation. The net48 transport is `Features/Progression/LocalActivationDeliveryObserver.cs` (client
-  requests by Stone id + server-observed position; server derives from authoritative state and replies).
+  author activation. The net48 transport is `Features/Progression/LocalActivationDeliveryObserver.cs`: the
+  client requests by Stone id ONLY, and the server resolves the requesting peer's identity **and** current
+  position server-side from its own character ZDO (occupancy is server-owned — a client cannot forge x/z to
+  claim it stands inside any Area), then derives from authoritative state and replies, failing closed when
+  peer/ZDO/position authority is unavailable. The owner and Stone-wide authorized-Governor-presence facts the
+  derivation consumes are themselves derived from committed relationship/authority state
+  (`Application/Activation/GovernorPresenceResolver.cs`), never a separately-mutated flag, so a released
+  Governor bond immediately dormants delivery and owner is never conflated with governor presence.
 
 ## Security and hostile-client contract
 

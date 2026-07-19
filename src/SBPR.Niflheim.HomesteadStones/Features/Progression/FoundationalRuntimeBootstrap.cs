@@ -62,8 +62,13 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 try
                 {
                     var stoneAggregates = new InMemoryStoneAggregateStore();
-                    var ownerAuthority = new ServerHomesteadOwnerAuthority(
-                        stone => LocalProgressionObserver.OwnerByStone.TryGetValue(stone.Value, out var acct) ? acct : null);
+                    // T016 fix-forward (PR #368 review Blocker 1): the Homestead owner authority is DERIVED
+                    // from committed Governor-bond state over the SAME shared character/authority stores the
+                    // Local runtime composes onto — never the dead OwnerByStone map (which had no writer and
+                    // forced every Local Effect dormant). The validated owner is the account currently holding
+                    // the authorized Homestead:All Governor bond.
+                    var ownerPresence = new GovernorPresenceResolver(server.Characters, server.Authority);
+                    var ownerAuthority = new CommittedGovernorOwnerAuthority(ownerPresence);
 
                     var localServer = LocalProgressionServer.Create(
                         durableDir,

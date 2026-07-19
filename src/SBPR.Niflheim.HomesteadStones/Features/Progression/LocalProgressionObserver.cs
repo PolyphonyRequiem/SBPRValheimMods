@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using SBPR.Niflheim.HomesteadStones.Application.Activation;
 
 namespace SBPR.Niflheim.HomesteadStones.Features.Progression
@@ -33,17 +31,9 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         /// gameplay-family consumers read it to decide whether an effect is active for the local player.</summary>
         internal static readonly LocalActivationClientCache ClientCache = new LocalActivationClientCache();
 
-        /// <summary>Server-owned map from Stone id value → the account currently holding the Homestead:All
-        /// Governor bond (the validated Homestead owner for the provisional proof). The composition seeds
-        /// this from committed relationship state; the owner authority policy reads it to authorize a
-        /// SetSettlementLocalPolicy. Never client-settable.</summary>
-        internal static readonly Dictionary<string, string> OwnerByStone =
-            new Dictionary<string, string>(StringComparer.Ordinal);
-
         internal static void Clear()
         {
             Server = null;
-            OwnerByStone.Clear();
         }
     }
 }

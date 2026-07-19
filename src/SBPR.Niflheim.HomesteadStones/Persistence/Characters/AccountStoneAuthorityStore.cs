@@ -40,6 +40,13 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Characters
         /// <summary>Idempotently store the post-state character snapshot for one operation, keyed by
         /// operationId so crash-replay converges.</summary>
         void ApplyCharacterProjection(string operationId, CharacterProgressionAggregate character);
+
+        /// <summary>Enumerate every currently-stored character aggregate. Read-only projection over the
+        /// SAME authoritative rows the relationship journal rehydrates — never a second ledger. Used to
+        /// DERIVE Stone-wide committed facts (e.g. whether any authorized Governor bond is active at a
+        /// Stone) on demand, so those facts are a pure function of committed state rather than a
+        /// separately-mutated flag.</summary>
+        IEnumerable<CharacterProgressionAggregate> AllCharacters();
     }
 
     /// <summary>Engine-free in-memory reference sinks used by the T007 tests and as the server-owned
@@ -108,5 +115,7 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Characters
                 return;
             _byKey[key] = character;
         }
+
+        public IEnumerable<CharacterProgressionAggregate> AllCharacters() => _byKey.Values;
     }
 }

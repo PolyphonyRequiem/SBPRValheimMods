@@ -46,6 +46,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             DevelopmentCommandHandler development,
             LocalPolicyCommandHandler localPolicy,
             LocalActivationService activation,
+            GovernorPresenceResolver governorPresence,
             HomesteadProgressionCatalog catalog,
             string durableDirectory)
         {
@@ -58,6 +59,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             Development = development;
             LocalPolicy = localPolicy;
             Activation = activation;
+            GovernorPresence = governorPresence;
             Catalog = catalog;
             DurableDirectory = durableDirectory;
         }
@@ -79,6 +81,32 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         /// <summary>The bounded server→client Local Effect delivery authority. Derives per-occupant read
         /// models from <see cref="Stones"/> + server-observed presence and emits bounded notifications.</summary>
         public LocalActivationService Activation { get; }
+
+        /// <summary>T016 fix-forward — derives the two cross-account governance facts (Stone-wide
+        /// authorized-Governor presence and this-account ownership) from COMMITTED relationship/authority
+        /// state. The delivery channel consumes it to compose <see cref="Application.Activation.OccupantPresence"/>
+        /// so owner/governor-presence are real derived facts, never a never-written flag.</summary>
+        public GovernorPresenceResolver GovernorPresence { get; }
+
+        /// <summary>Compose the authoritative per-occupant presence for the delivery channel from
+        /// SERVER-OWNED facts: the caller supplies only the transport-authenticated occupant identity, the
+        /// server-observed relationship activity, and the server-resolved in-Area occupancy — every one a
+        /// server truth. The owner + Stone-wide authorized-Governor-presence facts are DERIVED here from
+        /// committed state via <see cref="GovernorPresence"/>, so they can never be forged and are never a
+        /// dead flag. This is the single seam the net48 RPC handler and the tests both drive, so the suite
+        /// cannot pass while the real channel is inert.</summary>
+        public OccupantPresence ComposePresence(
+            StoneId stone,
+            Domain.Identity.AccountId occupant,
+            Domain.Identity.CharacterId character,
+            bool hasActiveRelationship,
+            bool insideStoneArea)
+        {
+            bool isOwner = GovernorPresence.IsOwner(occupant, stone);
+            bool authorizedGovernorPresent = GovernorPresence.AuthorizedGovernorPresent(stone);
+            return new OccupantPresence(occupant, character, isOwner, hasActiveRelationship,
+                insideStoneArea, authorizedGovernorPresent);
+        }
 
         public HomesteadProgressionCatalog Catalog { get; }
         public string DurableDirectory { get; }
@@ -132,10 +160,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
                 Path.Combine(durableDirectory, LocalPolicyJournalFile), resolver, stones, ownerAuthority);
 
             var activation = new LocalActivationService(stones, effectiveCatalog);
+            var governorPresence = new GovernorPresenceResolver(characters, authority);
 
             return new LocalProgressionServer(
                 stones, characters, authority, relationships, facets, activities, development, localPolicy,
-                activation, effectiveCatalog, durableDirectory);
+                activation, governorPresence, effectiveCatalog, durableDirectory);
         }
     }
 }

@@ -202,15 +202,21 @@ vertical slice) without redesigning gameplay:
   aggregate + server-observed occupancy/governance/owner presence, and emits the bounded notification
   (`Application/Activation/LocalActivationDelivery.cs`): stable Stone+occupant IDs, new Stone/policy revisions,
   a monotonic delivery sequence, and a result code — never a copied active-state ledger. Fail-closed on
-  missing/stale authority.
+  missing/stale authority. The owner + Stone-wide authorized-Governor-presence facts are DERIVED from
+  committed relationship/authority state via `Application/Activation/GovernorPresenceResolver.cs`
+  (`LocalProgressionServer.ComposePresence`), never a separately-mutated flag — a released Governor bond
+  immediately dormants every Local Effect, and owner is never conflated with Stone-wide governor presence.
 - **Client-side bounded consumer** `Application/Activation/LocalActivationClientCache.cs` applies snapshots by
   sequence (drops stale/reordered), decides refetch from a notification, and fails closed. Clients never
   author activation.
 - **net48 transport** `Features/Progression/LocalActivationDeliveryObserver.cs` is the transport-bound
-  server→client channel (client requests by Stone id + server-observed position; server derives from
-  authoritative state and replies with the serialized snapshot), and
+  server→client channel (client requests by Stone id ONLY; the server resolves the requesting peer's
+  identity AND current position from its own character ZDO — occupancy is server-owned, never a client-supplied
+  x/z — then derives from authoritative state and replies with the serialized snapshot, failing closed when
+  peer/ZDO/position authority is unavailable), and
   `Features/Progression/FoundationalRuntimeBootstrap.cs` composes the live `LocalProgressionServer` on the
-  authoritative host (the missing live construction the investigation flagged).
+  authoritative host (the missing live construction the investigation flagged), binding the Homestead owner
+  authority to committed Governor-bond state via `CommittedGovernorOwnerAuthority`.
 - **Isolated-QA provisioning path** `Application/Activation/LocalNodeProvisioningDriver.cs` reaches a
   developed/committed Local node using ONLY accepted commands (commit Tree → credit BP → develop node → set
   policy), so T016/T021/T025/T029 QA can reach developed Local nodes without a hardcoded production grant.

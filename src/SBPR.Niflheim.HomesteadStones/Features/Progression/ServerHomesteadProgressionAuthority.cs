@@ -43,28 +43,4 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
             && string.Equals(ownerGovernorRole, "Governor", StringComparison.Ordinal)
             && !tree.IsNone;
     }
-
-    /// <summary>Validates the Homestead owner authorized to set the single Settlement Local policy. The
-    /// provisional proof policy treats the Stone's bonded Governor (Homestead:All) as the owner: only a
-    /// principal that currently holds that authority may change the policy. Production sources the true
-    /// owner identity from the Stone aggregate; this seam keeps the accepted handler pure. A caller that is
-    /// not the authorized Governor is rejected (never a permissive default).</summary>
-    internal sealed class ServerHomesteadOwnerAuthority : IHomesteadOwnerAuthority
-    {
-        private readonly Func<StoneId, string?> _ownerAccountForStone;
-
-        /// <param name="ownerAccountForStone">Resolves the server-owned owner AccountId value for a Stone
-        /// (the account currently holding the Homestead:All Governor bond), or null when none is known.</param>
-        internal ServerHomesteadOwnerAuthority(Func<StoneId, string?> ownerAccountForStone)
-        {
-            _ownerAccountForStone = ownerAccountForStone ?? throw new ArgumentNullException(nameof(ownerAccountForStone));
-        }
-
-        public bool IsOwner(AuthoritativePrincipal principal, StoneId stoneId)
-        {
-            var owner = _ownerAccountForStone(stoneId);
-            return !string.IsNullOrEmpty(owner)
-                && string.Equals(owner, principal.Account.Value, StringComparison.Ordinal);
-        }
-    }
 }

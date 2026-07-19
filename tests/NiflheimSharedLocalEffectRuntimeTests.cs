@@ -86,7 +86,7 @@ namespace SBPR.Trailborne.Tests
             return LocalProgressionServer.Create(
                 _dir, stones, characters, authority, relationships,
                 new FixedFamilyResolver(), new AllowGovernorAuthority(), new AllowDevelopmentAuthority(),
-                new StubOwnerAuthority(_gov, _govChar, _stone));
+                new CommittedGovernorOwnerAuthority(new GovernorPresenceResolver(characters, authority)));
         }
 
         // A Stone-Level-2 Homestead with the Cooking Tree NOT yet committed and NO node development — the
@@ -385,6 +385,124 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(d.Notification.StoneRevision, n2.StoneRevision);
         }
 
+        // ── PR #368 fix-forward: authoritative governor presence + server-owned occupancy ────────
+        //
+        // These prove the STRUCTURAL defects the adversarial review rejected are corrected: the real
+        // delivery composition (LocalProgressionServer.ComposePresence + the StoneAreaMembership the
+        // server-side RPC resolves position against) must (a) deliver Active for a legitimately provisioned
+        // committed/developed node, (b) go dormant when no authorized Governor is bonded, and (c) refuse to
+        // activate off a forged client position. The suite cannot pass while owner/governor-presence are a
+        // dead flag or while occupancy is payload-authoritative.
+
+        // Register the Stone's real Area at a known center, mirroring the server-side membership the net48
+        // RPC handler resolves the peer's ZDO position against.
+        private StoneAreaMembership AreaAt(double x, double z, double radius = 10.0)
+        {
+            var m = new StoneAreaMembership();
+            m.Register(_stone, x, z, radius);
+            return m;
+        }
+
+        [Fact]
+        public void Composed_presence_derives_owner_and_governor_presence_from_committed_bond()
+        {
+            var (server, _) = Provisioned();
+
+            // The Governor's committed Homestead:All Bond is the ONLY source: ComposePresence derives BOTH
+            // owner (this account holds the bond) and Stone-wide authorized-Governor presence from it — no
+            // caller-supplied owner/governor flag exists anymore.
+            var presence = server.ComposePresence(_stone, _gov, _govChar,
+                hasActiveRelationship: true, insideStoneArea: true);
+            Assert.True(presence.IsOwner);
+            Assert.True(presence.AuthorizedGovernorPresent);
+
+            // A DIFFERENT account standing at the same Stone is NOT the owner, but the Stone-wide governor
+            // presence fact is still true (the two are never conflated).
+            var guestPresence = server.ComposePresence(_stone, _guest, _guestChar,
+                hasActiveRelationship: false, insideStoneArea: true);
+            Assert.False(guestPresence.IsOwner);
+            Assert.True(guestPresence.AuthorizedGovernorPresent);
+        }
+
+        [Fact]
+        public void Real_channel_delivers_active_for_provisioned_node_inside_area()
+        {
+            var (server, _) = Provisioned();
+            var area = AreaAt(100.0, 100.0);
+
+            // Server-owned occupancy: the peer's ZDO position (inside the Area) resolves insideStoneArea.
+            bool inside = area.IsInside(_stone, 101.0, 99.0);
+            Assert.True(inside);
+
+            var presence = server.ComposePresence(_stone, _gov, _govChar,
+                hasActiveRelationship: true, insideStoneArea: inside);
+            var snap = server.Activation.Publish(_stone, presence, "request").Snapshot;
+
+            Assert.True(snap.AuthorityPresent);
+            Assert.True(snap.AuthorizedGovernorPresent);
+            Assert.True(snap.IsActive(Savor)); // the REAL channel delivers Active — not inert
+        }
+
+        [Fact]
+        public void Governor_absence_dormants_through_real_channel()
+        {
+            // A Stone with a developed node but NO committed Governor bond: the resolver reports no
+            // authorized Governor present, so the composed presence dormants every Local Effect even for an
+            // occupant standing inside the Area. This is what the dead OwnerByStone map ALWAYS wrongly did;
+            // here it must happen ONLY because governance is genuinely absent.
+            var stones = new InMemoryStoneAggregateStore();
+            var characters = new InMemoryCharacterAggregateStore();
+            var authority = new InMemoryAccountStoneAuthorityStore();
+            stones.PutStone(BareStone(revision: 10));
+            characters.PutCharacter(Governor());
+            authority.ApplyAuthorityProjection("seed-bond", BondIndex());
+            var server = NewServer(stones, characters, authority);
+            new LocalNodeProvisioningDriver(server)
+                .Provision(new AuthoritativeSubject(_gov, _govChar), _stone, Savor, "qa-savor");
+
+            // Release the Governor's Bond through the accepted handler: no authorized Governor remains.
+            var release = server.Relationships.Handle(new RelationshipCommand(
+                new OperationId("op-release-gov"), RelationshipCommandType.ReleaseRelationship, _stone,
+                new AuthenticatedConnection(_gov.Value, _govChar.Value), default, "rel-bond-gov"));
+            Assert.Equal(RelationshipCommandOutcome.Applied, release.Outcome);
+
+            var presence = server.ComposePresence(_stone, _gov, _govChar,
+                hasActiveRelationship: false, insideStoneArea: true);
+            Assert.False(presence.AuthorizedGovernorPresent);
+            Assert.False(presence.IsOwner);
+
+            var snap = server.Activation.Publish(_stone, presence, "request").Snapshot;
+            Assert.False(snap.AuthorizedGovernorPresent);
+            Assert.False(snap.IsActive(Savor)); // dormant because governance is genuinely absent
+        }
+
+        [Fact]
+        public void Forged_client_position_cannot_activate_effect()
+        {
+            var (server, _) = Provisioned();
+            // The Stone's real Area is far from origin. A hostile client's forged x/z would previously have
+            // been trusted; the corrected channel resolves occupancy from the SERVER-observed position only.
+            var area = AreaAt(5000.0, 5000.0, radius: 8.0);
+
+            // Simulate the server resolving the peer's ACTUAL position (nowhere near the Area). A forged
+            // payload claiming (5000,5000) is irrelevant — the handler never reads it; it uses the ZDO pos.
+            double actualX = 0.0, actualZ = 0.0;
+            bool insideByServer = area.IsInside(_stone, actualX, actualZ);
+            Assert.False(insideByServer); // server-owned position is outside — forgery gains nothing
+
+            var presence = server.ComposePresence(_stone, _gov, _govChar,
+                hasActiveRelationship: true, insideStoneArea: insideByServer);
+            var snap = server.Activation.Publish(_stone, presence, "request").Snapshot;
+            Assert.False(snap.InsideStoneArea);
+            Assert.False(snap.IsActive(Savor)); // cannot activate off a forged position
+
+            // Sanity: the SAME occupant at the REAL Area position DOES activate — proving the guard is the
+            // position authority, not a blanket denial.
+            var real = server.ComposePresence(_stone, _gov, _govChar,
+                hasActiveRelationship: true, insideStoneArea: area.IsInside(_stone, 5001.0, 4999.0));
+            Assert.True(server.Activation.Publish(_stone, real, "request").Snapshot.IsActive(Savor));
+        }
+
         // ── Stubs (server-owned authority policies) ──────────────────────────
 
         private sealed class FixedFamilyResolver : IStoneFamilyResolver
@@ -423,18 +541,6 @@ namespace SBPR.Trailborne.Tests
                 string.Equals(responsibilityRange, "Homestead:All", System.StringComparison.Ordinal)
                 && string.Equals(ownerGovernorRole, "Governor", System.StringComparison.Ordinal)
                 && !tree.IsNone;
-        }
-
-        private sealed class StubOwnerAuthority : IHomesteadOwnerAuthority
-        {
-            private readonly AccountId _owner;
-            private readonly CharacterId _ownerChar;
-            private readonly StoneId _stone;
-            public StubOwnerAuthority(AccountId owner, CharacterId ownerChar, StoneId stone)
-            { _owner = owner; _ownerChar = ownerChar; _stone = stone; }
-            public bool IsOwner(AuthoritativePrincipal principal, StoneId stoneId) =>
-                stoneId.Equals(_stone) && principal.Account.Equals(_owner)
-                && principal.Character.Equals(_ownerChar);
         }
     }
 }

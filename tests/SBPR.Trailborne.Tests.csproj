@@ -238,6 +238,7 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationService.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationClientCache.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
