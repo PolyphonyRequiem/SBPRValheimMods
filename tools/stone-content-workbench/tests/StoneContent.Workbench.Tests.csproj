@@ -49,6 +49,9 @@
     <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneFacets.cs" />
     <!-- StoneFacets.cs pulls in the Stone aggregate + identity types it lives beside. -->
     <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneProgressionAggregate.cs" />
+    <!-- T014: the Stone aggregate's LocalPolicy field references the pure SettlementLocalPolicy
+         value object; link it here so the workbench parity build resolves the type. -->
+    <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/SettlementLocalPolicy.cs" />
     <Compile Include="../../../src/SBPR.Niflheim.HomesteadStones/Domain/Identity/ProgressionIdentity.cs" />
   </ItemGroup>
 
