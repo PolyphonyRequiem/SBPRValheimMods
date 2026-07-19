@@ -28,6 +28,25 @@ Acceptance: `AT-REFINED-REAL-VS-EFFECTIVE`.
 
 Source: `src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/EffectiveStationLevelProvider.cs`.
 
-Joined-client effective-Level-3 transport proof: **PENDING** — deferred because a
-live Valheim client owned the desktop at implementation time (safety gate). See
-`README.md`.
+## T021 remediation — live crafting-runtime wiring (t_2ac2ab59)
+
+The shipped provider was dead code (zero net48 callers). The remediation wires it
+into the vanilla crafting runtime over the merged T016 activation substrate
+(PR #368), so the +1 can manifest on a joined client.
+
+| id | claim | artifact |
+|----|-------|----------|
+| RWX1 | Boolean-core `Resolve(active,…)` matches the view-path `Resolve(view,…)` result | `tests/NiflheimRefinedWorkshopTests.cs::Boolean_core_resolve_matches_the_view_path_for_the_same_inputs` |
+| RWX2 | Client cache `IsActiveForStone` reads the local occupant's row without naming the account | `tests/NiflheimRefinedWorkshopTests.cs::Client_cache_is_active_for_stone_reads_the_local_occupant_row` |
+| RWX3 | Denied / inactive / foreign-Stone snapshots fail closed under `IsActiveForStone` | `tests/NiflheimRefinedWorkshopTests.cs::Client_cache_is_active_for_stone_fails_closed_*` |
+
+Runtime consumer: `Features/Progression/RefinedWorkshopStationLevelPatch` (net48,
+postfixes on `Player.RequiredCraftingStation` + `InventoryGui.SetupRequirementList`),
+reading the replicated `LocalActivationClientCache` filled by the now-registered
+`LocalActivationDeliveryObserver` transport. Client Stone lookup:
+`Features/Progression/HomesteadStoneClientIndex`.
+
+Joined-client effective-Level-3 transport proof: **PENDING** — deferred to the
+downstream qa-playtest rerun (`t_8261a415`) on a dedicated-server + joined-client
+topology. Listen-host self-delivery is a noted follow-up (the peer-to-peer transport
+does not round-trip to the host itself). See `README.md`.

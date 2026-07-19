@@ -486,7 +486,18 @@ These are derived-provider contracts, not direct ledger writes.
   portable-item kinds (production/upgrade/repair) on an eligible portable item AND a real station is present
   (level ≥ 1). Structure production and build placement never receive it, an ineligible item never receives it,
   the +1 never conjures a station, and it never mutates the real level or satisfies a Stone-level place-state
-  objective.
+  objective. **Live-wired (T021 remediation, net48):** the pure provider is now consumed on a joined client by
+  `Features/Progression/RefinedWorkshopStationLevelPatch` — a postfix on `Player.RequiredCraftingStation` that
+  rescues an eligible-portable level-only shortfall with the provider's effective level, and a postfix on
+  `InventoryGui.SetupRequirementList` that recolors the required-level text to the base (satisfied) color when
+  the +1 satisfies it (real vs +1 distinction; the required-level number and real station level are untouched).
+  The activation bit is read exclusively from the replicated `LocalActivationClientCache` (server-stamped over
+  the bounded delivery transport, now registered in `Plugin`), so the client re-derives nothing and fails closed
+  outside every Stone Area / with no snapshot. The single authority is the shared boolean
+  `EffectiveStationLevelProvider.Resolve(active, realLevel, operation, itemIsEligiblePortable)` overload both the
+  server view path and the client patch call. Listen-host self-delivery is a follow-up (the peer-to-peer
+  transport does not round-trip to the host itself); the proven effective-Level-3 topology is a dedicated server
+  with a joined client.
 - `WorkmanshipIssuanceProvider`: active Masterwork may issue one deterministic property on an eligible exact
   non-stackable durable output.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on

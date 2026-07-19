@@ -108,19 +108,41 @@ namespace SBPR.Niflheim.HomesteadStones.Adapters.Crafting
             bool itemIsEligiblePortable)
         {
             if (localEffects == null) throw new ArgumentNullException(nameof(localEffects));
-            if (realStationLevel < 0)
-                throw new ArgumentOutOfRangeException(nameof(realStationLevel),
-                    "Real observed station level cannot be negative.");
 
             // The Refined Workshop Local Effect must be currently active for THIS occupant. Active already
             // folds in: developed Stone state + committed Crafting Tree + Active Stone Level ≥ node level +
             // an authorized Governor present + inside the Stone Area + Settlement Local policy eligibility.
             bool refinedActive = localEffects.StatusFor(refinedWorkshopNode).Active;
+            return Resolve(refinedActive, realStationLevel, operation, itemIsEligiblePortable);
+        }
+
+        /// <summary>Resolve the effective station level from the ALREADY-DERIVED activation bit for the
+        /// Refined Workshop node. This is the single authority both callers reach: the pure server-side
+        /// <see cref="LocalEffectActivationView"/> path (above) and the net48 CLIENT path, which reads the
+        /// same derived <c>Active</c> bit off the replicated <c>LocalActivationSnapshot</c> the server
+        /// stamped for this occupant. Neither caller re-derives activation here — the +1 policy is one
+        /// function of (active, real level, operation, item eligibility) so it can never diverge between
+        /// the two entry points.</summary>
+        /// <param name="refinedWorkshopActive">Whether the Refined Workshop Local Effect is currently
+        /// active for this occupant (already gated: developed + committed Tree + Active Stone Level +
+        /// authorized Governor + inside Area + policy). On a client this is the snapshot's derived bit.</param>
+        /// <param name="realStationLevel">The real, server-observed station level (unchanged, ≥ 0).</param>
+        /// <param name="operation">The station operation being evaluated.</param>
+        /// <param name="itemIsEligiblePortable">Whether the target output/item is an eligible portable item.</param>
+        public static EffectiveStationLevel Resolve(
+            bool refinedWorkshopActive,
+            int realStationLevel,
+            CraftingOperationKind operation,
+            bool itemIsEligiblePortable)
+        {
+            if (realStationLevel < 0)
+                throw new ArgumentOutOfRangeException(nameof(realStationLevel),
+                    "Real observed station level cannot be negative.");
 
             // Structure production and build placement are never eligible: Refined Workshop "does not
             // unlock building pieces/permissions [or] affect structure production." A real station must
             // exist (level ≥ 1) — the +1 augments an existing station, it does not conjure one.
-            bool eligible = refinedActive
+            bool eligible = refinedWorkshopActive
                 && itemIsEligiblePortable
                 && IsPortableOperation(operation)
                 && realStationLevel >= 1;

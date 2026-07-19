@@ -24,6 +24,7 @@
 
 using System.Collections.Generic;
 using SBPR.Niflheim.HomesteadStones.Adapters.Crafting;
+using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Domain.Activation;
 using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
@@ -299,6 +300,101 @@ namespace SBPR.Trailborne.Tests
             Assert.True(EffectiveStationLevelProvider.IsPortableOperation(CraftingOperationKind.PortableItemRepair));
             Assert.False(EffectiveStationLevelProvider.IsPortableOperation(CraftingOperationKind.StructureProduction));
             Assert.False(EffectiveStationLevelProvider.IsPortableOperation(CraftingOperationKind.BuildPlacement));
+        }
+
+        // ============================================================================
+        //  T021 remediation (t_2ac2ab59) — the live-wiring seams: the boolean-core
+        //  Resolve overload the client patch calls, and the client cache accessor it
+        //  reads. These are the engine-free surfaces the net48 consumer drives; the
+        //  consumer patch itself is net48-only and proven in-game by the QA rerun.
+        // ============================================================================
+
+        [Theory]
+        [InlineData(2, CraftingOperationKind.PortableItemProduction, true)]
+        [InlineData(2, CraftingOperationKind.PortableItemUpgrade, true)]
+        [InlineData(2, CraftingOperationKind.PortableItemRepair, true)]
+        [InlineData(2, CraftingOperationKind.StructureProduction, true)]
+        [InlineData(2, CraftingOperationKind.BuildPlacement, true)]
+        [InlineData(0, CraftingOperationKind.PortableItemProduction, true)]
+        [InlineData(2, CraftingOperationKind.PortableItemProduction, false)]
+        public void Boolean_core_resolve_matches_the_view_path_for_the_same_inputs(
+            int realLevel, CraftingOperationKind op, bool eligiblePortable)
+        {
+            // The ACTIVE case: derive the real view, then assert the boolean overload (fed the view's own
+            // derived Active bit) produces an identical EffectiveStationLevel. This proves the client path,
+            // which reads the replicated snapshot's Active bit, cannot diverge from the server view path.
+            var view = ActiveOwnerView();
+            bool active = view.StatusFor(Refined).Active;
+
+            var viaView = EffectiveStationLevelProvider.Resolve(view, Refined, realLevel, op, eligiblePortable);
+            var viaBool = EffectiveStationLevelProvider.Resolve(active, realLevel, op, eligiblePortable);
+
+            Assert.Equal(viaView.BonusApplied, viaBool.BonusApplied);
+            Assert.Equal(viaView.EffectiveStationLevelValue, viaBool.EffectiveStationLevelValue);
+            Assert.Equal(viaView.RealStationLevel, viaBool.RealStationLevel);
+            Assert.Equal(viaView.Operation, viaBool.Operation);
+
+            // And the INACTIVE case: a false activation bit always resolves to the real level, no bonus.
+            var inactive = EffectiveStationLevelProvider.Resolve(false, realLevel, op, eligiblePortable);
+            Assert.False(inactive.BonusApplied);
+            Assert.Equal(realLevel, inactive.EffectiveStationLevelValue);
+        }
+
+        // ---- The client cache accessor the net48 consumer reads (occupant-agnostic, fail-closed) ----
+
+        private LocalActivationSnapshot SnapshotWithRefined(StoneId stone, AccountId occupant, bool active,
+            bool authorityPresent = true, long sequence = 1)
+        {
+            var rows = new List<LocalActivationRow>
+            {
+                new LocalActivationRow(Refined, Crafting, developed: true, policyEligible: true,
+                    dormant: !active, active: active),
+            };
+            return new LocalActivationSnapshot(stone, occupant, sequence, stoneRevision: 5, policyRevision: 0,
+                LocalBeneficiaryMode.Everyone, authorityPresent, occupantPolicyEligible: true,
+                insideStoneArea: true, authorizedGovernorPresent: true, rows);
+        }
+
+        [Fact]
+        public void Client_cache_is_active_for_stone_reads_the_local_occupant_row()
+        {
+            var cache = new LocalActivationClientCache();
+            Assert.True(cache.Apply(SnapshotWithRefined(_stone, _owner, active: true)));
+
+            // The consumer knows the Stone it stands in but NOT its server-derived AccountId; the accessor
+            // resolves the local occupant's row by Stone alone.
+            Assert.True(cache.IsActiveForStone(_stone, Refined));
+        }
+
+        [Fact]
+        public void Client_cache_is_active_for_stone_fails_closed_without_a_snapshot()
+        {
+            var cache = new LocalActivationClientCache();
+            Assert.False(cache.IsActiveForStone(_stone, Refined));
+        }
+
+        [Fact]
+        public void Client_cache_is_active_for_stone_fails_closed_on_inactive_or_denied_snapshots()
+        {
+            var cache = new LocalActivationClientCache();
+
+            // Inactive row (dormant): no bonus.
+            cache.Apply(SnapshotWithRefined(_stone, _owner, active: false, sequence: 1));
+            Assert.False(cache.IsActiveForStone(_stone, Refined));
+
+            // Denied snapshot (authority absent) never delivers, even if a row claimed active.
+            cache.Apply(SnapshotWithRefined(_stone, _guest, active: true, authorityPresent: false, sequence: 2));
+            Assert.False(cache.IsActiveForStone(_stone, Refined));
+        }
+
+        [Fact]
+        public void Client_cache_is_active_for_stone_fails_closed_for_a_foreign_stone()
+        {
+            var cache = new LocalActivationClientCache();
+            cache.Apply(SnapshotWithRefined(_stone, _owner, active: true));
+
+            var otherStone = StoneId.FromHostZone(_world, 99, 99);
+            Assert.False(cache.IsActiveForStone(otherStone, Refined));
         }
     }
 }
