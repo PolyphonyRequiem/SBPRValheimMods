@@ -68,6 +68,25 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             return current != null && current.AuthorityPresent && current.IsActive(node);
         }
 
+        /// <summary>Whether the Local Effect for <paramref name="node"/> is active for the LOCAL occupant at
+        /// <paramref name="stone"/>, WITHOUT the caller having to name the account. A joined client only ever
+        /// receives snapshots the server stamped for ITSELF (the transport replies with the requesting peer's
+        /// own occupant), so every snapshot the cache holds for a Stone belongs to the local player. The
+        /// gameplay-family consumers (the Refined Workshop station-level patch) run client-side and know the
+        /// Stone they stand in but not their server-derived <see cref="AccountId"/> (that is an HMAC the
+        /// server owns), so they query by Stone alone. Fail closed: no held snapshot for the Stone, a denied
+        /// snapshot, or an inactive row ⇒ false.</summary>
+        public bool IsActiveForStone(StoneId stone, VersionedId node)
+        {
+            foreach (var kv in _byStone)
+            {
+                var snap = kv.Value;
+                if (!snap.StoneId.Equals(stone)) continue;
+                if (snap.AuthorityPresent && snap.IsActive(node)) return true;
+            }
+            return false;
+        }
+
         /// <summary>Whether the local occupant may exercise a Local PLACEMENT capability for
         /// <paramref name="node"/>: the held snapshot must have the effect active AND the caller must
         /// independently pass ordinary build Permission (spec FR-016 final sentence). Fail closed.</summary>
