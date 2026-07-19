@@ -185,6 +185,47 @@ claiming any node is playable.
 **Purpose:** Deliver four executable Cooking nodes and one honestly unavailable node. T016–T019 are sequential
 within the branch because each extends the same Cooking adapter/provider surface.
 
+### Shared Local Effect runtime substrate (product-defect remediation, prerequisite to T016–T032)
+
+The T021 independent investigation (`t_2ac2ab59`) established that the T012–T014 Stone
+aggregate/Facet/Development/LocalPolicy handlers and `LocalEffectActivationView.Derive` had **zero production
+composition**, and there was **no bounded server→client activation/read-model channel**, so no US4 family
+provider could be delivered honestly. This substrate was built once, shared, ahead of T016 (accepted first
+vertical slice) without redesigning gameplay:
+
+- **Live composition root** `Application/Activation/LocalProgressionServer.cs` wires the already-accepted
+  Facet/Activity/Development/LocalPolicy command handlers over the SAME character/authority stores as the
+  Foundational runtime plus a Stone aggregate store, rehydrating the four durable progression journals at
+  construction. No parallel provisional node-development or policy ledger.
+- **Per-occupant activation derivation + bounded delivery** `Application/Activation/LocalActivationService.cs`
+  derives each occupant's read model via the existing `LocalEffectActivationView` from the authoritative Stone
+  aggregate + server-observed occupancy/governance/owner presence, and emits the bounded notification
+  (`Application/Activation/LocalActivationDelivery.cs`): stable Stone+occupant IDs, new Stone/policy revisions,
+  a monotonic delivery sequence, and a result code — never a copied active-state ledger. Fail-closed on
+  missing/stale authority. The owner + Stone-wide authorized-Governor-presence facts are DERIVED from
+  committed relationship/authority state via `Application/Activation/GovernorPresenceResolver.cs`
+  (`LocalProgressionServer.ComposePresence`), never a separately-mutated flag — a released Governor bond
+  immediately dormants every Local Effect, and owner is never conflated with Stone-wide governor presence.
+- **Client-side bounded consumer** `Application/Activation/LocalActivationClientCache.cs` applies snapshots by
+  sequence (drops stale/reordered), decides refetch from a notification, and fails closed. Clients never
+  author activation.
+- **net48 transport** `Features/Progression/LocalActivationDeliveryObserver.cs` is the transport-bound
+  server→client channel (client requests by Stone id ONLY; the server resolves the requesting peer's
+  identity AND current position from its own character ZDO — occupancy is server-owned, never a client-supplied
+  x/z — then derives from authoritative state and replies with the serialized snapshot, failing closed when
+  peer/ZDO/position authority is unavailable), and
+  `Features/Progression/FoundationalRuntimeBootstrap.cs` composes the live `LocalProgressionServer` on the
+  authoritative host (the missing live construction the investigation flagged), binding the Homestead owner
+  authority to committed Governor-bond state via `CommittedGovernorOwnerAuthority`.
+- **Isolated-QA provisioning path** `Application/Activation/LocalNodeProvisioningDriver.cs` reaches a
+  developed/committed Local node using ONLY accepted commands (commit Tree → credit BP → develop node → set
+  policy), so T016/T021/T025/T029 QA can reach developed Local nodes without a hardcoded production grant.
+
+Red-first tests in `tests/NiflheimSharedLocalEffectRuntimeTests.cs` prove area entry/exit, policy/governance/
+relationship dormancy, stale/reordered notification → refetch, reconnect/restart, hostile identity, and no
+second mutable active-effects ledger (derive-only). The four US4 branch remediations rebase onto this and wire
+only their family-specific adapters.
+
 - [ ] **T016 [US4] Implement Savor the Hearth as the first Cooking vertical slice.** Add the Cooking adapter/provider boundary in `Adapters/Cooking/CookingProviders.cs`, wire active Local-node and Settlement-policy evaluation through `Domain/Activation/DerivedActivationView.cs`, add deterministic adapter tests, and produce joined-client in-area/exit evidence proving timer factor 0.5→1 without item/stat mutation. Acceptance: `AT-SAVOR-AREA-EXIT`.
 - [ ] **T017 [US4] Implement Field Prep through the shared Cooking-aware Bushcraft policy.** Extend `Adapters/Cooking/CookingCraftPolicy.cs`, preserve unchanged Boar Jerky/Queen's Jam inputs/yields and normal Cooking XP/speed/bonus behavior, add contract/adapter tests, and produce joined-client recipe/craft evidence. Acceptance: `AT-FIELD-PREP-COOKING-POLICY`.
 - [ ] **T018 [US4] Implement Iron Stomach as a durable refresh-threshold provider.** Add `Adapters/Cooking/FoodRefreshThresholdProvider.cs`, preserve three food slots and normal debit/stats/duration, test highest-provider composition and relationship loss/restart, and produce joined-client 75%-threshold evidence. Acceptance: `AT-IRON-STOMACH-75`.

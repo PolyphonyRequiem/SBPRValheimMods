@@ -226,6 +226,20 @@
          AT-RELATIONSHIP-DORMANCY. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/SettlementLocalPolicy.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/LocalPolicyCommands.cs" />
+    <!-- T016 shared Local Effect runtime substrate (t_02c13405): the bounded server→client activation
+         delivery contract (snapshot + notification), the server-side LocalActivationService that derives
+         per-occupant read models from the authoritative Stone aggregate + observed presence and emits
+         bounded notifications, the client-side cache that drops stale/reordered snapshots and decides
+         refetch, the engine-free composition root wiring the accepted Facet/Development/Activity/LocalPolicy
+         handlers + activation service, and the isolated-QA provisioning driver that reaches a developed
+         Local node through accepted commands only. All engine-free (no UnityEngine/Valheim/BepInEx), so
+         they compile under net8 here AND net48 in the mod. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationDelivery.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationService.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationClientCache.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
