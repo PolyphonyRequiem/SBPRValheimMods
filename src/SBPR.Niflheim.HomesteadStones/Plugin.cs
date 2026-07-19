@@ -142,6 +142,23 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Archer.ArcherContentRegistrar));
             harmony.PatchAll(typeof(Features.Archer.ArcheryTargetPlacementGate));
 
+            // T016 — Savor the Hearth live food-timer delivery seam. The net48 Player.UpdateFood prefix
+            // scales ONLY the elapsed food-drain slice for the local player by the shipped
+            // SavorTheHearthProvider factor (0.5 active / 1.0 otherwise), reading the established active
+            // Savor context off the composed server. The playtest-gated admin seam (config flag +
+            // Valheim-admin, DISABLED by default) establishes/clears that context at the sender's current
+            // Stone Area so a joined listen-host client can prove in-area 0.5 / exit 1.0. Neither the factor
+            // nor the context is client-authored; the observer no-ops when no server context is composed.
+            harmony.PatchAll(typeof(Features.Cooking.SavorFoodTimerObserver));
+            Features.Cooking.SavorProvisioningAdmin.EnableSeam = Config.Bind(
+                "Cooking", "EnableSavorPlaytestSeam", false,
+                "Playtest ONLY. When true, server admins may establish/clear an active Savor the Hearth Local "
+                + "context at their current Homestead Stone Area via the sbpr_savor console command so live "
+                + "food-timer slowing (factor 0.5) can be proven in a joined client. Server-owned; not "
+                + "client-settable. Leave false on any non-playtest server.");
+            harmony.PatchAll(typeof(Features.Cooking.SavorProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Cooking.SavorProvisioningConsole));
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 
