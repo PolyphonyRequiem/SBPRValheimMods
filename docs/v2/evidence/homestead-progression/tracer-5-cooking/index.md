@@ -5,9 +5,11 @@ status: current
 # Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth)
 
 Node: **T016 [US4]** — Savor the Hearth, first Cooking vertical slice (node 1 of 4).
-Acceptance target: `AT-SAVOR-AREA-EXIT`. Status: **code + tests + docs landed under
-review**; joined-client in-world artifact **BLOCKED** pending QA clearance (owner was
-mid-session on a live Valheim client). Independent Tracer-5 verdict is T020.
+Acceptance target: `AT-SAVOR-AREA-EXIT`. Status: **QA PASS (data + delivery-seam
+layer verified) at merge head `1019c92`** — the live `Player.UpdateFood` seam is an
+installed SBPR Harmony prefix (verified on the booted server); the in-world 0.5x
+food-bar last mile remains REASONED (headless has no local Player). Independent
+Tracer-5 verdict is T020.
 
 | id | claim | artifact |
 |----|-------|----------|
@@ -23,5 +25,6 @@ mid-session on a live Valheim client). Independent Tracer-5 verdict is T020.
 | S10 | Joined-client in-area/exit in-world proof (net48 Harmony food-timer seam on a QA client) — live seam WIRED by remediation t_803e92f6, rebased onto the merged shared Local Effect runtime PR #368 (`Player.UpdateFood` prefix consuming the authoritative `LocalActivationSnapshot` + engine-free projection `SavorFoodDrainResolver` + playtest establishment seam driving the shared `LocalNodeProvisioningDriver`'s accepted commands); in-world 0.5/1.0 artifact remains QA's to capture via the documented operator steps | `live-seam-wired-t_803e92f6.md`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/SavorFoodTimerObserver.cs`; `src/SBPR.Niflheim.HomesteadStones/Application/Runtime/SavorFoodDrainResolver.cs`; `tests/NiflheimSavorLiveSeamTests.cs` |
 
 - [README.md](README.md) — full analysis, provider description, and the wired joined-client seam
+- [joined-client-PASS-t_8b6e9e60.md](joined-client-PASS-t_8b6e9e60.md) — QA PASS: live seam verified installed on the booted server + mechanical merge onto fresh main
 - [live-seam-wired-t_803e92f6.md](live-seam-wired-t_803e92f6.md) — remediation: the live food-timer delivery seam + QA operator steps
 - [joined-client-FAIL-t_0fb85725.md](joined-client-FAIL-t_0fb85725.md) — superseded FAIL evidence (live path absent, pre-remediation)
