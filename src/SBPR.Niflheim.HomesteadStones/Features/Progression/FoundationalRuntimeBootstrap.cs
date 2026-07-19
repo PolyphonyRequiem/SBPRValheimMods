@@ -121,6 +121,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 composedFor = null;
                 FoundationalPlacementObserver.Server = null;
                 SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkIssuanceObserver.Disarm();
+                SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkClientState.Clear();
                 LocalProgressionObserver.Clear();
             }
         }

@@ -531,9 +531,23 @@ These are derived-provider contracts, not direct ledger writes.
   crafter's Masterwork activation from the composed server stores, stamps the exact provenance onto the
   just-produced eligible item via `ItemDataMetadataAccessor`, and explicitly dirties persistence
   (`Inventory.Changed()`). The durable server integrity key (`WorkmanshipIntegrityKeyFile`) is armed in the
-  runtime bootstrap; issuance fails closed with no key/server. Host-first issuance is proven; authoritative
-  server→client Workmanship replication for a pure remote crafter is the documented follow-up (T021/T026
-  precedent).
+  runtime bootstrap; issuance fails closed with no key/server. **Dedicated-server joined-client delivery
+  (T022 remediation, t_cdc76200):** the host-only observer cannot issue on an isolated dedicated server (the
+  headless server has no local crafter and a pure joined crafter is unarmed/keyless), so
+  `Features/Crafting/MasterworkDedicatedDeliveryObserver` adds a bounded per-peer ZRpc channel that makes
+  issuance authoritative AND client-delivered **without ever shipping the raw integrity key**: a joined crafter
+  sends server-observed produced-item facts, the server re-derives entitlement from its own stores (transport-
+  authenticated bound principal — never the payload), mints + SIGNS the stamp through the engine-free
+  `Application/Crafting/WorkmanshipDeliveryService`, and the client writes the exact signed bytes via
+  `WorkmanshipCodec.WriteSigned` (byte-identical to a host stamp). A joined receiver VALIDATES a stamp it read
+  keylessly (`WorkmanshipCodec.TryReadRaw`) by relaying the fields+token for the server to check under its key
+  (`WorkmanshipCodec.Validate`), caching the Valid/Tampered verdict (`WorkmanshipVerdictCache`).
+  `Features/Crafting/MasterworkWorkmanshipTooltip` postfixes `ItemDrop.ItemData.GetTooltip` to render the one
+  deterministic `Workmanship: Masterwork` line only for a confirmed-valid stamp — validated under the composed
+  key on the host, or against the server verdict cache on a pure client — so a forged/foreign/unconfirmed stamp
+  degrades to a plain vanilla tooltip on the joined client. The four ATs (`AT-MASTERWORK-ISSUE`,
+  `AT-ITEM-UPGRADE-PRESERVE`, `AT-ITEM-TRANSFER`, `AT-ITEM-TAMPER-DEGRADE`) are therefore reachable on the
+  dedicated-server + genuine-joined-client topology, not host-only.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on
   future eligible outputs after relationship loss as well.
 - Both item providers bind a server-validated `ItemProvenanceId`, survive upgrade/transfer where valid, explicitly

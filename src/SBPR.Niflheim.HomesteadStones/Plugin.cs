@@ -152,6 +152,25 @@ namespace SBPR.Niflheim.HomesteadStones
             // integrity key by the runtime bootstrap below.
             harmony.PatchAll(typeof(Features.Crafting.MasterworkIssuanceObserver));
 
+            // T022 remediation (t_cdc76200) — the DEDICATED-server joined-client Workmanship delivery
+            // transport. The host-only observer above cannot issue on an isolated dedicated server (headless
+            // server has no local crafter; a pure joined crafter is unarmed/keyless), so this per-peer ZRpc
+            // channel makes issuance authoritative AND client-delivered WITHOUT shipping the raw key: a joined
+            // crafter requests issuance, the server re-derives entitlement + mints + SIGNS, the client writes
+            // the signed bytes; and a client can ask the server to VALIDATE a stamp it read keylessly. Server
+            // registers the request handlers + client the reply handlers on ZNet.OnNewConnection; the client
+            // send is a DoCrafting postfix (no-op on the host). Consumes the engine-free, unit-tested
+            // WorkmanshipDeliveryService + codec.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkDedicatedDeliveryObserver));
+
+            // T022 remediation — the in-world PRESENTATION seam. Postfixes the static ItemDrop.GetTooltip to
+            // append one deterministic "Workmanship: Masterwork" line ONLY when the stamp on that exact
+            // instance is confirmed genuine: validated directly under the composed key on the host, or against
+            // the server-delivered verdict cache on a pure client (requesting a verdict once per provenance id;
+            // rendering nothing for absent/malformed/tampered/unconfirmed). This is the joined-client visible
+            // artifact and the client-side tamper-degrade. Additive (ADR-0006); mutates nothing.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkWorkmanshipTooltip));
+
             // T025-RT — Archer / Practice Range runtime seam. Registers the Practice Arrow item + its
             // 100-for-8-Wood recipe, wires the deterministic vanilla target return (ArrowPractice added to
             // ArcheryTarget.m_returnAmmo), and adds the exact vanilla piece_ArcheryTarget build piece to

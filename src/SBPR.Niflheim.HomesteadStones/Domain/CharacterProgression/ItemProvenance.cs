@@ -300,22 +300,62 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         /// present at all; Tampered when the stamp is present but its schema is unknown, a required field is
         /// missing, or the integrity token does not verify under the server key (a forged/hand-edited/partial
         /// stamp); Valid (with the recovered stamp) only when every field is present, the schema matches, and
-        /// the token verifies. The runtime treats anything but Valid as a plain vanilla item.</summary>
+        /// the token verifies. The runtime treats anything but Valid as a plain vanilla item.
+        ///
+        /// This is the AUTHORITATIVE-SIDE read: it needs the server integrity key. A pure client that holds
+        /// no key uses <see cref="TryReadRaw"/> to recover the stamp fields + token WITHOUT validating and
+        /// then asks the server to <see cref="Validate"/> them — the raw key never crosses the wire.</summary>
         public static WorkmanshipReadResult Read(IItemMetadataReader reader, WorkmanshipIntegrityKey integrity)
         {
             if (reader == null) throw new ArgumentNullException(nameof(reader));
             if (integrity == null) throw new ArgumentNullException(nameof(integrity));
 
-            // No provenance id and no token => this item was never stamped. Absent, not tampered.
+            // Keyless structural parse: Absent (never stamped), Malformed (present but torn/unknown schema),
+            // or Present (well-formed, token recovered). Only a well-formed stamp is worth a key comparison.
+            var parse = TryReadRaw(reader, out var stamp, out string token);
+            if (parse == RawReadState.Absent) return WorkmanshipReadResult.Absent;
+            if (parse == RawReadState.Malformed) return WorkmanshipReadResult.Tampered;
+
+            // Recompute the token over the recovered immutable fields and compare in fixed time. A forged
+            // property, a lifted-and-pasted stamp, or a truncated write cannot match the server key.
+            return Validate(stamp, token, integrity) == WorkmanshipReadState.Valid
+                ? WorkmanshipReadResult.Valid(stamp)
+                : WorkmanshipReadResult.Tampered;
+        }
+
+        /// <summary>The outcome of the keyless structural parse in <see cref="TryReadRaw"/>: no stamp keys at
+        /// all (Absent), a present-but-torn/unknown-schema stamp (Malformed — degrades to vanilla without any
+        /// key), or a well-formed stamp whose fields + token were recovered (Present — still UNVALIDATED; only
+        /// the server key can confirm it is genuine).</summary>
+        public enum RawReadState
+        {
+            Absent = 0,
+            Malformed,
+            Present
+        }
+
+        /// <summary>KEYLESS structural read of an item's Workmanship stamp — the read a pure client performs.
+        /// It recovers the immutable stamp fields + the integrity token WITHOUT the server key, reporting only
+        /// whether the stamp is Absent, structurally Malformed, or well-formed (Present). A well-formed stamp
+        /// is NOT trusted here: the client must hand <paramref name="stamp"/> + <paramref name="token"/> to the
+        /// server for <see cref="Validate"/>, since only the server holds the key. This is what lets a joined
+        /// client present/relay a stamp without ever receiving the secret.</summary>
+        public static RawReadState TryReadRaw(IItemMetadataReader reader, out WorkmanshipStamp stamp, out string token)
+        {
+            if (reader == null) throw new ArgumentNullException(nameof(reader));
+            stamp = default;
+            token = string.Empty;
+
+            // No provenance id and no token and no schema => this item was never stamped. Absent, not torn.
             bool anyKey = reader.Contains(ProvenanceIdKey) || reader.Contains(IntegrityTokenKey)
                 || reader.Contains(SchemaKey);
-            if (!anyKey) return WorkmanshipReadResult.Absent;
+            if (!anyKey) return RawReadState.Absent;
 
-            // From here the item CLAIMS to carry a stamp. Any structural defect => Tampered (degrade).
+            // From here the item CLAIMS to carry a stamp. Any structural defect => Malformed (degrade).
             string schemaRaw = reader.GetString(SchemaKey, string.Empty);
             if (!int.TryParse(schemaRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int schema)
                 || schema != SchemaVersion)
-                return WorkmanshipReadResult.Tampered;
+                return RawReadState.Malformed;
 
             string nodeKey = reader.GetString(NodeKeyKey, string.Empty);
             string nodeVerRaw = reader.GetString(NodeVersionKey, string.Empty);
@@ -324,23 +364,62 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             string itemType = reader.GetString(ItemTypeKey, string.Empty);
             string propName = reader.GetString(PropertyNameKey, string.Empty);
             string propValue = reader.GetString(PropertyValueKey, string.Empty);
-            string token = reader.GetString(IntegrityTokenKey, string.Empty);
+            string tok = reader.GetString(IntegrityTokenKey, string.Empty);
 
             if (!int.TryParse(nodeVerRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int nodeVer))
-                return WorkmanshipReadResult.Tampered;
-            if (string.IsNullOrEmpty(nodeKey) || string.IsNullOrEmpty(provId) || string.IsNullOrEmpty(token))
-                return WorkmanshipReadResult.Tampered;
+                return RawReadState.Malformed;
+            if (string.IsNullOrEmpty(nodeKey) || string.IsNullOrEmpty(provId) || string.IsNullOrEmpty(tok))
+                return RawReadState.Malformed;
 
-            var stamp = new WorkmanshipStamp(schema, new VersionedId(nodeKey, nodeVer),
+            stamp = new WorkmanshipStamp(schema, new VersionedId(nodeKey, nodeVer),
                 new ItemProvenanceId(provId), crafter, itemType, new WorkmanshipProperty(propName, propValue));
+            token = tok;
+            return RawReadState.Present;
+        }
 
-            // Recompute the token over the recovered immutable fields and compare in fixed time. A forged
-            // property, a lifted-and-pasted stamp, or a truncated write cannot match the server key.
+        /// <summary>SERVER-SIDE: sign a freshly minted stamp — the lowercase-hex HMAC-SHA-256 integrity token
+        /// over the canonical immutable fields. The server sends the stamp fields + this token to the crafting
+        /// client, which writes them verbatim via <see cref="WriteSigned"/>; the raw key never leaves the
+        /// server. Equivalent to what <see cref="Stamp"/> computes, exposed so the mint/deliver seam can ship
+        /// the token without shipping the key.</summary>
+        public static string Sign(WorkmanshipStamp stamp, WorkmanshipIntegrityKey integrity)
+        {
+            if (integrity == null) throw new ArgumentNullException(nameof(integrity));
+            return integrity.ComputeToken(Canonical(stamp));
+        }
+
+        /// <summary>SERVER-SIDE: validate a client-presented stamp + token under the server key. Returns Valid
+        /// only when the recomputed token matches in fixed time; Tampered otherwise (forged/hand-edited/foreign
+        /// -key/lifted-pasted). The pure client relays the fields it read with <see cref="TryReadRaw"/> and the
+        /// server answers this — the key stays server-side.</summary>
+        public static WorkmanshipReadState Validate(WorkmanshipStamp stamp, string token, WorkmanshipIntegrityKey integrity)
+        {
+            if (integrity == null) throw new ArgumentNullException(nameof(integrity));
             string expected = integrity.ComputeToken(Canonical(stamp));
-            if (!FixedTimeEquals(expected, token))
-                return WorkmanshipReadResult.Tampered;
+            return FixedTimeEquals(expected, token ?? string.Empty)
+                ? WorkmanshipReadState.Valid
+                : WorkmanshipReadState.Tampered;
+        }
 
-            return WorkmanshipReadResult.Valid(stamp);
+        /// <summary>CLIENT-SIDE: write a server-minted, server-SIGNED stamp onto an item's custom data using a
+        /// PRE-COMPUTED integrity <paramref name="token"/> — no key required. This is how a pure joined crafter
+        /// persists the Workmanship the server minted for it: the server holds the key and computed the token
+        /// (<see cref="Sign"/>); the client only records the exact bytes. The written stamp re-validates
+        /// identically to a host-stamped one because the canonical fields + token are byte-identical.</summary>
+        public static void WriteSigned(IItemMetadataWriter writer, WorkmanshipStamp stamp, string token)
+        {
+            if (writer == null) throw new ArgumentNullException(nameof(writer));
+            if (string.IsNullOrEmpty(token)) throw new ArgumentException("A signed stamp requires a token.", nameof(token));
+
+            writer.SetString(SchemaKey, stamp.SchemaVersion.ToString(CultureInfo.InvariantCulture));
+            writer.SetString(NodeKeyKey, stamp.IssuingNode.Key);
+            writer.SetString(NodeVersionKey, stamp.IssuingNode.Version.ToString(CultureInfo.InvariantCulture));
+            writer.SetString(ProvenanceIdKey, stamp.ProvenanceId.Value);
+            writer.SetString(CrafterKey, stamp.CrafterAccount);
+            writer.SetString(ItemTypeKey, stamp.ItemType);
+            writer.SetString(PropertyNameKey, stamp.Property.Name);
+            writer.SetString(PropertyValueKey, stamp.Property.Value);
+            writer.SetString(IntegrityTokenKey, token);
         }
 
         /// <summary>Length-prefixed, field-count-framed canonical encoding of the immutable stamp fields.

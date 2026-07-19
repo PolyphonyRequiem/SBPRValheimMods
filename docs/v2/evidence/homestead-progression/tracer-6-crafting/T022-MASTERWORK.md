@@ -67,14 +67,14 @@ to always-refuse and the token validation short-circuited (`if (false && ...)`),
 already-refusing/absent cases passed; restoring the real derivation + validation
 made the file 21/21 green and the full suite **1386/1386** (1365 baseline + 21 new).
 
-## Live wiring (net48, host-authoritative)
+## Live wiring (net48, host-authoritative + dedicated-server joined-client delivery)
 
 `Features/Crafting/MasterworkIssuanceObserver` postfixes `InventoryGui.DoCrafting`
 (decomp `assembly_valheim` :42523) on the **authoritative host**:
 
 1. Fails closed unless the durable server integrity key is armed **and** the
    composed `LocalProgressionObserver.Server` is present (a pure remote client
-   issues nothing).
+   issues nothing on THIS path).
 2. Resolves the crafter's Masterwork activation straight from the composed server
    stores — Stone-Area membership at the crafter's position + the transport-bound
    internal principal (never a client claim), the exact host resolution the sibling
@@ -86,23 +86,67 @@ made the file 21/21 green and the full suite **1386/1386** (1365 baseline + 21 n
    `Features/Crafting/ItemDataMetadataAccessor`, then **explicitly dirties
    persistence** by invoking `Inventory.Changed()`.
 
+### Dedicated-server joined-client delivery (T022 remediation, t_cdc76200)
+
+The host-only path above is a **listen-host** intersection: it needs BOTH the armed
+key AND `player == Player.m_localPlayer`. On an isolated dedicated-server topology
+neither the headless server (no local crafter) nor a pure joined crafter (unarmed,
+keyless) qualifies — which is exactly the gap the joined-client QA (`t_997667c4`)
+proved. The remediation adds an authoritative, client-delivered channel that **never
+ships the raw integrity key**:
+
+- `Features/Crafting/MasterworkDedicatedDeliveryObserver` — a bounded per-peer ZRpc
+  transport (mirroring the accepted `PersonalActivationDeliveryObserver`). A joined
+  crafter's `DoCrafting` postfix sends server-observed produced-item facts (Stone id,
+  item type, eligibility, already-stamped hint) + a correlation id. The SERVER
+  authenticates the peer by the delivering `ZRpc`, re-derives that peer's bound
+  internal principal + Masterwork activation from its own composed stores, mints a
+  server-owned provenance id, decides + **signs** through the engine-free
+  `Application/Crafting/WorkmanshipDeliveryService`, and replies with the stamp fields
+  + the pre-computed HMAC token. The client writes the exact bytes via
+  `WorkmanshipCodec.WriteSigned` — the persisted stamp re-validates **byte-identically**
+  to a host stamp. For validation, a client reads a stamp keylessly
+  (`WorkmanshipCodec.TryReadRaw`), relays fields+token, and the server answers
+  Valid/Tampered (`WorkmanshipCodec.Validate`), cached in `WorkmanshipVerdictCache`.
+- `Features/Crafting/MasterworkWorkmanshipTooltip` — postfixes the static
+  `ItemDrop.ItemData.GetTooltip` (decomp :58293) to append the one deterministic
+  `Workmanship: Masterwork` line **only** for a confirmed-valid stamp: validated under
+  the composed key on the host, or against the server verdict cache on a pure client
+  (requesting a verdict once per provenance id, rendering nothing until it lands).
+  A forged / foreign-key / hand-edited / unconfirmed stamp degrades to a plain vanilla
+  tooltip on the joined client.
+
+Proven by `tests/NiflheimMasterworkClientDeliveryTests.cs` (13 tests, all green,
+red-first observed by corrupting the server signature → 6 of 13 fail):
+
+| Claim | Acceptance |
+|-------|------------|
+| Active Masterwork: server mints+signs for a pure joined crafter; the client writes it and it re-validates | `AT-MASTERWORK-ISSUE` |
+| The client-written signed stamp is byte-identical to a host-stamped one | `AT-MASTERWORK-ISSUE` |
+| Inactive / ineligible / already-stamped: server refuses, client leaves the item vanilla | `AT-MASTERWORK-ISSUE` |
+| Client-written stamp keeps validating after a preserving upgrade | `AT-ITEM-UPGRADE-PRESERVE` |
+| A receiving client validates a transferred stamp via the server (keyless read → verdict) | `AT-ITEM-TRANSFER` |
+| Hand-edited / foreign-key stamp gets a Tampered verdict; the cache fails closed | `AT-ITEM-TAMPER-DEGRADE` |
+| An unconfirmed provenance id fails closed in the verdict cache | `AT-ITEM-TAMPER-DEGRADE` |
+| The raw integrity key never appears on any serialized wire message | security invariant |
+
 The integrity key is a durable, server-owned per-world file
 (`Features/Crafting/WorkmanshipIntegrityKeyFile`, mirroring the accepted
 `PilotKeyRingFile`), armed in `FoundationalRuntimeBootstrap` after the Local
-progression runtime composes and disarmed on ZNet teardown. Additive per ADR-0006 —
-only our own domain-prefixed keys on one existing instance's dictionary; no prefab
-cloning. Both net48 Release builds compile 0 warnings / 0 errors.
+progression runtime composes and disarmed on ZNet teardown (which also clears the
+client verdict cache). Additive per ADR-0006 — only our own domain-prefixed keys on
+one existing instance's dictionary; no prefab cloning. Both net48 Release builds
+compile 0 warnings / 0 errors; the full suite is **1399/1399** (1386 baseline + 13
+new delivery tests).
 
 ## Honesty note — logs-green is never playable
 
-The QA-proven issuance topology is a **listen-host / dedicated-host crafter**, where
-the server integrity key and the composed progression stores both exist so a real
-crafted item receives its Workmanship stamp and re-validates through save/transfer.
-Authoritative server→client Workmanship replication for a **pure remote crafter**
-(who holds neither the key nor the stores) is the documented follow-up — the same
-host-first-then-pure-client-delivery shape the accepted T021 effective-Level-3 and
-T026 personal-effect-delivery remediations followed after their initial host-first
-cut. The in-world joined-client issuance/transfer frame is to be run by the paired
-T024 independent verifier on that topology; this record states exactly what is
-proven (durable data-layer issuance + tamper/transfer semantics, headless and
-host-authoritative) versus deferred (pure-client GPU-visible last mile).
+The prior cut proved a **listen-host / dedicated-host crafter** only. The T022
+remediation (t_cdc76200) closes the pure-remote-crafter gap: issuance is now
+authoritative and client-delivered on an isolated dedicated-server topology, and a
+joined receiver can validate a stamp without ever holding the key. What remains
+DEFERRED to the paired live QA rerun (`t_997667c4`) is the **GPU-visible last mile**:
+this record proves the durable data-layer + transport semantics headless (both
+Release builds 0w/0e, 1399/1399, red-first observed), but the in-world joined-client
+observation of all four ATs is the live artifact the QA card must capture on the
+dedicated-server + genuine-joined-client topology before merge.

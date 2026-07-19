@@ -320,6 +320,17 @@
          AT-ITEM-TRANSFER, AT-ITEM-TAMPER-DEGRADE. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/ItemProvenance.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/WorkmanshipIssuanceProvider.cs" />
+    <!-- T022 remediation (t_cdc76200): the engine-free bounded server↔client Masterwork Workmanship
+         ISSUANCE + VALIDATION delivery substrate — the channel the T022 joined-client QA proved missing so
+         a pure joined crafter on a dedicated server could never receive/validate a stamp. The wire request/
+         reply contract, the server-side delivery service that mints+signs (issuance) and validates a
+         client-presented stamp under the server key (the key never crossing the wire), and the client-side
+         verdict cache that records server Valid/Tampered answers so presentation degrades forged/unconfirmed
+         stamps to vanilla. All engine-free (System.* + the shipped provider/codec), so they compile under
+         net8 here AND net48 in the mod. Mirrors the accepted PersonalActivationDelivery substrate. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipIssuanceDelivery.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipDeliveryService.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipVerdictCache.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
