@@ -58,3 +58,26 @@ with the Valheim SDK in CI.
 - **Retention basis is authored, never auto-selected.** `RetentionPolicyChangeGate` decides *whether* a
   change may apply given the player's acknowledgement; it never picks a legal basis or a policy on the
   operator's behalf.
+
+## Fix-forward correction (t_f6c8c748) — semantic authority, idempotency, closure, retention
+
+An independent post-merge review of PR #336 found the privacy foundation structurally green but
+semantically incomplete. The correction below preserves the model and closes the gaps without reverting.
+The privacy service API changed accordingly (operator-gated, policy-driven, fenced); the updated evidence
+lives in `tests/NiflheimPilotPrivacyFoundationTests.cs` and the seven regression classes in
+`tests/NiflheimPrivacyRegressionTests.cs`.
+
+| Regression class | Gap closed |
+|---|---|
+| R1 `ExportOwnershipFiltering` | `ExportAccount` derives characters from `acct.CharacterIds` (authoritative membership), not the caller's rows; a gameplay/receipt row referencing a character the account does not own is rejected (`ForeignCharacterRow`) — no cross-account or fabricated-row leak |
+| R2 `FailClosedAdmission` | `IPrivacyAdmissionGate` wired into `LiveSessionAdmission`: a Closing/Purged/expired pilot or an uncataloged/expired/`PurgePending` world fixture rejects admission at stage `Privacy`; nothing binds |
+| R3 `OperationIdempotency` | Every durable privacy mutation replays on its operationId (same id returned) and conflicts (`OperationConflict`) when an id is reused for a different mutation kind |
+| R4 `CrashRecovery` | A privacy mutation that crashes after the durable Intent but before Commit quarantines on boot replay (no partial projection); a committed mutation survives restart |
+| R5 `OperatorAuthority` | A non-admin caller is rejected (`Unauthorized`) with NO durable mutation (open/catalog/export) |
+| R6 `RetentionPurgeSemantics` | Purge enforces due-time (before expiry → `ArtifactNotDue`), active scope holds (`ScopeHeld`), artifact-specific evidence, and double-purge rejection (`ArtifactAlreadyPurged`); a forced incident purge bypasses due-time but still needs evidence |
+| R7 `PurgeCensusIdentity` | Account-scoped export artifacts record the account id, key version, and a stable receipt id; purge records the artifact selector + key version + purge receipt — all durable across restart, sufficient for a provable account-scoped purge/key census |
+
+Verification: `dotnet test` full suite **1100/1100** green (0 warnings, net8 `TreatWarningsAsErrors`);
+net48 mod build clean (0 warnings, 0 errors) against local Valheim managed assemblies; `scripts/docs-lint.py`
+OK. No SpecCheck recipe-manifest impact (account-identity, not content). This card gates IAP-013, which may
+not proceed until this merges and passes independent review.

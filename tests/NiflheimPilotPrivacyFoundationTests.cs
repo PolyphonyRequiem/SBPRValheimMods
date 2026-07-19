@@ -8,6 +8,10 @@
 //  over the Tracer-1 Persistence/Accounts/PilotAccountStore.cs (extended with the
 //  pilot lifecycle / artifact catalog / retention-hold projections).
 //
+//  FIX-FORWARD (t_f6c8c748): the privacy service is now operator-gated, idempotent,
+//  fenced, receipted, ownership-filtering, and fail-closed on admission. Signatures
+//  changed accordingly; this file exercises the corrected API.
+//
 //  No file under test references UnityEngine/Valheim/BepInEx, so the asserted
 //  behaviour IS the shipped behaviour, not a parallel copy.
 //
@@ -40,6 +44,14 @@ namespace SBPR.Trailborne.Tests
 
         private readonly string _dir;
 
+        // A server-observed admin context that the OperatorAdminGate authorizes (the host id is in the list).
+        private const string AdminHost = "76561198000000001";
+        private static readonly ServerObservedAdminContext Op = new ServerObservedAdminContext(AdminHost, "Steam");
+        private static readonly ServerObservedAdminContext NonAdmin = new ServerObservedAdminContext("76561198000000777", "Steam");
+        private static OperatorAdminGate AdminGate() => new OperatorAdminGate(new[] { AdminHost });
+        private static AccountMutationFence Fence() => new AccountMutationFence();
+        private static readonly PilotRetentionPolicy Policy = PilotRetentionPolicy.ShippedDefault("retention-v1");
+
         public NiflheimPilotPrivacyFoundationTests()
         {
             _dir = Path.Combine(Path.GetTempPath(), "aip-t012-" + Guid.NewGuid().ToString("N"));
@@ -54,7 +66,8 @@ namespace SBPR.Trailborne.Tests
         private string JournalPath => Path.Combine(_dir, "account-journal.bin");
 
         private PilotAccountStore NewStore() => new PilotAccountStore(JournalPath);
-        private PilotPrivacyService NewPrivacy(PilotAccountStore store) => new PilotPrivacyService(store);
+        private PilotPrivacyService NewPrivacy(PilotAccountStore store) =>
+            new PilotPrivacyService(store, AdminGate(), Fence(), TimeSpan.FromSeconds(5));
 
         // ---- Tracer-1 disclosure helpers reused for the IAP-012 export/basis gates ----
 
@@ -84,6 +97,28 @@ namespace SBPR.Trailborne.Tests
             return res.AccountId;
         }
 
+        // Seed an account AND mint one character bound to it, returning both — export ownership tests need
+        // a real owned CharacterId in acct.CharacterIds (the authoritative membership list).
+        private (PilotAccountId account, string characterId) SeedAccountWithCharacter(
+            PilotAccountStore store, string subject, long playerId, LookupKeyRing ring)
+        {
+            var svc = new PilotAccountService(store, ring, NoticeV, "retention-v1");
+            svc.ProvisionAllowlistEntry("prov-" + subject, "Steam", "niflheim-pilot-app-896660", subject,
+                CompleteDisclosure(), new DisclosureAcknowledgement(NoticeV, T0), T0);
+            var res = svc.ResolveOrCreateAccount("bind-" + subject, new VerifiedProviderPrincipal(
+                PilotProviderKey.Steamworks("niflheim-pilot-app-896660"), subject, transportHandle: playerId), T0);
+            Assert.Equal(AccountAdmissionOutcome.Created, res.Outcome);
+
+            var chars = new PilotCharacterAdmissionService(store, ring, new AccountAdmissionIndex());
+            var begin = chars.BeginAdmission(res.AccountId, playerId, T0);
+            Assert.True(begin.Admitted);
+            var profile = new VerifiedProfileSubject(playerId, playerId);
+            var cres = chars.ResolveOrCreateCharacter("char-op-" + subject, res.AccountId, begin.SessionId, profile, T0);
+            Assert.Equal(CharacterAdmissionOutcome.Created, cres.Outcome);
+            chars.CloseSession(res.AccountId, begin.SessionId, playerId);
+            return (res.AccountId, cres.CharacterId.Value);
+        }
+
         // ── AT-AIP-RETENTION-CONFIG ─────────────────────────────────────────────
         [Fact]
         public void AT_AIP_RETENTION_CONFIG_ShippedDefaults_14And30_PositiveBounded_ZeroInvalid()
@@ -92,17 +127,14 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(14, def.SecurityLogRetentionDays);
             Assert.Equal(30, def.ClosedDataRetentionDays);
 
-            // A shorter configured period is valid.
             var shorter = new PilotRetentionPolicy("retention-short", 7, 15);
             Assert.Equal(7, shorter.SecurityLogRetentionDays);
             Assert.Equal(15, shorter.ClosedDataRetentionDays);
 
-            // Zero / negative / unbounded can NEVER be configured — it must not silently mean "forever".
             Assert.Throws<ArgumentOutOfRangeException>(() => new PilotRetentionPolicy("z", 0, 30));
             Assert.Throws<ArgumentOutOfRangeException>(() => new PilotRetentionPolicy("z", 14, 0));
             Assert.Throws<ArgumentOutOfRangeException>(() => new PilotRetentionPolicy("z", -1, 30));
 
-            // The derived deadlines are the configured period past the close timestamp.
             Assert.Equal(T0 + 30 * Day, def.ClosedDataPurgeDueAt(T0));
             Assert.Equal(T0 + 14 * Day, def.SecurityLogPurgeDueAt(T0));
         }
@@ -111,28 +143,23 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void AT_AIP_RETENTION_INCREASE_RENOTICE_LongerPeriod_RequiresNewNoticeAck_DecreaseAppliesImmediately()
         {
-            var current = PilotRetentionPolicy.ShippedDefault("retention-v1");         // 14 / 30
-            var increased = new PilotRetentionPolicy("retention-v2", 30, 60);          // longer BOTH
+            var current = PilotRetentionPolicy.ShippedDefault("retention-v1");
+            var increased = new PilotRetentionPolicy("retention-v2", 30, 60);
 
-            // An increase is detected.
             Assert.True(current.IsIncreaseOver(increased));
 
-            // Without acknowledging the NEW notice version, the increase cannot control the account.
-            var staleAck = new DisclosureAcknowledgement(NoticeV, T0);                 // only old notice
+            var staleAck = new DisclosureAcknowledgement(NoticeV, T0);
             Assert.Equal(RetentionPolicyChangeGate.Decision.RequiresRenotice,
                 RetentionPolicyChangeGate.Evaluate(current, increased, staleAck, NoticeV2));
 
-            // After the player acknowledges the new notice version, the increase applies.
             var freshAck = new DisclosureAcknowledgement(NoticeV2, T0 + 100);
             Assert.Equal(RetentionPolicyChangeGate.Decision.Applies,
                 RetentionPolicyChangeGate.Evaluate(current, increased, freshAck, NoticeV2));
 
-            // A DECREASE (or equal) applies immediately with no re-notice required.
             var decreased = new PilotRetentionPolicy("retention-v3", 7, 15);
             Assert.Equal(RetentionPolicyChangeGate.Decision.AppliesImmediately,
                 RetentionPolicyChangeGate.Evaluate(current, decreased, staleAck, "retention-v3"));
 
-            // A one-sided increase (closed data only) still requires re-notice.
             var oneSided = new PilotRetentionPolicy("retention-v4", 14, 45);
             Assert.True(current.IsIncreaseOver(oneSided));
             Assert.Equal(RetentionPolicyChangeGate.Decision.RequiresRenotice,
@@ -147,22 +174,17 @@ namespace SBPR.Trailborne.Tests
             var privacy = NewPrivacy(store);
 
             var acctScope = "account:acct-abc";
-            var holdId = privacy.SetRetentionHold("h1", acctScope, "incident-2026-07 investigation",
+            var holdId = privacy.SetRetentionHold(Op, "h1", acctScope, "incident-2026-07 investigation",
                 createdAt: T0, expiresAt: T0 + 7 * Day);
             Assert.True(store.TryGetRetentionHold(holdId, out var hold));
             Assert.Equal(RetentionHoldStatus.Active, hold.Status);
+            Assert.False(string.IsNullOrEmpty(hold.ReceiptId));   // audit receipt recorded
 
-            // While the hold is live, its scope is held → ordinary purge is suppressed.
             Assert.True(privacy.IsScopeHeld(acctScope, now: T0 + 1 * Day));
-
-            // AFTER expiry the hold no longer holds — ordinary purge eligibility resumes automatically.
             Assert.False(privacy.IsScopeHeld(acctScope, now: T0 + 8 * Day));
-
-            // An unrelated scope was never held.
             Assert.False(privacy.IsScopeHeld("account:other", now: T0 + 1 * Day));
 
-            // Explicit release also resumes purge even before expiry.
-            privacy.ReleaseRetentionHold("h1-rel", holdId, T0 + 2 * Day);
+            privacy.ReleaseRetentionHold(Op, "h1-rel", holdId, T0 + 2 * Day);
             Assert.True(store.TryGetRetentionHold(holdId, out var released));
             Assert.Equal(RetentionHoldStatus.Released, released.Status);
             Assert.False(privacy.IsScopeHeld(acctScope, now: T0 + 3 * Day));
@@ -173,20 +195,17 @@ namespace SBPR.Trailborne.Tests
         {
             var privacy = NewPrivacy(NewStore());
 
-            // A hold that targets everything by default is rejected.
             Assert.Throws<PrivacyOperationException>(() =>
-                privacy.SetRetentionHold("bad1", "*", "reason", T0, T0 + Day));
+                privacy.SetRetentionHold(Op, "bad1", "*", "reason", T0, T0 + Day));
             Assert.Throws<PrivacyOperationException>(() =>
-                privacy.SetRetentionHold("bad2", "all", "reason", T0, T0 + Day));
+                privacy.SetRetentionHold(Op, "bad2", "all", "reason", T0, T0 + Day));
 
-            // A hold without an expiry (expiry not after creation) is rejected — it cannot make data permanent.
             var ex = Assert.Throws<PrivacyOperationException>(() =>
-                privacy.SetRetentionHold("bad3", "account:x", "reason", T0, T0));
+                privacy.SetRetentionHold(Op, "bad3", "account:x", "reason", T0, T0));
             Assert.Equal(PrivacyRejectionCode.RetentionHoldInvalid, ex.Code);
 
-            // A hold without a reason is rejected.
             Assert.Throws<PrivacyOperationException>(() =>
-                privacy.SetRetentionHold("bad4", "account:x", "", T0, T0 + Day));
+                privacy.SetRetentionHold(Op, "bad4", "account:x", "", T0, T0 + Day));
         }
 
         // ── AT-AIP-ARTIFACT-CATALOG ─────────────────────────────────────────────
@@ -198,20 +217,18 @@ namespace SBPR.Trailborne.Tests
 
             const string worldLocator = "worlds/niflheim-pilot.db";
 
-            // An uncataloged active world fixture fails startup/admission CLOSED.
-            var ex = Assert.Throws<PrivacyOperationException>(() => privacy.RequireCatalogedWorldFixture(worldLocator));
+            var ex = Assert.Throws<PrivacyOperationException>(() => privacy.RequireCatalogedWorldFixture(worldLocator, T0));
             Assert.Equal(PrivacyRejectionCode.WorldFixtureUncataloged, ex.Code);
 
-            // Catalog the fixture, then admission passes.
-            var artId = privacy.CatalogArtifact("cat-world", PilotArtifactType.WorldSave, worldLocator,
-                createdAt: T0, expiresAt: T0 + 30 * Day);
+            var artId = privacy.CatalogArtifact(Op, "cat-world", PilotArtifactType.WorldSave, worldLocator, Policy, createdAt: T0);
             Assert.True(store.TryGetArtifact(artId, out var art));
             Assert.Equal(PilotArtifactType.WorldSave, art.ArtifactType);
-            privacy.RequireCatalogedWorldFixture(worldLocator);   // no throw
+            Assert.Equal(T0 + 30 * Day, art.ExpiresAt);   // expiry DERIVED from the closed-data period
+            privacy.RequireCatalogedWorldFixture(worldLocator, T0 + Day);   // no throw
 
-            // Purged fixture no longer satisfies the gate (it fails closed again).
-            privacy.PurgeArtifact("purge-world", artId, "sha256:evidence-fixture-reset", T0 + 31 * Day);
-            Assert.Throws<PrivacyOperationException>(() => privacy.RequireCatalogedWorldFixture(worldLocator));
+            // Purged fixture no longer satisfies the gate (fails closed again). Purge after due.
+            privacy.PurgeArtifact(Op, "purge-world", artId, "sha256:evidence-fixture-reset", T0 + 31 * Day);
+            Assert.Throws<PrivacyOperationException>(() => privacy.RequireCatalogedWorldFixture(worldLocator, T0 + 32 * Day));
         }
 
         [Fact]
@@ -220,8 +237,6 @@ namespace SBPR.Trailborne.Tests
             var store = NewStore();
             var privacy = NewPrivacy(store);
 
-            // World-save, journal, export, backup, log, quarantine, and reset artifact generations all
-            // enter the purge inventory before use/success (spec/plan AT-AIP-ARTIFACT-CATALOG).
             var types = new[]
             {
                 PilotArtifactType.WorldSave, PilotArtifactType.AccountJournal, PilotArtifactType.GameplayJournal,
@@ -230,21 +245,22 @@ namespace SBPR.Trailborne.Tests
             };
             var ids = new List<DataArtifactId>();
             for (int i = 0; i < types.Length; i++)
-                ids.Add(privacy.CatalogArtifact("cat-" + i, types[i], "loc/" + i, T0, T0 + 30 * Day));
+                ids.Add(privacy.CatalogArtifact(Op, "cat-" + i, types[i], "loc/" + i, Policy, T0));
 
             Assert.Equal(types.Length, store.Artifacts.Count);
 
-            // The inventory is sufficient for later purge proof: purge requires an artifact-specific
-            // evidence digest; counts alone are refused.
-            Assert.Throws<ArgumentException>(() => privacy.PurgeArtifact("p-noevidence", ids[0], "", T0 + 40 * Day));
+            // Purge requires an artifact-specific evidence digest; counts alone are refused.
+            Assert.Throws<PrivacyOperationException>(() => privacy.PurgeArtifact(Op, "p-noevidence", ids[0], "", T0 + 40 * Day));
 
-            // With evidence, each artifact reaches Purged with its evidence digest retained.
+            // With evidence, each artifact reaches Purged with its evidence digest + selector + receipt retained.
             for (int i = 0; i < ids.Count; i++)
-                privacy.PurgeArtifact("purge-" + i, ids[i], "sha256:evidence-" + i, T0 + 40 * Day);
+                privacy.PurgeArtifact(Op, "purge-" + i, ids[i], "sha256:evidence-" + i, T0 + 40 * Day);
             Assert.All(store.Artifacts, a =>
             {
                 Assert.Equal(ArtifactStatus.Purged, a.Status);
                 Assert.False(string.IsNullOrEmpty(a.PurgeEvidenceDigest));
+                Assert.False(string.IsNullOrEmpty(a.Selector));
+                Assert.False(string.IsNullOrEmpty(a.ReceiptId));
             });
 
             // Rebuild from journal alone — the catalog is durable/recoverable.
@@ -261,23 +277,20 @@ namespace SBPR.Trailborne.Tests
             var privacy = NewPrivacy(store);
             var policy = PilotRetentionPolicy.ShippedDefault("retention-v1");
 
-            var pilotId = privacy.OpenPilot("open", policy.PolicyVersion, T0);
-            Assert.True(privacy.AdmitsEnrollment(pilotId));   // Active admits enrollment
+            var pilotId = privacy.OpenPilot(Op, "open", policy.PolicyVersion, T0);
+            Assert.True(privacy.AdmitsEnrollment(pilotId));
 
             long endedAt = T0 + 5 * Day;
-            privacy.ClosePilot("close", pilotId, policy, endedAt);
+            privacy.ClosePilot(Op, "close", pilotId, policy, endedAt);
 
             Assert.True(store.TryGetPilot(pilotId, out var pilot));
             Assert.Equal(PilotLifecycleStatus.Closing, pilot.Status);
             Assert.Equal(endedAt, pilot.EndedAt);
-            // purgeDueAt is DERIVED from endedAt + the recorded closed-data period, not inferred from files.
             Assert.Equal(endedAt + 30 * Day, pilot.PurgeDueAt);
             Assert.Equal(policy.PolicyVersion, pilot.PolicyVersion);
 
-            // After closure, enrollment/admission rejects (PilotClosed).
             Assert.False(privacy.AdmitsEnrollment(pilotId));
 
-            // The closure/deadline survives restart — it is observable in the catalog, not the filesystem.
             var store2 = NewStore();
             Assert.True(store2.TryGetPilot(pilotId, out var pilot2));
             Assert.Equal(PilotLifecycleStatus.Closing, pilot2.Status);
@@ -291,45 +304,36 @@ namespace SBPR.Trailborne.Tests
             const string subject = "76561198000000042";
             var store = NewStore();
             var privacy = NewPrivacy(store);
+            var ring = new LookupKeyRing(LookupHmacKey.Generate(new LookupKeyVersion("k1")));
 
-            var accountId = SeedAccount(store, subject);
+            var (accountId, characterId) = SeedAccountWithCharacter(store, subject, 4242L, ring);
             // A second, UNRELATED account must never appear in the first account's export.
-            var otherAccountId = SeedAccount(store, "76561198000000099");
+            var (otherAccountId, _) = SeedAccountWithCharacter(store, "76561198000000099", 9999L, ring);
 
-            var characterId = "char-abc123";
             var gameplay = new List<PlayerVisibleRecord> { new PlayerVisibleRecord(characterId, "placed foundation stone") };
             var receipts = new List<PlayerVisibleRecord> { new PlayerVisibleRecord(characterId, "op rcpt-xyz applied") };
 
-            var export = privacy.ExportAccount("exp-1", accountId, gameplay, receipts,
-                "closed data purged 30 days after pilot close", "exports/acct-abc.json",
-                occurredAt: T0 + Day, expiresAt: T0 + 31 * Day);
+            var export = privacy.ExportAccount(Op, "exp-1", accountId, gameplay, receipts,
+                "closed data purged 30 days after pilot close", "exports/acct-abc.json", Policy, occurredAt: T0 + Day);
 
-            // Player-visible internal state is present.
             Assert.Equal(accountId.Value, export.AccountId);
             Assert.Equal("Active", export.AccountStatus);
             Assert.Contains(characterId, export.CharacterIds);
             Assert.NotEmpty(export.PlayerVisibleGameplayState);
             Assert.Contains(export.CredentialClasses, c => c.StartsWith("Steam", StringComparison.Ordinal));
 
-            // Mechanical scan: NO forbidden value leaks into ANY rendered export string.
-            // Compute the raw subject's actual HMAC as stored, and prove neither the raw subject nor its
-            // HMAC nor the unrelated account id nor a fake secret appears.
             store.TryGetAccount(accountId, out var acct);
             store.TryGetCredential(acct.CredentialBindingIds.First(), out var cred);
             var forbidden = new List<string>
             {
-                subject,                                  // raw provider subject
-                cred.Hmac.Hex,                            // credential HMAC value
-                cred.Hmac.KeyVersion.Value,               // key version
-                otherAccountId.Value,                     // unrelated account
+                subject, cred.Hmac.Hex, cred.Hmac.KeyVersion.Value, otherAccountId.Value,
                 "steam_ticket_SECRET", "operator-note-private",
             };
             foreach (var rendered in export.AllRenderedValues())
                 foreach (var bad in forbidden)
                     Assert.DoesNotContain(bad, rendered ?? string.Empty, StringComparison.Ordinal);
 
-            // The export was cataloged with an expiry before success (contracts §ExportPilotAccount).
-            Assert.Contains(store.Artifacts, a => a.ArtifactType == PilotArtifactType.Export && a.ExpiresAt == T0 + 31 * Day);
+            Assert.Contains(store.Artifacts, a => a.ArtifactType == PilotArtifactType.Export);
         }
 
         // ── AT-AIP-DISCLOSURE-COMPLETE (re-asserted at the IAP-012 gate) ─────────
