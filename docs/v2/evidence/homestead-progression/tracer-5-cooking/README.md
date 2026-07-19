@@ -63,12 +63,16 @@ food-timer seam was absent, so the first joined-client proof returned **FAIL
 (live path absent)** — see
 [`joined-client-FAIL-t_0fb85725.md`](joined-client-FAIL-t_0fb85725.md).
 
-Remediation `t_803e92f6` wires the exact missing hook — a `Player.UpdateFood`
-prefix that scales ONLY the elapsed food-drain slice by the shipped provider
-factor, plus a playtest-gated admin seam that establishes the active Savor
-context. Full description, the 11 new engine-free live-seam tests, the
-listen-host vs. dedicated-client scope, and the QA operator steps for the
-in-world 0.5/1.0 artifact are in
+Remediation `t_803e92f6` (rebased onto the merged shared Local Effect runtime
+PR #368) wires the missing hook — a `Player.UpdateFood` prefix that fetches the
+authoritative per-occupant `LocalActivationSnapshot` from the composed
+`LocalActivationService` and scales ONLY the elapsed food-drain slice by the
+shipped provider factor, plus a playtest-gated admin seam that develops the Savor
+node through the shared `LocalNodeProvisioningDriver`'s accepted commands. The
+earlier head's parallel family-local activation ledger is deleted. Full
+description, the rewritten engine-free live-seam tests, the listen-host vs.
+dedicated-client scope, and the QA operator steps for the in-world 0.5/1.0
+artifact are in
 [`live-seam-wired-t_803e92f6.md`](live-seam-wired-t_803e92f6.md).
 
 **Logs-green is STILL NEVER playable.** The in-world artifact (a joined client's
