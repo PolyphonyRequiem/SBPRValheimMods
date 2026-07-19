@@ -135,15 +135,20 @@ cache invalidation, hostile payload/identity, dormant / released fail-closed,
 listen-host and pure-client consumers, wire round-trip, and NO second active-effects
 ledger (relationship loss↔restore is pure re-derivation). Full suite **1308/1308**.
 
-## Joined-client / in-world artifact — status
+## Joined-client / in-world artifact — status: DELIVERED (delivery layer) at merged head
 
-The authoritative pure-client delivery channel is now shipped, so a real joined
-(non-host) client resolves Field Fletching I exposure from a server-stamped snapshot
-rather than failing closed. The final in-world craft capture (an active-Field-
-Fletching-I **joined client** crafting Wood Arrows with no crafting station in range,
-and the recipe reverting to station-required when the effect is dormant) is owned by
-the downstream QA card — no GUI `valheim.x86_64` client is launched from this systems
-card per the task safety gate (the desktop could be owner-occupied, and production
-Niflheim/Heistan are never touched). The engine-free vertical, both host and
-pure-client runtime seams, and the delivery substrate above are shipped and green;
-**logs-green is never playability**, so the in-game capture remains the QA gate.
+The authoritative pure-client delivery channel is shipped and **merged** (PR #374 @
+`33461d1`), so a real joined (non-host) client resolves Field Fletching I exposure
+from a server-stamped snapshot rather than failing closed. The QA card
+(`t_e9fffb41`) verified the pure joined-client craft path at the delivery + data
+layer against the exact merged implementation — see
+[R2-joined-client-proof.md](R2-joined-client-proof.md): active exposure of the
+unchanged `ArrowWood` recipe station-free, and removal on release / dormancy /
+disconnect / cache-clear, with stale/out-of-order snapshots unable to reactivate and
+ineligible recipes untouched — all proven over the real server→wire→client cache
+path. The remaining GUI-pixel last mile (a human on a joined GUI client seeing Wood
+Arrows craftable away from a station while Attuned, and losing it on release) is
+**reasoned** from the verified layer under the task safety gate — no user-owned
+`valheim.x86_64` GUI client is launched, and production Niflheim/Heistan are never
+touched. **Logs-green is never playability**, so that human-pixel smoke is left for
+the owner; everything server-authoritative and client-consumable is verified.
