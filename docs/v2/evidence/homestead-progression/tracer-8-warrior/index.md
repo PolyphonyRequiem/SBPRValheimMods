@@ -21,5 +21,8 @@ independent Tracer-8 gate verdict is T032 (non-author).
 | W9 | Red-first: disabling the build-Permission conjunct turned the Permission-AND tests RED (2 failures) for the intended reason, then reverted green | README §"Automated proof" |
 | W10 | Full suite 1206/1206; both net48 Release builds 0w/0e; docs-lint OK 181; `git diff --check` clean; `SpecCheck` recipe count unchanged | build/test logs (this run) |
 | W11 | Engine-free CLEAN slice: no UnityEngine/BepInEx/ZNetView/Harmony/Valheim type in the provider; net8 link-compile = real execution. NO joined-client/playable claim — the in-world T.W.I.G. placement artifact is deferred (live client present) and re-run at T032 | README §"Logs-green ≠ playable" |
+| W12 | **Remediation** — the pure provider is now WIRED: `WarriorLocalPlacementGate` (the missing runtime caller) + a provisional server-owned Stone-state source + net48 listen-host observer + dedicated ingress, armed in `Plugin.cs`; refused placements are undone (destroyed) | `T029-remediation-runtime-wiring.md`; `src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorLocalPlacementGate.cs`, `Features/Progression/WarriorTwigPlacementObserver.cs` |
+| W13 | Runtime wiring exercised against the composed `FoundationalProgressionServer` (real production wiring): admit / no-permission-undo / outside-policy-undo / unbound-fail-closed / outside-area / non-twig-decline / governance-dormancy / dedicated creator-mismatch / race-safe pump | `tests/NiflheimWarriorTwigRuntimeGateTests.cs` (18 tests) |
+| W14 | Full suite 1224/1224; both net48 Release builds 0w/0e; docs-lint OK 185; `git diff --check` clean; SpecCheck recipe count unchanged | build/test logs (remediation run) |
 
 - [README.md](README.md) — full analysis

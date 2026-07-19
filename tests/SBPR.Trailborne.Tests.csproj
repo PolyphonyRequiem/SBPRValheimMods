@@ -178,6 +178,14 @@
          binding, prefab/catalog identity, position/Stone Area) and routes through the SAME shared runtime.
          Engine-free (the ZDOMan-backed source + routed-RPC observer are net48-only, not link-compiled). -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/DedicatedPlacementIngress.cs" />
+    <!-- T029 remediation: the engine-free Warrior T.W.I.G. Training runtime GATE (the missing caller of the
+         pure LocalPlacementProvider), its provisional server-owned Stone-state source, the dedicated-server
+         ingress, and the race-safe pending-undo queue. Link-compiled so the runtime wiring is exercised as
+         REAL execution by NiflheimWarriorTwigRuntimeGateTests. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorLocalPlacementGate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorProvisionalStoneStateSource.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorTwigDedicatedIngress.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorTwigPendingUndoQueue.cs" />
     <!-- Homestead progression Tracer 2 (T009R3): the engine-free, testable creator-identity binder and the
          bounded relationship provisioning ingress. The binder reconciles the placed ZDO's s_creator with
          the authenticated sender's character s_playerID (Blocker 2); the provisioning ingress drives the

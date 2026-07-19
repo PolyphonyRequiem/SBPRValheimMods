@@ -68,6 +68,15 @@ namespace SBPR.Niflheim.HomesteadStones
             // (ZNet.OnNewConnection) and the queue pumps on ZDOMan.Update — no separate bootstrap patch.
             harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressObserver));
 
+            // T029 — the Warrior T.W.I.G. Training Local placement gate runtime. The listen-host observer
+            // gates a server-run T.W.I.G. (TrainingDummy) placement through the shipped LocalPlacementProvider
+            // (FR-016 effect-active / Settlement-policy / build-Permission AND) and UNDOES it on refusal; the
+            // dedicated ingress observer does the same for a joined dedicated-server client (client notice →
+            // server-side ZDO revalidation → undo on refusal). Both resolve the Warrior gate off the composed
+            // FoundationalPlacementObserver.Server; disarmed on a pure client.
+            harmony.PatchAll(typeof(Features.Progression.WarriorTwigPlacementObserver));
+            harmony.PatchAll(typeof(Features.Progression.WarriorTwigDedicatedIngressObserver));
+
             // IAP-007W — live session admission. Composes the shipped account+character admission stack
             // (Tracer 1/2) on the authoritative server and reconciles it against the connected-peer set on
             // the ZDOMan.Update cadence: a peer whose server-observed profile s_playerID + authenticated
