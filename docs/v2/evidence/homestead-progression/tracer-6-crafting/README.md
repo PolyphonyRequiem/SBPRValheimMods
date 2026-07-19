@@ -50,14 +50,21 @@ Red-first was observed for the intended reason: with the `+1` logic stubbed out
 (`Expected: 3 / Actual: 2`) while the exclusion/dormancy tests already passed;
 restoring the real derivation made the suite 18/18 green.
 
-### Joined-client effective-Level-3 transport proof — PENDING (client occupied)
+### Joined-client effective-Level-3 transport proof — remediated ingress
 
-**Logs-green is NEVER playable.** The per-node joined-client artifact (a joined
-client performing an eligible effective-Level-3 crafting operation at a real
-Level-2 station inside the active Homestead, and being unable to without the
-Local Effect) has **not** been captured yet: at implementation time a live
-`valheim.x86_64` client (Steam AppId 892970) was running and owned the desktop,
-so the joined-client QA gate was preserved and deferred per the task's safety
-clause rather than deploying over Daniel's live session. The engine-free CLEAN
-slice above is complete and independently reviewable; the transport proof is the
-outstanding item recorded here for the T024 verifier / a cleared QA window.
+**Logs-green is NEVER playable.** The T021 joined-client rerun
+(`T021-JOINED-CLIENT-RERUN-FAIL.md`, retained here as the decision-grade FAIL
+record) proved that even with the provider correctly wired into the vanilla gate/
+UI, the Refined Workshop Local Effect could never reach `Active` at runtime: the
+accepted develop/purchase handlers had **zero runtime callers**, so the node was
+permanently Undeveloped and the +1 inert end-to-end.
+
+That gap is now closed — see `T021-REMEDIATION-2-PROVISIONING-RUNTIME.md`. A gated
+isolated-QA ingress (`LocalProvisioningIngress` + the net48 `sbpr_develop` admin
+seam) develops the Refined Workshop Local node through the accepted, receipt-backed
+Facet-commit / node-development handlers, so the Local Effect can derive `Active`
+for an eligible occupant. The develop path, restart rehydration, idempotent replay,
+and fail-closed hostile/unauthorized/purchase-authority cases are proven by
+`tests/NiflheimLocalProvisioningIngressTests.cs` (10 tests). The in-world joined-
+client effective-Level-3 frame is re-run downstream by QA `t_8261a415` against the
+merged head.

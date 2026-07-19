@@ -91,6 +91,22 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningAdmin));
             harmony.PatchAll(typeof(Features.Progression.RelationshipProvisioningConsole));
 
+            // T021 remediation 2 — isolated-QA Local-node development seam. DISABLED by default: the direct
+            // per-peer handler is only registered when this server-owned flag is ON, and even then only an
+            // authenticated Valheim ADMIN sender is accepted. It is the sibling of the relationship seam
+            // above: it DEVELOPS a Stone-cultivated Local node (Refined Workshop) through the accepted
+            // Facet-commit / node-development handlers so the Local Effect can actually reach Active at
+            // runtime before a joined-client proof (the ingress the T021 joined-client rerun found missing).
+            // Never a shipping gameplay command; never client-open; production fails closed.
+            Features.Progression.LocalProgressionProvisioningAdmin.EnableProvisioning = Config.Bind(
+                "Progression", "EnableAdminLocalNodeProvisioning", false,
+                "Isolated-QA ONLY. When true, server admins may develop a Homestead Local node (e.g. Refined "
+                + "Workshop) for themselves via the SBPR_Niflheim_ProvisionLocalNode direct RPC so the Local "
+                + "Effect can be proven Active on a joined client. Server-owned; not client-settable. Leave "
+                + "false on any non-QA server.");
+            harmony.PatchAll(typeof(Features.Progression.LocalProgressionProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Progression.LocalProgressionProvisioningConsole));
+
             // T016 shared runtime substrate — the BOUNDED server→client Local Effect activation delivery
             // transport (per-peer request/snapshot ZRpc). The T016 PR (#368) shipped this observer class but
             // never installed its Harmony patches, so the channel was dead: server never registered the

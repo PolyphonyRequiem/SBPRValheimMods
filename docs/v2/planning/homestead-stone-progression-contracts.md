@@ -609,6 +609,31 @@ that miss or reorder notifications fetch the current read model.
   (`Application/Activation/GovernorPresenceResolver.cs`), never a separately-mutated flag, so a released
   Governor bond immediately dormants delivery and owner is never conflated with governor presence.
 
+**Implementation (isolated-QA develop/purchase ingress, `t_79588427`).** The delivery substrate above
+composes the accepted Facet/Activity/Development/LocalPolicy handlers and the `PurchaseCommandHandler` into
+the live `LocalProgressionServer`, but the T021 joined-client rerun (`tracer-6-crafting/T021-JOINED-CLIENT-RERUN-FAIL.md`)
+proved those handlers + `LocalNodeProvisioningDriver` had **zero runtime callers**, so a Stone-cultivated Local
+node (Refined Workshop) could never reach Developed at runtime and its Local Effect could never derive Active —
+the positive effective-Level-3 path was structurally unreachable. `Application/Runtime/LocalProvisioningIngress.cs`
+is the smallest server-authoritative seam that closes it, mirroring `RelationshipProvisioningIngress`:
+
+- `DevelopLocalNode` seeds ONLY the bare pre-progression Stone envelope when the Stone aggregate is absent (the
+  empty owner row the accepted commands require — never a node-state write, never overwriting an existing or
+  boot-rehydrated Stone), then drives `LocalNodeProvisioningDriver` (commit Tree → credit BP → develop node) to
+  completion through the shipped receipt-backed handlers. A developed node survives a restart via the durable
+  Facet/Development journals, never the seed.
+- `PurchaseNode` routes a personal Offered-node purchase through the accepted `PurchaseCommandHandler` (its own
+  durable `node-purchase.journal`), so the purchase authority (active Attunement required — Bond alone rejects
+  `RelationshipRequired`), revision, and idempotency gates are a real reachable caller.
+- The net48 seam is `Features/Progression/LocalProgressionProvisioningAdmin.cs`: a DIRECT per-peer `ZRpc`
+  handler (`SBPR_Niflheim_ProvisionLocalNode`) + the `sbpr_develop refined` console command, registered ONLY
+  when the server-owned `Progression.EnableAdminLocalNodeProvisioning` flag is true (default false) AND the
+  transport-authenticated sender is a normalized server ADMIN. Identity is the peer's bound-internal principal
+  (never the forgeable routed sender / a client claim); the target Stone is resolved from the peer's server-owned
+  character ZDO position. Outside that gate the handler is never registered or rejects — production fails closed.
+  No provisional activation, no direct node-state write, no second ledger, no bypass of Local policy/governance/
+  dormancy; Refined Workshop mechanics are unchanged.
+
 ## Security and hostile-client contract
 
 The verifier must attempt:
