@@ -240,6 +240,11 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
+    <!-- T021 remediation 2 (t_79588427): the isolated-QA Local-node development / personal-node purchase
+         ingress — the runtime caller the T021 joined-client rerun found missing. Engine-free (routes
+         server-derived subjects through the shipped driver/purchase handlers); link-compiled so every
+         seed/develop/purchase/reject branch is unit-tested. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/LocalProvisioningIngress.cs" />
     <!-- T025 (Tracer 7, Archer node 1/3): the engine-free Practice Range Local placement/recipe
          capability provider. Reuses the T014 LocalEffectActivationView to derive whether the Practice
          Range Local Effect is active for an occupant, ANDs it with ordinary build Permission to expose
