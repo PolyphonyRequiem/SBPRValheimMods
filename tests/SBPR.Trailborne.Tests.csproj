@@ -304,6 +304,14 @@
          duration are preserved. Engine-free value objects, link-compiled. Named acceptance
          AT-IRON-STOMACH-75. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/FoodRefreshThresholdProvider.cs" />
+    <!-- T019 (Tracer 5 — Cooking, node 4/4; the sole executable Tier-2 node): the Swift Preparation
+         menu-craft duration provider. MenuCraftDurationProvider reads the T004 DerivedActivationView active
+         bit for the Swift Preparation personal Character-Effect node and, while active, multiplies the vanilla
+         Cooking-skill-ADJUSTED menu-craft duration of eligible menu-crafted food by 1/3 — applied AFTER the
+         skill adjustment and ONLY to eligible menu-crafted food, never completing a craft or mutating a
+         recipe/prefab. Engine-free value objects, link-compiled. Named acceptance AT-SWIFT-MENU-ONLY,
+         AT-NO-COOKING-COMPLETION (and, with the shipped T013 purchase-tier derivations, AT-COOKING-TIER2). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/MenuCraftDurationProvider.cs" />
     <!-- T016 remediation: the engine-free live delivery seam for Savor. SavorFoodDrainResolver derives the
          live LocalEffectActivationView + drain factor and scales the elapsed food slice; the context index +
          factory build the established active-Savor Stone context. The net48 Player.UpdateFood prefix and the
