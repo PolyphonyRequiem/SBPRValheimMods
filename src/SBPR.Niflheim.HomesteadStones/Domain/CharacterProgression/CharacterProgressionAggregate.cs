@@ -22,7 +22,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         public CharacterStoneRecord(StoneId stoneId, int personalAp, int cumulativeAp, int personalBp,
             IReadOnlyList<FacetCreditRecord>? facetCredits = null,
             IReadOnlyList<NodePurchaseRecord>? purchases = null,
-            IReadOnlyList<RelationshipRecord>? relationships = null)
+            IReadOnlyList<RelationshipRecord>? relationships = null,
+            IReadOnlyList<SkillCapChoiceRecord>? skillCapChoices = null)
         {
             StoneId = stoneId;
             PersonalAp = personalAp;
@@ -31,6 +32,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             FacetCredits = facetCredits ?? Array.Empty<FacetCreditRecord>();
             Purchases = purchases ?? Array.Empty<NodePurchaseRecord>();
             Relationships = relationships ?? Array.Empty<RelationshipRecord>();
+            SkillCapChoices = skillCapChoices ?? Array.Empty<SkillCapChoiceRecord>();
         }
 
         public StoneId StoneId { get; }
@@ -45,6 +47,12 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         /// CharacterProgression: relationships/status/responsibility range/provenance).</summary>
         public IReadOnlyList<RelationshipRecord> Relationships { get; }
 
+        /// <summary>Durable Weapon Discipline skill-cap choice + cap-provider provenance records (T031;
+        /// data-model.md CharacterProgression "Skill-cap choices"). One permanent record per grant
+        /// identity; the SkillCapProvider composes the effective cap from these persisted facts (no
+        /// second active-effect ledger). Survives relationship loss / death / Tree revocation.</summary>
+        public IReadOnlyList<SkillCapChoiceRecord> SkillCapChoices { get; }
+
         public string Serialize() => new SnapshotWriter()
             .Put("stoneId", StoneId.Value)
             .PutInt("personalAp", PersonalAp)
@@ -53,6 +61,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             .PutList("facetCredit", FacetCredits, f => f.Serialize())
             .PutList("purchases", Purchases, p => p.Serialize())
             .PutList("relationships", Relationships, x => x.Serialize())
+            .PutList("skillCapChoices", SkillCapChoices, c => c.Serialize())
             .Build();
 
         public static CharacterStoneRecord Deserialize(string s)
@@ -68,6 +77,10 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 // Backward-compatible: pre-T007 snapshots carry no relationships list.
                 r.HasKey("relationships.count")
                     ? r.GetList("relationships", RelationshipRecord.Deserialize)
+                    : null,
+                // Backward-compatible: pre-T031 snapshots carry no skill-cap choices list.
+                r.HasKey("skillCapChoices.count")
+                    ? r.GetList("skillCapChoices", SkillCapChoiceRecord.Deserialize)
                     : null);
         }
     }

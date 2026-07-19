@@ -272,6 +272,14 @@
          prefab mutation, armor/tool/bow/crossbow/shield/magic/reload excluded. Named acceptance
          AT-READY-HANDS-BOTH-HALVES, AT-READY-HANDS-EXCLUSIONS. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Warrior/EquipDurationProvider.cs" />
+    <!-- T031 (Tracer 8 — Warrior, node 3/3): the engine-free Weapon Discipline skill-cap slice.
+         SkillCapChoices is the durable choice/provenance domain (one permanent idempotent choice per
+         grant, ≤100 cap, cannot raise every melee cap); SkillCapProvider is the authored choice catalog
+         + highest-wins effective-cap composer; ChooseWeaponDisciplineSkill (in PurchaseCommands.cs) is
+         the receipt-backed command. Named acceptance AT-WEAPON-DISCIPLINE-CHOICE, AT-WEAPON-CAP-LIFECYCLE.
+         Engine-free, link-compiled. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/SkillCapChoices.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Warrior/SkillCapProvider.cs" />
     <!-- T016 (Tracer 5 — Cooking, node 1/4): the engine-free Cooking effect-delivery provider surface.
          SavorTheHearthProvider translates the T014 LocalEffectActivationView Savor active-state into the
          vanilla food-timer drain factor (0.5 active / 1.0 not), with no item/stat mutation and no
