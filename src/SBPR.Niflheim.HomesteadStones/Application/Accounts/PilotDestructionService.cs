@@ -194,7 +194,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
             {
                 foreach (var art in _store.Artifacts.Where(a => a.Status != ArtifactStatus.Purged).ToList())
                 {
-                    if (art.ExpiresAt > 0 && now < art.ExpiresAt) continue;            // not due
+                    // Shared sentinel (see PilotPrivacyService): ExpiresAt <= 0 means never-expires/valid,
+                    // NOT immediately due. Durable proof-class artifacts (e.g. ResetScoped's ResetAudit) are
+                    // created with expiresAt=0 and retention purge must NEVER sweep them; only an artifact
+                    // with a positive deadline that has arrived is due.
+                    if (art.ExpiresAt <= 0 || now < art.ExpiresAt) continue;            // never-expiring or not yet due
                     string selector = "artifact:" + art.ArtifactType + ":" + art.DataArtifactId.Value;
                     if (_privacy.IsScopeHeld(selector, now)) { report.SkippedHeldSelectors.Add(selector); continue; }
 

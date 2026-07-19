@@ -288,6 +288,42 @@ namespace SBPR.Trailborne.Tests
             var replay = destruction.ResetScoped(Op, "reset-1", new[] { a1 }, "reason", T0);
             Assert.True(replay.WasReplayed);
         }
+
+        [Fact]
+        public void ScopedReset_DurableAudit_SurvivesRetentionPurge_WhileDueArtifactsPurge()
+        {
+            // Regression: ResetScoped emits a durable ResetAudit proof with expiresAt=0. A subsequent
+            // retention purge must treat expiresAt<=0 as never-expiring and preserve that proof, while
+            // still purging unrelated DUE artifacts.
+            var store = NewStore();
+            var ring = PrivacyRegressionFixture.Ring();
+            var (a1, _) = PrivacyRegressionFixture.SeedAccountWithCharacter(store, ring, "76561198000000204", 604L);
+            var privacy = Privacy(store);
+            var dueBackup = privacy.CatalogArtifact(Op, "cat-bak", PilotArtifactType.Backup, "bak/1", Policy, T0);
+
+            var destruction = Destruction(store);
+            var reset = destruction.ResetScoped(Op, "reset-1", new[] { a1 }, "incompatible-fixture", T0 + 5);
+            Assert.False(reset.WasReplayed);
+
+            // Locate the durable ResetAudit proof produced by the scoped reset.
+            var audit = store.Artifacts.Single(x => x.ArtifactType == PilotArtifactType.ResetAudit);
+            Assert.Equal(ArtifactStatus.Active, audit.Status);
+            Assert.True(audit.ExpiresAt <= 0);
+
+            // Run a retention purge well past the backup's deadline.
+            var report = destruction.RunPilotRetentionPurge(Op, "ret-1", T0 + 40 * Day,
+                x => "sha256:e-" + x.DataArtifactId.Value);
+
+            // The due backup is purged; the never-expiring ResetAudit proof survives (durable across reboot).
+            Assert.Equal(1, report.PurgedCount(PilotArtifactType.Backup));
+            Assert.Equal(0, report.PurgedCount(PilotArtifactType.ResetAudit));
+
+            var reboot = NewStore();
+            Assert.True(reboot.TryGetArtifact(dueBackup, out var bak));
+            Assert.Equal(ArtifactStatus.Purged, bak.Status);
+            Assert.True(reboot.TryGetArtifact(audit.DataArtifactId, out var survivor));
+            Assert.Equal(ArtifactStatus.Active, survivor.Status);
+        }
     }
 
     // ── AT-AIP-PURGE-FALLBACK-RESET / AT-AIP-FULL-RESET-ROTATES-KEY ──────────────
