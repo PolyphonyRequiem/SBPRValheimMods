@@ -295,6 +295,15 @@
          no recipe/mechanic mutation. Engine-free (value objects + the pure activation view), link-compiled
          like the rest. Named acceptance AT-FIELD-PREP-COOKING-POLICY. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingCraftPolicy.cs" />
+    <!-- T018 (Tracer 5 — Cooking, node 3/4): the Iron Stomach food refresh-threshold provider.
+         FoodRefreshThresholdProvider derives the DURABLE Iron Stomach Permanent-Effect acquisition from
+         the character's purchase records ALONE (outcome class PermanentEffect) — no relationship/policy/
+         permission/Stone-development conjunct, so the raised 0.75 refresh/replacement threshold survives
+         relationship loss, Tree revocation, and restart. "Highest applicable provider wins" composes by
+         taking the maximum candidate over the vanilla 0.5 baseline; three food slots + normal debit/stats/
+         duration are preserved. Engine-free value objects, link-compiled. Named acceptance
+         AT-IRON-STOMACH-75. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/FoodRefreshThresholdProvider.cs" />
     <!-- T016 remediation: the engine-free live delivery seam for Savor. SavorFoodDrainResolver derives the
          live LocalEffectActivationView + drain factor and scales the elapsed food slice; the context index +
          factory build the established active-Savor Stone context. The net48 Player.UpdateFood prefix and the
