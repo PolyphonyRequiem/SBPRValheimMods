@@ -479,7 +479,25 @@ These are derived-provider contracts, not direct ledger writes.
 ### Crafting
 
 - `EffectiveStationLevelProvider`: Refined Workshop supplies +1 for eligible portable-item operations inside the
-  active Homestead; real observed station level remains unchanged and visible.
+  active Homestead; real observed station level remains unchanged and visible. **Implemented (T021,
+  `Adapters/Crafting/EffectiveStationLevelProvider.cs`):** a pure `Resolve(...)` returns both the unchanged real
+  level and the derived effective level; the +1 is granted only when the Refined Workshop Local Effect is
+  currently active for the occupant (via `LocalEffectActivationView`) AND the operation is one of the three
+  portable-item kinds (production/upgrade/repair) on an eligible portable item AND a real station is present
+  (level ≥ 1). Structure production and build placement never receive it, an ineligible item never receives it,
+  the +1 never conjures a station, and it never mutates the real level or satisfies a Stone-level place-state
+  objective. **Live-wired (T021 remediation, net48):** the pure provider is now consumed on a joined client by
+  `Features/Progression/RefinedWorkshopStationLevelPatch` — a postfix on `Player.RequiredCraftingStation` that
+  rescues an eligible-portable level-only shortfall with the provider's effective level, and a postfix on
+  `InventoryGui.SetupRequirementList` that recolors the required-level text to the base (satisfied) color when
+  the +1 satisfies it (real vs +1 distinction; the required-level number and real station level are untouched).
+  The activation bit is read exclusively from the replicated `LocalActivationClientCache` (server-stamped over
+  the bounded delivery transport, now registered in `Plugin`), so the client re-derives nothing and fails closed
+  outside every Stone Area / with no snapshot. The single authority is the shared boolean
+  `EffectiveStationLevelProvider.Resolve(active, realLevel, operation, itemIsEligiblePortable)` overload both the
+  server view path and the client patch call. Listen-host self-delivery is a follow-up (the peer-to-peer
+  transport does not round-trip to the host itself); the proven effective-Level-3 topology is a dedicated server
+  with a joined client.
 - `WorkmanshipIssuanceProvider`: active Masterwork may issue one deterministic property on an eligible exact
   non-stackable durable output.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on
@@ -490,7 +508,24 @@ These are derived-provider contracts, not direct ledger writes.
 ### Archer
 
 - `PracticeRangeProvider`: inside the active Homestead, eligible users with ordinary build Permission receive the
-  exact Archery Target placement and Practice Arrow recipe capability.
+  exact Archery Target placement and Practice Arrow recipe capability. The capability is the load-bearing AND of
+  the active Practice Range Local Effect (derived through the single Settlement Local policy + relationship/
+  governance/level dormancy, never a second ledger) and the occupant's ordinary build Permission — policy
+  eligibility alone or build Permission alone unlocks neither. The Practice Arrow recipe is exactly 100 arrows for
+  8 Wood; the Practice Arrow contributes 0 ammo damage while the fired shot retains the bow's own draw damage; and
+  a practice arrow that terminally impacts the Archery Target is deterministically returned exactly once (no roll),
+  which is the path a later Fletcher's Habit recovery roll must yield to. The exact vanilla build-piece prefab is
+  `piece_ArcheryTarget` (capital A/T — corrected from the earlier `piece_archery_target`); the Practice Arrow item
+  `ArrowPractice` is new SBPR content (not a vanilla arrow id). The net48 runtime seam
+  (`Features/Archer/ArcherContent` + `ArcheryTargetPlacementGate` + `ArcherContentRegistrar`) makes this joinable:
+  the Practice Arrow item/recipe are registered additively (ADR-0006), 0 ammo damage is data-driven (zero-damage
+  Ammo item), the deterministic return is wired via the vanilla `ArcheryTarget.m_returnAmmo` list, and the
+  placement AND is enforced by a `Player.PlacePiece` gate. That gate holds NO parallel Local-effect ledger and
+  re-derives nothing: it evaluates ordinary build Permission via vanilla `PrivateArea.CheckAccess`, and reads the
+  active Local Effect from the authoritative activation runtime — on the host it `Fetch`es the per-occupant read
+  model from `LocalActivationService` (occupant/occupancy/governance/owner composed server-side), and on a pure
+  client it consumes the server-delivered snapshot via `LocalActivationClientCache`. Both fail closed absent an
+  authoritative active projection.
 - `BushcraftRecipeProvider`: active Field Fletching I exposes unchanged Wood Arrows through Bushcraft.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.
@@ -573,6 +608,31 @@ that miss or reorder notifications fetch the current read model.
   derivation consumes are themselves derived from committed relationship/authority state
   (`Application/Activation/GovernorPresenceResolver.cs`), never a separately-mutated flag, so a released
   Governor bond immediately dormants delivery and owner is never conflated with governor presence.
+
+**Implementation (isolated-QA develop/purchase ingress, `t_79588427`).** The delivery substrate above
+composes the accepted Facet/Activity/Development/LocalPolicy handlers and the `PurchaseCommandHandler` into
+the live `LocalProgressionServer`, but the T021 joined-client rerun (`tracer-6-crafting/T021-JOINED-CLIENT-RERUN-FAIL.md`)
+proved those handlers + `LocalNodeProvisioningDriver` had **zero runtime callers**, so a Stone-cultivated Local
+node (Refined Workshop) could never reach Developed at runtime and its Local Effect could never derive Active —
+the positive effective-Level-3 path was structurally unreachable. `Application/Runtime/LocalProvisioningIngress.cs`
+is the smallest server-authoritative seam that closes it, mirroring `RelationshipProvisioningIngress`:
+
+- `DevelopLocalNode` seeds ONLY the bare pre-progression Stone envelope when the Stone aggregate is absent (the
+  empty owner row the accepted commands require — never a node-state write, never overwriting an existing or
+  boot-rehydrated Stone), then drives `LocalNodeProvisioningDriver` (commit Tree → credit BP → develop node) to
+  completion through the shipped receipt-backed handlers. A developed node survives a restart via the durable
+  Facet/Development journals, never the seed.
+- `PurchaseNode` routes a personal Offered-node purchase through the accepted `PurchaseCommandHandler` (its own
+  durable `node-purchase.journal`), so the purchase authority (active Attunement required — Bond alone rejects
+  `RelationshipRequired`), revision, and idempotency gates are a real reachable caller.
+- The net48 seam is `Features/Progression/LocalProgressionProvisioningAdmin.cs`: a DIRECT per-peer `ZRpc`
+  handler (`SBPR_Niflheim_ProvisionLocalNode`) + the `sbpr_develop refined` console command, registered ONLY
+  when the server-owned `Progression.EnableAdminLocalNodeProvisioning` flag is true (default false) AND the
+  transport-authenticated sender is a normalized server ADMIN. Identity is the peer's bound-internal principal
+  (never the forgeable routed sender / a client claim); the target Stone is resolved from the peer's server-owned
+  character ZDO position. Outside that gate the handler is never registered or rejects — production fails closed.
+  No provisional activation, no direct node-state write, no second ledger, no bypass of Local policy/governance/
+  dormancy; Refined Workshop mechanics are unchanged.
 
 ## Security and hostile-client contract
 

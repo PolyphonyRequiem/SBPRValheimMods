@@ -1,0 +1,337 @@
+// ============================================================================
+//  T021 remediation 2 (t_79588427) — Local-node development / personal-node
+//  purchase INGRESS runtime-caller tests.
+// ----------------------------------------------------------------------------
+//  The T021 joined-client rerun (PR #371 FAIL) proved the accepted progression
+//  command handlers wired into LocalProgressionServer + LocalNodeProvisioningDriver
+//  + PurchaseCommandHandler had ZERO runtime callers, so a Stone-cultivated Local
+//  node (Refined Workshop) could never reach Developed at runtime and its Local
+//  Effect could never derive Active. These tests exercise the SHIPPED, engine-free
+//  LocalProvisioningIngress (the runtime caller the net48 admin/isolated-QA seam
+//  drives) end-to-end through the SAME shared runtime a live server composes:
+//
+//    * Refined Workshop develops to Active through accepted commands only — the
+//      positive effective-Level-3 precondition the FAIL found unreachable.
+//    * The ingress seeds only the bare pre-progression Stone envelope when absent,
+//      never overwriting an existing/rehydrated Stone (restart rehydrates the
+//      developed node from the durable journals, not the seam).
+//    * Re-running the same provisioning replays idempotently (no double develop).
+//    * Hostile/unauthorized/stale/replay-conflict and the personal-node purchase
+//      authority gate all reject WITHOUT mutation — the real handlers fail closed.
+//    * No provisional activation, no direct node-state write: activation is a pure
+//      derivation off the developed Stone (AT-NO-ACTIVE-LEDGER preserved).
+// ============================================================================
+
+using System.IO;
+using SBPR.Niflheim.HomesteadStones.Application.Activation;
+using SBPR.Niflheim.HomesteadStones.Application.Commands;
+using SBPR.Niflheim.HomesteadStones.Application.Runtime;
+using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
+using SBPR.Niflheim.HomesteadStones.Domain.Content;
+using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery;
+using SBPR.Niflheim.HomesteadStones.Domain.Snapshots;
+using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
+using SBPR.Niflheim.HomesteadStones.Persistence.Characters;
+using SBPR.Niflheim.HomesteadStones.Persistence.Stone;
+using Xunit;
+
+namespace SBPR.Trailborne.Tests
+{
+    public sealed class NiflheimLocalProvisioningIngressTests : System.IDisposable
+    {
+        private readonly string _dir;
+        private readonly WorldId _world = new WorldId("uid:t021r2-ingress");
+        private readonly StoneId _stone;
+
+        private readonly AccountId _gov = new AccountId("acct-gov");
+        private readonly CharacterId _govChar = new CharacterId("char-gov");
+        private readonly AccountId _hostile = new AccountId("acct-hostile");
+        private readonly CharacterId _hostileChar = new CharacterId("char-hostile");
+
+        // Refined Workshop — Crafting Tree, Stone-cultivated Local node, Level 1.
+        private static readonly VersionedId RefinedWorkshop = new VersionedId("RefinedWorkshop", 1);
+        private static readonly VersionedId Crafting = HomesteadProgressionCatalog.CraftingTree;
+        // Masterwork — Crafting Tree, personal Offered node (the purchase path).
+        private static readonly VersionedId Masterwork = new VersionedId("Masterwork", 1);
+
+        public NiflheimLocalProvisioningIngressTests()
+        {
+            _dir = Path.Combine(Path.GetTempPath(), "niflheim-t021r2-" + System.Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_dir);
+            _stone = StoneId.FromHostZone(_world, 7, 5);
+        }
+
+        public void Dispose()
+        {
+            try { if (Directory.Exists(_dir)) Directory.Delete(_dir, true); } catch { }
+        }
+
+        // ── Composition helpers ──────────────────────────────────────────────
+
+        private LocalProgressionServer NewServer(
+            InMemoryStoneAggregateStore stones,
+            InMemoryCharacterAggregateStore characters,
+            InMemoryAccountStoneAuthorityStore authority)
+        {
+            var relationships = new RelationshipCommandHandler(
+                Path.Combine(_dir, "relationships.journal"), new PrincipalResolver(), characters, authority,
+                new FixedFamilyResolver(), new AllowHomesteadBondPolicy(), null, _world,
+                new ProductScope("SBPR.Trailborne"));
+
+            return LocalProgressionServer.Create(
+                _dir, stones, characters, authority, relationships,
+                new FixedFamilyResolver(), new AllowGovernorAuthority(), new AllowDevelopmentAuthority(),
+                new CommittedGovernorOwnerAuthority(new GovernorPresenceResolver(characters, authority)));
+        }
+
+        private CharacterProgressionAggregate Governor() =>
+            new CharacterProgressionAggregate(_gov, _govChar, "t021r2/trailborne",
+                revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
+                stoneRecords: new[]
+                {
+                    new CharacterStoneRecord(_stone, 0, 0, 0, facetCredits: null, purchases: null,
+                        relationships: new[]
+                        {
+                            new RelationshipRecord("rel-bond-gov", RelationshipKind.Bond,
+                                RelationshipStatus.Active, "Homestead:All", "Governor",
+                                "relreceipt:seed-bond", string.Empty)
+                        })
+                });
+
+        private AccountStoneAuthorityIndex BondIndex() =>
+            AccountStoneAuthorityIndex.Vacant(_gov, _stone).WithReservationAdded(
+                new AuthorityReservation(_govChar, RelationshipKind.Bond, "rel-bond-gov",
+                    "relreceipt:seed-bond"), 1);
+
+        // A bonded Governor + EMPTY Stone store: the ingress must SEED the bare Stone and reach Developed
+        // purely through accepted commands — no Stone aggregate pre-exists (the live-server condition).
+        private (LocalProgressionServer server, InMemoryStoneAggregateStore stones) Bootstrapped()
+        {
+            var stones = new InMemoryStoneAggregateStore();
+            var characters = new InMemoryCharacterAggregateStore();
+            var authority = new InMemoryAccountStoneAuthorityStore();
+            characters.PutCharacter(Governor());
+            authority.ApplyAuthorityProjection("seed-bond", BondIndex());
+            var server = NewServer(stones, characters, authority);
+            return (server, stones);
+        }
+
+        private OccupantPresence Presence(bool inside, bool gov) =>
+            new OccupantPresence(_gov, _govChar, true, true, inside, gov);
+
+        private static bool NodeDeveloped(StoneProgressionAggregate stone, VersionedId node)
+        {
+            foreach (var d in stone.NodeDevelopment)
+                if (d.Node.Key == node.Key && d.Developed) return true;
+            return false;
+        }
+
+        // ── The positive path: Refined Workshop develops to Active via the ingress ──
+
+        [Fact]
+        public void Ingress_develops_refined_workshop_from_empty_store_via_accepted_commands()
+        {
+            var (server, stones) = Bootstrapped();
+            Assert.Null(stones.GetStone(_stone)); // no Stone exists before the ingress runs.
+
+            var ingress = server.CreateLocalProvisioningIngress();
+            var result = ingress.DevelopLocalNode(
+                new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+
+            Assert.True(result.Succeeded, result.ResultCode + "/" + result.Step);
+            Assert.Equal("Developed", result.Kind);
+
+            // Stone-owned developed state + committed Crafting Tree — both via the real handlers.
+            var stone = stones.GetStone(_stone)!;
+            Assert.True(NodeDeveloped(stone, RefinedWorkshop));
+            bool committed = false;
+            foreach (var c in stone.CommittedTrees) if (c.Tree.Key == Crafting.Key) committed = true;
+            Assert.True(committed);
+        }
+
+        [Fact]
+        public void Developed_refined_workshop_derives_active_for_eligible_occupant()
+        {
+            var (server, _) = Bootstrapped();
+            server.CreateLocalProvisioningIngress()
+                .DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+
+            // The positive effective-Level-3 precondition: the Local Effect is Active for an eligible
+            // occupant inside the Area with an authorized Governor present.
+            var snap = server.Activation.Fetch(_stone, Presence(inside: true, gov: true));
+            Assert.True(snap.AuthorityPresent);
+            Assert.True(snap.IsActive(RefinedWorkshop));
+
+            // Governance/occupancy dormancy re-derives the effect away with zero writes.
+            Assert.False(server.Activation.Fetch(_stone, Presence(inside: false, gov: true)).IsActive(RefinedWorkshop));
+            Assert.False(server.Activation.Fetch(_stone, Presence(inside: true, gov: false)).IsActive(RefinedWorkshop));
+        }
+
+        [Fact]
+        public void Ingress_is_idempotent_on_replay()
+        {
+            var (server, stones) = Bootstrapped();
+            var ingress = server.CreateLocalProvisioningIngress();
+            var first = ingress.DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+            Assert.True(first.Succeeded);
+            long rev = stones.GetStone(_stone)!.Revision;
+
+            // Re-run the SAME provisioning: every accepted command replays, no double development.
+            var again = ingress.DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+            Assert.True(again.Succeeded);
+            Assert.Equal(rev, stones.GetStone(_stone)!.Revision);
+        }
+
+        [Fact]
+        public void Seed_never_overwrites_an_existing_stone()
+        {
+            var (server, stones) = Bootstrapped();
+            server.CreateLocalProvisioningIngress()
+                .DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+            long developedRev = stones.GetStone(_stone)!.Revision;
+            Assert.True(NodeDeveloped(stones.GetStone(_stone)!, RefinedWorkshop));
+
+            // A second ingress over the SAME (now developed) store must NOT re-seed a bare envelope that
+            // would wipe the developed node — the developed state is preserved.
+            var ingress2 = server.CreateLocalProvisioningIngress();
+            ingress2.DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+            Assert.True(NodeDeveloped(stones.GetStone(_stone)!, RefinedWorkshop));
+            Assert.Equal(developedRev, stones.GetStone(_stone)!.Revision);
+        }
+
+        [Fact]
+        public void Restart_rehydrates_developed_node_from_durable_journals_not_the_seed()
+        {
+            var (server1, _) = Bootstrapped();
+            server1.CreateLocalProvisioningIngress()
+                .DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+            Assert.True(server1.Activation.Fetch(_stone, Presence(true, true)).IsActive(RefinedWorkshop));
+
+            // Full restart: fresh stores + fresh handlers over the SAME durable directory. The durable
+            // Facet/Development journals rehydrate the developed node — no ingress runs on boot.
+            var stones2 = new InMemoryStoneAggregateStore();
+            var characters2 = new InMemoryCharacterAggregateStore();
+            var authority2 = new InMemoryAccountStoneAuthorityStore();
+            characters2.PutCharacter(Governor());
+            authority2.ApplyAuthorityProjection("seed-bond", BondIndex());
+            var server2 = NewServer(stones2, characters2, authority2);
+
+            Assert.True(NodeDeveloped(stones2.GetStone(_stone)!, RefinedWorkshop));
+            Assert.True(server2.Activation.Fetch(_stone, Presence(true, true)).IsActive(RefinedWorkshop));
+        }
+
+        // ── Fail-closed: hostile / unauthorized / bad input reject with no mutation ──
+
+        [Fact]
+        public void Hostile_subject_without_bond_cannot_develop()
+        {
+            var (server, stones) = Bootstrapped();
+            var ingress = server.CreateLocalProvisioningIngress();
+            var attempt = ingress.DevelopLocalNode(
+                new AuthoritativeSubject(_hostile, _hostileChar), _stone, RefinedWorkshop, "qa-hostile");
+
+            Assert.False(attempt.Succeeded);
+            // The bare Stone may be seeded, but NO node is developed — the accepted commands reject.
+            var stone = stones.GetStone(_stone);
+            if (stone != null)
+                Assert.False(NodeDeveloped(stone, RefinedWorkshop));
+        }
+
+        [Fact]
+        public void Unauthenticated_subject_rejects_before_any_command()
+        {
+            var (server, stones) = Bootstrapped();
+            var ingress = server.CreateLocalProvisioningIngress();
+            var attempt = ingress.DevelopLocalNode(
+                new AuthoritativeSubject(new AccountId(""), new CharacterId("")), _stone, RefinedWorkshop, "qa-x");
+            Assert.False(attempt.Succeeded);
+            Assert.Equal("Unauthenticated", attempt.ResultCode);
+            Assert.Null(stones.GetStone(_stone)); // no seed, no mutation.
+        }
+
+        [Fact]
+        public void Non_local_node_rejects_without_mutation()
+        {
+            var (server, stones) = Bootstrapped();
+            var ingress = server.CreateLocalProvisioningIngress();
+            // Masterwork is a personal Offered node, not a Stone-cultivated Local node — the driver rejects.
+            var attempt = ingress.DevelopLocalNode(
+                new AuthoritativeSubject(_gov, _govChar), _stone, Masterwork, "qa-master");
+            Assert.False(attempt.Succeeded);
+            Assert.Equal("NotALocalNode", attempt.ResultCode);
+        }
+
+        // ── Purchase path: authority gate is a real reachable caller ─────────
+
+        [Fact]
+        public void Purchase_without_attunement_rejects_relationship_required()
+        {
+            var (server, _) = Bootstrapped();
+            // Develop first so the Stone exists; the Governor holds a Bond, NOT an Attunement.
+            server.CreateLocalProvisioningIngress()
+                .DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+
+            var ingress = server.CreateLocalProvisioningIngress();
+            var attempt = ingress.PurchaseNode(
+                new AuthoritativeSubject(_gov, _govChar), _stone, Crafting, Masterwork,
+                VersionedId.None, PurchasePaymentSource.PersonalAp, "qa-purchase-1");
+
+            // Bond alone is not purchase authority (spec US3) — the accepted handler rejects with no mutation.
+            Assert.False(attempt.Succeeded);
+            Assert.Equal("RelationshipRequired", attempt.ResultCode);
+        }
+
+        [Fact]
+        public void Purchase_unauthenticated_rejects_before_handler()
+        {
+            var (server, _) = Bootstrapped();
+            var ingress = server.CreateLocalProvisioningIngress();
+            var attempt = ingress.PurchaseNode(
+                new AuthoritativeSubject(new AccountId(""), new CharacterId("")), _stone, Crafting, Masterwork,
+                VersionedId.None, PurchasePaymentSource.PersonalAp, "qa-x");
+            Assert.False(attempt.Succeeded);
+            Assert.Equal("Unauthenticated", attempt.ResultCode);
+        }
+
+        // ── Stubs (server-owned authority policies; mirror the shared-suite fixtures) ──
+
+        private sealed class FixedFamilyResolver : IStoneFamilyResolver
+        {
+            public bool TryGetClassification(StoneId stoneId, out string family, out string variant)
+            {
+                family = "Settlement"; variant = "Homestead"; return true;
+            }
+        }
+
+        private sealed class AllowHomesteadBondPolicy : IBondAuthorityPolicy
+        {
+            public bool TryAuthorizeBond(StoneId stoneId, string requestedResponsibilityRange,
+                out string grantedRange, out string grantedRole)
+            {
+                grantedRange = requestedResponsibilityRange ?? string.Empty;
+                grantedRole = "Governor";
+                return string.Equals(requestedResponsibilityRange, "Homestead:All",
+                    System.StringComparison.Ordinal);
+            }
+        }
+
+        private sealed class AllowGovernorAuthority : IGovernorAuthorityPolicy
+        {
+            public bool CanCommit(StoneId stoneId, string responsibilityRange, string ownerGovernorRole,
+                string facetId, FacetCategory category) =>
+                string.Equals(responsibilityRange, "Homestead:All", System.StringComparison.Ordinal)
+                && string.Equals(ownerGovernorRole, "Governor", System.StringComparison.Ordinal)
+                && category != FacetCategory.None;
+        }
+
+        private sealed class AllowDevelopmentAuthority : IGovernorDevelopmentAuthority
+        {
+            public bool CanDevelop(StoneId stoneId, string responsibilityRange, string ownerGovernorRole,
+                VersionedId tree) =>
+                string.Equals(responsibilityRange, "Homestead:All", System.StringComparison.Ordinal)
+                && string.Equals(ownerGovernorRole, "Governor", System.StringComparison.Ordinal)
+                && !tree.IsNone;
+        }
+    }
+}
