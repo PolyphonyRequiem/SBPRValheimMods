@@ -3,7 +3,10 @@ using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Adapters.Archer;
 using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
+using SBPR.Niflheim.HomesteadStones.Domain;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Domain.Snapshots;
+using SBPR.Niflheim.HomesteadStones.Features.HomesteadStone;
 using SBPR.Niflheim.HomesteadStones.Features.Progression;
 using UnityEngine;
 
@@ -28,24 +31,25 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Archer
     ///     the local occupant. When vanilla already PASSED we never flip it to false; we only rescue the
     ///     one recipe, only on the station requirement, only while the effect is active.
     ///
-    /// SINGLE AUTHORITY: the active/exposed decision routes through
-    /// <see cref="BushcraftRecipeProvider"/> (via the authoritative host projection below). This patch is a
-    /// THIN adapter: it identifies the Wood Arrow recipe and applies the provider's exposure verdict. It
-    /// re-derives no activation and holds no parallel ledger.
+    /// SINGLE AUTHORITY: the active/exposed decision routes through the authoritative projection —
+    /// <see cref="BushcraftRecipeProvider"/> on the host, or the server-stamped
+    /// <see cref="PersonalActivationSnapshot"/> on a pure client. This patch is a THIN adapter: it identifies
+    /// the Wood Arrow recipe and applies the projection's exposure verdict. It re-derives no activation and
+    /// holds no parallel ledger.
     ///
-    /// ACTIVATION SOURCE (fail closed, honest transport scope): Field Fletching I is the FIRST personal
-    /// Character Effect to reach runtime, and the bounded server→client delivery transport that Practice
-    /// Range / Refined Workshop use carries LOCAL-effect snapshots only — there is not yet a personal
-    /// Character-Effect replication channel. So this gate reads the authoritative projection where it EXISTS
-    /// in-process: on the authoritative HOST (listen-server / singleplayer host) the composed
-    /// <see cref="LocalProgressionObserver.Server"/> holds the character/authority/Stone stores, and the
-    /// gate resolves the acting occupant's purchase + active relationship straight from them through
-    /// <see cref="BushcraftRecipeProvider.Resolve"/>. On a PURE remote client the server runtime is null and
-    /// there is no personal-effect snapshot to consume, so the gate FAILS CLOSED (Wood Arrow keeps its
-    /// vanilla station requirement) rather than inventing an unauthenticated grant. The proven Bushcraft
-    /// topology for T026 is therefore the host occupant; a personal-effect client delivery channel is a
-    /// separate follow-up (see task handoff), exactly as the sibling Refined Workshop patch documented its
-    /// listen-host self-delivery gap.
+    /// ACTIVATION SOURCE (fail closed, two authoritative paths — T026 remediation):
+    ///   * On the authoritative HOST (listen-server / singleplayer host) the composed
+    ///     <see cref="LocalProgressionObserver.Server"/> holds the character/authority/Stone stores, and the
+    ///     gate resolves the acting occupant's purchase + active relationship straight from them through
+    ///     <see cref="BushcraftRecipeProvider.Resolve"/>.
+    ///   * On a PURE remote CLIENT the server runtime is null; the gate reads ONLY the bounded personal
+    ///     read model the server pushed into <see cref="LocalProgressionObserver.PersonalClientCache"/> over
+    ///     the <see cref="PersonalActivationDeliveryObserver"/> transport, and opportunistically requests a
+    ///     fresh snapshot for the Stone the local player stands in on a bounded interval. The server only
+    ///     ever delivers a snapshot with the effect active when IT derived (server-owned purchase + active
+    ///     relationship) that the occupant is entitled, so an active held snapshot is authoritative proof;
+    ///     the absence of one FAILS CLOSED (Wood Arrow keeps its vanilla station requirement). The client
+    ///     never authors entitlement.
     ///
     /// References Valheim (Player, Recipe, ItemDrop, ZNet) → net48-only, NOT link-compiled into net8. The
     /// pure provider it drives is fully unit-tested. Clean-side (ADR-0001): base-game types only.
@@ -56,6 +60,21 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Archer
         // Reuse ONE catalog + provider instance for the process; the provider is a pure stateless projection.
         private static readonly Adapters.Archer.BushcraftRecipeProvider Provider =
             new Adapters.Archer.BushcraftRecipeProvider(new Domain.Content.HomesteadProgressionCatalog());
+
+        // The stable Field Fletching I personal node id (Archer Tree, Level 1). Matches the catalog authority.
+        private static readonly VersionedId FieldFletchingNode =
+            Adapters.Archer.BushcraftRecipeProvider.FieldFletchingNode;
+
+        // The client-visible Homestead Stone Area radius mirror (see RefinedWorkshopStationLevelPatch).
+        private const float AreaRadius = 20.0f;
+
+        // How often (seconds, real time) a pure client asks the server for a fresh personal-effect snapshot
+        // while resolving exposure. The server owns the moving inputs (purchase, relationship), so a periodic
+        // refetch keeps the cached bit current without spamming.
+        private const float RefetchIntervalSeconds = 2.0f;
+        private static float _lastRequest;
+        private static StoneId _lastRequestedStone;
+        private static bool _haveLastRequested;
 
         /// <summary>Postfix on the recipe station gate. When vanilla refused a recipe because it requires a
         /// crafting station the player is not at, and that recipe is the vanilla Wood Arrow, and Field
@@ -93,15 +112,34 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Archer
         }
 
         /// <summary>Resolve whether Field Fletching I currently EXPOSES the Wood Arrow recipe for the LOCAL
-        /// occupant, from the authoritative HOST projection (purchase record + active relationship, via the
-        /// shipped <see cref="BushcraftRecipeProvider"/>). Fail closed: no server runtime (pure client),
-        /// unresolvable identity / Stone, or any absent server-owned fact ⇒ false (recipe keeps its vanilla
-        /// station requirement). No client-supplied claim is ever trusted.</summary>
+        /// occupant. Two authoritative paths (fail closed on either):
+        ///   * HOST: resolve the acting occupant's purchase + active relationship from the composed server
+        ///     stores via the shipped <see cref="BushcraftRecipeProvider"/>.
+        ///   * PURE CLIENT: read the server-stamped personal snapshot from the bounded client cache, and
+        ///     opportunistically refetch for the Stone the local player stands in.
+        /// No server runtime and no held snapshot ⇒ false (recipe keeps its vanilla station requirement). No
+        /// client-supplied claim is ever trusted.</summary>
         private static bool ResolveExposedForLocalOccupant()
         {
             var server = LocalProgressionObserver.Server;
-            if (server == null) return false;                       // pure client — no personal-effect snapshot yet.
+            if (server != null)
+                return ResolveHostExposed(server);
 
+            // Pure client: consult the authoritative read model the server pushed, keyed by the Stone the
+            // local player stands in. Fail closed when no active snapshot for the Field Fletching node is held.
+            var stoneId = ResolveLocalStone();
+            if (stoneId == null) return false;                      // outside every Stone Area ⇒ not exposed.
+
+            MaybeRequestSnapshot(stoneId.Value);
+            return LocalProgressionObserver.PersonalClientCache.IsActiveForStone(stoneId.Value, FieldFletchingNode);
+        }
+
+        /// <summary>Authoritative HOST path: resolve the acting occupant's purchase + active relationship
+        /// straight from the composed server stores (world-owned Stone Area membership + transport-bound
+        /// principal), then ask the shipped pure provider the exposure question. Fail closed on any absent
+        /// server-owned fact.</summary>
+        private static bool ResolveHostExposed(LocalProgressionServer server)
+        {
             var foundational = FoundationalPlacementObserver.Server;
             var player = Player.m_localPlayer;
             var znet = ZNet.instance;
@@ -135,6 +173,50 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Archer
             // Single authority: the shipped, unit-tested pure projection. Exposure == active Field
             // Fletching I (purchase record AND active relationship). No re-derivation here.
             return Provider.Resolve(stone, characterAgg, authority).WoodArrowRecipeExposed;
+        }
+
+        private static void MaybeRequestSnapshot(StoneId stoneId)
+        {
+            float now = Time.realtimeSinceStartup;
+            bool stoneChanged = !_haveLastRequested || !_lastRequestedStone.Equals(stoneId);
+            if (!stoneChanged && (now - _lastRequest) < RefetchIntervalSeconds) return;
+            _lastRequest = now;
+            _lastRequestedStone = stoneId;
+            _haveLastRequested = true;
+            PersonalActivationDeliveryObserver.RequestSnapshot(stoneId);
+        }
+
+        /// <summary>Resolve which Homestead Stone Area the LOCAL player currently stands in, from
+        /// CLIENT-VISIBLE resident Stone instances (the persistent Stone prefab is replicated to every
+        /// client). Returns null when outside every Area. This is a client convenience for deciding WHICH
+        /// Stone to ask the server about + key the cache read; it is NOT an authority — the server
+        /// independently resolves the requesting peer's bound principal before stamping the snapshot.</summary>
+        private static StoneId? ResolveLocalStone()
+        {
+            var player = Player.m_localPlayer;
+            var znet = ZNet.instance;
+            if (player == null || znet == null) return null;
+
+            var world = new WorldId(HomesteadWorldIdentity.FromUid(znet.GetWorldUID()));
+            Vector3 pp = player.transform.position;
+
+            var stones = HomesteadStoneClientIndex.ResidentStones();
+            if (stones.Count == 0) return null;
+
+            StoneId? best = null;
+            float bestSq = AreaRadius * AreaRadius;
+            foreach (var s in stones)
+            {
+                float dx = pp.x - s.X, dz = pp.z - s.Z;
+                float sq = (dx * dx) + (dz * dz);
+                if (sq > AreaRadius * AreaRadius) continue;
+                if (best == null || sq < bestSq)
+                {
+                    bestSq = sq;
+                    best = StoneId.FromHostZone(world, s.ZoneX, s.ZoneZ);
+                }
+            }
+            return best;
         }
 
         private static string StripCloneSuffix(string name)

@@ -237,6 +237,18 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationDelivery.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationService.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalActivationClientCache.cs" />
+    <!-- T026 remediation (t_3a899381): the engine-free bounded server→client PERSONAL Character-Effect
+         delivery substrate — the channel the T026 review found missing so a pure joined client could never
+         craft Field Fletching I. The snapshot/notification wire contract, the server-side
+         PersonalActivationService that derives per-(occupant, character) read models from the authoritative
+         Stone/character/authority aggregates via the shipped DerivedActivationView (purchase record AND
+         active relationship, no second ledger), and the client-side cache that drops stale/reordered
+         snapshots and decides refetch. All engine-free (System.* only), so they compile under net8 here AND
+         net48 in the mod. Mirrors the accepted Local Effect substrate above; preserves personal ownership
+         semantics (not area/policy/governor gated). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/PersonalActivationDelivery.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/PersonalActivationService.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/PersonalActivationClientCache.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />

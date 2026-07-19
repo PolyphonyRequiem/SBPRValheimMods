@@ -56,7 +56,7 @@ link-compiled suite; full suite **1280/1280**).
 - Exposure targets **only** the Wood Arrow — never the Practice Range / Practice
   Arrow content (a separate Local node, T025).
 
-## Runtime seam (net48, host-authoritative)
+## Runtime seam (net48, host + pure-client authoritative)
 
 - `src/SBPR.Niflheim.HomesteadStones/Features/Archer/FieldFletchingRecipeGate.cs`
   — a postfix on `Player.RequiredCraftingStation` (decomp :17790, the station gate
@@ -67,17 +67,22 @@ link-compiled suite; full suite **1280/1280**).
   the postfix rescues the result to TRUE — station-free Bushcraft. Vanilla PASS is
   never flipped to fail; no other recipe is touched.
 - **Single authority:** the exposure verdict routes through the shipped, unit-tested
-  `BushcraftRecipeProvider.Resolve(stone, character, authority)`. The gate
-  re-derives nothing and holds no parallel ledger.
-- Registered in `Plugin.Awake` alongside the T025-RT Archer patches.
+  `BushcraftRecipeProvider.Resolve(stone, character, authority)` (host) or the
+  server-derived `PersonalActivationSnapshot` (client). The gate re-derives nothing
+  and holds no parallel ledger.
+- Registered in `Plugin.Awake` alongside the T025-RT Archer patches; the personal
+  delivery transport is registered right after the Local delivery transport.
 
-### Activation source — fail closed, honest transport scope
+### Activation source — fail closed, two authoritative paths (T026 remediation `t_3a899381`)
 
-Field Fletching I is the **first personal Character Effect at runtime**, and the
-bounded server→client delivery transport that Practice Range / Refined Workshop use
-carries **Local-effect** snapshots only — there is **no personal Character-Effect
-replication channel yet**. So the gate reads the authoritative projection where it
-exists in-process:
+The T026 review of PR #373 (adversarial card `t_49e78f41`) verified the slice was
+engineering-clean but **correctly refused merge**: Field Fletching I was
+host-occupant-only because no authoritative Personal Character-Effect server→client
+delivery channel existed, so a pure joined client always failed closed and the
+required node-owned craft artifact was PENDING. This remediation replaced the
+host-only lookup with a **bounded authoritative Personal Character-Effect delivery /
+read-model channel**, mirroring the accepted Local Effect snapshot/delivery
+architecture while preserving Personal ownership semantics.
 
 - **Authoritative HOST** (listen-server / singleplayer host): the composed
   `LocalProgressionObserver.Server` holds the character / authority / Stone stores.
@@ -85,22 +90,60 @@ exists in-process:
   membership from `FoundationalPlacementObserver.Server` (server-owned facts, never
   a client claim), pulls the three aggregates, and asks
   `BushcraftRecipeProvider.Resolve(...).WoodArrowRecipeExposed`.
-- **Pure remote CLIENT**: the server runtime is null and there is no personal-effect
-  snapshot to consume, so the gate **fails closed** — Wood Arrow keeps its vanilla
-  station requirement — rather than inventing an unauthenticated grant.
+- **Pure remote CLIENT**: the gate reads **only** the server-stamped
+  `PersonalActivationSnapshot` the server pushed into
+  `LocalProgressionObserver.PersonalClientCache` over the
+  `PersonalActivationDeliveryObserver` transport, and opportunistically requests a
+  fresh snapshot for the Stone the local player stands in on a bounded (2s) interval.
+  No held snapshot, a denied snapshot, standing outside every Stone Area, or an
+  inactive row ⇒ the recipe keeps its vanilla station requirement. The client
+  authors no entitlement.
 
-The proven Bushcraft topology for T026 is therefore the **host occupant**. A
-personal-effect **client** delivery channel is a scoped follow-up (mirroring the way
-the sibling Refined Workshop patch documented its listen-host self-delivery gap and
-deferred it). This is stated plainly here because **logs-green is never playability**.
+The delivery substrate is engine-free and unit-tested (link-compiled net8 + shipped
+net48):
+
+- `Application/Activation/PersonalActivationDelivery.cs` — the bounded wire contract
+  (`PersonalActivationSnapshot` read model + `PersonalActivationNotification`
+  invalidation event, each carrying stable IDs, the Stone/character/authority
+  revisions, and a monotonic per-`(occupant, character)` delivery sequence).
+  `Denied(...)` is the fail-closed empty, all-inactive snapshot.
+- `Application/Activation/PersonalActivationService.cs` — the SERVER authority. Every
+  snapshot is a fresh derivation of the shipped `DerivedActivationView` (purchase
+  record AND active relationship, per character) from the authoritative
+  Stone/character/authority stores. **No second active-effects ledger**; the only
+  state is a per-caller monotonic delivery sequence (delivery metadata, never
+  gameplay authority). Composed into `LocalProgressionServer.PersonalActivation`.
+- `Application/Activation/PersonalActivationClientCache.cs` — the bounded client
+  consumer. Applies a snapshot only when its sequence ≥ the last applied one
+  (stale/reordered dropped), decides refetch from a notification whose sequence or
+  revisions moved ahead, and fails closed on an unknown caller / denied snapshot.
+  Invalidate + Clear drop held snapshots on relationship loss / disconnect / teardown.
+
+**Ownership semantics preserved.** Unlike the Local channel, the personal effect is
+NOT gated by occupancy, the Settlement Local policy, or governor presence — active ==
+(purchase AND active relationship), per character. The server resolves the requesting
+peer's BOUND INTERNAL principal from the delivering ZRpc, never the payload, so a
+hostile client cannot forge whose effect it asks for or author an active row.
+Relationship loss / disconnect / dormancy flip Active to false with zero writes.
+
+### Red-first delivery tests
+
+`tests/NiflheimPersonalEffectDeliveryTests.cs` (link-compiled net8 suite): authenticated
+server snapshot, bound principal (no cross-account leak), monotonic revision/replay
+(Publish bumps sequence, Fetch does not), stale/out-of-order rejection, disconnect /
+cache invalidation, hostile payload/identity, dormant / released fail-closed,
+listen-host and pure-client consumers, wire round-trip, and NO second active-effects
+ledger (relationship loss↔restore is pure re-derivation). Full suite **1308/1308**.
 
 ## Joined-client / in-world artifact — status
 
-**PENDING.** No GUI `valheim.x86_64` client was running at implementation time
-(only headless dedicated servers), and per the task safety gate no QA client is
-launched while the desktop could be owner-occupied. The in-world craft capture (an
-active-Field-Fletching-I host occupant crafting Wood Arrows with no crafting station
-in range, and the recipe reverting to station-required when the effect is dormant)
-is the one remaining item and is captured in a follow-up run once a client is
-available. The engine-free vertical + host runtime seam above are shipped and green;
-the client-delivery channel gap is documented, not hidden.
+The authoritative pure-client delivery channel is now shipped, so a real joined
+(non-host) client resolves Field Fletching I exposure from a server-stamped snapshot
+rather than failing closed. The final in-world craft capture (an active-Field-
+Fletching-I **joined client** crafting Wood Arrows with no crafting station in range,
+and the recipe reverting to station-required when the effect is dormant) is owned by
+the downstream QA card — no GUI `valheim.x86_64` client is launched from this systems
+card per the task safety gate (the desktop could be owner-occupied, and production
+Niflheim/Heistan are never touched). The engine-free vertical, both host and
+pure-client runtime seams, and the delivery substrate above are shipped and green;
+**logs-green is never playability**, so the in-game capture remains the QA gate.

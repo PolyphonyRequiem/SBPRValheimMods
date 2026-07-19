@@ -26,14 +26,26 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         /// RPC delivery glue.</summary>
         internal static LocalActivationService? Activation => Server?.Activation;
 
+        /// <summary>The personal Character-Effect activation service of the composed server, or null.
+        /// Convenience accessor for the personal-effect RPC delivery glue (T026 remediation).</summary>
+        internal static PersonalActivationService? PersonalActivation => Server?.PersonalActivation;
+
         /// <summary>The client-side bounded read-model cache. Every joined client (including a listen-host
         /// acting as its own client) holds one; the RPC receive handler applies snapshots into it and the
         /// gameplay-family consumers read it to decide whether an effect is active for the local player.</summary>
         internal static readonly LocalActivationClientCache ClientCache = new LocalActivationClientCache();
 
+        /// <summary>The client-side bounded PERSONAL Character-Effect read-model cache (T026 remediation).
+        /// Every joined client (including a listen-host acting as its own client) holds one; the personal RPC
+        /// receive handler applies snapshots into it and the Field Fletching recipe gate reads it to decide
+        /// whether the personal effect is active for the local player.</summary>
+        internal static readonly PersonalActivationClientCache PersonalClientCache =
+            new PersonalActivationClientCache();
+
         internal static void Clear()
         {
             Server = null;
+            PersonalClientCache.Clear();
         }
     }
 }
