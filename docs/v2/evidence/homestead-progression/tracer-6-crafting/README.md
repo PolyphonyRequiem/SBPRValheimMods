@@ -66,5 +66,11 @@ Facet-commit / node-development handlers, so the Local Effect can derive `Active
 for an eligible occupant. The develop path, restart rehydration, idempotent replay,
 and fail-closed hostile/unauthorized/purchase-authority cases are proven by
 `tests/NiflheimLocalProvisioningIngressTests.cs` (10 tests). The in-world joined-
-client effective-Level-3 frame is re-run downstream by QA `t_8261a415` against the
-merged head.
+client effective-Level-3 frame was re-run downstream by QA `t_87538341` (superseding
+the trapped `t_8261a415`) against the merged head `d5256ac`: it is a durable
+data-layer **PASS** — the shipped ingress develops the node from an empty store,
+writes the real Facet/Development journals, derives `Active`, yields effective
+Level 3 at a real Level-2 station for all three portable operations, fails closed on
+every negative case, and rehydrates the developed state across a restart. See
+`T021-JOINED-CLIENT-RERUN-PASS.md`; the GPU pixel last mile is reasoned (headless
+box, no user client present), not claimed observed.
