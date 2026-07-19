@@ -382,7 +382,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 OutcomeClassOf(def), offeredSet, string.Empty));
 
             return new CharacterStoneRecord(sr.StoneId, newPersonalAp, sr.CumulativeAp, sr.PersonalBp,
-                newFacetCredits, purchases, sr.Relationships);
+                newFacetCredits, purchases, sr.Relationships, sr.SkillCapChoices);
         }
 
         private static IReadOnlyList<FacetCreditRecord> DebitFacetCredit(

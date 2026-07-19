@@ -288,6 +288,26 @@ Deliverables after implementation authorization: executable authenticated-peer s
 > `AT-AIP-QUARANTINE`, `AT-AIP-NO-TIME-TRAVEL`, `AT-AIP-NONADMIN-REJECT`, `AT-AIP-BREACH-RUNBOOK`) and the
 > dedicated-server proof remain outstanding.
 
+> **Fix-forward status (IAP-012 correction, t_f6c8c748):** an independent post-merge review found the
+> merged privacy foundation (PR #336) structurally green but semantically incomplete. This correction
+> preserves the model and closes the gaps WITHOUT reverting: (1) `ExportAccount` now derives characters
+> from the account's OWN membership list (`acct.CharacterIds`) and REJECTS any gameplay/receipt row that
+> references a character the account does not own (`ForeignCharacterRow`), so a caller can no longer smuggle
+> another account's data or fabricated rows into an export; (2) a real fail-closed live-admission gate
+> (`IPrivacyAdmissionGate`, wired into `LiveSessionAdmission` and composed in `PilotSessionLifecycleObserver`)
+> rejects admission when the pilot is Closing/Purged or past its deadline, or when the active world fixture
+> is uncataloged / expired / `PurgePending` — nothing binds; (3) EVERY durable privacy mutation now
+> authorizes through `OperatorAdminGate`, replays idempotently on its operationId (conflict-detecting on
+> reuse), commits atomically through the framed intent→commit journal (crash-after-intent quarantines on
+> replay), drains the per-scope `AccountMutationFence`, and records an audit receipt id; (4) artifact
+> locators/timestamps are validated, expiry is DERIVED from the retention policy per artifact class, purge
+> enforces due-time + active holds + evidence + double-purge rejection, and account-scoped artifacts record
+> the account id, selector, key version, and receipt identity needed for a provable account-scoped
+> purge/key census. Evidence: the seven regression classes in `tests/NiflheimPrivacyRegressionTests.cs`
+> (R1–R7, 20 tests) plus the updated `tests/NiflheimPilotPrivacyFoundationTests.cs`; full suite green under
+> `dotnet test` (1100/1100, 0 warnings) and the mod compiles clean under net48 (0 warnings). This card gates
+> IAP-013 (destruction/purge), which may not proceed until this merges and passes independent review.
+
 ### Final gate — Dedicated joined-client pilot proof
 
 **Goal:** prove the whole journey in the real game and rehearse recovery/privacy operations.

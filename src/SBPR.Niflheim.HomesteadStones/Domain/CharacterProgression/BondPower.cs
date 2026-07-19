@@ -134,7 +134,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 {
                     found = true;
                     records.Add(new CharacterStoneRecord(sr.StoneId, sr.PersonalAp, sr.CumulativeAp,
-                        newBp, sr.FacetCredits, sr.Purchases, sr.Relationships));
+                        newBp, sr.FacetCredits, sr.Purchases, sr.Relationships, sr.SkillCapChoices));
                 }
                 else
                 {
