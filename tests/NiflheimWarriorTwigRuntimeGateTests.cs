@@ -5,37 +5,45 @@
 //  had ZERO runtime callers: on a joined client a T.W.I.G. (TrainingDummy)
 //  placement ran through vanilla Player.PlacePiece with NO SBPR gating. These
 //  tests exercise the SHIPPED runtime seam that closes that gap (link-compiled
-//  from ../src) — the missing caller — end to end:
+//  from ../src) — the missing caller — end to end, bound to the AUTHORITATIVE
+//  Local Effect activation runtime merged as t_02c13405 / PR #368:
 //
 //    * WarriorLocalPlacementGate         composes the pure provider + the
-//                                        provisional Stone state + the composed
-//                                        relationship authority + bound sessions
-//                                        + Stone-area membership into ONE server
-//                                        decision from server-owned facts only.
-//    * WarriorProvisionalStoneStateSource  the provisional Stone-owned Local
-//                                        state (Attuned policy, developed T.W.I.G.
-//                                        node, committed Warrior tree, level 2),
-//                                        the analogue of the Foundational runtime's
-//                                        provisional family/bond policies.
+//                                        AUTHORITATIVE Stone aggregate store +
+//                                        the committed-bond GovernorPresence
+//                                        projection + the composed relationship
+//                                        authority + bound sessions + Stone-area
+//                                        membership into ONE server decision
+//                                        from server-owned facts only.
+//    * (no provisional Stone state)      the developed T.W.I.G. node, committed
+//                                        Warrior tree, Active Stone Level, and
+//                                        Settlement Local policy come from the
+//                                        real IStoneAggregateStore the shared
+//                                        runtime drives via ACCEPTED commands
+//                                        (LocalNodeProvisioningDriver) — there is
+//                                        exactly ONE progression truth.
 //    * WarriorTwigDedicatedIngress       the joined-dedicated-client path: a
 //                                        server-observed ZDO is re-derived and
 //                                        gated; refusal requires undo.
 //    * WarriorTwigPendingUndoQueue       absorbs the ZDO replication race and
 //                                        acts once (or drops on deadline).
 //
-//  The gate is resolved off the composed FoundationalProgressionServer, so these
-//  assertions prove the REAL production wiring, not just the pure value object
-//  (which NiflheimWarriorTwigPlacementTests already covers).
+//  The gate is armed off the composed FoundationalProgressionServer against the
+//  SAME authoritative stores the LocalProgressionServer derives activation from,
+//  so a T.W.I.G. placement and a Local Effect snapshot agree by construction.
 // ============================================================================
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 using SBPR.Niflheim.HomesteadStones.Adapters.Warrior;
+using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Application.Commands;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
 using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
+using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Domain.Snapshots;
 using SBPR.Niflheim.HomesteadStones.Domain.StoneProgression;
 using SBPR.Niflheim.HomesteadStones.Persistence.Characters;
 using SBPR.Niflheim.HomesteadStones.Persistence.Stone;
@@ -49,12 +57,19 @@ namespace SBPR.Trailborne.Tests
         private const double StoneX = 100.0;
         private const double StoneZ = 100.0;
 
+        private static readonly VersionedId TwigNode = new VersionedId("TwigTraining", 1);
+
         private readonly string _durableDir;
         private readonly WorldId _world = new WorldId("uid:t029-gate");
         private readonly StoneId _stone;
 
+        // The Governor/owner occupant (holds the authorized Homestead:All Governor bond).
         private readonly AccountId _account = new AccountId("acct:steam-100");
         private readonly CharacterId _character = new CharacterId("player:5555");
+
+        // A guest occupant (bound, but not owner, no relationship).
+        private readonly AccountId _guest = new AccountId("acct:steam-200");
+        private readonly CharacterId _guestChar = new CharacterId("player:6666");
 
         public NiflheimWarriorTwigRuntimeGateTests()
         {
@@ -67,7 +82,7 @@ namespace SBPR.Trailborne.Tests
             if (Directory.Exists(_durableDir)) Directory.Delete(_durableDir, recursive: true);
         }
 
-        // ── fixtures (mirror the shipped Foundational provisional composition) ─────
+        // ── server-owned authority policy stubs (mirror the shipped provisional composition) ─────
 
         private sealed class FixedFamilyResolver : IStoneFamilyResolver
         {
@@ -86,6 +101,24 @@ namespace SBPR.Trailborne.Tests
             }
         }
 
+        private sealed class AllowGovernorAuthority : IGovernorAuthorityPolicy
+        {
+            public bool CanCommit(StoneId stoneId, string responsibilityRange, string ownerGovernorRole,
+                string facetId, FacetCategory category) =>
+                string.Equals(responsibilityRange, "Homestead:All", StringComparison.Ordinal)
+                && string.Equals(ownerGovernorRole, "Governor", StringComparison.Ordinal)
+                && category != FacetCategory.None;
+        }
+
+        private sealed class AllowDevelopmentAuthority : IGovernorDevelopmentAuthority
+        {
+            public bool CanDevelop(StoneId stoneId, string responsibilityRange, string ownerGovernorRole,
+                VersionedId tree) =>
+                string.Equals(responsibilityRange, "Homestead:All", StringComparison.Ordinal)
+                && string.Equals(ownerGovernorRole, "Governor", StringComparison.Ordinal)
+                && !tree.IsNone;
+        }
+
         private sealed class FakeInstanceSource : IServerPlacedInstanceSource
         {
             private readonly Dictionary<string, ServerPlacedInstanceFacts> _byKey =
@@ -102,7 +135,31 @@ namespace SBPR.Trailborne.Tests
             }
         }
 
-        private FoundationalProgressionServer NewServer()
+        // ── authoritative composition ───────────────────────────────────────────────
+
+        // A bare Stone-Level-2 Homestead: Warrior Tree NOT committed and NO node development. The
+        // provisioning driver must reach Developed purely through accepted commands.
+        private StoneProgressionAggregate BareStone(long revision) =>
+            new StoneProgressionAggregate(_stone, revision, historicalStoneLevel: 2, activeStoneLevel: 2,
+                foundationalTree: new VersionedId("FoundationalTree", 1),
+                foundationalCatalog: new VersionedId("FoundationalCatalog", 1),
+                contentRegistryVersion: 1, createdProvenance: "created", updatedProvenance: "seed",
+                mirroredStoneAp: 0, lastAppliedReceiptId: "r-seed",
+                committedTrees: null, nodeDevelopment: null);
+
+        // Compose the FULL authoritative runtime: the Foundational server (owns Authority/Characters/
+        // BoundSessions/StoneAreas), the shared Local runtime over the SAME shared stores + a real Stone
+        // aggregate store, then ARM the Warrior gate against that authoritative store + governance resolver.
+        // Returns everything a test needs to drive accepted commands and query the gate.
+        private sealed class Rig
+        {
+            public FoundationalProgressionServer Server = null!;
+            public LocalProgressionServer Local = null!;
+            public InMemoryStoneAggregateStore Stones = null!;
+            public GovernorPresenceResolver GovernorPresence = null!;
+        }
+
+        private Rig NewRig()
         {
             var server = FoundationalProgressionServer.Create(
                 _durableDir,
@@ -110,51 +167,104 @@ namespace SBPR.Trailborne.Tests
                 bondAuthority: new HomesteadBondPolicy(),
                 stoneApStore: new InMemoryMirroredStoneApStore());
             server.StoneAreas.Register(_stone, StoneX, StoneZ, radius: 20.0);
-            return server;
+
+            var stones = new InMemoryStoneAggregateStore();
+            stones.PutStone(BareStone(revision: 10));
+
+            var governorPresence = new GovernorPresenceResolver(server.Characters, server.Authority);
+            var ownerAuthority = new CommittedGovernorOwnerAuthority(governorPresence);
+
+            var local = LocalProgressionServer.Create(
+                _durableDir, stones, server.Characters, server.Authority, server.Relationships,
+                new FixedFamilyResolver(), new AllowGovernorAuthority(), new AllowDevelopmentAuthority(),
+                ownerAuthority);
+
+            server.ArmWarriorTwig(stones, governorPresence);
+            return new Rig { Server = server, Local = local, Stones = stones, GovernorPresence = governorPresence };
         }
 
-        private void Seed(FoundationalProgressionServer server, CharacterId who)
-        {
+        private void SeedChar(FoundationalProgressionServer server, AccountId acct, CharacterId ch, int bondSlots) =>
             ((InMemoryCharacterAggregateStore)server.Characters).PutCharacter(
-                new CharacterProgressionAggregate(_account, who,
+                new CharacterProgressionAggregate(acct, ch,
                     worldProductScope: "t029/trailborne", revision: 0,
-                    bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
+                    bondSlots: bondSlots, attunementSlots: 2, lastAppliedReceiptId: "seed",
                     stoneRecords: new[] { new CharacterStoneRecord(_stone, 0, 0, 0, null, null) }));
-        }
 
-        private void Attune(FoundationalProgressionServer server, CharacterId who)
+        // Create the authorized Homestead:All Governor bond for the owner through the ACCEPTED relationship
+        // handler (writes the character relationship record + the account–Stone authority reservation).
+        private void BondGovernor(FoundationalProgressionServer server, AccountId acct, CharacterId ch)
         {
             var res = server.Relationships.Handle(new RelationshipCommand(
-                new OperationId("op-attune-" + who.Value), RelationshipCommandType.CreateAttunement, _stone,
-                new AuthenticatedConnection(_account.Value, who.Value), default, "rel-att-" + who.Value));
+                new OperationId("op-bond-" + ch.Value), RelationshipCommandType.CreateBond, _stone,
+                new AuthenticatedConnection(acct.Value, ch.Value), default,
+                "rel-bond-" + ch.Value, responsibilityRange: "Homestead:All", ownerGovernorRole: "Owner"));
             Assert.Equal(RelationshipCommandOutcome.Applied, res.Outcome);
         }
 
-        private void Bind(FoundationalProgressionServer server, CharacterId who) =>
-            server.BoundSessions.Bind(who.Value, new PilotSessionPrincipal(_account, who, "sess-" + who.Value));
+        // Develop the T.W.I.G. node to completion via ACCEPTED commands only (commit Warrior tree ->
+        // credit BP -> develop node) on the authoritative Stone aggregate. No provisional grant.
+        private void ProvisionTwig(Rig rig, AccountId acct, CharacterId ch)
+        {
+            var driver = new LocalNodeProvisioningDriver(rig.Local);
+            var result = driver.Provision(new AuthoritativeSubject(acct, ch), _stone, TwigNode, "qa-twig");
+            Assert.True(result.IsDeveloped,
+                "QA provisioning must develop the T.W.I.G. node through accepted commands: "
+                + result.FailedStep + "/" + result.ResultCode);
+        }
+
+        private void SetPolicy(Rig rig, AccountId owner, CharacterId ownerCh, LocalBeneficiaryMode mode,
+            IReadOnlyList<string> allowlist)
+        {
+            var driver = new LocalNodeProvisioningDriver(rig.Local);
+            var code = driver.SetPolicy(new AuthoritativeSubject(owner, ownerCh), _stone, mode, allowlist, "qa-policy");
+            Assert.Equal("Applied", code);
+        }
+
+        private void Bind(FoundationalProgressionServer server, AccountId acct, CharacterId ch) =>
+            server.BoundSessions.Bind(ch.Value, new PilotSessionPrincipal(acct, ch, "sess-" + ch.Value));
+
+        // A fully-provisioned owner: developed T.W.I.G. node, committed Warrior tree, authorized Governor
+        // bonded, bound session. Everyone policy (default) is active for anyone inside the Area.
+        private Rig ProvisionedOwner()
+        {
+            var rig = NewRig();
+            SeedChar(rig.Server, _account, _character, bondSlots: 1);
+            BondGovernor(rig.Server, _account, _character);
+            ProvisionTwig(rig, _account, _character);
+            Bind(rig.Server, _account, _character);
+            return rig;
+        }
 
         private string PeerKey => _character.Value;
+        private string GuestPeerKey => _guestChar.Value;
 
         // ── listen-host gate: the exact admit path ─────────────────────────────────
 
         [Fact]
-        public void Gate_is_composed_on_the_production_server()
+        public void Gate_is_armed_on_the_production_server_against_the_authoritative_runtime()
         {
-            var server = NewServer();
-            Assert.NotNull(server.WarriorTwigGate);
-            Assert.Equal(Twig, server.WarriorTwigGate.TwigPrefabName);
-            Assert.NotNull(server.WarriorTwigPending);
+            var rig = ProvisionedOwner();
+            Assert.NotNull(rig.Server.WarriorTwigGate);
+            Assert.Equal(Twig, rig.Server.WarriorTwigGate!.TwigPrefabName);
+            Assert.NotNull(rig.Server.WarriorTwigPending);
         }
 
         [Fact]
-        public void Attuned_bound_occupant_inside_area_with_build_permission_is_admitted()
+        public void Gate_is_null_before_arming()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);   // Attuned policy -> an active relationship makes the effect active
-            Bind(server, _character);
+            var server = FoundationalProgressionServer.Create(
+                _durableDir, new FixedFamilyResolver(), new HomesteadBondPolicy(),
+                new InMemoryMirroredStoneApStore());
+            Assert.Null(server.WarriorTwigGate);
+            Assert.Null(server.WarriorTwigPending);
+        }
 
-            var outcome = server.WarriorTwigGate.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
+        [Fact]
+        public void Provisioned_owner_inside_area_with_build_permission_is_admitted()
+        {
+            var rig = ProvisionedOwner();
+
+            var outcome = rig.Server.WarriorTwigGate!.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
 
             Assert.Equal(WarriorPlacementGateDisposition.Admitted, outcome.Disposition);
             Assert.True(outcome.IsAdmitted);
@@ -163,14 +273,11 @@ namespace SBPR.Trailborne.Tests
         }
 
         [Fact]
-        public void Attuned_occupant_without_build_permission_is_refused_and_must_undo()
+        public void Provisioned_owner_without_build_permission_is_refused_and_must_undo()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
-            var outcome = server.WarriorTwigGate.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: false);
+            var outcome = rig.Server.WarriorTwigGate!.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: false);
 
             Assert.Equal(WarriorPlacementGateDisposition.Denied, outcome.Disposition);
             Assert.Equal(WarriorPlacementAdmission.MissingBuildPermission, outcome.Admission);
@@ -178,13 +285,17 @@ namespace SBPR.Trailborne.Tests
         }
 
         [Fact]
-        public void Bound_but_unattuned_occupant_is_refused_outside_policy_and_must_undo()
+        public void Occupant_outside_private_policy_is_refused_and_must_undo()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Bind(server, _character);   // no Attunement -> outside the Attuned policy
+            var rig = ProvisionedOwner();
+            // Owner sets Private policy with an empty allowlist through the accepted owner-only handler.
+            SetPolicy(rig, _account, _character, LocalBeneficiaryMode.Private, new List<string>());
 
-            var outcome = server.WarriorTwigGate.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
+            // A bound guest (not the owner, no relationship, not in the allowlist) is outside the policy.
+            SeedChar(rig.Server, _guest, _guestChar, bondSlots: 1);
+            Bind(rig.Server, _guest, _guestChar);
+
+            var outcome = rig.Server.WarriorTwigGate!.Admit(GuestPeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
 
             Assert.Equal(WarriorPlacementGateDisposition.Denied, outcome.Disposition);
             Assert.Equal(WarriorPlacementAdmission.EffectNotActive, outcome.Admission);
@@ -192,11 +303,45 @@ namespace SBPR.Trailborne.Tests
         }
 
         [Fact]
+        public void Governance_dormancy_refuses_even_the_owner_after_governor_release()
+        {
+            var rig = ProvisionedOwner();
+
+            // Release the Governor's Bond through the accepted handler: no authorized Governor remains, so
+            // every Local Effect is dormant (spec US5 sc2) even for the (former) owner.
+            var release = rig.Server.Relationships.Handle(new RelationshipCommand(
+                new OperationId("op-release-gov"), RelationshipCommandType.ReleaseRelationship, _stone,
+                new AuthenticatedConnection(_account.Value, _character.Value), default,
+                "rel-bond-" + _character.Value));
+            Assert.Equal(RelationshipCommandOutcome.Applied, release.Outcome);
+
+            var outcome = rig.Server.WarriorTwigGate!.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
+
+            Assert.Equal(WarriorPlacementGateDisposition.Denied, outcome.Disposition);
+            Assert.Equal(WarriorPlacementAdmission.EffectNotActive, outcome.Admission);
+        }
+
+        [Fact]
+        public void Undeveloped_node_is_refused()
+        {
+            // A rig whose Stone has NO developed T.W.I.G. node (never provisioned): the effect cannot be
+            // active because nothing is developed, even for a bonded, bound owner inside the Area.
+            var rig = NewRig();
+            SeedChar(rig.Server, _account, _character, bondSlots: 1);
+            BondGovernor(rig.Server, _account, _character);
+            Bind(rig.Server, _account, _character);
+
+            var outcome = rig.Server.WarriorTwigGate!.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
+
+            Assert.Equal(WarriorPlacementGateDisposition.Denied, outcome.Disposition);
+            Assert.Equal(WarriorPlacementAdmission.EffectNotActive, outcome.Admission);
+        }
+
+        [Fact]
         public void Unbound_peer_fails_closed()
         {
-            var server = NewServer();
-            // No Bind -> no bound internal session.
-            var outcome = server.WarriorTwigGate.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
+            var rig = ProvisionedOwner();
+            var outcome = rig.Server.WarriorTwigGate!.Admit("player:nobody", Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
 
             Assert.Equal(WarriorPlacementGateDisposition.Denied, outcome.Disposition);
             Assert.Equal("UnboundPeer", outcome.Reason);
@@ -206,13 +351,10 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Placement_outside_every_stone_area_is_refused()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             // Far outside the single registered Stone Area (radius 20 at 100,100).
-            var outcome = server.WarriorTwigGate.Admit(PeerKey, Twig, 5000.0, 5000.0, hasOrdinaryBuildPermission: true);
+            var outcome = rig.Server.WarriorTwigGate!.Admit(PeerKey, Twig, 5000.0, 5000.0, hasOrdinaryBuildPermission: true);
 
             Assert.Equal(WarriorPlacementGateDisposition.Denied, outcome.Disposition);
             Assert.Equal("OutsideStoneArea", outcome.Reason);
@@ -221,76 +363,27 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void A_non_twig_prefab_is_declined_not_gated()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             foreach (var other in new[] { "wood_floor", "piece_workbench", "trainingdummy", "" })
             {
-                var outcome = server.WarriorTwigGate.Admit(PeerKey, other, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
+                var outcome = rig.Server.WarriorTwigGate!.Admit(PeerKey, other, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
                 Assert.Equal(WarriorPlacementGateDisposition.NotTwig, outcome.Disposition);
                 Assert.False(outcome.RequiresUndo);   // the net48 layer leaves a non-T.W.I.G. untouched
             }
         }
 
-        [Fact]
-        public void Governance_dormancy_refuses_even_an_attuned_occupant()
-        {
-            // A source with no authorized Governor present dormants every Local Effect (spec US5 sc2).
-            var gate = new WarriorLocalPlacementGate(
-                new WarriorProvisionalStoneStateSource(LocalBeneficiaryMode.Attuned, authorizedGovernorPresent: false),
-                new InMemoryAccountStoneAuthorityStore(),
-                BoundWith(),
-                AreaWith());
-
-            var outcome = gate.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
-            Assert.Equal(WarriorPlacementGateDisposition.Denied, outcome.Disposition);
-            Assert.Equal(WarriorPlacementAdmission.EffectNotActive, outcome.Admission);
-        }
-
-        [Fact]
-        public void Everyone_policy_admits_any_bound_inside_permitted_occupant()
-        {
-            // Everyone policy: no relationship needed. Proves the provisional policy override path.
-            var gate = new WarriorLocalPlacementGate(
-                new WarriorProvisionalStoneStateSource(LocalBeneficiaryMode.Everyone),
-                new InMemoryAccountStoneAuthorityStore(),
-                BoundWith(),
-                AreaWith());
-
-            var outcome = gate.Admit(PeerKey, Twig, StoneX, StoneZ, hasOrdinaryBuildPermission: true);
-            Assert.True(outcome.IsAdmitted);
-        }
-
-        private BoundSessionPrincipalIndex BoundWith()
-        {
-            var idx = new BoundSessionPrincipalIndex();
-            idx.Bind(_character.Value, new PilotSessionPrincipal(_account, _character, "sess"));
-            return idx;
-        }
-
-        private StoneAreaMembership AreaWith()
-        {
-            var m = new StoneAreaMembership();
-            m.Register(_stone, StoneX, StoneZ, radius: 20.0);
-            return m;
-        }
-
         // ── dedicated ingress: re-derive server-side, gate, undo on refusal ────────
 
         [Fact]
-        public void Dedicated_ingress_admits_an_attuned_creator_bound_twig()
+        public void Dedicated_ingress_admits_a_provisioned_creator_bound_twig()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             var instances = new FakeInstanceSource();
             instances.Put("77:1", Twig, creatorPrincipal: PeerKey, x: StoneX, z: StoneZ);
 
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
             var result = ingress.Ingest(PeerKey, "77:1", (x, z) => true);
 
             Assert.True(result.IsResolved);
@@ -301,15 +394,12 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Dedicated_ingress_refuses_and_requires_undo_without_build_permission()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             var instances = new FakeInstanceSource();
             instances.Put("77:2", Twig, creatorPrincipal: PeerKey, x: StoneX, z: StoneZ);
 
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
             var result = ingress.Ingest(PeerKey, "77:2", (x, z) => false);   // no ward access
 
             Assert.True(result.IsResolved);
@@ -321,15 +411,16 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Dedicated_ingress_refuses_outside_policy_and_requires_undo()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Bind(server, _character);   // no Attunement
+            var rig = ProvisionedOwner();
+            SetPolicy(rig, _account, _character, LocalBeneficiaryMode.Private, new List<string>());
+            SeedChar(rig.Server, _guest, _guestChar, bondSlots: 1);
+            Bind(rig.Server, _guest, _guestChar);
 
             var instances = new FakeInstanceSource();
-            instances.Put("77:3", Twig, creatorPrincipal: PeerKey, x: StoneX, z: StoneZ);
+            instances.Put("77:3", Twig, creatorPrincipal: GuestPeerKey, x: StoneX, z: StoneZ);
 
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
-            var result = ingress.Ingest(PeerKey, "77:3", (x, z) => true);
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
+            var result = ingress.Ingest(GuestPeerKey, "77:3", (x, z) => true);
 
             Assert.True(result.IsResolved);
             Assert.True(result.RequiresUndo);
@@ -339,15 +430,12 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Dedicated_ingress_declines_a_non_twig_instance_without_undo()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             var instances = new FakeInstanceSource();
             instances.Put("77:4", "wood_floor", creatorPrincipal: PeerKey, x: StoneX, z: StoneZ);
 
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
             var result = ingress.Ingest(PeerKey, "77:4", (x, z) => true);
 
             Assert.True(result.IsResolved);
@@ -358,16 +446,13 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Dedicated_ingress_rejects_a_creator_mismatch_without_touching_the_piece()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             var instances = new FakeInstanceSource();
             // The ZDO was created by a DIFFERENT player than the authenticated sender.
             instances.Put("77:5", Twig, creatorPrincipal: "player:9999", x: StoneX, z: StoneZ);
 
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
             var result = ingress.Ingest(PeerKey, "77:5", (x, z) => true);
 
             Assert.False(result.IsResolved);
@@ -378,11 +463,10 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Dedicated_ingress_awaits_replication_for_an_unresolved_zdo()
         {
-            var server = NewServer();
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             var instances = new FakeInstanceSource();   // empty — the ZDO has not replicated yet
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
             var result = ingress.Ingest(PeerKey, "77:6", (x, z) => true);
 
             Assert.False(result.IsResolved);
@@ -394,14 +478,11 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Pending_queue_keeps_awaiting_then_acts_once_the_zdo_resolves()
         {
-            var server = NewServer();
-            Seed(server, _character);
-            Attune(server, _character);
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             var instances = new FakeInstanceSource();
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
-            var queue = server.WarriorTwigPending;
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
+            var queue = rig.Server.WarriorTwigPending!;
 
             Assert.Equal(WarriorTwigPendingUndoQueue.EnqueueResult.Enqueued,
                 queue.Enqueue(PeerKey, "88:1", nowTicks: 0));
@@ -423,11 +504,10 @@ namespace SBPR.Trailborne.Tests
         [Fact]
         public void Pending_queue_drops_an_entry_whose_zdo_never_replicates_by_deadline()
         {
-            var server = NewServer();
-            Bind(server, _character);
+            var rig = ProvisionedOwner();
 
             var instances = new FakeInstanceSource();   // never resolves
-            var ingress = server.CreateWarriorTwigDedicatedIngress(instances);
+            var ingress = rig.Server.CreateWarriorTwigDedicatedIngress(instances);
             var queue = new WarriorTwigPendingUndoQueue(TimeSpan.FromTicks(10));
 
             queue.Enqueue(PeerKey, "88:2", nowTicks: 0);

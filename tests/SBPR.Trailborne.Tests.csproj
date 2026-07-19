@@ -183,7 +183,6 @@
          ingress, and the race-safe pending-undo queue. Link-compiled so the runtime wiring is exercised as
          REAL execution by NiflheimWarriorTwigRuntimeGateTests. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorLocalPlacementGate.cs" />
-    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorProvisionalStoneStateSource.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorTwigDedicatedIngress.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorTwigPendingUndoQueue.cs" />
     <!-- Homestead progression Tracer 2 (T009R3): the engine-free, testable creator-identity binder and the

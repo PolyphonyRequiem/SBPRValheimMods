@@ -63,6 +63,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         private static void Gate(Player actor, Piece piece, FoundationalProgressionServer server)
         {
             var gate = server.WarriorTwigGate;
+            if (gate == null) return;   // Local runtime not yet composed / armed — nothing to gate.
 
             string prefabName = piece.gameObject != null
                 ? StripCloneSuffix(piece.gameObject.name)

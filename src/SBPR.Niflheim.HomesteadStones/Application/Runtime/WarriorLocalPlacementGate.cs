@@ -1,5 +1,6 @@
 using System;
 using SBPR.Niflheim.HomesteadStones.Adapters.Warrior;
+using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Domain.Activation;
 using SBPR.Niflheim.HomesteadStones.Domain.Content;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
@@ -9,11 +10,21 @@ using SBPR.Niflheim.HomesteadStones.Persistence.Stone;
 
 namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 {
-    // T029 remediation — the engine-free server-validation CORE for the Warrior T.W.I.G. Training Local
-    // placement capability. It is the missing runtime caller of the shipped, pure
+    // T029 — the engine-free server-validation CORE for the Warrior T.W.I.G. Training Local placement
+    // capability. It is the missing runtime caller of the shipped, pure
     // Adapters/Warrior/LocalPlacementProvider (QA t_92e47866 / PR #366 FAIL: the provider had zero
     // runtime callers, so on a joined client a T.W.I.G. placement ran through vanilla Player.PlacePiece
     // with NO SBPR gating and the FR-016 effect-active/policy/build-Permission AND never fired in-world).
+    //
+    // AUTHORITATIVE BINDING (t_02c13405 / PR #368 merged): this gate reads the SAME authoritative Stone
+    // progression aggregate + governance projection the shared Local Effect activation runtime
+    // (LocalProgressionServer) composes from the accepted, receipt-backed Facet/Development/Activity/
+    // LocalPolicy handlers. There is NO provisional second progression truth: the developed T.W.I.G.
+    // node, the committed Warrior Tree, the Active Stone Level, and the Settlement Local policy all come
+    // from IStoneAggregateStore, and the owner / authorized-Governor governance facts are DERIVED on
+    // demand from committed bond state via GovernorPresenceResolver — exactly the projection
+    // LocalActivationService.Derive consumes. A T.W.I.G. placement and a Local Effect snapshot for the
+    // same occupant therefore agree by construction.
     //
     // This mirrors the Foundational precedent (DedicatedPlacementIngress): the engine-bound net48 layer
     // observes a server-authoritative placement, hands this core ONLY server-owned facts, and this core
@@ -24,36 +35,32 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
     // is decided here from the shared engine-free grammar.
     //
     // Per-occupant relationship / occupancy facts are the SAME server-owned truths the Foundational path
-    // already composes and admin-provisions (BoundSessionPrincipalIndex + IAccountStoneAuthorityStore via
-    // sbpr_provision + StoneAreaMembership). The Stone-owned developed Local state (the developed
-    // T.W.I.G. node, the committed Warrior Tree, the Active Stone Level, the Settlement Local policy, and
-    // the authorized-Governor / owner facts) is supplied by an injected IWarriorLocalStoneStateSource:
-    // production hands a provisional server-owned source (WarriorProvisionalStoneStateSource) exactly as
-    // the Foundational runtime hands provisional ServerHomesteadFamilyResolver / ServerHomesteadBondPolicy;
-    // tests hand an in-memory Stone aggregate. When a full Stone-progression command runtime is later
-    // composed server-side, only the source implementation changes — this core and the provider do not.
+    // already composes (BoundSessionPrincipalIndex + IAccountStoneAuthorityStore + StoneAreaMembership).
     //
-    // net48 audit: value objects + engine-free provider/view/store interfaces only. No net5+ surface, no
+    // net48 audit: value objects + engine-free provider/view/store types only. No net5+ surface, no
     // UnityEngine/Valheim/BepInEx, so it link-compiles into the net8 test project and every branch is
-    // unit-tested against fakes.
+    // unit-tested against the real composed runtime.
     public sealed class WarriorLocalPlacementGate
     {
         private readonly LocalPlacementProvider _provider;
-        private readonly IWarriorLocalStoneStateSource _stoneState;
+        private readonly IStoneAggregateStore _stones;
+        private readonly GovernorPresenceResolver _governorPresence;
         private readonly HomesteadProgressionCatalog _catalog;
         private readonly IAccountStoneAuthorityStore _authority;
         private readonly IBoundSessionPrincipalSource _boundSessions;
         private readonly StoneAreaMembership _stoneAreas;
 
         public WarriorLocalPlacementGate(
-            IWarriorLocalStoneStateSource stoneState,
+            IStoneAggregateStore stones,
+            GovernorPresenceResolver governorPresence,
             IAccountStoneAuthorityStore authority,
             IBoundSessionPrincipalSource boundSessions,
             StoneAreaMembership stoneAreas,
             LocalPlacementProvider? provider = null,
             HomesteadProgressionCatalog? catalog = null)
         {
-            _stoneState = stoneState ?? throw new ArgumentNullException(nameof(stoneState));
+            _stones = stones ?? throw new ArgumentNullException(nameof(stones));
+            _governorPresence = governorPresence ?? throw new ArgumentNullException(nameof(governorPresence));
             _authority = authority ?? throw new ArgumentNullException(nameof(authority));
             _boundSessions = boundSessions ?? throw new ArgumentNullException(nameof(boundSessions));
             _stoneAreas = stoneAreas ?? throw new ArgumentNullException(nameof(stoneAreas));
@@ -75,7 +82,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// vanilla build-Permission (ward) result at that position.
         ///
         /// The gate FAILS CLOSED whenever a required server-owned fact is unavailable: an unbound peer, a
-        /// position inside no Stone Area, or a Stone with no provisional/developed state all deny placement.
+        /// position inside no Stone Area, or a Stone with no authoritative aggregate all deny placement.
         /// The T.W.I.G. Training node never grants a build capability by default.</summary>
         public WarriorPlacementGateOutcome Admit(
             string peerKey,
@@ -97,25 +104,29 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
                 return WarriorPlacementGateOutcome.Denied(WarriorPlacementAdmission.EffectNotActive, "UnboundPeer");
 
             var occupant = new AccountId(principal.Account.Value);
+            var character = new CharacterId(principal.Character.Value);
 
             // Position -> Stone Area membership from the server-owned transform (never a claimed area). A
             // T.W.I.G. placed outside every Stone Area is dormant/ungoverned -> denied.
             if (!_stoneAreas.TryResolve(x, z, out var stoneId))
                 return WarriorPlacementGateOutcome.Denied(WarriorPlacementAdmission.EffectNotActive, "OutsideStoneArea");
 
-            // Stone-owned developed Local state for THIS Stone (developed T.W.I.G. node, committed Warrior
-            // Tree, Active Stone Level, single Settlement Local policy). Absent -> nothing developed -> denied.
-            if (!_stoneState.TryGetStone(stoneId, out var stone) || stone == null)
+            // Authoritative Stone progression aggregate for THIS Stone (developed T.W.I.G. node, committed
+            // Warrior Tree, Active Stone Level, single Settlement Local policy) — the SAME store the shared
+            // activation runtime derives from. Absent -> nothing developed -> denied.
+            var stone = _stones.GetStone(stoneId);
+            if (stone == null)
                 return WarriorPlacementGateOutcome.Denied(WarriorPlacementAdmission.EffectNotActive, "NoStoneState");
 
-            // Per-occupant server-owned relationship + governance facts:
-            //   * owner: is this occupant the validated Homestead owner of the Stone;
-            //   * active relationship: does this occupant currently hold a Bond/Attunement reservation here;
+            // Per-occupant server-owned relationship + governance facts, DERIVED from committed state (never
+            // a stored flag, never a client claim):
+            //   * owner: is this occupant the validated Homestead owner (holds the authorized Governor bond);
+            //   * active relationship: does this occupant currently hold a reservation at this Stone;
             //   * authorized Governor present: does ANY authorized Governor currently hold this Stone.
-            bool occupantIsOwner = _stoneState.IsOwner(stoneId, occupant);
+            bool occupantIsOwner = _governorPresence.IsOwner(occupant, stoneId);
             bool occupantHasActiveRelationship =
-                _authority.GetAuthority(occupant, stoneId).HasActive(new CharacterId(principal.Character.Value));
-            bool authorizedGovernorPresent = _stoneState.AuthorizedGovernorPresent(stoneId);
+                _authority.GetAuthority(occupant, stoneId).HasActive(character);
+            bool authorizedGovernorPresent = _governorPresence.AuthorizedGovernorPresent(stoneId);
 
             // Occupancy inside THIS Stone's Area is already proven (TryResolve returned this stoneId).
             var view = LocalEffectActivationView.Derive(
@@ -199,27 +210,5 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// <summary>One-line, PII-free operator rendering.</summary>
         public string ToOperatorLine() =>
             $"[warrior-twig] disposition={Disposition} admission={Admission} reason={Reason} stone={StoneId.Value}";
-    }
-
-    /// <summary>Server-owned read port over the Stone-owned developed Local state the Warrior gate needs
-    /// (the developed T.W.I.G. node, the committed Warrior Tree, the Active Stone Level, the single
-    /// Settlement Local policy) plus the owner / authorized-Governor governance facts. Production supplies
-    /// a provisional server-owned source (mirroring the Foundational runtime's provisional
-    /// family/bond policies); tests supply an in-memory Stone aggregate. Everything it exposes is
-    /// server-derived — nothing is client-authored.</summary>
-    public interface IWarriorLocalStoneStateSource
-    {
-        /// <summary>Resolve the full Stone progression aggregate (developed nodes, committed Trees, Active
-        /// Stone Level, Settlement Local policy) for a resident Stone. Returns false when no developed Stone
-        /// state exists for it (the gate then fails closed).</summary>
-        bool TryGetStone(StoneId stoneId, out StoneProgressionAggregate? stone);
-
-        /// <summary>True when <paramref name="occupant"/> is the server-validated Homestead owner of the
-        /// Stone. Never client-authored.</summary>
-        bool IsOwner(StoneId stoneId, AccountId occupant);
-
-        /// <summary>True when an authorized Governor currently holds governance of the Stone (spec US5 sc2):
-        /// with none present, every Local Effect is dormant regardless of policy.</summary>
-        bool AuthorizedGovernorPresent(StoneId stoneId);
     }
 }

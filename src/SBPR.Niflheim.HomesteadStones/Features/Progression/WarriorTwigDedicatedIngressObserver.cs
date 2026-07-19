@@ -76,7 +76,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 string peerKey = ServerCreatorIdentity.CharacterSubject(senderFacts.PlayerId);
                 if (string.IsNullOrEmpty(peerKey)) return;
 
-                var result = server.WarriorTwigPending.Enqueue(peerKey, instanceKey, DateTime.UtcNow.Ticks);
+                var pending = server.WarriorTwigPending;
+                if (pending == null) return;   // Local runtime not yet composed / armed.
+
+                var result = pending.Enqueue(peerKey, instanceKey, DateTime.UtcNow.Ticks);
                 if (result == WarriorTwigPendingUndoQueue.EnqueueResult.RejectedFull)
                     Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Warrior T.W.I.G. notice dropped: pending queue full (spam bound).");
             }
@@ -97,10 +100,11 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 var server = FoundationalPlacementObserver.Server;
                 if (server == null) return;
                 if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
-                if (server.WarriorTwigPending.Count == 0) return;
+                var pending = server.WarriorTwigPending;
+                if (pending == null || pending.Count == 0) return;
 
                 var ingress = server.CreateWarriorTwigDedicatedIngress(ZdoServerPlacedInstanceSource.Instance);
-                var resolved = server.WarriorTwigPending.Pump(
+                var resolved = pending.Pump(
                     DateTime.UtcNow.Ticks,
                     (peerKey, instanceKey) => ingress.Ingest(peerKey, instanceKey, BuildPermissionAt));
 
