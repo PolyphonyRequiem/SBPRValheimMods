@@ -240,6 +240,13 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
+    <!-- Homestead progression Tracer 6 (T021, US4): Refined Workshop real-versus-effective station-level
+         policy. The pure crafting adapter surface (Adapters/Crafting/EffectiveStationLevelProvider.cs)
+         composes over the shipped LocalEffectActivationView to grant +1 EFFECTIVE station level only for
+         eligible portable-item production/upgrade/repair inside the active Homestead, never mutating the
+         real observed level and never affecting structure/build gates. Engine-free; the crafting nodes
+         T022–T023 extend this same adapter surface. Named acceptance AT-REFINED-REAL-VS-EFFECTIVE. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/EffectiveStationLevelProvider.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
