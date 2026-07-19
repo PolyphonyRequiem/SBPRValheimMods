@@ -178,6 +178,13 @@
          binding, prefab/catalog identity, position/Stone Area) and routes through the SAME shared runtime.
          Engine-free (the ZDOMan-backed source + routed-RPC observer are net48-only, not link-compiled). -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/DedicatedPlacementIngress.cs" />
+    <!-- T029 remediation: the engine-free Warrior T.W.I.G. Training runtime GATE (the missing caller of the
+         pure LocalPlacementProvider), its provisional server-owned Stone-state source, the dedicated-server
+         ingress, and the race-safe pending-undo queue. Link-compiled so the runtime wiring is exercised as
+         REAL execution by NiflheimWarriorTwigRuntimeGateTests. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorLocalPlacementGate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorTwigDedicatedIngress.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/WarriorTwigPendingUndoQueue.cs" />
     <!-- Homestead progression Tracer 2 (T009R3): the engine-free, testable creator-identity binder and the
          bounded relationship provisioning ingress. The binder reconciles the placed ZDO's s_creator with
          the authenticated sender's character s_playerID (Blocker 2); the provisioning ingress drives the
@@ -252,6 +259,26 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
+    <!-- T029 (Tracer 8, Warrior node 1): the T.W.I.G. Training Local placement capability. The
+         engine-free LocalPlacementProvider exposes ONLY the exact unchanged vanilla T.W.I.G.
+         ("TrainingDummy") build piece and admits a placement exactly when the shared T014
+         LocalEffectActivationView reports the effect active for the occupant AND the occupant
+         independently holds ordinary build Permission (the load-bearing AND). No second active-effects
+         ledger. Named acceptance AT-TWIG-LOCAL. Engine-free. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Warrior/LocalPlacementProvider.cs" />
+    <!-- T016 (Tracer 5 — Cooking, node 1/4): the engine-free Cooking effect-delivery provider surface.
+         SavorTheHearthProvider translates the T014 LocalEffectActivationView Savor active-state into the
+         vanilla food-timer drain factor (0.5 active / 1.0 not), with no item/stat mutation and no
+         retroactive duration. Establishes the shared Cooking adapter/provider surface T017–T019 extend.
+         Engine-free (value objects + double arithmetic), link-compiled like the rest. Named acceptance
+         AT-SAVOR-AREA-EXIT. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingProviders.cs" />
+    <!-- T016 remediation: the engine-free live delivery seam for Savor. SavorFoodDrainResolver derives the
+         live LocalEffectActivationView + drain factor and scales the elapsed food slice; the context index +
+         factory build the established active-Savor Stone context. The net48 Player.UpdateFood prefix and the
+         playtest admin/console seam (Features/Cooking/) reference Valheim and are NOT link-compiled — only
+         this pure resolver is exercised under net8. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/SavorFoodDrainResolver.cs" />
     <!-- T021 remediation 2 (t_79588427): the isolated-QA Local-node development / personal-node purchase
          ingress — the runtime caller the T021 joined-client rerun found missing. Engine-free (routes
          server-derived subjects through the shipped driver/purchase handlers); link-compiled so every

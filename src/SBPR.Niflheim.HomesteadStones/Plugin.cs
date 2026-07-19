@@ -68,6 +68,15 @@ namespace SBPR.Niflheim.HomesteadStones
             // (ZNet.OnNewConnection) and the queue pumps on ZDOMan.Update — no separate bootstrap patch.
             harmony.PatchAll(typeof(Features.Progression.DedicatedPlacementIngressObserver));
 
+            // T029 — the Warrior T.W.I.G. Training Local placement gate runtime. The listen-host observer
+            // gates a server-run T.W.I.G. (TrainingDummy) placement through the shipped LocalPlacementProvider
+            // (FR-016 effect-active / Settlement-policy / build-Permission AND) and UNDOES it on refusal; the
+            // dedicated ingress observer does the same for a joined dedicated-server client (client notice →
+            // server-side ZDO revalidation → undo on refusal). Both resolve the Warrior gate off the composed
+            // FoundationalPlacementObserver.Server; disarmed on a pure client.
+            harmony.PatchAll(typeof(Features.Progression.WarriorTwigPlacementObserver));
+            harmony.PatchAll(typeof(Features.Progression.WarriorTwigDedicatedIngressObserver));
+
             // IAP-007W — live session admission. Composes the shipped account+character admission stack
             // (Tracer 1/2) on the authoritative server and reconciles it against the connected-peer set on
             // the ZDOMan.Update cadence: a peer whose server-observed profile s_playerID + authenticated
@@ -146,9 +155,27 @@ namespace SBPR.Niflheim.HomesteadStones
             // active for the acting occupant (purchase record + active relationship, via the shipped
             // BushcraftRecipeProvider), exposes the UNCHANGED vanilla Wood Arrow recipe through Bushcraft —
             // i.e. makes ArrowWood craftable without its ordinary station. Exposure only: no recipe input/
-            // yield/authority is authored or mutated. The gate reads the authoritative host projection and
-            // fails closed on a pure client (no personal-effect delivery channel exists yet — follow-up).
+            // yield/authority is authored or mutated. The gate reads the authoritative host projection on a
+            // listen-host, or the server-stamped personal snapshot (PersonalActivationDeliveryObserver
+            // transport above) on a pure joined client, and fails closed when neither is present.
             harmony.PatchAll(typeof(Features.Archer.FieldFletchingRecipeGate));
+
+            // T016 — Savor the Hearth live food-timer delivery seam. The net48 Player.UpdateFood prefix
+            // scales ONLY the elapsed food-drain slice for the local player by the shipped
+            // SavorTheHearthProvider factor (0.5 active / 1.0 otherwise), reading the established active
+            // Savor context off the composed server. The playtest-gated admin seam (config flag +
+            // Valheim-admin, DISABLED by default) establishes/clears that context at the sender's current
+            // Stone Area so a joined listen-host client can prove in-area 0.5 / exit 1.0. Neither the factor
+            // nor the context is client-authored; the observer no-ops when no server context is composed.
+            harmony.PatchAll(typeof(Features.Cooking.SavorFoodTimerObserver));
+            Features.Cooking.SavorProvisioningAdmin.EnableSeam = Config.Bind(
+                "Cooking", "EnableSavorPlaytestSeam", false,
+                "Playtest ONLY. When true, server admins may establish/clear an active Savor the Hearth Local "
+                + "context at their current Homestead Stone Area via the sbpr_savor console command so live "
+                + "food-timer slowing (factor 0.5) can be proven in a joined client. Server-owned; not "
+                + "client-settable. Leave false on any non-playtest server.");
+            harmony.PatchAll(typeof(Features.Cooking.SavorProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Cooking.SavorProvisioningConsole));
 
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }

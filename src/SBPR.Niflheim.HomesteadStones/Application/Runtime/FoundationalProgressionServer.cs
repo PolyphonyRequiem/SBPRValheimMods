@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using SBPR.Niflheim.HomesteadStones.Adapters.Activities;
+using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Application.Commands;
 using SBPR.Niflheim.HomesteadStones.Application.Receipts;
 using SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery;
@@ -56,6 +57,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             PendingRevalidationQueue pendingPlacements,
             BoundSessionPrincipalIndex boundSessions,
             StoneConnectionSourceRegistry connectionSources,
+            TimeSpan warriorTwigPendingDeadline,
             string durableDirectory)
         {
             Runtime = runtime;
@@ -69,8 +71,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             PendingPlacements = pendingPlacements;
             BoundSessions = boundSessions;
             ConnectionSources = connectionSources;
+            _warriorTwigPendingDeadline = warriorTwigPendingDeadline;
             DurableDirectory = durableDirectory;
         }
+
+        private readonly TimeSpan _warriorTwigPendingDeadline;
 
         public FoundationalPlacementRuntime Runtime { get; }
         public RelationshipCommandHandler Relationships { get; }
@@ -105,6 +110,40 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// are reconstructed from the same relationship journal on restart.</summary>
         public StoneConnectionSourceRegistry ConnectionSources { get; }
 
+        /// <summary>T029 — the Warrior T.W.I.G. Training Local placement gate. Composes the shipped pure
+        /// LocalPlacementProvider with the AUTHORITATIVE Stone aggregate + governance projection from the
+        /// merged shared Local Effect runtime (t_02c13405 / PR #368), the composed relationship authority,
+        /// the bound-session index, and the Stone Area membership, so a joined client's exact T.W.I.G.
+        /// (TrainingDummy) placement is admitted/refused by the FR-016 effect-active / Settlement-policy /
+        /// build-Permission AND. Null until <see cref="ArmWarriorTwig"/> composes it against the live
+        /// LocalProgressionServer (the engine-bound bootstrap arms it right after composing that runtime).
+        /// The engine-bound observer/ingress route a server-observed placement through this and undo it on
+        /// refusal.</summary>
+        public WarriorLocalPlacementGate? WarriorTwigGate { get; private set; }
+
+        /// <summary>T029 — the bounded pending queue that absorbs the ZDO replication race for a joined
+        /// DEDICATED-server client's T.W.I.G. placement. The dedicated notice captures the
+        /// transport-authenticated sender + candidate ZDOID here; the net48 layer pumps it on the
+        /// ZDOMan.Update cadence, gating (and undoing on refusal) once the ZDO replicates. In-memory: a
+        /// restart starts empty and never re-acts on old resident pieces. Null until
+        /// <see cref="ArmWarriorTwig"/>.</summary>
+        public WarriorTwigPendingUndoQueue? WarriorTwigPending { get; private set; }
+
+        /// <summary>T029 — compose the Warrior T.W.I.G. gate against the AUTHORITATIVE Stone aggregate store
+        /// and governance resolver from the merged shared Local Effect runtime, and arm the pending queue.
+        /// Idempotent-ish: re-arming replaces the gate/queue. Called by the engine-bound bootstrap right
+        /// after it composes the LocalProgressionServer (so the gate reads the same authoritative
+        /// projection), and by the tests after they compose that runtime. Everything else the gate needs
+        /// (bound sessions, authority, Stone areas) is this server's already-composed state.</summary>
+        public void ArmWarriorTwig(IStoneAggregateStore stones, GovernorPresenceResolver governorPresence)
+        {
+            if (stones == null) throw new ArgumentNullException(nameof(stones));
+            if (governorPresence == null) throw new ArgumentNullException(nameof(governorPresence));
+            WarriorTwigGate = new WarriorLocalPlacementGate(
+                stones, governorPresence, Authority, BoundSessions, StoneAreas);
+            WarriorTwigPending = new WarriorTwigPendingUndoQueue(_warriorTwigPendingDeadline);
+        }
+
         public string DurableDirectory { get; }
 
         /// <summary>Build the DEDICATED-server placement ingress over this server's shared validation
@@ -119,6 +158,20 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         {
             if (instances == null) throw new ArgumentNullException(nameof(instances));
             return new DedicatedPlacementIngress(Runtime, instances, StoneAreas, BoundSessions, FoundationalPrefabMap.CurrentBuild);
+        }
+
+        /// <summary>T029 — build the DEDICATED-server Warrior T.W.I.G. ingress over this server's shared
+        /// <see cref="WarriorTwigGate"/>. A joined dedicated-server client's T.W.I.G. build arrives as a
+        /// notice this ingress revalidates against the caller-supplied server-owned ZDO source, then routes
+        /// through the SAME gate (and undoes the placement on refusal). Production supplies a ZDOMan-backed
+        /// instance source; tests supply an in-memory one. No client-authoritative fact is trusted.</summary>
+        public WarriorTwigDedicatedIngress CreateWarriorTwigDedicatedIngress(IServerPlacedInstanceSource instances)
+        {
+            if (instances == null) throw new ArgumentNullException(nameof(instances));
+            if (WarriorTwigGate == null)
+                throw new InvalidOperationException(
+                    "Warrior T.W.I.G. gate is not armed. Call ArmWarriorTwig(...) after composing the LocalProgressionServer.");
+            return new WarriorTwigDedicatedIngress(WarriorTwigGate, instances);
         }
 
         /// <summary>T009R3 (Blocker 3) — build the bounded relationship provisioning ingress over this
@@ -198,9 +251,18 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             var boundSessions = new BoundSessionPrincipalIndex();
 
+            // T029 — the Warrior T.W.I.G. gate and its pending queue are NOT composed here: the gate reads
+            // the AUTHORITATIVE Stone aggregate + governance projection owned by the shared Local Effect
+            // runtime (LocalProgressionServer, t_02c13405 / PR #368), which is composed AFTER this server.
+            // The engine-bound bootstrap (and the tests) call ArmWarriorTwig(stones, governorPresence) right
+            // after composing that runtime, so there is exactly ONE progression truth — no provisional
+            // second Stone state.
+            var warriorTwigPendingDeadline = pendingRevalidationDeadline ?? TimeSpan.FromSeconds(30);
+
             return new FoundationalProgressionServer(
                 runtime, relationships, authority, characters, stoneApStore, characterApStore,
-                receipts, stoneAreas, pending, boundSessions, connectionSources, durableDirectory);
+                receipts, stoneAreas, pending, boundSessions, connectionSources,
+                warriorTwigPendingDeadline, durableDirectory);
         }
     }
 }
