@@ -240,6 +240,13 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
+    <!-- T016 (Tracer 5 — Cooking, node 1/4): the engine-free Cooking effect-delivery provider surface.
+         SavorTheHearthProvider translates the T014 LocalEffectActivationView Savor active-state into the
+         vanilla food-timer drain factor (0.5 active / 1.0 not), with no item/stat mutation and no
+         retroactive duration. Establishes the shared Cooking adapter/provider surface T017–T019 extend.
+         Engine-free (value objects + double arithmetic), link-compiled like the rest. Named acceptance
+         AT-SAVOR-AREA-EXIT. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingProviders.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
