@@ -1,0 +1,37 @@
+# T022 Masterwork joined-client delivery — isolated t009l live-boot capture
+# Head: PR#388 @ 8ccf6d30be0b0747d8a38bfa634b437208738090
+# Server DLL sha256 (SBPR.Niflheim.HomesteadStones): 3cd86e94c0a09d61e4843710fefd2408cd8c2e16470cae139025bac5816ee3b8
+# Box: homestead-t009l-server (world homesteadt009l, non-public). Production niflheim/heistan UNTOUCHED.
+# Captured: 2026-07-19T17:57:02Z
+#
+## --- SBPR runtime binding + boot markers (live window) ---
+Jul 19 10:52:41 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim/HomesteadStones] Runtime drift check: all required targets/callsites present.
+Jul 19 10:52:41 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim.HomesteadStones] Harmony patches installed.
+Jul 19 10:52:54 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim/HomesteadStones] Foundational live runtime composed (server-authoritative). durable='/opt/valheim/bepinex/BepInEx/config/sbpr-niflheim-homestead/homesteadt009l--898655635' observed=0 rehydratedReceipts=3.
+Jul 19 10:52:54 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim/HomesteadStones] Local progression runtime composed (server-authoritative). durable='/opt/valheim/bepinex/BepInEx/config/sbpr-niflheim-homestead/homesteadt009l--898655635' warriorTwigArmed=True.
+Jul 19 10:52:54 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim/HomesteadStones] Live session admission composed (server-authoritative). durable='/opt/valheim/bepinex/BepInEx/config/sbpr-niflheim-homestead/homesteadt009l--898655635' provider=provider=Steam.
+Jul 19 10:52:55 supervisord: valheim-server [Info   :SBPR Trailborne] [Trailborne/SpecCheck] ✓ All 31 recipes match the v0.1.0 spec manifest; 14 item icon(s) loaded (no fallback placeholders); 14 item(s) have non-null m_attack (no tooltip-NRE landmine); 8 Portal Energy constant(s) match the locked food-as-fuel manifest.
+Jul 19 10:52:55 supervisord: valheim-server 07/19/2026 10:52:55: Load world: homesteadt009l (homesteadt009l)
+Jul 19 10:52:55 supervisord: valheim-server 07/19/2026 10:52:55: Game server connected
+Jul 19 10:52:56 supervisord: valheim-server [Info   :SBPR Niflheim — Homestead Stones] [Niflheim/HomesteadStones] [stone-areas] registered=7 updated=0 unregistered=0 total=7
+
+## --- Failed to patch (only the documented pre-boot ZNetScene teardown noise; ZERO SBPR seam failures) ---
+Jul 19 10:52:37 supervisord: valheim-server [Error  :  HarmonyX] Failed to patch void ZNetScene::Awake(): System.Globalization.CultureNotFoundException: Culture name ^A is not supported.
+
+## --- MetadataLoadContext probe: Masterwork seam targets on live assembly_valheim.dll ---
+== MasterworkIssuanceObserver + MasterworkDedicatedDeliveryObserver: InventoryGui.DoCrafting ==
+  RESOLVE  InventoryGui.DoCrafting()
+== MasterworkDedicatedDeliveryObserver: ZNet.OnNewConnection(ZNetPeer) ==
+  RESOLVE  ZNet.OnNewConnection(ZNetPeer)
+  RESOLVE  ZNet.GetServerRPC()
+  RESOLVE  ZNet.IsServer()
+== MasterworkWorkmanshipTooltip: ItemDrop.ItemData.GetTooltip(ItemData,int,bool,float,int) ==
+  RESOLVE  ItemDrop.ItemData.GetTooltip(ItemData,int,bool,float,int)
+       param types: ItemData,Int32,Boolean,Single,Int32
+== ItemDrop.ItemData.m_customData (the seam the codec reads/writes) ==
+  RESOLVE  ItemDrop.ItemData.m_customData
+== ZRpc transport (per-peer issuance/validation channel) ==
+  RESOLVE  ZRpc.Register (generic)
+  RESOLVE  ZRpc.Invoke
+  RESOLVE  ZNetPeer.m_rpc
+ALL MASTERWORK SEAM TARGETS RESOLVE ON THE LIVE GAME ASSEMBLY.
