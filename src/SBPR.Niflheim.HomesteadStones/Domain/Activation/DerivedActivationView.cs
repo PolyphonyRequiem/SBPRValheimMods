@@ -128,4 +128,170 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Activation
 
         private static string NodeKey(VersionedId node) => node.Key + "@" + node.Version;
     }
+
+    /// <summary>One derived Local Effect row for a single occupant. Pure projection of Stone-owned
+    /// developed Local state — carries no mutable authority (spec FR-019, AT-NO-ACTIVE-LEDGER). A Local
+    /// Node is Stone-owned developed state (spec FR-015): it is never a purchase, so there is no
+    /// per-character record — the row distinguishes RETAINED/DEVELOPED Stone state from whether the
+    /// effect is currently ACTIVE for this occupant under the Settlement policy + dormancy.</summary>
+    public readonly struct LocalEffectStatus
+    {
+        public LocalEffectStatus(VersionedId node, VersionedId tree, bool developed, bool policyEligible,
+            bool dormant, bool active)
+        {
+            Node = node;
+            Tree = tree;
+            Developed = developed;
+            PolicyEligible = policyEligible;
+            Dormant = dormant;
+            Active = active;
+        }
+
+        public VersionedId Node { get; }
+        public VersionedId Tree { get; }
+
+        /// <summary>The Local Node is Stone-owned developed state (completed). Retained across
+        /// relationship loss/policy change — this is the "developed" half the read model must
+        /// distinguish from "currently active".</summary>
+        public bool Developed { get; }
+
+        /// <summary>This occupant is a beneficiary under the current Settlement Local policy
+        /// (Everyone/Attuned/Private). Policy membership only — occupancy/dormancy are separate.</summary>
+        public bool PolicyEligible { get; }
+
+        /// <summary>The Local Effect is suppressed by a relationship/level/governance gate even though it
+        /// remains developed (spec US5 sc2: no authorized Governor ⇒ Local Effects stop; Active Stone
+        /// Level below the node level; Tree no longer committed). Dormancy deletes nothing.</summary>
+        public bool Dormant { get; }
+
+        /// <summary>The effect is currently delivered to this occupant: developed AND not dormant AND
+        /// the occupant is inside the Stone Area AND policy-eligible. Pure derivation — flip any input
+        /// and re-derive with zero writes.</summary>
+        public bool Active { get; }
+    }
+
+    /// <summary>Pure per-occupant projection of every Stone-owned active Local Effect governed by the
+    /// single Settlement Local policy (spec FR-016/FR-019; contracts.md §"SetSettlementLocalPolicy",
+    /// §Effect delivery). Constructed on demand from the Stone aggregate + content catalog + the
+    /// server-observed occupancy/governance/owner facts. It stores nothing and can never become a
+    /// second authority: relationship release, a missing authorized Governor, Stone/Tree dormancy, a
+    /// policy change, and rejoin all re-derive active/dormant here with zero mutation.
+    ///
+    /// The occupancy/governance/owner facts are supplied by the caller because they are cross-account
+    /// server truth (whether ANY authorized Governor is bonded Stone-wide; whether this occupant is the
+    /// validated Homestead owner; whether the occupant currently stands inside the Stone Area). The
+    /// projection never reads or writes a build ACL — a Local PLACEMENT capability additionally requires
+    /// ordinary build Permission, evaluated independently via <see cref="CanExercisePlacement"/>.</summary>
+    public sealed class LocalEffectActivationView
+    {
+        private readonly List<LocalEffectStatus> _effects;
+        private readonly Dictionary<string, LocalEffectStatus> _byNodeKey;
+
+        private LocalEffectActivationView(LocalBeneficiaryMode policyMode, long policyRevision,
+            bool occupantPolicyEligible, bool insideStoneArea, bool authorizedGovernorPresent,
+            List<LocalEffectStatus> effects)
+        {
+            PolicyMode = policyMode;
+            PolicyRevision = policyRevision;
+            OccupantPolicyEligible = occupantPolicyEligible;
+            InsideStoneArea = insideStoneArea;
+            AuthorizedGovernorPresent = authorizedGovernorPresent;
+            _effects = effects;
+            _byNodeKey = new Dictionary<string, LocalEffectStatus>(StringComparer.Ordinal);
+            foreach (var e in effects) _byNodeKey[e.Node.Key] = e;
+        }
+
+        public LocalBeneficiaryMode PolicyMode { get; }
+        public long PolicyRevision { get; }
+
+        /// <summary>This occupant is a beneficiary under the current Settlement policy (membership only).</summary>
+        public bool OccupantPolicyEligible { get; }
+
+        /// <summary>The occupant currently stands inside this Stone's Area (server-observed).</summary>
+        public bool InsideStoneArea { get; }
+
+        /// <summary>An authorized Governor currently holds governance of this Stone (spec US5 sc2). When
+        /// false every Local Effect is dormant regardless of policy (no authorized Governor ⇒ stop).</summary>
+        public bool AuthorizedGovernorPresent { get; }
+
+        public IReadOnlyList<LocalEffectStatus> Effects => _effects;
+
+        /// <summary>The derived status for one Local node key, or a developed=false/inactive default when
+        /// the node is not a developed Local node here.</summary>
+        public LocalEffectStatus StatusFor(VersionedId node) =>
+            _byNodeKey.TryGetValue(node.Key, out var s)
+                ? s
+                : new LocalEffectStatus(node, VersionedId.None, false, OccupantPolicyEligible, true, false);
+
+        /// <summary>Whether this occupant may exercise a Local PLACEMENT capability for the given Local
+        /// node. This is the load-bearing AND (spec FR-016 final sentence; edge case "Private policy and
+        /// ordinary build access disagree"): the Local Effect must be currently active for the occupant
+        /// (developed + governance + occupancy + policy) AND the occupant must independently pass
+        /// ordinary build Permission. Neither relationship nor policy silently grants the build ACL, so
+        /// <paramref name="hasOrdinaryBuildPermission"/> is a hard, separate conjunct — a policy-eligible
+        /// occupant without build Permission cannot place, and a build-permitted occupant outside the
+        /// policy cannot place.</summary>
+        public bool CanExercisePlacement(VersionedId node, bool hasOrdinaryBuildPermission)
+        {
+            return StatusFor(node).Active && hasOrdinaryBuildPermission;
+        }
+
+        /// <summary>Derive the Local Effect projection for one occupant from current Stone state + the
+        /// server-observed facts. This is the ONLY constructor: the view is a pure function of persisted
+        /// Stone state and observed occupancy/governance, so it can never become a mutable ledger
+        /// (AT-NO-ACTIVE-LEDGER / AT-RELATIONSHIP-DORMANCY).</summary>
+        public static LocalEffectActivationView Derive(
+            StoneProgressionAggregate stone,
+            Content.HomesteadProgressionCatalog catalog,
+            AccountId occupant,
+            bool occupantIsOwner,
+            bool occupantHasActiveRelationship,
+            bool insideStoneArea,
+            bool authorizedGovernorPresent)
+        {
+            if (stone == null) throw new ArgumentNullException(nameof(stone));
+            if (catalog == null) throw new ArgumentNullException(nameof(catalog));
+
+            var policy = stone.LocalPolicy;
+            bool policyEligible = policy.IsBeneficiary(occupant, occupantIsOwner, occupantHasActiveRelationship);
+
+            var rows = new List<LocalEffectStatus>();
+            foreach (var dev in stone.NodeDevelopment)
+            {
+                if (!dev.Developed) continue;
+                var def = catalog.TryResolveNode(dev.Node);
+                // Only Stone-cultivated Local nodes produce a Local Effect. Personal nodes are projected
+                // by DerivedActivationView; unavailable/unknown nodes never appear here.
+                if (def == null || def.Ownership != Content.NodeOwnership.StoneCultivated) continue;
+
+                // The owning Tree must still be committed and the Active Stone Level must still meet the
+                // node's authored level; otherwise the developed effect is dormant (data-model.md
+                // §Dormancy: "re-derive active outcomes from Active Stone Level and current
+                // requirements"). Retained development is never deleted by dormancy.
+                bool treeCommitted = IsTreeCommitted(stone, def.Tree);
+                bool levelOk = stone.ActiveStoneLevel >= def.TreeLevel;
+
+                // Governance dormancy (spec US5 sc2 / contracts.md line 121): with no authorized Governor
+                // present, ALL Local Effects stop even for a policy-eligible occupant.
+                bool dormant = !authorizedGovernorPresent || !treeCommitted || !levelOk;
+
+                // Active delivery requires: not dormant, the occupant inside the Area, and policy
+                // eligibility. Flip any input and re-derive — the same developed record flips
+                // active<->dormant with zero writes.
+                bool active = !dormant && insideStoneArea && policyEligible;
+
+                rows.Add(new LocalEffectStatus(def.Node, def.Tree, true, policyEligible, dormant, active));
+            }
+
+            return new LocalEffectActivationView(policy.Mode, policy.Revision, policyEligible,
+                insideStoneArea, authorizedGovernorPresent, rows);
+        }
+
+        private static bool IsTreeCommitted(StoneProgressionAggregate stone, VersionedId tree)
+        {
+            foreach (var c in stone.CommittedTrees)
+                if (string.Equals(c.Tree.Key, tree.Key, StringComparison.Ordinal)) return true;
+            return false;
+        }
+    }
 }

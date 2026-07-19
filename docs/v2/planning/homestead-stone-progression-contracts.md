@@ -370,12 +370,16 @@ Offered to eligible attuned players. Neither creates a personal purchase.
 
 **Payload:** policy = `Everyone | Attuned | Private`, allowlist revision/list when Private.
 
-**Validates:** Homestead owner authority, expected Stone revision, valid authenticated allowlist principals,
+**Validates:** Homestead owner authority (server-validated, never client-authored — a bonded Governor or
+attuned player who is not the owner is `Unauthorized`), expected Stone revision, expected policy revision
+(`StalePolicyRevision` on a concurrent/replayed policy write), valid authenticated allowlist principals,
 policy schema/version.
 
-**Commits:** the single Settlement-wide policy used by all active Local Effects. There is no node-specific
-override. Runtime eligibility is re-derived for current occupants. Placement capabilities still require
-ordinary build Permission independently.
+**Commits:** the single Settlement-wide policy used by all active Local Effects, with the policy revision
+incremented by one. There is no node-specific override. Runtime eligibility is re-derived for current
+occupants (never stored as a per-effect purchase). Placement capabilities still require ordinary build
+Permission independently. The active/dormant projection is derived on demand, never a second ledger; every
+reject is zero-mutation and a replayed operation returns the recorded result with no second revision bump.
 
 ### `RevokeTree`
 
@@ -516,6 +520,7 @@ Stable machine codes are part of the contract; localized text is presentation.
 | `Unauthorized` | Caller lacks owner/Governor/participant authority |
 | `OutsideResponsibilityRange` | Governor cannot mutate this Tree/node |
 | `StaleStoneRevision` | Stone snapshot changed |
+| `StalePolicyRevision` | Settlement Local policy revision changed under a concurrent/replayed policy write |
 | `StaleCharacterRevision` | Character snapshot changed |
 | `StaleAuthorityRevision` | Account–Stone index changed |
 | `OperationConflict` | Operation ID reused with different binding/payload |

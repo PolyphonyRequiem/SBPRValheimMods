@@ -128,7 +128,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.StoneProgression
             IReadOnlyList<NodeDevelopmentRecord>? nodeDevelopment = null,
             string family = "Settlement",
             string variant = "Homestead",
-            int schemaVersion = CurrentSchemaVersion)
+            int schemaVersion = CurrentSchemaVersion,
+            SettlementLocalPolicy? localPolicy = null)
         {
             StoneId = stoneId;
             SchemaVersion = schemaVersion;
@@ -146,6 +147,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.StoneProgression
             Variant = variant ?? string.Empty;
             CommittedTrees = committedTrees ?? Array.Empty<CommittedTreeRecord>();
             NodeDevelopment = nodeDevelopment ?? Array.Empty<NodeDevelopmentRecord>();
+            LocalPolicy = localPolicy ?? SettlementLocalPolicy.Default;
         }
 
         // Envelope
@@ -176,6 +178,25 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.StoneProgression
         // it is authoritative state, never debited/applied to a threshold in this proof).
         public long MirroredStoneAp { get; }
 
+        // The single Settlement-wide Local beneficiary policy (spec FR-016). Stone-owned developed
+        // state that governs ALL active Local Effects; never a personal purchase, never a second
+        // active-effects ledger. Defaults to Everyone@0 for a Stone that predates any policy change.
+        public SettlementLocalPolicy LocalPolicy { get; }
+
+        /// <summary>Produce the next Stone with a new Settlement Local policy applied, revision
+        /// incremented and provenance stamped. Pure: the input is unchanged (spec FR-019 — no mutable
+        /// ledger). Only the policy field and envelope revision/provenance change.</summary>
+        public StoneProgressionAggregate WithLocalPolicy(SettlementLocalPolicy policy, string updatedProvenance)
+        {
+            if (policy == null) throw new ArgumentNullException(nameof(policy));
+            return new StoneProgressionAggregate(
+                StoneId, Revision + 1, HistoricalStoneLevel, ActiveStoneLevel,
+                FoundationalTree, FoundationalCatalog, ContentRegistryVersion,
+                CreatedProvenance, updatedProvenance ?? string.Empty, MirroredStoneAp,
+                LastAppliedReceiptId, CommittedTrees, NodeDevelopment, Family, Variant,
+                SchemaVersion, policy);
+        }
+
         // Recovery
         public string LastAppliedReceiptId { get; }
 
@@ -196,6 +217,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.StoneProgression
             .Put("lastReceipt", LastAppliedReceiptId)
             .PutList("committed", CommittedTrees, c => c.Serialize())
             .PutList("nodeDev", NodeDevelopment, n => n.Serialize())
+            .Put("localPolicy", LocalPolicy.Serialize())
             .Build();
 
         public static StoneProgressionAggregate Deserialize(string s)
@@ -217,7 +239,13 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.StoneProgression
                 r.GetList("nodeDev", NodeDevelopmentRecord.Deserialize),
                 r.GetString("family"),
                 r.GetString("variant"),
-                r.GetInt("schema"));
+                r.GetInt("schema"),
+                // Backward-compatible read: a snapshot written before T014 has no policy field and
+                // deserializes to the Everyone@0 default (spec FR-016 default), exactly as if the Stone
+                // had never had a policy change applied.
+                r.HasKey("localPolicy")
+                    ? SettlementLocalPolicy.Deserialize(r.GetString("localPolicy"))
+                    : SettlementLocalPolicy.Default);
         }
 
         /// <summary>Structural equality over every authoritative field. Used by the round-trip proof
@@ -240,7 +268,8 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.StoneProgression
                   && string.Equals(UpdatedProvenance, o.UpdatedProvenance, StringComparison.Ordinal)
                   && string.Equals(LastAppliedReceiptId, o.LastAppliedReceiptId, StringComparison.Ordinal)
                   && CommittedTrees.Count == o.CommittedTrees.Count
-                  && NodeDevelopment.Count == o.NodeDevelopment.Count))
+                  && NodeDevelopment.Count == o.NodeDevelopment.Count
+                  && LocalPolicy.StructurallyEquals(o.LocalPolicy)))
                 return false;
             for (int i = 0; i < CommittedTrees.Count; i++)
                 if (!string.Equals(CommittedTrees[i].Serialize(), o.CommittedTrees[i].Serialize(), StringComparison.Ordinal))
