@@ -398,5 +398,66 @@ namespace SBPR.Trailborne.Tests
                     _provider.DecideEat(withIron, true, frac));
             }
         }
+
+        // ── EXACT-BOUNDARY: non-acquirer vs acquirer at 0.5 (the R2 remediation focus) ──────────────────
+        //
+        //  Load-bearing regression: BOTH the outer Player.CanEat postfix and the inner Player.EatFood prefix
+        //  now route through DecideEat (single authority) so they agree at the vanilla baseline boundary. A
+        //  NON-acquirer at EXACTLY 0.5 must PRESERVE vanilla's STRICT refusal (Food.CanEatAgain is m_time <
+        //  burn/2 → false at exactly 0.5). The earlier defect: the postfix used the raw INCLUSIVE
+        //  FoodRefreshCapability.CanRefresh (None.Threshold == 0.5, CanRefresh is <=), which wrongly rescued a
+        //  non-acquirer at 0.5 to TRUE — CanConsumeItem would then debit the item with no refresh. DecideEat
+        //  returns PassThroughToVanilla for every non-acquirer at every fraction, closing that gap.
+
+        [Fact]
+        public void DecideEat_NonAcquirer_AtExactBaseline050_PassesThrough_PreservesVanillaStrictRefusal()
+        {
+            // The exact remediation boundary: a NON-acquirer at exactly 0.5. Vanilla refuses strictly; the
+            // seam must NOT rescue (no debit-without-refresh). This is the case the raw inclusive CanRefresh
+            // path got wrong.
+            var vanilla = BuildCharacter(ironStomachAcquired: false);
+
+            Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla,
+                _provider.DecideEat(vanilla, matchingFoodPresent: true, remainingFraction: 0.50));
+        }
+
+        [Fact]
+        public void DecideEat_NonAcquirer_AtEveryBandFraction_AlwaysPassesThrough()
+        {
+            // Fail-closed across the whole range: without a durable Iron Stomach the seam NEVER rescues,
+            // regardless of remaining fraction. Vanilla's own 0.5 threshold is the only authority, and the
+            // outer CanEat is never rescued so no item is debited above 0.5.
+            var vanilla = BuildCharacter(ironStomachAcquired: false);
+
+            foreach (var frac in new[] { 0.4999999, 0.50, 0.5000001, 0.60, 0.75, 0.7500001, 0.90 })
+                Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla,
+                    _provider.DecideEat(vanilla, matchingFoodPresent: true, frac));
+        }
+
+        [Fact]
+        public void DecideEat_Acquirer_AtExactBaseline050_Rescues_InclusiveLowerBound()
+        {
+            // The mirror of the above: an ACQUIRED owner at exactly 0.5 gets the inclusive raised band and
+            // MUST rescue (the outer CanEat DID rescue at 0.5 <= 0.75; the inner guard must complete the
+            // refresh so the single debit is not wasted). Together with the non-acquirer test this pins the
+            // full acceptance clause: non-acquirer strict-refuse at 0.5, acquirer inclusive 0.5..0.75.
+            var withIron = BuildCharacter(ironStomachAcquired: true);
+
+            Assert.Equal(IronStomachEatDisposition.RescueSameFoodRefresh,
+                _provider.DecideEat(withIron, matchingFoodPresent: true, remainingFraction: 0.50));
+        }
+
+        [Fact]
+        public void FoodRefreshCapability_None_CanRefreshAt050_IsInclusive_ButDecideEatGuardsIt()
+        {
+            // Documents WHY the outer postfix must NOT call FoodRefreshCapability.CanRefresh directly: None's
+            // inclusive CanRefresh is TRUE at exactly 0.5 (threshold 0.5, <=), which would rescue a
+            // non-acquirer. DecideEat is the guard that gates on Acquired FIRST, so it stays pass-through.
+            var none = FoodRefreshCapability.None;
+            Assert.True(none.CanRefresh(0.50));   // inclusive — the trap the postfix must not fall into.
+
+            Assert.Equal(IronStomachEatDisposition.PassThroughToVanilla,
+                _provider.DecideEat(none, matchingFoodPresent: true, remainingFraction: 0.50));
+        }
     }
 }

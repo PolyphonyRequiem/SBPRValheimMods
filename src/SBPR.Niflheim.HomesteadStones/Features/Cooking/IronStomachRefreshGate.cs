@@ -116,9 +116,15 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Cooking
                 if (burn <= 0f) return;
                 float remainingFraction = Mathf.Clamp01(match.m_time / burn);
 
-                // Single authority: the pure provider resolves the durable Iron Stomach threshold for the
-                // local occupant and answers whether this remaining fraction may refresh.
-                if (ResolveCanRefreshForLocalOccupant(remainingFraction))
+                // Single authority: route the rescue through the EXACT same band-aware DecideEat the inner
+                // EatFood prefix uses. This is load-bearing at the vanilla baseline boundary — a NON-acquirer
+                // MUST preserve vanilla's STRICT refusal at exactly 0.5 (Food.CanEatAgain is m_time < burn/2),
+                // so the postfix must NOT rescue. Using the raw inclusive FoodRefreshCapability.CanRefresh here
+                // would wrongly rescue a non-acquirer at exactly 0.5 (None's threshold is 0.5 and CanRefresh is
+                // <=), debiting without a refresh. DecideEat returns PassThroughToVanilla for any non-acquirer
+                // and RescueSameFoodRefresh ONLY for an acquired owner in the inclusive 0.5..0.75 band, so the
+                // outer and inner guards agree on one boundary.
+                if (ResolveRescueForLocalOccupant(remainingFraction))
                     __result = true;                                // refresh at up to 75% remaining while acquired.
             }
             catch (Exception ex)
@@ -127,18 +133,25 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Cooking
             }
         }
 
-        /// <summary>Resolve whether the local occupant may refresh a food at the given remaining fraction
-        /// under a durably-acquired Iron Stomach, from the authoritative HOST projection (the character's
-        /// durable purchase record, via the shipped <see cref="FoodRefreshThresholdProvider"/>). Fail
-        /// closed: no server runtime (pure client), unresolvable identity, or absent character aggregate ⇒
-        /// false (foods keep the vanilla 0.5 threshold). No client-supplied claim is ever trusted.</summary>
-        private static bool ResolveCanRefreshForLocalOccupant(float remainingFraction)
+        /// <summary>Resolve whether the local occupant's eat attempt at the given remaining fraction must be
+        /// RESCUED to a same-food refresh under a durably-acquired Iron Stomach, from the authoritative HOST
+        /// projection (the character's durable purchase record, via the shipped
+        /// <see cref="FoodRefreshThresholdProvider"/>). Uses the SAME band-aware
+        /// <see cref="FoodRefreshThresholdProvider.DecideEat(CharacterProgressionAggregate, bool, double)"/>
+        /// as the inner <see cref="EatFood_Prefix"/> so both guards agree at the exact vanilla baseline
+        /// boundary: a non-acquirer never rescues (vanilla's strict 0.5 refusal stands), and an acquired owner
+        /// rescues only in the inclusive 0.5..0.75 band. Fail closed: no server runtime (pure client),
+        /// unresolvable identity, or absent character aggregate ⇒ false. No client-supplied claim is ever
+        /// trusted.</summary>
+        private static bool ResolveRescueForLocalOccupant(float remainingFraction)
         {
             var character = ResolveLocalOccupantCharacter();
             if (character == null) return false;
 
-            // Single authority: the shipped, unit-tested pure projection keyed on the durable purchase.
-            return Provider.CanRefresh(character, remainingFraction);
+            // Single authority: identical band-aware decision the inner-guard prefix delegates to. A matching
+            // food is present by construction (the postfix only reaches here after locating one).
+            return Provider.DecideEat(character, matchingFoodPresent: true, remainingFraction)
+                   == IronStomachEatDisposition.RescueSameFoodRefresh;
         }
 
         /// <summary>Prefix on <c>Player.EatFood</c> — the INNER-GUARD fix. The outer <see cref="CanEat_Postfix"/>
