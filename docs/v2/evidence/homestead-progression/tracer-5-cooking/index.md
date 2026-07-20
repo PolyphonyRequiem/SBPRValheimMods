@@ -2,7 +2,18 @@
 status: current
 ---
 
-# Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth; T017: Field Prep; T018: Iron Stomach)
+# Tracer 5 (Cooking) evidence — machine manifest (T016: Savor the Hearth; T017: Field Prep; T018: Iron Stomach; T019: Swift Preparation)
+
+Node: **T019 [US3][US4]** — Swift Preparation, Cooking node 4 of 4 (the sole
+executable Tier-2 node). Acceptance targets: `AT-SWIFT-MENU-ONLY`,
+`AT-COOKING-TIER2`, `AT-NO-COOKING-COMPLETION`. Status: **implementation landed
+under review** — the pure `MenuCraftDurationProvider` (factor 1/3 after vanilla
+Cooking-skill adjustment, eligible menu-crafted food only, no completion) is fully
+unit-tested, the Tier-2 prior-Offered-Set / level / Tier-Access gate is closed by
+the shipped T013 grammar, and the live `InventoryGui.UpdateRecipe` menu-craft-timer
+seam is an installed SBPR Harmony transpiler (`SwiftPreparationCraftTimer`, armed
+in `Plugin.cs`); the in-world 1/3-duration last mile is client-only, REASONED
+(headless has no local Player). Independent Tracer-5 verdict is T020.
 
 Node: **T018 [US4]** — Iron Stomach, Cooking node 3 of 4. Acceptance target:
 `AT-IRON-STOMACH-75`. Status: **implementation landed under review** — the pure
@@ -61,6 +72,23 @@ has no local Player). Independent Tracer-5 verdict is T020.
 | I9 | Live delivery seam armed: `IronStomachRefreshGate.CanEat_Postfix` is an installed SBPR Harmony postfix on `Player.CanEat` (armed in `Plugin.cs`; rescues only the same-food 0.5..0.75 refresh band, never the three-slot cap; fails closed off-host / without a durable purchase). In-world refresh-at-75% last mile is client-only, REASONED | `joined-client-t018-iron-stomach.md`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/IronStomachRefreshGate.cs` |
 
 - [joined-client-t018-iron-stomach.md](joined-client-t018-iron-stomach.md) — T018 full analysis + delivery-seam wiring
+
+## T019 Swift Preparation manifest
+
+| id | claim | artifact |
+|----|-------|----------|
+| W1 | AT-SWIFT-MENU-ONLY: an active Swift Preparation multiplies the vanilla skill-adjusted menu-craft duration of eligible menu-crafted food by 1/3, applied AFTER the skill adjustment | `tests/NiflheimSwiftPreparationTests.cs` — `ActiveEffect_ShortensEligibleMenuCraftedFood_ToOneThirdOfSkillAdjustedDuration`, `FactorAppliesAfterSkill_NotBefore` |
+| W2 | AT-SWIFT-MENU-ONLY (exclusions): non-food, non-Cooking-station, and non-menu-craft outputs keep the full vanilla duration; the eligibility predicate gates on food + Cooking skill + menu path | `tests/NiflheimSwiftPreparationTests.cs` — `ActiveEffect_DoesNotShortenIneligibleCraft`, `EligibilityPredicate_OnlyFoodViaCookingMenuStation` |
+| W3 | Dormant/unpurchased/undeveloped effect and a sibling character's active relationship leave the duration unshortened; relationship loss→restore flips shortening with zero writes | `tests/NiflheimSwiftPreparationTests.cs` — `PurchasedButNoRelationship_EffectDormant_KeepsFullDuration`, `RelationshipButNoPurchase_KeepsFullDuration`, `UndevelopedNode_EvenWithPurchaseAndRelationship_KeepsFullDuration`, `SiblingCharacterActive_DoesNotLeakShorteningToUnpurchasedCaller`, `RelationshipLossThenRestore_FlipsShorteningWithNoWrites` |
+| W4 | AT-NO-COOKING-COMPLETION: a positive base is strictly shorter but never zero/instant-complete; a non-positive base returns unchanged (never fabricates a craft); view/bit overloads agree | `tests/NiflheimSwiftPreparationTests.cs` — `ShortenedDuration_NeverReachesZeroOrInstantCompletion_ForPositiveBase`, `NonPositiveBase_ReturnedUnchanged_NeverFabricatesACraft`, `FactorOverload_MatchesViewOverload` |
+| W5 | AT-COOKING-TIER2: Swift Preparation is the sole executable Level-2 Cooking node with prior-Offered set Field Prep + Iron Stomach; one prior short → PriorOfferedSetIncomplete, both → purchasable; below Level 2 → level-cap reject; derived same-Tree Tier Access reaches 2 only with both priors | `tests/NiflheimSwiftPreparationTests.cs` — `SwiftPreparation_IneligibleWithOnlyOnePriorNode_PriorOfferedSetIncomplete`, `SwiftPreparation_EligibleWhenBothPriorsAcquiredAndLevel2_Purchasable`, `SwiftPreparation_RejectedBelowLevel2_EvenWithBothPriors`, `DerivedSameTreeTierAccess_Reaches2_OnlyWhenBothPriorsAcquired`, `SwiftPreparationNode_IsSoleExecutableLevel2CookingCharacterEffect` |
+| W6 | Full suite 1478/1478 (Swift Preparation subset 21/21; +2 red-first `RecipeDataPair.Recipe` access-path guard cases, RED-verified on the shipped `.Field("Recipe")`); both net48 Release builds 0w/0e (HomesteadStones + Trailborne); docs-lint OK; `git diff --check` clean; SpecCheck recipe manifest unchanged | build/test logs (remediation run) |
+| W7 | Engine-free CLEAN provider: no UnityEngine/BepInEx/ZNetView/Harmony/Valheim type in `Adapters/Cooking/MenuCraftDurationProvider.cs`; net8 link-compile = real execution. NO playable/live-client claim | `src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/MenuCraftDurationProvider.cs`; `joined-client-t019-swift-preparation.md` §"Honest scope" |
+| W8 | Live delivery seam armed: `SwiftPreparationCraftTimer.UpdateRecipe_Transpiler` is an installed SBPR Harmony transpiler on `InventoryGui.UpdateRecipe` (armed in `Plugin.cs`; scales the num5 menu-craft-duration local in place at the GuiBar.SetMaxValue site, strictly after the vanilla skill line; ineligible/dormant → full duration; fails closed off-host). In-world 1/3-duration last mile is client-only, REASONED | `joined-client-t019-swift-preparation.md`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/SwiftPreparationCraftTimer.cs` |
+| W9 | Remediation (post-live-QA `t_a5eef554`): the seam read `RecipeDataPair.Recipe` (a C# auto-property) via Harmony `Traverse.Field("Recipe")`, which returns null and made the 1/3 effect fail closed at recipe resolution; fixed to `Traverse.Property("Recipe")` in both the Swift Preparation timer and the sibling Refined Workshop UI seam. Accepted semantics unchanged. Red-first guard fails on `.Field("Recipe")`, green on `.Property`. Still owes T019's own joined-client exact-1/3 matrix | `tests/NiflheimRecipeDataPairAccessGuardTests.cs`; `src/SBPR.Niflheim.HomesteadStones/Features/Cooking/SwiftPreparationCraftTimer.cs`; `src/SBPR.Niflheim.HomesteadStones/Features/Progression/RefinedWorkshopStationLevelPatch.cs`; `joined-client-t019-swift-preparation.md` §"Remediation" |
+
+- [joined-client-t019-swift-preparation.md](joined-client-t019-swift-preparation.md) — T019 full analysis + Tier-2 gate + live-seam wiring
+
 
 ## T016 Savor the Hearth manifest
 

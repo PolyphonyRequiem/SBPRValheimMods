@@ -193,6 +193,17 @@ namespace SBPR.Niflheim.HomesteadStones
             // IronStomachRefreshGate). Permanent Effect ⇒ no relationship/policy/Stone-Area conjunct.
             harmony.PatchAll(typeof(Features.Cooking.IronStomachRefreshGate));
 
+            // T019 — Swift Preparation personal Character Effect (the sole executable Tier-2 Cooking node).
+            // The net48 menu-craft-timer seam that multiplies the vanilla Cooking-skill-ADJUSTED menu-craft
+            // duration of an eligible menu-crafted food by 1/3 for the local occupant, reading the
+            // authoritative host projection through the shipped pure MenuCraftDurationProvider (purchase +
+            // active relationship via T004 DerivedActivationView). Transpiler on InventoryGui.UpdateRecipe
+            // scaling the num5 local at the SetMaxValue site — strictly AFTER vanilla skill adjustment; both
+            // the progress-bar max and the completion check read that same local. Ineligible crafts and a
+            // dormant/unpurchased effect keep the full vanilla duration; fails closed off-host (see
+            // SwiftPreparationCraftTimer). Character Effect ⇒ no Local policy / build Permission conjunct.
+            harmony.PatchAll(typeof(Features.Cooking.SwiftPreparationCraftTimer));
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 
