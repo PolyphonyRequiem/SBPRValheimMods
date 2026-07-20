@@ -1,0 +1,72 @@
+==================== T022 R3 GENUINE-FOUR-AT FEASIBILITY CAPTURE (task t_4f181af7, run 1082) ====================
+Date: 2026-07-19 ~23:10 PDT   Box: Requiem-Prime-U
+Objective: produce T022 Masterwork's OWN genuine in-world joined-client four-AT artifact against
+           PR #392 head (docs) / PR #388 impl head 8ccf6d3 on a dedicated-server + pure-client topology.
+
+---- ENVIRONMENT (re-verified capable — the prior "owner-gated" gates ARE cleared) ----
+[live instrument]  primary GABS :8080 -> live modded GUI client pid 816135 (user polyphonyrequiem),
+                   valheim.run_script executes arbitrary C# on Unity main thread against live game
+                   assemblies. Probe result:
+                     player=T019SwiftQA isServer=True
+                     HS loaded=0.0.1.0
+                     MasterworkWorkmanshipTooltip type present=False   <-- client runs the T019 build, not T022
+[second client]    valbot lane provisioned + proven (dual-client RESUME.md): Steam-init rendered menu,
+                   36 GABP tools on :8081, clean scoped stop. games_status :8081 = stopped (idle, ready).
+[isolated server]  docker homestead-t009l-server UP 15h, ports 2476/2477/2478 (production niflheim :2456
+                   and heistan :2466 UNTOUCHED). Deployed DLLs = EXACT T022 head:
+                     HS  3cd86e94c0a09d61e4843710fefd2408cd8c2e16470cae139025bac5816ee3b8
+                     TB  7c5d7d8188b94c7cea4f420674c10449e3a3b5af5deb2dd97ad4b8d114af241b
+                   Boot clean: SpecCheck OK 31 recipes, [stone-areas] registered=7, 0 SBPR Harmony failures.
+[exact-head build] Reproduced 8ccf6d3 in worktree hs-t022-client-delivery/wt, net48 Release both projects
+                   0w/0e, DLL hashes BYTE-IDENTICAL to the evidence doc (HS 3cd86e94 / TB 7c5d7d81). Confirmed.
+[safety]           loginctl session 4 (polyphonyrequiem, x11, :0) = Active=yes IdleHint=no  <-- live desktop.
+
+---- THE FOUR ATs SPLIT INTO TWO TOPOLOGIES ----
+AT-MASTERWORK-ISSUE / AT-ITEM-UPGRADE-PRESERVE : need a crafter for whom Masterwork is ACTIVE (purchase
+    record + active relationship) on the authoritative side.
+AT-ITEM-TRANSFER / AT-ITEM-TAMPER-DEGRADE      : need a PURE joined client hitting PR #388's
+    MasterworkDedicatedDeliveryObserver (keyless read + server ZRpc validation verdict). This dedicated
+    pure-client path is EXACTLY what R3 says was never exercised in-world.
+
+Masterwork activation gate (Adapters/Crafting/WorkmanshipIssuanceProvider.cs:137-151, IsMasterworkActive):
+    requires DerivedActivationView over (StoneProgressionAggregate, CharacterProgressionAggregate with a
+    Masterwork PURCHASE record, AccountStoneAuthorityIndex with an ACTIVE relationship).
+
+---- THE GENUINE BLOCKER (code-verified, NOT owner-setup) ----
+To reach Masterwork-active for a joined principal on the DEDICATED server, the server must hold a Masterwork
+node PURCHASE for that bound principal. The shipped runtime provisioning seams are:
+    sbpr_provision  (RelationshipProvisioningAdmin) -> Bond / Attunement ONLY  [enabled on t009l]
+    sbpr_develop    (LocalProgressionProvisioningAdmin) -> DevelopLocalNode, selector refined(=1) ONLY
+    sbpr_savor      (SavorProvisioningAdmin) -> Savor Local node ONLY
+None purchase a personal Offered node.
+
+LocalProvisioningIngress.PurchaseNode(...) (Application/Runtime/LocalProvisioningIngress.cs:97-123) is the
+ONLY method that routes a personal-Offered-node purchase through the accepted PurchaseCommandHandler — and:
+    grep '\.PurchaseNode(' src --include=*.cs   -> NO runtime caller (only the domain NodePurchases.PurchaseNode
+                                                    at PurchaseCommands.cs:226, which is the pure transition).
+    CreateLocalProvisioningIngress() has ONE caller (LocalProgressionProvisioningAdmin.cs:147) which calls
+                                                    ONLY DevelopLocalNode, never PurchaseNode.
+The ingress file's own header (line 16) states: "PurchaseCommandHandler had ZERO runtime callers."
+=> There is NO runtime ingress (RPC or console) to PURCHASE the Masterwork personal Offered node for a joined
+   principal on the dedicated server. The purchase half of Masterwork activation has no reachable path.
+
+No run_script surface exists into the headless dedicated server process (GABS drives only the GUI client;
+on the dedicated topology that client is a PURE client whose composed server stores are null). So the T019
+trick (reflect state into the composed stores in-process on a listen host) does NOT transfer: R3 explicitly
+rejects the listen-host path, and the dedicated server has no scripting seam.
+
+---- DISPOSITION ----
+This is a genuine FIX-FORWARD gap in PR #388, sharper than the prior "owner-gated GUI" framing:
+the feature ships the delivery/tooltip seams but NO server-side Masterwork purchase-provisioning ingress —
+the exact analog of sbpr_develop / sbpr_savor that EVERY other proven node has. Without it, no joined
+principal can reach Masterwork-active on the dedicated server, so AT-MASTERWORK-ISSUE (and the three
+downstream ATs) cannot fire in-world on the PR #388 dedicated topology R3 requires.
+
+Task scope explicitly: "Do NOT author runtime fixes." So this QA slot cannot add the seam. Routing to the
+implementation fix-forward (t_b78a05c4) / remediation (t_cdc76200) to add a gated, isolated-QA Masterwork
+purchase provisioning ingress (mirroring SavorProvisioningAdmin), after which this four-AT run becomes
+genuinely executable end-to-end on t009l + primary/valbot clients.
+
+No production server touched. No client binary launched, stopped, or modified this run (816135 left as found;
+valbot left stopped). t009l left as found.
+==================== END CAPTURE ====================
