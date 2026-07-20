@@ -47,6 +47,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         private const int SeedStoneLevel = 2;
         private const long SeedStoneRevision = 1;
 
+        /// <summary>T022 remediation R4 — the Masterwork personal Character-Effect node + its owning Crafting
+        /// Tree (matches HomesteadProgressionCatalog: Crafting / Masterwork v1). Bound here so the ownership
+        /// composite names the exact accepted node, never a client-authored id.</summary>
+        private static readonly VersionedId MasterworkNode = new VersionedId("Masterwork", 1);
+        private static readonly VersionedId MasterworkTree = HomesteadProgressionCatalog.CraftingTree;
+
         private readonly LocalProgressionServer _server;
         private readonly LocalNodeProvisioningDriver _driver;
         private readonly PurchaseCommandHandler _purchases;
@@ -120,6 +126,87 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             return result.Outcome == PurchaseCommandOutcome.Rejected
                 ? LocalProvisioningResult.Rejected(result.ResultCode, "purchase")
                 : LocalProvisioningResult.Purchased(result);
+        }
+
+        /// <summary>T022 remediation R4 — the Masterwork OWNERSHIP provisioning composite: reach an ACTIVE
+        /// purchased Masterwork personal node for one QA subject using ONLY accepted, receipt-backed handlers.
+        /// It does exactly two accepted-command sequences, in order:
+        ///   1. DEVELOP+OFFER Masterwork on the Stone via <see cref="LocalNodeProvisioningDriver.ProvisionOffered"/>
+        ///      (commit Crafting Tree → credit BP → ApplyBPToNode to completion), so the personal node is Offered
+        ///      and therefore purchasable. Idempotent: an already-Offered node replays without re-development.
+        ///   2. PURCHASE Masterwork via the accepted <see cref="PurchaseCommandHandler"/> for the acting buyer,
+        ///      which enforces the active-Attunement authority, the Personal-AP/Facet-Credit debit, the
+        ///      prior-Offered-Set gate, and one-purchase idempotency. Replay returns the recorded terminal
+        ///      result with a single purchase record and a single AP debit.
+        /// The <paramref name="governor"/> develops+offers (must hold an active Bond covering Crafting); the
+        /// <paramref name="buyer"/> purchases (must hold an active Attunement AND sufficient earned Personal AP —
+        /// this seam never mints AP, so an unfunded buyer is rejected InsufficientPersonalAP by the real gate).
+        /// In the common single-subject QA case both are the same authenticated principal. Any handler rejection
+        /// surfaces verbatim so a QA run proves it crossed the real develop/offer/attunement/purchase gates.
+        /// The Stone must already exist (a developed Stone context established by the Local develop seam / bond
+        /// placement) — this composite never seeds a Stone.</summary>
+        public LocalProvisioningResult OwnMasterwork(
+            AuthoritativeSubject governor,
+            AuthoritativeSubject buyer,
+            StoneId stoneId,
+            string opPrefix)
+        {
+            if (string.IsNullOrEmpty(opPrefix))
+                return LocalProvisioningResult.Rejected("MissingOpPrefix", "prefix");
+            if (string.IsNullOrEmpty(buyer.Account.Value) || string.IsNullOrEmpty(buyer.Character.Value))
+                return LocalProvisioningResult.Rejected("Unauthenticated", "buyer");
+
+            // 1. Develop+offer Masterwork through the accepted commands (Governor authority). An already-Offered
+            //    node replays idempotently.
+            var offer = OfferMasterwork(governor, stoneId, opPrefix);
+            if (!offer.Succeeded)
+                return offer;
+
+            // 2. Purchase Masterwork for the acting buyer through the accepted PurchaseCommandHandler. The
+            //    handler enforces the active-Attunement authority, the AP debit, and one-purchase idempotency.
+            return BuyMasterwork(buyer, stoneId, opPrefix);
+        }
+
+        /// <summary>The DEVELOP+OFFER half of Masterwork ownership: develop the Masterwork personal node to
+        /// completion (Offered) on the Stone via the accepted commit→BP→ApplyBPToNode commands. Authorized by
+        /// the acting <paramref name="governor"/>'s active Bond covering the Crafting Tree. Idempotent: an
+        /// already-Offered node replays without re-development. This is the Governor-run console half
+        /// (<c>sbpr_master offer</c>) so the reservation model holds — develop needs a Bond, purchase (the other
+        /// half) needs an Attunement, and one character cannot hold both at one Stone.</summary>
+        public LocalProvisioningResult OfferMasterwork(
+            AuthoritativeSubject governor,
+            StoneId stoneId,
+            string opPrefix)
+        {
+            if (string.IsNullOrEmpty(opPrefix))
+                return LocalProvisioningResult.Rejected("MissingOpPrefix", "prefix");
+            if (string.IsNullOrEmpty(governor.Account.Value) || string.IsNullOrEmpty(governor.Character.Value))
+                return LocalProvisioningResult.Rejected("Unauthenticated", "governor");
+
+            // Seed the bare Stone envelope if absent (same as the Local develop seam) so the accepted
+            // commit/develop commands have a Stone to operate on; never overwrites an existing/rehydrated Stone.
+            SeedBareStoneIfAbsent(stoneId);
+
+            var offer = _driver.ProvisionOffered(governor, stoneId, MasterworkNode, opPrefix + "-offer");
+            return offer.IsDeveloped
+                ? LocalProvisioningResult.Developed(offer)
+                : LocalProvisioningResult.Rejected(offer.ResultCode, offer.FailedStep);
+        }
+
+        /// <summary>The PURCHASE half of Masterwork ownership: purchase the already-Offered Masterwork node for
+        /// the acting <paramref name="buyer"/> through the accepted PurchaseCommandHandler (active-Attunement
+        /// authority + Personal-AP debit + one-purchase idempotency). This is the buyer-run console half
+        /// (<c>sbpr_master buy</c>). Rejects verbatim if Masterwork is not yet Offered (NodeNotOffered), the
+        /// buyer is not Attuned (RelationshipRequired), or is unfunded (InsufficientPersonalAP).</summary>
+        public LocalProvisioningResult BuyMasterwork(
+            AuthoritativeSubject buyer,
+            StoneId stoneId,
+            string opPrefix)
+        {
+            if (string.IsNullOrEmpty(opPrefix))
+                return LocalProvisioningResult.Rejected("MissingOpPrefix", "prefix");
+            return PurchaseNode(buyer, stoneId, MasterworkTree, MasterworkNode, VersionedId.None,
+                PurchasePaymentSource.PersonalAp, opPrefix + "-buy");
         }
 
         /// <summary>Seed the bare, pre-progression Stone envelope ONLY when the Stone aggregate is absent.

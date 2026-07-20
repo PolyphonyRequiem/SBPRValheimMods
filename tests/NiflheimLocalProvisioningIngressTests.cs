@@ -294,6 +294,195 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal("Unauthenticated", attempt.ResultCode);
         }
 
+        // ── T022 remediation R4: Masterwork OWNERSHIP provisioning — offer + buy reach ACTIVE purchased ──
+
+        private readonly AccountId _buyer = new AccountId("acct-buyer");
+        private readonly CharacterId _buyerChar = new CharacterId("char-buyer");
+
+        // An ATTUNED buyer character holding Personal AP (earned via real Foundational placement in-world;
+        // seeded here as an already-earned balance) and an active Attunement relationship record at the Stone.
+        private CharacterProgressionAggregate AttunedBuyer(int personalAp) =>
+            new CharacterProgressionAggregate(_buyer, _buyerChar, "t022r4/trailborne",
+                revision: 2, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
+                stoneRecords: new[]
+                {
+                    new CharacterStoneRecord(_stone, personalAp, personalAp, 0, facetCredits: null, purchases: null,
+                        relationships: new[]
+                        {
+                            new RelationshipRecord("rel-attune-buyer", RelationshipKind.Attunement,
+                                RelationshipStatus.Active, "Homestead:All", string.Empty,
+                                "relreceipt:seed-attune", string.Empty)
+                        })
+                });
+
+        // Add the buyer's active Attunement reservation to an existing authority index for the Stone.
+        private void SeedBuyerAttunement(InMemoryAccountStoneAuthorityStore authority)
+        {
+            var idx = AccountStoneAuthorityIndex.Vacant(_buyer, _stone).WithReservationAdded(
+                new AuthorityReservation(_buyerChar, RelationshipKind.Attunement, "rel-attune-buyer",
+                    "relreceipt:seed-attune"), 1);
+            authority.ApplyAuthorityProjection("seed-attune", idx);
+        }
+
+        // Full two-subject bootstrap: a bonded Governor (offer authority) + an attuned funded buyer (purchase
+        // authority), over shared in-memory stores. Returns the composed server + the shared stores so a test
+        // can read the post-purchase aggregates through the SAME production gate the issuance observer uses.
+        private (LocalProgressionServer server, InMemoryStoneAggregateStore stones,
+                 InMemoryCharacterAggregateStore characters, InMemoryAccountStoneAuthorityStore authority)
+            OwnershipBootstrap(int buyerAp)
+        {
+            var stones = new InMemoryStoneAggregateStore();
+            var characters = new InMemoryCharacterAggregateStore();
+            var authority = new InMemoryAccountStoneAuthorityStore();
+            characters.PutCharacter(Governor());
+            authority.ApplyAuthorityProjection("seed-bond", BondIndex());
+            characters.PutCharacter(AttunedBuyer(buyerAp));
+            SeedBuyerAttunement(authority);
+            var server = NewServer(stones, characters, authority);
+            return (server, stones, characters, authority);
+        }
+
+        // The exact production Masterwork activation gate (WorkmanshipIssuanceProvider.IsMasterworkActive):
+        // a purchase record for Masterwork@1 at the Stone AND an active relationship. Read from the shared
+        // stores after provisioning, proving the derived state, not a fabricated flag.
+        private bool MasterworkActiveFor(LocalProgressionServer server, AccountId account, CharacterId character)
+        {
+            var stone = server.Stones.GetStone(_stone);
+            var chr = server.Characters.GetCharacter(account, character);
+            var auth = server.Authority.GetAuthority(account, _stone);
+            if (stone == null || chr == null || auth == null) return false;
+            return new SBPR.Niflheim.HomesteadStones.Adapters.Crafting.WorkmanshipIssuanceProvider(
+                new HomesteadProgressionCatalog()).IsMasterworkActive(stone, chr, auth);
+        }
+
+        [Fact]
+        public void Ownership_offer_then_buy_reaches_active_purchased_masterwork_via_accepted_handlers()
+        {
+            var (server, stones, _, _) = OwnershipBootstrap(buyerAp: 1);
+
+            // Governor develops+offers Masterwork through the accepted commands.
+            var offer = server.CreateLocalProvisioningIngress()
+                .OfferMasterwork(new AuthoritativeSubject(_gov, _govChar), _stone, "qa-mw");
+            Assert.True(offer.Succeeded, offer.ResultCode + "/" + offer.Step);
+            // Masterwork is now Offered on the Stone (developed personal node).
+            bool offered = false;
+            foreach (var d in stones.GetStone(_stone)!.NodeDevelopment)
+                if (d.Node.Key == Masterwork.Key && d.Offered) offered = true;
+            Assert.True(offered);
+
+            // Attuned buyer purchases Masterwork through the accepted PurchaseCommandHandler.
+            var buy = server.CreateLocalProvisioningIngress()
+                .BuyMasterwork(new AuthoritativeSubject(_buyer, _buyerChar), _stone, "qa-mw");
+            Assert.True(buy.Succeeded, buy.ResultCode + "/" + buy.Step);
+            Assert.Equal("Purchased", buy.Kind);
+
+            // The exact production gate now derives Masterwork ACTIVE for the buyer — the previously
+            // structurally-unreachable state.
+            Assert.True(MasterworkActiveFor(server, _buyer, _buyerChar));
+        }
+
+        [Fact]
+        public void Ownership_buy_before_offer_rejects_node_not_offered_no_purchase()
+        {
+            var (server, _, characters, _) = OwnershipBootstrap(buyerAp: 1);
+
+            // Establish a Stone context (Governor develops the Local Refined Workshop) WITHOUT offering
+            // Masterwork, so the Stone exists but the personal node is not Offered. Purchase must reject
+            // verbatim with NodeNotOffered and no mutation — not StoneNotFound.
+            server.CreateLocalProvisioningIngress()
+                .DevelopLocalNode(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined");
+
+            var buy = server.CreateLocalProvisioningIngress()
+                .BuyMasterwork(new AuthoritativeSubject(_buyer, _buyerChar), _stone, "qa-mw");
+            Assert.False(buy.Succeeded);
+            Assert.Equal("NodeNotOffered", buy.ResultCode);
+            Assert.False(MasterworkActiveFor(server, _buyer, _buyerChar));
+        }
+
+        [Fact]
+        public void Ownership_buy_by_unattuned_subject_rejects_relationship_required()
+        {
+            var (server, _, _, _) = OwnershipBootstrap(buyerAp: 1);
+            server.CreateLocalProvisioningIngress()
+                .OfferMasterwork(new AuthoritativeSubject(_gov, _govChar), _stone, "qa-mw");
+
+            // The Governor holds a Bond, NOT an Attunement — Bond is not purchase authority (spec US3).
+            var buy = server.CreateLocalProvisioningIngress()
+                .BuyMasterwork(new AuthoritativeSubject(_gov, _govChar), _stone, "qa-mw");
+            Assert.False(buy.Succeeded);
+            Assert.Equal("RelationshipRequired", buy.ResultCode);
+        }
+
+        [Fact]
+        public void Ownership_buy_by_unfunded_buyer_rejects_insufficient_personal_ap()
+        {
+            var (server, _, _, _) = OwnershipBootstrap(buyerAp: 0); // attuned but no earned AP.
+            server.CreateLocalProvisioningIngress()
+                .OfferMasterwork(new AuthoritativeSubject(_gov, _govChar), _stone, "qa-mw");
+
+            var buy = server.CreateLocalProvisioningIngress()
+                .BuyMasterwork(new AuthoritativeSubject(_buyer, _buyerChar), _stone, "qa-mw");
+            Assert.False(buy.Succeeded);
+            Assert.Equal("InsufficientPersonalAP", buy.ResultCode);
+            Assert.False(MasterworkActiveFor(server, _buyer, _buyerChar));
+        }
+
+        [Fact]
+        public void Ownership_offer_of_wrong_ownership_local_node_rejects_not_an_offered_node()
+        {
+            var (server, _, _, _) = OwnershipBootstrap(buyerAp: 1);
+            // ProvisionOffered refuses a Stone-cultivated Local node (Refined Workshop) — the ownership guard.
+            var attempt = server.CreateLocalProvisioningIngress().DevelopLocalNode(
+                new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-refined"); // sanity: local OK
+            Assert.True(attempt.Succeeded);
+
+            var offered = new LocalNodeProvisioningDriver(server)
+                .ProvisionOffered(new AuthoritativeSubject(_gov, _govChar), _stone, RefinedWorkshop, "qa-wrong");
+            Assert.False(offered.IsDeveloped);
+            Assert.Equal("NotAnOfferedNode", offered.ResultCode);
+        }
+
+        [Fact]
+        public void Ownership_buy_is_idempotent_on_replay_single_purchase_and_debit()
+        {
+            var (server, _, characters, _) = OwnershipBootstrap(buyerAp: 1);
+            server.CreateLocalProvisioningIngress()
+                .OfferMasterwork(new AuthoritativeSubject(_gov, _govChar), _stone, "qa-mw");
+
+            var first = server.CreateLocalProvisioningIngress()
+                .BuyMasterwork(new AuthoritativeSubject(_buyer, _buyerChar), _stone, "qa-mw");
+            Assert.True(first.Succeeded);
+            Assert.Equal("Purchased", first.Kind);
+
+            // Exact replay: the accepted PurchaseCommandHandler returns the recorded terminal result, one
+            // purchase record, one AP debit — never a second purchase / double debit.
+            var again = server.CreateLocalProvisioningIngress()
+                .BuyMasterwork(new AuthoritativeSubject(_buyer, _buyerChar), _stone, "qa-mw");
+            Assert.True(again.Succeeded);
+            Assert.Equal("Replayed", again.Kind);
+
+            int masterworkPurchases = 0;
+            var chr = characters.GetCharacter(_buyer, _buyerChar)!;
+            foreach (var sr in chr.StoneRecords)
+                if (sr.StoneId.Equals(_stone))
+                    foreach (var p in sr.Purchases)
+                        if (p.Node.Key == Masterwork.Key) masterworkPurchases++;
+            Assert.Equal(1, masterworkPurchases);
+            Assert.True(MasterworkActiveFor(server, _buyer, _buyerChar));
+        }
+
+        [Fact]
+        public void Ownership_own_composite_two_subjects_reaches_active_purchased()
+        {
+            var (server, _, _, _) = OwnershipBootstrap(buyerAp: 1);
+            var result = server.CreateLocalProvisioningIngress().OwnMasterwork(
+                new AuthoritativeSubject(_gov, _govChar), new AuthoritativeSubject(_buyer, _buyerChar),
+                _stone, "qa-mw");
+            Assert.True(result.Succeeded, result.ResultCode + "/" + result.Step);
+            Assert.Equal("Purchased", result.Kind);
+            Assert.True(MasterworkActiveFor(server, _buyer, _buyerChar));
+        }
+
         // ── Stubs (server-owned authority policies; mirror the shared-suite fixtures) ──
 
         private sealed class FixedFamilyResolver : IStoneFamilyResolver

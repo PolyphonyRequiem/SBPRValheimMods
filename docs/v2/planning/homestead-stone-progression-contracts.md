@@ -714,6 +714,42 @@ is the smallest server-authoritative seam that closes it, mirroring `Relationshi
   No provisional activation, no direct node-state write, no second ledger, no bypass of Local policy/governance/
   dormancy; Refined Workshop mechanics are unchanged.
 
+### Masterwork ownership provisioning (T022 remediation R4)
+
+The accepted T022 Masterwork node (`Crafting / Masterwork@1`, a personal `CharacterEffect`) issues a Workmanship
+Property only while it is ACTIVE for the crafter — which the shipped gate (`WorkmanshipIssuanceProvider.IsMasterworkActive`
+→ `DerivedActivationView`) derives from a personal **purchase record** for Masterwork at the Stone AND an active
+relationship. At PR #392 head that active-purchased state was **structurally unreachable** at runtime:
+`LocalProvisioningIngress.PurchaseNode` had zero runtime callers and the Local develop seam only develops
+Stone-cultivated Local nodes, so no joined principal could ever acquire a Masterwork purchase record and
+`IsMasterworkActive` was always false. R4 closes it with the smallest QA-only ownership seam, through the SAME
+accepted, receipt-backed handlers — no gameplay shortcut, no progression redesign, production fails closed:
+
+- `LocalNodeProvisioningDriver.ProvisionOffered` develops a personal **Offered** node to completion (so it is
+  Offered/purchasable) via the identical accepted commit Tree → credit BP → `ApplyBPToNode` chain the Local path
+  uses — the only difference is the authored ownership the driver accepts (`PersonalOffered` vs `StoneCultivated`);
+  a wrong-ownership node rejects `NotAnOfferedNode` / `NotALocalNode`.
+- `LocalProvisioningIngress.OfferMasterwork` (Governor half) seeds the bare Stone envelope when absent and drives
+  `ProvisionOffered` for Masterwork under the caller's active **Bond**; idempotent replay re-develops nothing.
+- `LocalProvisioningIngress.BuyMasterwork` (buyer half) routes the Masterwork purchase through the accepted
+  `PurchaseCommandHandler`, so the active-**Attunement** authority (Bond alone rejects `RelationshipRequired`),
+  the Personal-AP debit (an unfunded buyer rejects `InsufficientPersonalAP`), the not-yet-Offered gate
+  (`NodeNotOffered`), and one-purchase idempotency (replay returns the recorded terminal result — a single purchase
+  record, a single AP debit) are all a real reachable caller. `OwnMasterwork` composes both halves for a
+  two-subject QA subject.
+- The net48 seam is `Features/Crafting/MasterworkOwnershipProvisioningAdmin.cs`: a DIRECT per-peer `ZRpc` handler
+  (`SBPR_Niflheim_ProvisionMasterworkOwnership`) + the `sbpr_master offer|buy` console command, registered ONLY when
+  the server-owned `Crafting.EnableAdminMasterworkOwnershipProvisioning` flag is true (default false) AND the
+  transport-authenticated sender is a normalized server ADMIN. Identity is the peer's bound-internal principal
+  (never the routed sender / a client claim); the Stone is resolved from the peer's server-owned character ZDO
+  position. The two halves are separate because the reservation model allows one character only ONE active
+  relationship per Stone (develop needs a Bond, purchase needs an Attunement), so the genuine two-client QA matrix
+  runs `offer` as the Governor and `buy` as the attuned buyer. It never mints Attunement or AP — the subject must
+  already hold the relationship (via `sbpr_provision`) and earned Personal AP (real Foundational placement). Outside
+  that gate the handler is never registered or rejects — production fails closed. No provisional activation, no
+  direct purchase/node-state write, no second ledger; Masterwork's exact dedicated-server entitlement and
+  key-never-on-wire issuance contracts are unchanged.
+
 ## Security and hostile-client contract
 
 The verifier must attempt:

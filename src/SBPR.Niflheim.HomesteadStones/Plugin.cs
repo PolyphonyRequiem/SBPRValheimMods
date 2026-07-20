@@ -163,6 +163,24 @@ namespace SBPR.Niflheim.HomesteadStones
             // WorkmanshipDeliveryService + codec.
             harmony.PatchAll(typeof(Features.Crafting.MasterworkDedicatedDeliveryObserver));
 
+            // T022 remediation R4 (t_4ce3873a) — the isolated-QA Masterwork OWNERSHIP provisioning seam. The
+            // direct per-peer handler is only registered when this server-owned flag is ON, and even then only
+            // an authenticated Valheim ADMIN sender is accepted. It drives the accepted develop+offer+purchase
+            // handlers so a joined admin can acquire an ACTIVE PURCHASED Masterwork personal node — the missing
+            // runtime caller that left IsMasterworkActive always false and the genuine four-AT run unreachable.
+            // It never mints Attunement or AP: the subject must already hold a Bond + Attunement (sbpr_provision)
+            // and earned Personal AP. Never a shipping gameplay command; never client-open; production fails
+            // closed (default false).
+            Features.Crafting.MasterworkOwnershipProvisioningAdmin.EnableProvisioning = Config.Bind(
+                "Crafting", "EnableAdminMasterworkOwnershipProvisioning", false,
+                "Isolated-QA ONLY. When true, server admins may acquire an active purchased Masterwork personal "
+                + "node for themselves via the SBPR_Niflheim_ProvisionMasterworkOwnership direct RPC (accepted "
+                + "develop+offer+purchase handlers) so Masterwork issuance can be proven on a joined client. "
+                + "Requires a prior Bond + Attunement and earned Personal AP. Server-owned; not client-settable. "
+                + "Leave false on any non-QA server.");
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkOwnershipProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkOwnershipProvisioningConsole));
+
             // T022 remediation — the in-world PRESENTATION seam. Postfixes the static ItemDrop.GetTooltip to
             // append one deterministic "Workmanship: Masterwork" line ONLY when the stamp on that exact
             // instance is confirmed genuine: validated directly under the composed key on the host, or against

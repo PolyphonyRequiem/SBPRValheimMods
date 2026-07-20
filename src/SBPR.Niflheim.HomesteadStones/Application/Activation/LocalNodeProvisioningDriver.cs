@@ -54,6 +54,35 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             VersionedId localNode,
             string opPrefix)
         {
+            return ProvisionInternal(governor, stoneId, localNode, opPrefix, NodeOwnership.StoneCultivated);
+        }
+
+        /// <summary>T022 remediation R4 — develop a personal OFFERED node (e.g. Masterwork) to completion so
+        /// it is Offered on the Stone and therefore purchasable, using ONLY the SAME accepted, receipt-backed
+        /// commands the Local path uses (commit owning Tree → credit BP → ApplyBPToNode to completion). This
+        /// is the develop half of Masterwork ownership provisioning: a personal Offered node reaches Offered
+        /// exactly like the sibling Local node reaches Developed — the only difference is the authored
+        /// ownership the driver accepts. The develop authority, revisions, idempotency, and durable journals
+        /// are unchanged; a personal node completing sets both Developed and Offered on its development record.
+        /// The acting <paramref name="governor"/> must already hold an active Bond with a Responsibility Range
+        /// covering the node's Tree. Returns the same structured result naming the first failing accepted-command
+        /// step so a QA harness asserts the real gate.</summary>
+        public LocalNodeProvisioningResult ProvisionOffered(
+            AuthoritativeSubject governor,
+            StoneId stoneId,
+            VersionedId offeredNode,
+            string opPrefix)
+        {
+            return ProvisionInternal(governor, stoneId, offeredNode, opPrefix, NodeOwnership.PersonalOffered);
+        }
+
+        private LocalNodeProvisioningResult ProvisionInternal(
+            AuthoritativeSubject governor,
+            StoneId stoneId,
+            VersionedId localNode,
+            string opPrefix,
+            NodeOwnership requiredOwnership)
+        {
             if (string.IsNullOrEmpty(opPrefix))
                 return LocalNodeProvisioningResult.Failed("MissingOpPrefix", "prefix");
             if (string.IsNullOrEmpty(governor.Account.Value) || string.IsNullOrEmpty(governor.Character.Value))
@@ -62,8 +91,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             var def = _server.Catalog.TryResolveNode(localNode);
             if (def == null)
                 return LocalNodeProvisioningResult.Failed("NodeNotFound", "resolve");
-            if (def.Ownership != NodeOwnership.StoneCultivated)
-                return LocalNodeProvisioningResult.Failed("NotALocalNode", "resolve");
+            if (def.Ownership != requiredOwnership)
+                return LocalNodeProvisioningResult.Failed(
+                    requiredOwnership == NodeOwnership.StoneCultivated ? "NotALocalNode" : "NotAnOfferedNode",
+                    "resolve");
 
             var connection = new AuthenticatedConnection(governor.Account.Value, governor.Character.Value);
             var tree = def.Tree;
