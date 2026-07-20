@@ -73,7 +73,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Crafting
         {
             if (key == null) throw new ArgumentNullException(nameof(key));
             bool valid = WorkmanshipCodec.Validate(request.Stamp, request.Token, key) == WorkmanshipReadState.Valid;
-            return new WorkmanshipValidationVerdict(request.CorrelationId, request.Stamp.ProvenanceId, valid);
+            return new WorkmanshipValidationVerdict(request.CorrelationId, request.Stamp.ProvenanceId, request.Fingerprint, valid);
         }
 
         private static WorkmanshipIssuanceOutcomeCode MapOutcome(WorkmanshipIssuanceOutcome outcome)

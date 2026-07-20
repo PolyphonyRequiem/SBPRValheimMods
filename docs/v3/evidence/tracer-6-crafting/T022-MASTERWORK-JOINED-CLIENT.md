@@ -67,22 +67,35 @@ contract + client cache + presentation the net48 seams consume on a pure joined 
   Fail-closed vectors: `InactiveMasterwork_ServerRefuses_ClientLeavesItemVanilla` (dormant
   → vanilla), `IneligibleOutput_ServerRefuses_EvenWhenActive` (stackable/non-durable never
   stamped), `AlreadyStampedInstance_ServerRefuses_Idempotent` (one-per-instance).
-- **AT-ITEM-UPGRADE-PRESERVE** — `ClientWrittenStamp_KeepsValidating_AfterUpgradeThatPreservesCustomData`:
-  the signed stamp survives an upgrade that preserves custom data and still validates.
+- **AT-ITEM-UPGRADE-PRESERVE** — `RealUpgradeReplacement_CarriesStampForward_SameProvenance_QualityRises_ByteIdentical`
+  (+ siblings in `NiflheimMasterworkUpgradeAndTamperRegressionTests`): the earlier
+  `ClientWrittenStamp_KeepsValidating_AfterUpgradeThatPreservesCustomData` was VACUOUS — it
+  stamped/read one in-memory item and never executed vanilla's upgrade replacement, which
+  actually REMOVES the source and `AddItem`-creates a FRESH replacement with EMPTY custom
+  data (the stamp is destroyed, not "preserved"). The remediation models the real removal +
+  fresh-replacement semantics and proves the net48 `MasterworkUpgradePreservationObserver`
+  captures the source's signed map and restores it byte-for-byte onto the replacement: quality
+  rises while `prov_id`, token, and the signed property tuple are byte-identical, and no fresh
+  provenance id is minted (`UpgradePreserve_DoesNotReissue_...`, `...LeavesReplacementVanilla_NoLeakage`).
 - **AT-ITEM-TRANSFER** — `TransferredStamp_IsValidatedByReceivingClientViaServer_KeylessReadThenVerdict`
   and `ValidationVerdict_RoundTripsThroughTheWire`: a receiving client reads the stamp
-  keylessly, relays it, and the server returns Valid → the tooltip renders the confirmed
-  line. Validation is preserved across the container/trade/inventory move.
+  keylessly, relays it (with the signed-stamp fingerprint), and the server returns Valid → the
+  tooltip renders the confirmed line. Validation is preserved across the container/trade/inventory move.
 - **AT-ITEM-TAMPER-DEGRADE** — `HandEditedStamp_GetsTamperedVerdict_CacheFailsClosed`,
-  `ForeignServerKeyStamp_GetsTamperedVerdictHere`, `UnconfirmedProvenance_FailsClosed_InTheVerdictCache`:
-  a hand-edited / foreign-key / unconfirmed stamp gets a Tampered/absent verdict → the
-  presentation seam renders NO line (degrades to vanilla) on the joined client.
+  `ForeignServerKeyStamp_GetsTamperedVerdictHere`, `UnconfirmedProvenance_FailsClosed_InTheVerdictCache`,
+  and the sequential regression `PostValidationTamper_MutatingPropValue_DoesNotReuseStaleValid_FailsClosedThenServerRejects`:
+  the earlier tamper tests began with a fresh cache/manual verdict and MISSED the real attack —
+  a post-validation mutation of `prop_value` that retains `prov_id`/token. Because the verdict
+  cache was keyed by provenance id alone, that stale Valid was reusable and the tooltip skipped
+  revalidation. The remediation keys the cache by the COMPLETE signed-stamp fingerprint, so the
+  mutate-after-valid sequence (no manual clear) misses the cache, fails closed, and re-validates
+  fail-closed against the server — the line NEVER renders using the stale Valid.
 - **Key confinement** — `RawIntegrityKey_NeverAppearsOnAnySerializedWireMessage`: the raw
   integrity key never appears on any serialized wire message.
 
 ### Runtime seams bind LIVE on the real game assembly — VERIFIED (non-tautological)
-All three Masterwork seams are wired at `Plugin.Awake` (`Plugin.cs:153` host issuance,
-`:164` dedicated-delivery transport, `:172` tooltip). On the isolated t009l dedicated-server
+All four Masterwork seams are wired at `Plugin.Awake` (`Plugin.cs:153` host issuance,
+`:163` upgrade carry-forward, `:174` dedicated-delivery transport, `:201` tooltip). On the isolated t009l dedicated-server
 boot of THIS exact-head DLL:
 
 - `Runtime drift check: all required targets/callsites present.`

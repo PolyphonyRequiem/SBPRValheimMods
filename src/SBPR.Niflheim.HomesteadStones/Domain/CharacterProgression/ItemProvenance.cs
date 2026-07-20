@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
@@ -270,6 +271,15 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         /// (unknown metadata) and degrades to vanilla rather than being trusted.</summary>
         public const int SchemaVersion = 1;
 
+        /// <summary>The complete ordered set of custom-data keys a Workmanship stamp occupies. Used by the
+        /// upgrade carry-forward seam to lift the EXACT stamp map off an upgraded source item and restore it
+        /// byte-for-byte onto the replacement, and by nothing else — the codec reads individual keys directly.</summary>
+        internal static readonly string[] StampKeys =
+        {
+            SchemaKey, NodeKeyKey, NodeVersionKey, ProvenanceIdKey, CrafterKey,
+            ItemTypeKey, PropertyNameKey, PropertyValueKey, IntegrityTokenKey,
+        };
+
         /// <summary>Whether an item is eligible to receive a Workmanship stamp: it must be NON-STACKABLE
         /// (an exact instance, not one of a fungible pile) AND DURABLE (has a max-durability / can wear —
         /// arrows, food, stackable materials are excluded). The non-stackable restriction is load-bearing:
@@ -420,6 +430,75 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             writer.SetString(PropertyNameKey, stamp.Property.Name);
             writer.SetString(PropertyValueKey, stamp.Property.Value);
             writer.SetString(IntegrityTokenKey, token);
+        }
+
+        /// <summary>Capture the EXACT persisted Workmanship custom-data map off a source item, verbatim. Returns
+        /// the complete server-signed key→value set (only the keys actually present) so the upgrade carry-forward
+        /// seam can restore it byte-for-byte onto a replacement item WITHOUT re-minting or re-signing anything —
+        /// the token, provenance id, and every field ride across the replacement unchanged. Returns an empty map
+        /// when the source carries no stamp key at all (nothing to preserve). This lifts whatever is there without
+        /// judging it: a well-formed valid stamp captures whole; the restore side is a pure copy.</summary>
+        public static Dictionary<string, string> CaptureStamp(IItemMetadataReader reader)
+        {
+            if (reader == null) throw new ArgumentNullException(nameof(reader));
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (string key in StampKeys)
+                if (reader.Contains(key))
+                    map[key] = reader.GetString(key, string.Empty);
+            return map;
+        }
+
+        /// <summary>Restore a captured Workmanship map (<see cref="CaptureStamp"/>) onto a replacement item's
+        /// custom data, byte-for-byte. Every Workmanship key not in the captured map is first REMOVED from the
+        /// target so a partial/foreign residue cannot survive alongside the restored stamp, then each captured
+        /// key is written verbatim. An empty captured map therefore clears any Workmanship keys on the target —
+        /// a fresh vanilla replacement stays vanilla. No token is recomputed: the restored stamp re-validates
+        /// identically to the source because the canonical fields + token are the same bytes.</summary>
+        public static void RestoreStamp(IItemMetadataWriter writer, IReadOnlyDictionary<string, string> captured)
+        {
+            if (writer == null) throw new ArgumentNullException(nameof(writer));
+            if (captured == null) throw new ArgumentNullException(nameof(captured));
+
+            foreach (string key in StampKeys)
+            {
+                if (captured.TryGetValue(key, out string? value))
+                    writer.SetString(key, value ?? string.Empty);
+                else
+                    writer.Remove(key);
+            }
+        }
+
+        /// <summary>Whether a captured stamp map carries any Workmanship key at all (i.e. the source was
+        /// stamped). A carry-forward is only meaningful when this is true.</summary>
+        public static bool HasStamp(IReadOnlyDictionary<string, string> captured)
+        {
+            if (captured == null) return false;
+            foreach (string key in StampKeys)
+                if (captured.ContainsKey(key)) return true;
+            return false;
+        }
+
+        /// <summary>A stable, ordinal fingerprint of the COMPLETE signed stamp an item currently carries — every
+        /// Workmanship key AND its value, length-framed so two distinct maps can never alias. This is what a
+        /// client-side verdict must be bound to: a verdict cached for one fingerprint is meaningless the instant
+        /// any signed field (including <c>prop_value</c>) changes while the provenance id/token are retained, so
+        /// the presentation seam re-validates rather than reusing a stale Valid. Absent keys are framed distinctly
+        /// from empty values. Returns the empty-string fingerprint for an unstamped item.</summary>
+        public static string Fingerprint(IItemMetadataReader reader)
+        {
+            if (reader == null) throw new ArgumentNullException(nameof(reader));
+            var sb = new StringBuilder();
+            foreach (string key in StampKeys)
+            {
+                bool present = reader.Contains(key);
+                // Frame as <keyLen>:<key>=<present?><valLen>:<value> so "absent" and "empty" never collide and
+                // no value can smuggle a separator to alias a different tuple.
+                sb.Append(key.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(key).Append('=');
+                if (!present) { sb.Append('-').Append(';'); continue; }
+                string value = reader.GetString(key, string.Empty) ?? string.Empty;
+                sb.Append('+').Append(value.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(value).Append(';');
+            }
+            return sb.ToString();
         }
 
         /// <summary>Length-prefixed, field-count-framed canonical encoding of the immutable stamp fields.

@@ -65,17 +65,25 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Crafting
             if (key != null && znet != null && znet.IsServer())
                 return WorkmanshipCodec.Read(accessor, key).State == WorkmanshipReadState.Valid;
 
-            // PURE CLIENT path: keyless read + server verdict cache.
+            // PURE CLIENT path: keyless read + server verdict cache, BOUND TO THE COMPLETE SIGNED STAMP.
             var raw = WorkmanshipCodec.TryReadRaw(accessor, out var stamp, out string token);
             if (raw != WorkmanshipCodec.RawReadState.Present) return false;   // absent/malformed ⇒ vanilla.
 
-            var verdicts = MasterworkClientState.Verdicts;
-            if (verdicts.HasVerdict(stamp.ProvenanceId))
-                return verdicts.IsConfirmedValid(stamp.ProvenanceId);          // confirmed valid ⇒ line; tampered ⇒ none.
+            // The verdict must be valid ONLY for the exact bytes on the item right now. Key the cache by the
+            // complete signed-stamp fingerprint (every signed field + value), NOT the provenance id — so a
+            // post-validation tamper that mutates prop_value while retaining prov_id/token changes the
+            // fingerprint, misses the cache, and forces a fresh server validation (which rejects it) rather than
+            // reusing a stale Valid.
+            string fingerprint = WorkmanshipCodec.Fingerprint(accessor);
 
-            // First time we see this well-formed stamp: ask the server, render nothing this frame (fail closed
-            // until the verdict lands). Bounded — the cache records the answer so we do not re-ask.
-            MasterworkDedicatedDeliveryObserver.RequestValidation(stamp, token);
+            var verdicts = MasterworkClientState.Verdicts;
+            if (verdicts.HasVerdict(fingerprint))
+                return verdicts.IsConfirmedValid(fingerprint);             // confirmed valid for THESE bytes ⇒ line.
+
+            // First time we see this exact stamp fingerprint (fresh, transferred, OR mutated since last verdict):
+            // ask the server, render nothing this frame (fail closed until the verdict for these exact bytes
+            // lands). Bounded — the cache records the answer per fingerprint so we do not re-ask unchanged bytes.
+            MasterworkDedicatedDeliveryObserver.RequestValidation(stamp, token, fingerprint);
             return false;
         }
     }

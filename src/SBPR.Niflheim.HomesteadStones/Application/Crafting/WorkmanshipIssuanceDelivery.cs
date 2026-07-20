@@ -196,19 +196,33 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Crafting
     public readonly struct WorkmanshipValidationRequest
     {
         public WorkmanshipValidationRequest(string correlationId, WorkmanshipStamp stamp, string token)
+            : this(correlationId, stamp, token, string.Empty)
+        {
+        }
+
+        public WorkmanshipValidationRequest(string correlationId, WorkmanshipStamp stamp, string token, string fingerprint)
         {
             CorrelationId = correlationId ?? string.Empty;
             Stamp = stamp;
             Token = token ?? string.Empty;
+            Fingerprint = fingerprint ?? string.Empty;
         }
 
         public string CorrelationId { get; }
         public WorkmanshipStamp Stamp { get; }
         public string Token { get; }
 
+        /// <summary>The complete signed-stamp fingerprint (WorkmanshipCodec.Fingerprint) of the EXACT bytes the
+        /// client read off the item. The server echoes it into the verdict so the client-side cache binds the
+        /// verdict to those exact bytes — a later mutation (even one retaining prov_id/token) yields a different
+        /// fingerprint, misses the cache, and forces a fresh validation. Never authority; a diagnostics/binding
+        /// tag the server does not trust for the validation decision (which is the token check).</summary>
+        public string Fingerprint { get; }
+
         public string Serialize() => new SnapshotWriter()
             .Put("corr", CorrelationId)
             .Put("token", Token)
+            .Put("fp", Fingerprint)
             .PutInt("schema", Stamp.SchemaVersion)
             .Put("nodek", Stamp.IssuingNode.Key)
             .PutInt("nodev", Stamp.IssuingNode.Version)
@@ -230,29 +244,44 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Crafting
                 r.GetString("crafter"),
                 r.GetString("itype"),
                 new WorkmanshipProperty(r.GetString("pname"), r.GetString("pval")));
-            return new WorkmanshipValidationRequest(r.GetString("corr"), stamp, r.GetString("token"));
+            return new WorkmanshipValidationRequest(r.GetString("corr"), stamp, r.GetString("token"), r.GetString("fp"));
         }
     }
 
-    /// <summary>SERVER→CLIENT: the verdict for a validation request. Carries only the correlation id, the
-    /// provenance id it concerns, and Valid/Tampered — never the key. The client uses it to present a confirmed
-    /// Workmanship (Valid) or degrade to vanilla (Tampered / no verdict).</summary>
+    /// <summary>SERVER→CLIENT: the verdict for a validation request. Carries the correlation id, the provenance
+    /// id it concerns, the COMPLETE signed-stamp fingerprint of the exact bytes validated, and Valid/Tampered —
+    /// never the key. The client keys its verdict cache by <see cref="Fingerprint"/> so a Valid can only ever be
+    /// reused for the byte-identical stamp; any signed-field mutation (even one retaining prov_id/token) misses
+    /// the cache and forces a fresh validation, which the server rejects. The client uses it to present a
+    /// confirmed Workmanship (Valid) or degrade to vanilla (Tampered / no verdict).</summary>
     public readonly struct WorkmanshipValidationVerdict
     {
         public WorkmanshipValidationVerdict(string correlationId, ItemProvenanceId provenanceId, bool valid)
+            : this(correlationId, provenanceId, string.Empty, valid)
+        {
+        }
+
+        public WorkmanshipValidationVerdict(string correlationId, ItemProvenanceId provenanceId, string fingerprint, bool valid)
         {
             CorrelationId = correlationId ?? string.Empty;
             ProvenanceId = provenanceId;
+            Fingerprint = fingerprint ?? string.Empty;
             Valid = valid;
         }
 
         public string CorrelationId { get; }
         public ItemProvenanceId ProvenanceId { get; }
+
+        /// <summary>The complete signed-stamp fingerprint the verdict is bound to — the client caches the verdict
+        /// under this exact key. A verdict is meaningless for any other fingerprint.</summary>
+        public string Fingerprint { get; }
+
         public bool Valid { get; }
 
         public string Serialize() => new SnapshotWriter()
             .Put("corr", CorrelationId)
             .Put("prov", ProvenanceId.Value)
+            .Put("fp", Fingerprint)
             .PutBool("valid", Valid)
             .Build();
 
@@ -263,6 +292,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Crafting
             return new WorkmanshipValidationVerdict(
                 r.GetString("corr"),
                 new ItemProvenanceId(r.GetString("prov")),
+                r.GetString("fp"),
                 r.GetBool("valid"));
         }
     }

@@ -524,9 +524,18 @@ These are derived-provider contracts, not direct ledger writes.
   stamps/reads/validates the property onto an item's `m_customData` behind an abstract metadata surface and
   protects it with a server-held HMAC-SHA-256 integrity token over the canonical, length-framed IMMUTABLE
   fields ONLY (schema, issuing node, `ItemProvenanceId`, crafter, item type, property). Because the token
-  excludes mutable per-instance facts (quality/durability/stack), a legitimate upgrade/transfer that preserves
-  the custom-data map keeps validating; a hand-edited/forged/foreign-key/partial/unknown-schema/lifted-and-
-  pasted stamp reads `Tampered` and degrades to vanilla. **Live-wired (net48):** `Features/Crafting/
+  excludes mutable per-instance facts (quality/durability/stack), a stamp that is carried onto the upgraded/
+  transferred instance keeps validating; a hand-edited/forged/foreign-key/partial/unknown-schema/lifted-and-
+  pasted stamp reads `Tampered` and degrades to vanilla. **Upgrade carry-forward is EXPLICIT, not incidental
+  (T022 remediation, t_8311fdd3):** vanilla `InventoryGui.DoCrafting`'s upgrade branch REMOVES the exact source
+  instance and `AddItem`-creates a FRESH prefab-backed replacement with an EMPTY `m_customData` — so a stamp is
+  NOT preserved for free. `Features/Crafting/MasterworkUpgradePreservationObserver` (highest-priority prefix/
+  postfix on `DoCrafting`) captures the complete server-signed Workmanship map off the source before vanilla
+  removes it (`WorkmanshipCodec.CaptureStamp`) and restores it byte-for-byte onto the fresh replacement at the
+  same grid position (`WorkmanshipCodec.RestoreStamp`) — same `prov_id`, token, and property tuple, quality
+  still rises, NO re-mint/reissue under a new provenance id; it runs before the issuance/delivery postfixes so
+  they observe an already-valid stamp and no-op (no duplicate grant). A non-upgrade craft, a vanilla/unstamped
+  source, or an inventory-full/error path carries nothing. **Live-wired (net48):** `Features/Crafting/
   MasterworkIssuanceObserver` postfixes `InventoryGui.DoCrafting` on the authoritative host, resolves the
   crafter's Masterwork activation from the composed server stores, stamps the exact provenance onto the
   just-produced eligible item via `ItemDataMetadataAccessor`, and explicitly dirties persistence
@@ -542,10 +551,17 @@ These are derived-provider contracts, not direct ledger writes.
   `WorkmanshipCodec.WriteSigned` (byte-identical to a host stamp). A joined receiver VALIDATES a stamp it read
   keylessly (`WorkmanshipCodec.TryReadRaw`) by relaying the fields+token for the server to check under its key
   (`WorkmanshipCodec.Validate`), caching the Valid/Tampered verdict (`WorkmanshipVerdictCache`).
+  **The verdict cache is keyed by the COMPLETE signed-stamp fingerprint (`WorkmanshipCodec.Fingerprint` — every
+  signed field AND value), NOT the provenance id (T022 remediation, t_8311fdd3):** the earlier prov-id-only key
+  let a post-validation tamper reuse a stale Valid — after a transferred item validated, changing `prop_value`
+  while retaining `prov_id`/token left the cached Valid reusable and the tooltip skipped revalidation. Binding
+  the verdict to the fingerprint closes that: the instant any signed field changes the fingerprint changes, the
+  cache MISSES, and the presentation seam fails closed and requests a fresh server verdict for the mutated bytes
+  (which the server rejects) — it never renders using the stale Valid.
   `Features/Crafting/MasterworkWorkmanshipTooltip` postfixes `ItemDrop.ItemData.GetTooltip` to render the one
   deterministic `Workmanship: Masterwork` line only for a confirmed-valid stamp — validated under the composed
-  key on the host, or against the server verdict cache on a pure client — so a forged/foreign/unconfirmed stamp
-  degrades to a plain vanilla tooltip on the joined client. The four ATs (`AT-MASTERWORK-ISSUE`,
+  key on the host, or against the fingerprint-keyed server verdict cache on a pure client — so a forged/foreign/
+  unconfirmed/mutated stamp degrades to a plain vanilla tooltip on the joined client. The four ATs (`AT-MASTERWORK-ISSUE`,
   `AT-ITEM-UPGRADE-PRESERVE`, `AT-ITEM-TRANSFER`, `AT-ITEM-TAMPER-DEGRADE`) are therefore reachable on the
   dedicated-server + genuine-joined-client topology, not host-only.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on

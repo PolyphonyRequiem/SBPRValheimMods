@@ -207,18 +207,21 @@ namespace SBPR.Trailborne.Tests
             // The item transfers (container/trade) to a SECOND client — the exact custom-data map rides along.
             var received = crafted.Clone();
 
-            // The receiving client has NO key. It reads the stamp keylessly and relays it to the server.
+            // The receiving client has NO key. It reads the stamp keylessly and relays it to the server, and
+            // binds its verdict to the COMPLETE signed-stamp fingerprint of the exact bytes it read.
             var raw = WorkmanshipCodec.TryReadRaw(received, out var stamp, out string token);
             Assert.Equal(WorkmanshipCodec.RawReadState.Present, raw);
+            string fingerprint = WorkmanshipCodec.Fingerprint(received);
 
-            var verdict = _service.Validate(new WorkmanshipValidationRequest("c-xfer", stamp, token), ServerKey);
+            var verdict = _service.Validate(new WorkmanshipValidationRequest("c-xfer", stamp, token, fingerprint), ServerKey);
             Assert.True(verdict.Valid);
             Assert.Equal(stamp.ProvenanceId, verdict.ProvenanceId);
+            Assert.Equal(fingerprint, verdict.Fingerprint);
 
-            // The receiving client records the verdict and presents the Workmanship as confirmed.
+            // The receiving client records the verdict and presents the Workmanship as confirmed for THESE bytes.
             var cache = new WorkmanshipVerdictCache();
             cache.Apply(verdict);
-            Assert.True(cache.IsConfirmedValid(stamp.ProvenanceId));
+            Assert.True(cache.IsConfirmedValid(fingerprint));
         }
 
         // ================================================================
@@ -237,12 +240,13 @@ namespace SBPR.Trailborne.Tests
 
             var raw = WorkmanshipCodec.TryReadRaw(item, out var stamp, out string token);
             Assert.Equal(WorkmanshipCodec.RawReadState.Present, raw); // structurally well-formed...
-            var verdict = _service.Validate(new WorkmanshipValidationRequest("c-t", stamp, token), ServerKey);
+            string fingerprint = WorkmanshipCodec.Fingerprint(item);
+            var verdict = _service.Validate(new WorkmanshipValidationRequest("c-t", stamp, token, fingerprint), ServerKey);
             Assert.False(verdict.Valid);                              // ...but the server rejects it.
 
             var cache = new WorkmanshipVerdictCache();
             cache.Apply(verdict);
-            Assert.False(cache.IsConfirmedValid(stamp.ProvenanceId)); // degrades to vanilla.
+            Assert.False(cache.IsConfirmedValid(fingerprint)); // degrades to vanilla.
         }
 
         [Fact]
@@ -263,8 +267,8 @@ namespace SBPR.Trailborne.Tests
         {
             var cache = new WorkmanshipVerdictCache();
             // Never confirmed — presents as vanilla.
-            Assert.False(cache.IsConfirmedValid(new ItemProvenanceId("never-seen")));
-            Assert.False(cache.HasVerdict(new ItemProvenanceId("never-seen")));
+            Assert.False(cache.IsConfirmedValid("never-seen-fingerprint"));
+            Assert.False(cache.HasVerdict("never-seen-fingerprint"));
         }
 
         [Fact]
@@ -274,13 +278,16 @@ namespace SBPR.Trailborne.Tests
             var item = new InMemoryItem();
             WorkmanshipCodec.WriteSigned(item, grant.Stamp, grant.Token);
             WorkmanshipCodec.TryReadRaw(item, out var stamp, out string token);
+            string fingerprint = WorkmanshipCodec.Fingerprint(item);
 
-            var req = new WorkmanshipValidationRequest("c-vw", stamp, token);
+            var req = new WorkmanshipValidationRequest("c-vw", stamp, token, fingerprint);
             var req2 = WorkmanshipValidationRequest.Deserialize(req.Serialize());
+            Assert.Equal(fingerprint, req2.Fingerprint);
             var verdict = _service.Validate(req2, ServerKey);
             var verdict2 = WorkmanshipValidationVerdict.Deserialize(verdict.Serialize());
             Assert.True(verdict2.Valid);
             Assert.Equal(stamp.ProvenanceId, verdict2.ProvenanceId);
+            Assert.Equal(fingerprint, verdict2.Fingerprint);
             Assert.Equal("c-vw", verdict2.CorrelationId);
         }
 

@@ -311,8 +311,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Crafting
         }
 
         /// <summary>CLIENT helper the presentation seam calls to ask the server to validate a stamp it read
-        /// keylessly. No-ops on the host (which reads its own key directly).</summary>
-        internal static void RequestValidation(in WorkmanshipStamp stamp, string token)
+        /// keylessly. Carries the complete signed-stamp <paramref name="fingerprint"/> so the returned verdict is
+        /// bound to the exact bytes validated (a later mutation misses the client cache). No-ops on the host
+        /// (which reads its own key directly).</summary>
+        internal static void RequestValidation(in WorkmanshipStamp stamp, string token, string fingerprint)
         {
             try
             {
@@ -320,7 +322,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Crafting
                 if (znet == null || znet.IsServer()) return;
                 var serverRpc = znet.GetServerRPC();
                 serverRpc?.Invoke(RpcValidationRequest,
-                    new WorkmanshipValidationRequest(stamp.ProvenanceId.Value, stamp, token).Serialize());
+                    new WorkmanshipValidationRequest(stamp.ProvenanceId.Value, stamp, token, fingerprint).Serialize());
             }
             catch (Exception ex)
             {

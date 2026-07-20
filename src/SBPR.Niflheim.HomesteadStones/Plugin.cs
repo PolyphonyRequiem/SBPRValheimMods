@@ -152,6 +152,16 @@ namespace SBPR.Niflheim.HomesteadStones
             // integrity key by the runtime bootstrap below.
             harmony.PatchAll(typeof(Features.Crafting.MasterworkIssuanceObserver));
 
+            // T022 remediation — the REAL upgrade carry-forward seam (AT-ITEM-UPGRADE-PRESERVE). Vanilla
+            // InventoryGui.DoCrafting's upgrade branch REMOVES the exact source instance and creates a fresh
+            // prefab-backed replacement with an empty custom-data map, destroying the source's server-signed
+            // Workmanship stamp. This highest-priority prefix/postfix pair CAPTURES the complete signed stamp map
+            // off the upgrade source before vanilla removes it and RESTORES it byte-for-byte onto the fresh
+            // replacement at the same grid position — same prov_id/token/property, no re-mint/reissue, quality
+            // still rises. Runs before the issuance/delivery postfixes so they see an already-valid stamp and
+            // no-op (no duplicate grant). Consumes the engine-free, unit-tested Capture/Restore primitives.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkUpgradePreservationObserver));
+
             // T022 remediation (t_cdc76200) — the DEDICATED-server joined-client Workmanship delivery
             // transport. The host-only observer above cannot issue on an isolated dedicated server (headless
             // server has no local crafter; a pure joined crafter is unarmed/keyless), so this per-peer ZRpc
@@ -184,8 +194,9 @@ namespace SBPR.Niflheim.HomesteadStones
             // T022 remediation — the in-world PRESENTATION seam. Postfixes the static ItemDrop.GetTooltip to
             // append one deterministic "Workmanship: Masterwork" line ONLY when the stamp on that exact
             // instance is confirmed genuine: validated directly under the composed key on the host, or against
-            // the server-delivered verdict cache on a pure client (requesting a verdict once per provenance id;
-            // rendering nothing for absent/malformed/tampered/unconfirmed). This is the joined-client visible
+            // the server-delivered verdict cache on a pure client (requesting a verdict once per COMPLETE signed-
+            // stamp fingerprint, so a post-validation tamper that mutates a signed field misses the cache and is
+            // re-validated fail-closed; rendering nothing for absent/malformed/tampered/unconfirmed). This is the joined-client visible
             // artifact and the client-side tamper-degrade. Additive (ADR-0006); mutates nothing.
             harmony.PatchAll(typeof(Features.Crafting.MasterworkWorkmanshipTooltip));
 
