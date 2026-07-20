@@ -31,9 +31,9 @@ honestly which last mile is client-only.
 ### Build + suite (this run)
 - net48 `SBPR.Niflheim.HomesteadStones` Release: **0 warnings / 0 errors**.
 - net48 `SBPR.Trailborne` Release: **0 warnings / 0 errors**.
-- Full test suite: **1476 / 1476 passed** (baseline 1455 + 21 new Swift
-  Preparation tests).
-- `python3 scripts/docs-lint.py`: **OK — 214 docs checked**.
+- Full test suite: **1478 / 1478 passed** (prior 1476 + 2 new red-first
+  `RecipeDataPair.Recipe` access-path guard cases from the remediation below).
+- `python3 scripts/docs-lint.py`: **OK — 215 docs checked**.
 - `git diff --check`: **clean**.
 - SpecCheck recipe manifest: **unchanged** (Swift Preparation ships no SBPR recipe).
 
@@ -100,6 +100,49 @@ accumulating `m_craftTimer` reaches that same `num5`. The seam:
   (`LocalProgressionObserver.Server`'s Stone/character/authority stores, keyed to
   the bound internal principal via `DerivedActivationView`) — no client-supplied
   claim is trusted, fail-closed on any resolution gap.
+
+## Remediation (post-live-QA): selected-recipe resolution was failing closed
+
+Genuine live QA on the isolated GABS client (task `t_a5eef554`) exercised the
+armed seam in-world and found the 1/3 effect **never fired** for an eligible,
+active host occupant: `ScaleMenuCraftDuration` always fell through to the vanilla
+duration at recipe resolution. Root cause: the seam read the selected recipe via
+
+```
+Traverse.Create(gui).Field("m_selectedRecipe").Field("Recipe").GetValue<Recipe>()
+```
+
+but `InventoryGui.RecipeDataPair.Recipe` is a C# **auto-property** (compiler
+backing field `<Recipe>k__BackingField`), not a plain field. Harmony
+`Traverse.Field("Recipe")` resolves nothing and returns `null`, so
+`recipe == null` short-circuited to the full vanilla duration every time. This is
+a product defect, not a missing-evidence issue.
+
+Fix (smallest robust member resolution, no broad reflection fallback): read the
+member through its real shape —
+`Traverse.Field("m_selectedRecipe").Property("Recipe")`. The accepted semantics
+are otherwise **unchanged**: only eligible menu-crafted food, factor applied after
+the vanilla Cooking-skill adjustment, owner/active Tier-2 host only, all
+ineligible/dormant/non-menu cases vanilla, completion/output untouched.
+
+The identical latent defect existed in the Refined Workshop UI seam
+(`Features/Progression/RefinedWorkshopStationLevelPatch.cs`) which reads the same
+`RecipeDataPair.Recipe` through `Traverse.Field("Recipe")`; it was corrected in
+the same PR (fix the class, not just the reported site).
+
+Red-first regression: `tests/NiflheimRecipeDataPairAccessGuardTests.cs` asserts
+the shipped access path against the known member shape — every
+`RecipeDataPair.Recipe` read must go through `.Property("Recipe")` and none may
+use the null-returning `.Field("Recipe")`. Verified RED on the shipped
+`.Field("Recipe")` behavior (both seam cases fail) and GREEN after the fix. A
+source-conformance guard is the strongest regression the base-game/clean-room
+net8 suite permits: the test project references no UnityEngine/HarmonyLib/Valheim,
+so the net48 seams cannot be link-compiled and the real `RecipeDataPair` type only
+exists in `assembly_valheim` at runtime on a live client.
+
+Still owed (unchanged): T019's own genuine joined-client exact-1/3 matrix on the
+isolated host topology. This remediation makes the effect actually resolve; it
+does not by itself prove the in-world timing.
 
 ## Honest scope — what is NOT yet observed in-world here
 

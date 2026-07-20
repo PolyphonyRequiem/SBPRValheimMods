@@ -154,7 +154,12 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Cooking
                 if (player == null) return skillAdjustedDuration;
 
                 // The selected recipe + current station are engine-observed facts of THIS menu craft.
-                var recipe = Traverse.Create(gui).Field("m_selectedRecipe").Field("Recipe").GetValue<Recipe>();
+                // InventoryGui.m_selectedRecipe is an InventoryGui.RecipeDataPair whose Recipe member is a C#
+                // AUTO-PROPERTY (compiler backing field <Recipe>k__BackingField), NOT a plain field — so
+                // Harmony Traverse must resolve it as .Property("Recipe"); .Field("Recipe") returns null and the
+                // 1/3 effect silently never fires. Mirrors the RecipeDataPair.Recipe access in
+                // RefinedWorkshopStationLevelPatch.
+                var recipe = Traverse.Create(gui).Field("m_selectedRecipe").Property("Recipe").GetValue<Recipe>();
                 if (recipe == null || recipe.m_item == null) return skillAdjustedDuration;
 
                 bool outputIsFood = RecipeOutputIsFood(recipe);

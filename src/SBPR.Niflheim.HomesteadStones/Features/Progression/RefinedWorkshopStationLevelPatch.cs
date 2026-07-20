@@ -125,11 +125,13 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 if (player != Player.m_localPlayer) return;
 
                 // Private engine fields via Harmony Traverse (assemblies are not publicized in this build):
-                //   m_selectedRecipe (InventoryGui.RecipeDataPair) → its Recipe,
+                //   m_selectedRecipe (InventoryGui.RecipeDataPair) → its Recipe (a C# AUTO-PROPERTY, backing
+                //     field <Recipe>k__BackingField, so it MUST be reached via Traverse.Property("Recipe") —
+                //     Traverse.Field("Recipe") resolves nothing and returns null),
                 //   m_minStationLevelText (a TMP_Text) → its Color color property,
                 //   m_minStationLevelBasecolor (the non-red base color vanilla caches at Awake).
                 var gui = Traverse.Create(__instance);
-                var recipe = gui.Field("m_selectedRecipe").Field("Recipe").GetValue<Recipe>();
+                var recipe = gui.Field("m_selectedRecipe").Property("Recipe").GetValue<Recipe>();
                 if (recipe == null) return;
 
                 var station = player.GetCurrentCraftingStation();
