@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BepInEx.Configuration;
 using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Adapters.Identity;
 using SBPR.Niflheim.HomesteadStones.Application.Accounts;
@@ -45,6 +46,20 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
         // The one Gate-0-proven Steamworks pilot backend/issuer. Matches ZdoPilotProviderSubjectSource /
         // PilotProviderGate docs and the dedicated server proven by PR #317.
         internal const string PilotBackendIssuer = "niflheim-pilot-app-896660";
+
+        // ── T022 QA-only ephemeral account bypass config (server-owned; bound by Plugin.Awake). All
+        //    default OFF/empty; the bypass activates only on the full conjunction gate. TEST INFRA. ──
+        internal static ConfigEntry<bool>? EnableQaAccountBypass;
+        internal static ConfigEntry<string>? QaEnvironmentTag;
+        internal static ConfigEntry<string>? QaExpectedWorldName;
+        internal static ConfigEntry<string>? QaExpectedDataRoot;
+        internal static ConfigEntry<string>? QaAllowlistedSteamIds;
+
+        // Process-local QA-bypass admission state, composed only when the gate passes. Cleared on restart
+        // and on ZNet teardown — no durable state (task safety bullet 8).
+        private static QaAccountBypassAdmission? qaBypass;
+        private static QaEphemeralIdentityMint? qaMint;
+        private static readonly HashSet<long> qaAdmittedTransports = new HashSet<long>();
 
         private static ZNet? composedFor;
         private static LiveSessionAdmission? live;
@@ -111,6 +126,45 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                 admittedTransports.Clear();
                 composedFor = __instance;
 
+                // ── T022 QA-only ephemeral account bypass composition (TEST INFRA; DEFAULT OFF). Evaluate
+                //    the full conjunction gate against the server-observed isolation facts (the world the
+                //    server actually loaded + the SAME durable directory the Foundational runtime composed).
+                //    Compose the QA admission ONLY when every gate passes; otherwise it stays null and normal
+                //    admission (including `NotAllowlisted`) runs unchanged. No durable state either way.
+                qaBypass = null;
+                qaMint = null;
+                qaAdmittedTransports.Clear();
+                try
+                {
+                    var qaConfig = BuildQaConfig();
+                    var qaFacts = new QaIsolationFacts(SafeWorldName(__instance), durableDir);
+                    var qaRejection = QaAccountBypassGate.Evaluate(qaConfig, qaFacts);
+                    if (qaRejection == QaBypassGateRejection.None)
+                    {
+                        qaMint = new QaEphemeralIdentityMint();
+                        qaBypass = new QaAccountBypassAdmission(
+                            qaMint, new AccountAdmissionIndex(), server.BoundSessions, qaConfig.AllowlistedSteamSubjects);
+                        Plugin.Log.LogWarning(
+                            "[qa-account-bypass] ACTIVE — TEST INFRASTRUCTURE, NOT PRODUCTION. Ephemeral opaque "
+                            + "QA identities will admit " + qaConfig.AllowlistedSteamSubjects.Count
+                            + " configured server-observed Steam peer(s) on the isolated homestead-t009l fixture. "
+                            + "No PilotAllowlistEntry / durable account record is written. Disable the "
+                            + "QaAccountBypass config to restore normal admission.");
+                    }
+                    else
+                    {
+                        Plugin.Log.LogInfo("[qa-account-bypass] inactive (gate=" + qaRejection
+                            + "); normal account admission unchanged.");
+                    }
+                }
+                catch (Exception qex)
+                {
+                    // Fail closed: any composition error leaves the QA bypass off (normal admission unchanged).
+                    qaBypass = null;
+                    qaMint = null;
+                    Plugin.Log.LogError("[qa-account-bypass] composition failed (bypass stays OFF): " + qex);
+                }
+
                 Plugin.Log.LogInfo(
                     "[Niflheim/HomesteadStones] Live session admission composed (server-authoritative). " +
                     "durable='" + durableDir + "' provider=" + providerGate.DescribeProviderClass() + ".");
@@ -131,6 +185,9 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                 live = null;
                 providerGate = null;
                 admittedTransports.Clear();
+                qaBypass = null;
+                qaMint = null;
+                qaAdmittedTransports.Clear();
             }
         }
 
@@ -150,13 +207,23 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                 var connected = znet.GetConnectedPeers();
                 if (connected == null) return;
 
+                // T022: when the QA bypass is composed (all gates passed on this isolated t009l fixture),
+                // route admission through it instead of the normal live path — configured server-observed
+                // peers are admitted under ephemeral opaque QA identities. When it is null (the default,
+                // and every non-t009l server) the normal path below runs bit-for-bit unchanged.
+                var qa = qaBypass;
+
                 var seen = new HashSet<long>();
                 foreach (var peer in connected)
                 {
                     if (peer == null) continue;
                     long transport = peer.m_uid;
                     seen.Add(transport);
-                    if (admittedTransports.Contains(transport)) continue;   // already admitted this session
+
+                    bool alreadyAdmitted = qa != null
+                        ? qaAdmittedTransports.Contains(transport)
+                        : admittedTransports.Contains(transport);
+                    if (alreadyAdmitted) continue;   // already handled this session
 
                     if (!ZdoAuthenticatedSenderSource.Instance.TryResolveFromPeer(peer, out var facts))
                         continue;   // no character ZDO / no s_playerID yet — try again next tick
@@ -168,6 +235,17 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
 
                     var profile = new VerifiedProfileSubject(facts.PlayerId, transport);
                     string peerKey = ServerCreatorIdentity.CharacterSubject(facts.PlayerId);
+
+                    if (qa != null)
+                    {
+                        // QA-bypass admission: ephemeral opaque identity for a configured, authenticated,
+                        // server-observed Steam peer. Authority is the transport principal only.
+                        var qaResult = qa.Admit(peerKey, provider, profile, transport, DateTime.UtcNow.Ticks);
+                        qaAdmittedTransports.Add(transport);   // mark once (admitted OR rejected) — no per-tick spam
+                        Plugin.Log.LogInfo(qaResult.ToOperatorLine());
+                        continue;
+                    }
+
                     string opSeed = transport.ToString(System.Globalization.CultureInfo.InvariantCulture)
                         + "-" + (++opSeedCounter).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
@@ -187,7 +265,22 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                 }
 
                 // Close sessions whose transport handle is no longer connected (disconnect).
-                if (admittedTransports.Count > 0)
+                if (qa != null)
+                {
+                    if (qaAdmittedTransports.Count > 0)
+                    {
+                        List<long>? gone = null;
+                        foreach (var transport in qaAdmittedTransports)
+                            if (!seen.Contains(transport)) (gone ??= new List<long>()).Add(transport);
+                        if (gone != null)
+                            foreach (var transport in gone)
+                            {
+                                qaAdmittedTransports.Remove(transport);
+                                qa.Close(transport);
+                            }
+                    }
+                }
+                else if (admittedTransports.Count > 0)
                 {
                     List<long>? gone = null;
                     foreach (var transport in admittedTransports)
@@ -204,6 +297,30 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
             {
                 Plugin.Log.LogError("[Niflheim/HomesteadStones] Live session reconcile threw: " + ex);
             }
+        }
+
+        /// <summary>Build the validated T022 QA-bypass config from the server-owned BepInEx entries. The
+        /// SteamID allowlist is parsed from a comma/space-separated string. Every value is server-owned
+        /// (never client-settable); the gate (<see cref="QaAccountBypassGate"/>) is what actually decides
+        /// whether the bypass activates. Returns a disabled config when the flag/entries are unbound.</summary>
+        private static QaAccountBypassConfig BuildQaConfig()
+        {
+            bool enabled = EnableQaAccountBypass != null && EnableQaAccountBypass.Value;
+            string tag = QaEnvironmentTag?.Value ?? string.Empty;
+            string world = QaExpectedWorldName?.Value ?? string.Empty;
+            string root = QaExpectedDataRoot?.Value ?? string.Empty;
+            string idsRaw = QaAllowlistedSteamIds?.Value ?? string.Empty;
+            var ids = idsRaw.Split(new[] { ',', ' ', ';', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            return new QaAccountBypassConfig(enabled, tag, world, root, ids);
+        }
+
+        /// <summary>The world name the server actually loaded, read off ZNet — never a client claim. Feeds
+        /// the QA-bypass isolation confinement check. Defaults to "world" on any read failure (which then
+        /// fails the exact-match gate rather than admitting).</summary>
+        private static string SafeWorldName(ZNet znet)
+        {
+            try { return znet.GetWorldName() ?? "world"; }
+            catch { return "world"; }
         }
     }
 

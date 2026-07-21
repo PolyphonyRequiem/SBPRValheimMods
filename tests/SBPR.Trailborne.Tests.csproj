@@ -172,6 +172,14 @@
          seam is not link-compiled), so the whole bind/unbind lifecycle is unit-tested here. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/BoundSessionAdmission.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/LiveSessionAdmission.cs" />
+    <!-- T022 (t_28ba2115): the engine-free QA-ONLY ephemeral account bypass for the isolated HomesteadT009L
+         fixture. TEST INFRASTRUCTURE, never production. The conjunction gate (enabled + env tag + world/
+         data-root confinement + canonical wildcard-free allowlist + production hard-refuse), the ephemeral
+         opaque identity mint, and the fail-closed QA admission that reuses the shipped AccountAdmissionIndex
+         fence + BoundSessionPrincipalIndex session-qualified unbind WITHOUT any durable account/credential/
+         journal mutation. Engine-free (the net48 observer branch is not link-compiled), so every gate/
+         admission/close branch is unit-tested here. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/QaAccountBypass.cs" />
     <!-- Homestead progression Tracer 2 (T009R2): the engine-free DEDICATED-server placement ingress +
          revalidation core — a joined dedicated-server client's build never runs Player.PlacePiece on the
          server, so this revalidates a client notice against the server's own ZDO facts (existence, creator

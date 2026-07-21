@@ -87,6 +87,47 @@ namespace SBPR.Niflheim.HomesteadStones
             // 100% server-observed off the transport-authenticated peer, never a client payload.
             harmony.PatchAll(typeof(Features.PilotIdentity.PilotSessionLifecycleObserver));
 
+            // ── T022 — QA-ONLY EPHEMERAL ACCOUNT BYPASS (isolated HomesteadT009L). TEST INFRASTRUCTURE,
+            //    NEVER PRODUCTION. DISABLED by default. Daniel's explicit scope decision (supersedes live-
+            //    store provisioning gate t_63e803b9): rather than provisioning the real valbot subject into
+            //    the pilot account store, admit configured server-observed Steam peers into Homestead
+            //    gameplay under EPHEMERAL opaque QA account/character identities so canonical T022 can run
+            //    live on the isolated T009L fixture — without a PilotAllowlistEntry and without writing any
+            //    account/disclosure/credential/character record. The bypass only activates on a CONJUNCTION
+            //    of these server-owned (never client-settable) gates, evaluated in the live-admission
+            //    observer: EnableQaAccountBypass true AND the exact env tag "homestead-t009l" AND the
+            //    observed world/data-root matching the configured isolated T009L fixture (and NOT a
+            //    production marker) AND a non-empty, canonical, wildcard-free SteamID allowlist. Any gate
+            //    failing leaves normal admission (including `NotAllowlisted`) bit-for-bit unchanged. It
+            //    grants the Homestead gameplay principal ONLY — never Valheim admin (separate adminlist
+            //    step). Rollback = set the flag false; there is no durable state to clean.
+            Features.PilotIdentity.PilotSessionLifecycleObserver.EnableQaAccountBypass = Config.Bind(
+                "QaAccountBypass", "EnableQaAccountBypass", false,
+                "ISOLATED-QA / T009L ONLY. TEST INFRASTRUCTURE, NEVER PRODUCTION. When true AND every other "
+                + "QaAccountBypass gate matches the isolated HomesteadT009L fixture, configured server-observed "
+                + "Steam peers are admitted into Homestead gameplay under EPHEMERAL opaque QA account/character "
+                + "identities (no PilotAllowlistEntry, no durable account/credential/character record). Grants "
+                + "the gameplay principal only, never Valheim admin. Server-owned; not client-settable. Leave "
+                + "false on any non-T009L server — production fails closed.");
+            Features.PilotIdentity.PilotSessionLifecycleObserver.QaEnvironmentTag = Config.Bind(
+                "QaAccountBypass", "EnvironmentTag", "",
+                "ISOLATED-QA / T009L ONLY. Must equal exactly \"homestead-t009l\" for the QA account bypass to "
+                + "activate. Any other value (or a production marker) keeps the bypass off.");
+            Features.PilotIdentity.PilotSessionLifecycleObserver.QaExpectedWorldName = Config.Bind(
+                "QaAccountBypass", "ExpectedWorldName", "",
+                "ISOLATED-QA / T009L ONLY. The exact isolated-fixture world name the server MUST have loaded "
+                + "for the QA account bypass to activate. Confines the bypass to the T009L world only.");
+            Features.PilotIdentity.PilotSessionLifecycleObserver.QaExpectedDataRoot = Config.Bind(
+                "QaAccountBypass", "ExpectedDataRoot", "",
+                "ISOLATED-QA / T009L ONLY. The exact isolated-fixture durable data root the server MUST be "
+                + "writing under for the QA account bypass to activate. Confines the bypass to the T009L "
+                + "data root only.");
+            Features.PilotIdentity.PilotSessionLifecycleObserver.QaAllowlistedSteamIds = Config.Bind(
+                "QaAccountBypass", "AllowlistedSteamIds", "",
+                "ISOLATED-QA / T009L ONLY. Comma/space-separated exact server-observed SteamID subjects "
+                + "admitted under ephemeral QA identities. Empty, wildcard (*), or non-numeric entries "
+                + "refuse the whole set (bypass stays off).");
+
             // T009R3 (Blocker 3) — admin/test relationship provisioning seam. DISABLED by default: the
             // routed handler is only registered when this server-owned flag is ON, and even then only an
             // authenticated Valheim ADMIN sender is accepted. It exists so a real playtest session can
