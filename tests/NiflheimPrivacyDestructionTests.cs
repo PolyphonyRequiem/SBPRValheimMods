@@ -130,12 +130,14 @@ namespace SBPR.Trailborne.Tests
             var op = Operator(store, new PilotSessionRegistry(), fence);
             Assert.Equal(OperatorOutcome.Applied, op.Delete(Op, res.AccountId, "op-del", T0).Outcome);
 
-            // Re-join for the SAME subject is rejected: credential + allowlist both revoked.
+            // Re-join for the SAME subject is rejected: the still-present revoked credential trips the
+            // wound-down re-admission barrier, so auto-create refuses to mint a fresh account for a
+            // subject whose account is deletion-pending (no immediate recreation).
             var rejoin = new PilotAccountService(store, ring, NoticeV, RetentionV)
                 .ResolveOrCreateAccount("rejoin", new VerifiedProviderPrincipal(
                     PilotProviderKey.Steamworks(Backend), "76561198000000102", 502L), T0 + 5);
             Assert.False(rejoin.Accepted);
-            Assert.Equal(AccountRejectionCode.NotAllowlisted, rejoin.RejectionCode);
+            Assert.Equal(AccountRejectionCode.AccountDeletionPending, rejoin.RejectionCode);
         }
 
         [Fact]

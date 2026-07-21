@@ -45,9 +45,9 @@ Valheim SDK, **0 warnings / 0 errors**.
 | `AT-AIP-ALLOWLIST-HMAC-ONLY` | provisioning stores HMAC not raw subject; refuses without complete basis |
 | `AT-AIP-DISCLOSURE-COMPLETE` | all mandatory disclosure elements required; missing element fails |
 | `AT-AIP-DATA-INVENTORY-BASIS` | human-approved lawful basis required per category; empty inventory never passes |
-| `AT-AIP-NOT-ALLOWLISTED` | unknown subject rejects before any mint |
+| `AT-AIP-FIRST-JOIN-AUTOCREATE` | first authenticated subject with no binding auto-mints exactly one opaque account+credential; no allowlist/disclosure record required or fabricated (supersedes retired `AT-AIP-NOT-ALLOWLISTED`) |
 | `AT-AIP-UNKNOWN-CREDENTIAL-SEPARATE` | two subjects → two distinct accounts |
-| `AT-AIP-NO-NAME-MERGE` | no auto-merge on resemblance; non-allowlisted second subject rejected |
+| `AT-AIP-NO-NAME-MERGE` | no auto-merge on resemblance; a distinct second subject mints its own distinct account |
 | `AT-AIP-KEY-STRENGTH-SEPARATION` | <256-bit key rejected at construction; no raw-byte accessor exposed |
 | `AT-AIP-KEY-MISSING-FAIL-CLOSED` | unknown key version throws `LookupKeyUnavailableException`; mandatory active key |
 | `AT-AIP-PREVIOUS-KEY-REKEY` | previous-key match resolves and re-keys credential + linked allowlist in place, same `AccountId` |

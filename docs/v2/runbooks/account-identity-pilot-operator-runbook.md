@@ -33,9 +33,14 @@ purpose: Executable operator runbook for the IAP-009 control foundation — loca
   bootstrap utility, authenticated purely by OS ownership of the key/data path. That utility can do
   allowlist provision/revoke and NOTHING else (no inspect/disable/delete/export/reset/gameplay).
 
-## 1. Bootstrap: add a tester to the allowlist (local, OS-scoped)
+## 1. Bootstrap: add a tester to the allowlist (local, OS-scoped) — DEPRECATED
 
-Preconditions: you are the server service account; the HMAC key/data path is owner-only (`0600` or
+> **Deprecated / not required for normal admission.** Testers no longer need to be pre-added to an
+> allowlist: the first authenticated Steam join auto-creates the opaque account. This bootstrap surface
+> is retained only for compatibility/audit of existing entries and is not part of the normal join path.
+> You can normally skip this entire section — just have the tester join.
+
+Preconditions (if you still choose to provision a legacy entry): you are the server service account; the HMAC key/data path is owner-only (`0600` or
 tighter). The utility fails closed otherwise.
 
 ```text

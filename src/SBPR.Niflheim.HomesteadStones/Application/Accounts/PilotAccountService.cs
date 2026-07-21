@@ -227,15 +227,20 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
                 }
             }
 
-            // 3) No binding → this is a first bind. Require an active allowlist entry with the required
-            //    disclosure acknowledgement. NEVER auto-merge on name/resemblance (AIP-FR-008).
-            if (!TryFindAllowlist(providerNs, backendIssuer, subject, out var allowlist, out var allowKeyVersionIsPrevious))
-                return PilotAccountResolution.Reject(AccountRejectionCode.NotAllowlisted);
+            // 3) No active binding → this is a first authenticated join. Normal Niflheim admission
+            //    AUTO-CREATES an opaque account here: there is NO pre-join allowlist and NO fabricated
+            //    per-account disclosure acknowledgement (disclosure is server policy / out-of-band notice).
+            //    We NEVER auto-merge on name/resemblance — a distinct subject always mints a distinct
+            //    account (AIP-FR-008). Before minting we honor the wound-down re-admission barrier: if a
+            //    still-present (revoked) credential for THIS subject exists, its owning account was
+            //    disabled/deleted/quarantined and must reject rather than silently recreate. Only once the
+            //    account's records are physically purged does a fresh join legitimately mint anew.
+            if (_store.TryLookupAnyCredentialAccountStatus(activeHmac, providerNs, backendIssuer, out var barrierStatus))
+                return PilotAccountResolution.Reject(BarrierRejection(barrierStatus));
 
-            if (!string.Equals(allowlist.NoticeVersion, _requiredNoticeVersion, StringComparison.Ordinal) || allowlist.NoticeAcknowledgedAt <= 0)
-                return PilotAccountResolution.Reject(AccountRejectionCode.DisclosureIncomplete);
-
-            // Mint account + credential atomically in one committed transaction.
+            // Mint account + credential atomically in one committed transaction. The account carries NO
+            // PilotAllowlistEntry linkage (the credential's allowlistEntryId is empty) and no notice
+            // acknowledgement timestamp — first bind no longer depends on a provisioned enrollment record.
             var newAccountId = OpaqueIdMint.NewAccountId();
             var newCredId = OpaqueIdMint.NewCredentialBindingId();
             var changes = new List<JournalChange>
@@ -244,12 +249,12 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
                     .Set("accountId", newAccountId.Value)
                     .Set("status", PilotAccountStatus.Active.ToString())
                     .Set("revision", "1")
-                    .Set("noticeVersion", allowlist.NoticeVersion)
-                    .Set("noticeAckAt", allowlist.NoticeAcknowledgedAt.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    .Set("noticeVersion", _requiredNoticeVersion)
+                    .Set("noticeAckAt", "0")
                     .Set("retentionPolicyVersion", _retentionPolicyVersion),
                 new JournalChange("cred")
                     .Set("credentialBindingId", newCredId.Value)
-                    .Set("allowlistEntryId", allowlist.AllowlistEntryId.Value)
+                    .Set("allowlistEntryId", string.Empty)
                     .Set("accountId", newAccountId.Value)
                     .Set("providerNs", providerNs)
                     .Set("backendIssuer", backendIssuer)
@@ -262,26 +267,6 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
                     .Set("credentialBindingId", newCredId.Value)
                     .Set("revision", "2"),
             };
-
-            // If the matched allowlist was under the previous key, the same transaction re-keys it under
-            // the active key (no account may be born linked only to a retiring key version).
-            if (allowKeyVersionIsPrevious)
-            {
-                var reAllowHmac = _keyRing.CredentialHmacActive(providerNs, backendIssuer, subject);
-                var newAllowId = OpaqueIdMint.NewAllowlistEntryId();
-                changes.Add(new JournalChange("allow")
-                    .Set("allowlistEntryId", newAllowId.Value)
-                    .Set("providerNs", providerNs).Set("backendIssuer", backendIssuer)
-                    .Set("hmac", reAllowHmac.Hex).Set("keyVersion", reAllowHmac.KeyVersion.Value)
-                    .Set("status", AllowlistStatus.Active.ToString()).Set("revision", "1")
-                    .Set("noticeVersion", allowlist.NoticeVersion)
-                    .Set("noticeAckAt", allowlist.NoticeAcknowledgedAt.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                changes.Add(new JournalChange("allow-status")
-                    .Set("allowlistEntryId", allowlist.AllowlistEntryId.Value)
-                    .Set("status", AllowlistStatus.Superseded.ToString())
-                    .Set("revision", (allowlist.Revision + 1).ToString(System.Globalization.CultureInfo.InvariantCulture))
-                    .Set("linkedAllowlistEntryId", newAllowId.Value));
-            }
 
             string bindingDigest = BindingFor(providerNs, backendIssuer, subject);
             _store.Commit(operationId, "txn-" + newAccountId.Value, bindingDigest, PilotAccountStore.Digest(operationId),
@@ -363,23 +348,22 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
                 changes, crash);
         }
 
-        private bool TryFindAllowlist(string providerNs, string backendIssuer, string subject,
-            out AllowlistEntryProjection entry, out bool matchedPrevious)
+        /// <summary>Map a wound-down owning account's status to the stable rejection code that first-bind
+        /// returns instead of minting a fresh account. The account is still present but not admissible;
+        /// only physical purge removes the barrier.</summary>
+        private static AccountRejectionCode BarrierRejection(PilotAccountStatus status)
         {
-            entry = null!;
-            matchedPrevious = false;
-            var activeHmac = _keyRing.CredentialHmacActive(providerNs, backendIssuer, subject);
-            if (_store.TryLookupAllowlist(activeHmac, providerNs, backendIssuer, out entry)) return true;
-            if (_keyRing.HasPrevious)
+            switch (status)
             {
-                var prevHmac = _keyRing.CredentialHmacUnder(_keyRing.PreviousVersion, providerNs, backendIssuer, subject);
-                if (_store.TryLookupAllowlist(prevHmac, providerNs, backendIssuer, out entry))
-                {
-                    matchedPrevious = true;
-                    return true;
-                }
+                case PilotAccountStatus.Disabled: return AccountRejectionCode.AccountDisabled;
+                case PilotAccountStatus.DeletionPending: return AccountRejectionCode.AccountDeletionPending;
+                case PilotAccountStatus.Deleted: return AccountRejectionCode.AccountDeleted;
+                case PilotAccountStatus.Quarantined: return AccountRejectionCode.AccountQuarantined;
+                // An Active owning account with no ACTIVE binding for this subject is a conflicting durable
+                // state (its credential should have resolved in step 1). Fail closed as a conflict rather
+                // than mint a duplicate account for the same subject.
+                default: return AccountRejectionCode.OperationConflict;
             }
-            return false;
         }
 
         private string BindingFor(string providerNs, string backendIssuer, string subject)

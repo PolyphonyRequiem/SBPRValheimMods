@@ -108,9 +108,10 @@ namespace SBPR.Trailborne.Tests
             }
         }
 
-        /// <summary>Allowlist + first-bind a subject so live admission can resolve/mint its account.</summary>
-        private void Allow(Admission a, string subject) =>
-            a.Accounts.ProvisionAllowlistEntry("prov-" + subject, ProviderNs, Backend, subject, CompleteDisclosure(), Ack(), T0);
+        /// <summary>No-op retained for call-site clarity: normal admission auto-creates the opaque account
+        /// on first authenticated join, so no pre-join allowlist provisioning is required. Kept so the
+        /// existing tests read as "this subject may join" without implying an allowlist gate.</summary>
+        private void Allow(Admission a, string subject) { /* auto-create on first join; no allowlist needed */ }
 
         /// <summary>The server-owned peer key the gameplay path keys the bound index by: the durable
         /// player:&lt;s_playerID&gt; character subject.</summary>
@@ -197,22 +198,22 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(s2.Session.Value, stillBound.SessionId);
         }
 
-        // ── fail-closed: an un-allowlisted subject never binds ──────────────────────
+        // ── auto-create on first join: an unprovisioned subject is admitted and binds ──
 
         [Fact]
-        public void Admit_UnallowlistedSubject_FailsClosed_NoBind()
+        public void Admit_FirstJoinUnprovisionedSubject_AutoCreates_AndBinds()
         {
             var a = new Admission(_journalPath);
-            // No Allow(...) — the subject is not on the allowlist.
+            // No Allow(...) / provisioning — normal admission auto-creates the opaque account on first join.
             long playerId = 8003L;
             var res = a.Live.Admit(PeerKey(playerId), Provider("76561198000000009"),
                 new VerifiedProfileSubject(playerId, 400L), 400L, T0, "conn-1");
 
-            Assert.False(res.Admitted);
-            Assert.Equal(LiveAdmissionStage.Account, res.FailedStage);
-            Assert.Equal("NotAllowlisted", res.ResultCode);
-            Assert.False(a.BoundSessions.TryResolve(PeerKey(playerId), out _));
-            Assert.Equal(0, a.Live.LiveSessionCount);
+            Assert.True(res.Admitted, "first authenticated join should auto-create + bind: " + res.ResultCode);
+            Assert.StartsWith("acct-", res.Account.Value);
+            Assert.StartsWith("char-", res.Character.Value);
+            Assert.True(a.BoundSessions.TryResolve(PeerKey(playerId), out _));
+            Assert.Equal(1, a.Live.LiveSessionCount);
         }
 
         // ── one-session fence: a second concurrent session for the same account rejects ─
