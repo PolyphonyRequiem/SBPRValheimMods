@@ -382,6 +382,10 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/OperatorAdminGate.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/OperatorAccountService.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/PilotIdentity/LocalAllowlistBootstrap.cs" />
+    <!-- T022: the live-store provisioning GUARD over the shipped IAP-009 bootstrap core — target
+         confinement (QA-root containment, production-root refusal, symlink escape), quiescence,
+         store-health preflight, and the subject-free provision delegation. Engine-free, link-compiled. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/PilotIdentity/LiveStoreProvisioningGuard.cs" />
     <!-- RD-T002 (Gate A) — Resource Delivery deterministic-time + recoverable-fan-out slice. Engine-free
          (System-only), so link-compiled here exactly like the Homestead progression Gate-A slice. Closes
          AT-RD-001/003/004/005/007. No gameplay is enabled; these are pure domain/application seams. -->
