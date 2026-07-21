@@ -30,6 +30,13 @@ There is intentionally **no `--subject` flag**: the raw subject can only arrive 
 interactive no-echo TTY (a redirected stdin is refused). Output and the on-disk journal
 carry only the HMAC and opaque ids, never the raw subject.
 
+The privacy disclosure notice requires a **routable operator contact**, supplied as
+`--operator-contact <email|https-url>` or the `NIFLHEIM_T009L_OPERATOR_CONTACT` env var.
+It is disclosure metadata (printed in the notice), **not a secret**. There is no silent
+default: an absent, malformed, `.invalid`, or other documented-placeholder value fails
+closed (`OperatorContactAbsent` / `OperatorContactMalformed` /
+`OperatorContactNonRoutablePlaceholder`) before the subject is ever prompted.
+
 ## Fail-closed boundaries
 
 Target confinement (must resolve under `--qa-root`; production `--forbid-root`s hard-refused;

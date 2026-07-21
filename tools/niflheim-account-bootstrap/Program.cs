@@ -102,6 +102,9 @@ namespace SBPR.Niflheim.AccountBootstrap
             public bool ServerQuiescent;
             public string OperationId = string.Empty;
             public bool AckDisclosure;
+            // Disclosure metadata (NOT a secret) — the routable operator contact printed in the notice.
+            // There is no silent default; an absent/placeholder/non-routable value fails closed.
+            public string OperatorContact = string.Empty;
         }
 
         private static Options ParseOptions(string[] args, int start)
@@ -122,6 +125,7 @@ namespace SBPR.Niflheim.AccountBootstrap
                     case "--forbid-root": o.ForbiddenRoots.Add(Next(a)); break;
                     case "--server-quiescent": o.ServerQuiescent = true; break;
                     case "--op": o.OperationId = Next(a); break;
+                    case "--operator-contact": o.OperatorContact = Next(a); break;
                     case "--i-acknowledge-current-disclosure": o.AckDisclosure = true; break;
                     default:
                         // Reject unknown flags rather than silently ignoring — a fat-fingered --subject
@@ -228,8 +232,26 @@ namespace SBPR.Niflheim.AccountBootstrap
                 return 10;
             }
 
+            // Resolve + validate the operator contact BEFORE presenting the disclosure or reading any
+            // subject. The contact is disclosure metadata (printed in the notice), never a secret. It is
+            // explicit operator-supplied (--operator-contact) or t009l-configured
+            // (NIFLHEIM_T009L_OPERATOR_CONTACT env); there is NO silent default. An absent, malformed,
+            // `.invalid`, or documented-placeholder value fails closed here — the subject is never prompted.
+            string operatorContact = ResolveOperatorContact(o);
+            var contactCheck = OperatorContactPolicy.Validate(operatorContact);
+            if (!contactCheck.IsAcceptable)
+            {
+                Console.WriteLine("resultCode=" + contactCheck.RejectionCode);
+                Console.Error.WriteLine(
+                    "The privacy disclosure requires a routable operator contact. Supply one with " +
+                    "--operator-contact <email|https-url> or set NIFLHEIM_T009L_OPERATOR_CONTACT. " +
+                    "Non-routable placeholders (e.g. *.invalid) are refused.");
+                return 10;
+            }
+            string contact = contactCheck.NormalizedContact;
+
             // Present the current disclosure and require EXPLICIT operator acknowledgement.
-            PresentDisclosure(cfg);
+            PresentDisclosure(cfg, contact);
             if (!o.AckDisclosure)
             {
                 Console.WriteLine("resultCode=DisclosureNotAcknowledged");
@@ -247,7 +269,7 @@ namespace SBPR.Niflheim.AccountBootstrap
             }
 
             var bootstrap = OpenBootstrap(target);
-            var disclosure = CurrentDisclosure(cfg);
+            var disclosure = CurrentDisclosure(cfg, contact);
             var ack = new DisclosureAcknowledgement(cfg.NoticeVersion, UnixNow());
 
             // Read the subject into a transient local buffer with echo OFF. It is passed straight into the
@@ -277,19 +299,31 @@ namespace SBPR.Niflheim.AccountBootstrap
 
         // ---- disclosure ----
 
-        private static PilotDisclosure CurrentDisclosure(LiveStoreGuardConfig cfg)
+        private const string OperatorContactEnvVar = "NIFLHEIM_T009L_OPERATOR_CONTACT";
+
+        /// <summary>Resolve the operator contact from the explicit flag first, then the documented t009l
+        /// env var. Returns the raw candidate (validation happens in the caller); never silently defaults
+        /// to a placeholder.</summary>
+        private static string ResolveOperatorContact(Options o)
+        {
+            if (o.OperatorContact.Length > 0) return o.OperatorContact;
+            string? env = Environment.GetEnvironmentVariable(OperatorContactEnvVar);
+            return env ?? string.Empty;
+        }
+
+        private static PilotDisclosure CurrentDisclosure(LiveStoreGuardConfig cfg, string operatorContact)
         {
             var cat = new PrivacyInventoryCategory(
                 "account-credential", "authenticate pilot join", "30 days after pilot close",
                 "operator", "none", "operator deletion command",
                 "legitimate-interest (pilot operation)", humanApprovedBasis: true);
-            var inv = new PilotPrivacyInventory(new[] { cat }, "pilot-ops@example.invalid", cfg.NoticeVersion);
+            var inv = new PilotPrivacyInventory(new[] { cat }, operatorContact, cfg.NoticeVersion);
             return new PilotDisclosure(inv, "operator deletion/export command", statesExplicitResetPossibility: true);
         }
 
-        private static void PresentDisclosure(LiveStoreGuardConfig cfg)
+        private static void PresentDisclosure(LiveStoreGuardConfig cfg, string operatorContact)
         {
-            var d = CurrentDisclosure(cfg);
+            var d = CurrentDisclosure(cfg, operatorContact);
             Console.WriteLine();
             Console.WriteLine("---- CURRENT PRIVACY DISCLOSURE (notice " + d.NoticeVersion + ") ----");
             Console.WriteLine("  stored categories : " + string.Join(", ", d.StoredCategoryNames()));
@@ -448,9 +482,11 @@ namespace SBPR.Niflheim.AccountBootstrap
         {
             Console.WriteLine("usage:");
             Console.WriteLine("  niflheim-account-bootstrap preflight --store-dir <dir> --qa-root <root> [--forbid-root <r>]... [--server-quiescent]");
-            Console.WriteLine("  niflheim-account-bootstrap provision --store-dir <dir> --qa-root <root> [--forbid-root <r>]... --server-quiescent --op <id> --i-acknowledge-current-disclosure");
+            Console.WriteLine("  niflheim-account-bootstrap provision --store-dir <dir> --qa-root <root> [--forbid-root <r>]... --server-quiescent --op <id> --operator-contact <email|https-url> --i-acknowledge-current-disclosure");
             Console.WriteLine();
             Console.WriteLine("The provider subject is NEVER a flag/env var; provision reads it on a no-echo TTY.");
+            Console.WriteLine("The operator contact IS disclosure metadata (printed in the notice), not a secret: pass");
+            Console.WriteLine("--operator-contact or set NIFLHEIM_T009L_OPERATOR_CONTACT. Placeholders (*.invalid) are refused.");
             return 1;
         }
 

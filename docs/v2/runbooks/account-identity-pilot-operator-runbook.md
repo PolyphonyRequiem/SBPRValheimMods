@@ -166,6 +166,18 @@ restart, and the guard adds the observed valbot id to the t009l adminlist.
   in-memory admission index and must not race it. Pass `--server-quiescent` ONLY when the server is down.
 - You have read the CURRENT privacy/retention disclosure and Daniel has explicitly acknowledged it for the
   valbot QA account.
+- **A routable operator contact is configured.** The disclosure notice MUST name a real operator contact
+  channel; there is NO silent default. Provide it either as `--operator-contact <email|https-url>` on the
+  `provision` command, or by exporting `NIFLHEIM_T009L_OPERATOR_CONTACT` in the t009l service environment.
+  The contact is DISCLOSURE METADATA (it is printed in the notice) — it is NOT a secret and must NOT be put
+  in the HMAC key path or any secret store. An absent, malformed, `.invalid` (or other documented
+  placeholder such as `example.com`/`localhost`/`changeme`) value FAILS CLOSED before the subject prompt:
+  `provision` prints a subject-free `resultCode=OperatorContactAbsent` /
+  `resultCode=OperatorContactMalformed` / `resultCode=OperatorContactNonRoutablePlaceholder` and writes
+  nothing. Source of truth for t009l: the pilot-ops owner's real, monitored contact address recorded in the
+  t009l operations handbook; set it via the env var in the t009l service unit (rollback: `unset` the env
+  var / drop the `--operator-contact` flag — the host then refuses to provision rather than emitting a
+  placeholder notice).
 
 ### 7.1 Preflight (subject-free — reads NO subject)
 
@@ -198,12 +210,17 @@ versions, and that a restart is required — WITHOUT accepting or revealing the 
        --forbid-root /srv/niflheim/production --forbid-root /srv/heistan/production \
        --server-quiescent \
        --op <unique-operation-id> \
+       --operator-contact <pilot-ops-routable-email-or-https-url> \
        --i-acknowledge-current-disclosure
-   # → prints the current disclosure, then prompts (NO echo): "provider subject (no echo): "
+   # → prints the current disclosure (with the routable operator contact), then prompts
+   #   (NO echo): "provider subject (no echo): "
    #   type/paste the valbot Steam subject; it is not shown, not logged, not stored raw
    # → resultCode=Provisioned allowlistEntryId=allow-xxxxxxxx   (record ONLY the entry id)
    ```
-   Rejections all fail closed with nothing written: `OutsideQaRoot` / `ProductionRootForbidden` /
+   (`--operator-contact` may be omitted if `NIFLHEIM_T009L_OPERATOR_CONTACT` is exported for the service.)
+   Rejections all fail closed with nothing written: `OperatorContactAbsent` / `OperatorContactMalformed` /
+   `OperatorContactNonRoutablePlaceholder` (no routable contact configured — set `--operator-contact` or the
+   env var), `OutsideQaRoot` / `ProductionRootForbidden` /
    `SymlinkEscape` (target confinement), `ServerNotQuiescent` (server still running),
    `StoreQuarantinedNeedsReview` (durable ambiguity — escalate, do not force), `KeyPathTooPermissive`
    (`chmod 0600` the key), `SubjectChannelForbidden` (stdin redirected — use an interactive TTY),

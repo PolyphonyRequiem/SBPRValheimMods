@@ -28,6 +28,7 @@
     <Compile Include="$(SRCDIR)/Adapters/Identity/LookupKeyRing.cs" />
     <Compile Include="$(SRCDIR)/Domain/Accounts/PilotAccountIdentifiers.cs" />
     <Compile Include="$(SRCDIR)/Domain/Accounts/PilotDisclosure.cs" />
+    <Compile Include="$(SRCDIR)/Domain/Accounts/OperatorContactPolicy.cs" />
     <Compile Include="$(SRCDIR)/Persistence/Accounts/PilotAccountStore.cs" />
     <Compile Include="$(SRCDIR)/Persistence/Accounts/PersistedPiiScanner.cs" />
     <Compile Include="$(SRCDIR)/Application/Accounts/PilotAccountService.cs" />
