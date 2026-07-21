@@ -341,6 +341,27 @@
          real observed level and never affecting structure/build gates. Engine-free; the crafting nodes
          T022–T023 extend this same adapter surface. Named acceptance AT-REFINED-REAL-VS-EFFECTIVE. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/EffectiveStationLevelProvider.cs" />
+    <!-- T022 Crafting node 2 (US4): Masterwork exact-instance Workmanship issuance. The engine-free
+         item-provenance codec (Domain/CharacterProgression/ItemProvenance.cs) stamps/reads/validates one
+         deterministic visible Workmanship Property onto an item's custom-data map behind a server-keyed
+         HMAC integrity token, restricted to eligible non-stackable durable outputs, degrading tampered/
+         unknown metadata to vanilla; the pure provider (Adapters/Crafting/WorkmanshipIssuanceProvider.cs)
+         issues it only while the personal Masterwork Character Effect is active (purchase + active
+         relationship, no second ledger). Named acceptance AT-MASTERWORK-ISSUE, AT-ITEM-UPGRADE-PRESERVE,
+         AT-ITEM-TRANSFER, AT-ITEM-TAMPER-DEGRADE. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/ItemProvenance.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/WorkmanshipIssuanceProvider.cs" />
+    <!-- T022 remediation (t_cdc76200): the engine-free bounded server↔client Masterwork Workmanship
+         ISSUANCE + VALIDATION delivery substrate — the channel the T022 joined-client QA proved missing so
+         a pure joined crafter on a dedicated server could never receive/validate a stamp. The wire request/
+         reply contract, the server-side delivery service that mints+signs (issuance) and validates a
+         client-presented stamp under the server key (the key never crossing the wire), and the client-side
+         verdict cache that records server Valid/Tampered answers so presentation degrades forged/unconfirmed
+         stamps to vanilla. All engine-free (System.* + the shipped provider/codec), so they compile under
+         net8 here AND net48 in the mod. Mirrors the accepted PersonalActivationDelivery substrate. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipIssuanceDelivery.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipDeliveryService.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipVerdictCache.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and

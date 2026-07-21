@@ -528,7 +528,41 @@ These are derived-provider contracts, not direct ledger writes.
   transport does not round-trip to the host itself); the proven effective-Level-3 topology is a dedicated server
   with a joined client.
 - `WorkmanshipIssuanceProvider`: active Masterwork may issue one deterministic property on an eligible exact
-  non-stackable durable output.
+  non-stackable durable output. **Implemented (T022, `Adapters/Crafting/WorkmanshipIssuanceProvider.cs` +
+  `Domain/CharacterProgression/ItemProvenance.cs`):** Masterwork is a personal Character Effect, so its
+  active/dormant status derives through the shipped T004 `DerivedActivationView` (purchase record for
+  `Masterwork@1` at this Stone AND an active relationship; no second ledger). While active, the provider's
+  `Decide(...)` issues ONE deterministic visible Workmanship Property (`Workmanship=Masterwork`; no RNG, no
+  tier catalog — the final catalog is deferred) on an eligible output (`WorkmanshipCodec.IsEligible`:
+  non-stackable AND durable), returning stable outcomes `Issue`/`EffectNotActive`/`IneligibleItem`/
+  `AlreadyStamped` (idempotent — never overwrites an existing valid stamp). The engine-free `WorkmanshipCodec`
+  stamps/reads/validates the property onto an item's `m_customData` behind an abstract metadata surface and
+  protects it with a server-held HMAC-SHA-256 integrity token over the canonical, length-framed IMMUTABLE
+  fields ONLY (schema, issuing node, `ItemProvenanceId`, crafter, item type, property). Because the token
+  excludes mutable per-instance facts (quality/durability/stack), a legitimate upgrade/transfer that preserves
+  the custom-data map keeps validating; a hand-edited/forged/foreign-key/partial/unknown-schema/lifted-and-
+  pasted stamp reads `Tampered` and degrades to vanilla. **Live-wired (net48):** `Features/Crafting/
+  MasterworkIssuanceObserver` postfixes `InventoryGui.DoCrafting` on the authoritative host, resolves the
+  crafter's Masterwork activation from the composed server stores, stamps the exact provenance onto the
+  just-produced eligible item via `ItemDataMetadataAccessor`, and explicitly dirties persistence
+  (`Inventory.Changed()`). The durable server integrity key (`WorkmanshipIntegrityKeyFile`) is armed in the
+  runtime bootstrap; issuance fails closed with no key/server. **Dedicated-server joined-client delivery
+  (T022 remediation, t_cdc76200):** the host-only observer cannot issue on an isolated dedicated server (the
+  headless server has no local crafter and a pure joined crafter is unarmed/keyless), so
+  `Features/Crafting/MasterworkDedicatedDeliveryObserver` adds a bounded per-peer ZRpc channel that makes
+  issuance authoritative AND client-delivered **without ever shipping the raw integrity key**: a joined crafter
+  sends server-observed produced-item facts, the server re-derives entitlement from its own stores (transport-
+  authenticated bound principal — never the payload), mints + SIGNS the stamp through the engine-free
+  `Application/Crafting/WorkmanshipDeliveryService`, and the client writes the exact signed bytes via
+  `WorkmanshipCodec.WriteSigned` (byte-identical to a host stamp). A joined receiver VALIDATES a stamp it read
+  keylessly (`WorkmanshipCodec.TryReadRaw`) by relaying the fields+token for the server to check under its key
+  (`WorkmanshipCodec.Validate`), caching the Valid/Tampered verdict (`WorkmanshipVerdictCache`).
+  `Features/Crafting/MasterworkWorkmanshipTooltip` postfixes `ItemDrop.ItemData.GetTooltip` to render the one
+  deterministic `Workmanship: Masterwork` line only for a confirmed-valid stamp — validated under the composed
+  key on the host, or against the server verdict cache on a pure client — so a forged/foreign/unconfirmed stamp
+  degrades to a plain vanilla tooltip on the joined client. The four ATs (`AT-MASTERWORK-ISSUE`,
+  `AT-ITEM-UPGRADE-PRESERVE`, `AT-ITEM-TRANSFER`, `AT-ITEM-TAMPER-DEGRADE`) are therefore reachable on the
+  dedicated-server + genuine-joined-client topology, not host-only.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on
   future eligible outputs after relationship loss as well.
 - Both item providers bind a server-validated `ItemProvenanceId`, survive upgrade/transfer where valid, explicitly
