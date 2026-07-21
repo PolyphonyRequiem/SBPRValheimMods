@@ -24,6 +24,14 @@ purpose: Executable operator runbook for the IAP-009 control foundation — loca
 > cores is wired at the live-server integration in IAP-010. The commands are usable without hand-editing
 > journals — every effect above is a core method, not a file edit.
 
+> **Implementation status (T022):** the isolated live-store provisioning host `niflheim-account-bootstrap`
+> (`tools/niflheim-account-bootstrap`) is now SHIPPED. It binds real path resolution (realpath + per-component
+> lstat), real `stat(2)` key-permission checks, a real no-echo TTY, and the on-disk journal to the engine-free
+> `LiveStoreProvisioningGuard` over the SHIPPED `LocalAllowlistBootstrap` core (no policy fork). The host
+> exposes `preflight` (subject-free proof) and `provision` (one QA subject, confined + quiesced). Live
+> execution against t009l follows review and an explicit operator privacy/retention acknowledgement — see
+> §7 below.
+
 ## 0. Authority model (read first)
 
 - **Account lifecycle** (inspect, disable, delete) requires the **live-server Valheim admin gate**: you must
@@ -143,3 +151,91 @@ idempotency: `Replayed` on the same op, `AlreadyClosing` (NoOp) on an already-pe
 - Repeated `QuarantinedState` on boot — durable ambiguity needs an operator decision, not a journal edit.
 - Anything that would require editing `account-journal.bin`, the HMAC key material, or `adminlist.txt` by
   hand outside the documented commands.
+
+## 7. Live-store QA subject provisioning for isolated t009l (T022)
+
+This is the ONLY supported way to admit the valbot QA account into the isolated HomesteadT009L store. It
+provisions **exactly one** allowlist entry for the QA subject; the server then observes and admits it after
+restart, and the guard adds the observed valbot id to the t009l adminlist.
+
+**Preconditions (all mandatory — the host fails closed otherwise):**
+- You are the t009l server service account and own the store dir (HMAC key `0600`-or-tighter).
+- The store dir resolves UNDER the isolated HomesteadT009L QA data root. Production Niflheim/Heistan roots
+  are hard-refused; a symlink escaping the QA root is refused.
+- **The t009l server process is STOPPED** (quiesced). An external append is invisible to a running server's
+  in-memory admission index and must not race it. Pass `--server-quiescent` ONLY when the server is down.
+- You have read the CURRENT privacy/retention disclosure and Daniel has explicitly acknowledged it for the
+  valbot QA account.
+- **A routable operator contact is configured.** The disclosure notice MUST name a real operator contact
+  channel; there is NO silent default. Provide it either as `--operator-contact <email|https-url>` on the
+  `provision` command, or by exporting `NIFLHEIM_T009L_OPERATOR_CONTACT` in the t009l service environment.
+  The contact is DISCLOSURE METADATA (it is printed in the notice) — it is NOT a secret and must NOT be put
+  in the HMAC key path or any secret store. An absent, malformed, `.invalid` (or other documented
+  placeholder such as `example.com`/`localhost`/`changeme`) value FAILS CLOSED before the subject prompt:
+  `provision` prints a subject-free `resultCode=OperatorContactAbsent` /
+  `resultCode=OperatorContactMalformed` / `resultCode=OperatorContactNonRoutablePlaceholder` and writes
+  nothing. Source of truth for t009l: the pilot-ops owner's real, monitored contact address recorded in the
+  t009l operations handbook; set it via the env var in the t009l service unit (rollback: `unset` the env
+  var / drop the `--operator-contact` flag — the host then refuses to provision rather than emitting a
+  placeholder notice).
+
+### 7.1 Preflight (subject-free — reads NO subject)
+
+```text
+niflheim-account-bootstrap preflight \
+    --store-dir <t009l-qa-data-root>/accounts \
+    --qa-root   <t009l-qa-data-root> \
+    --forbid-root /srv/niflheim/production \
+    --forbid-root /srv/heistan/production \
+    --server-quiescent
+# → confinement=UnderQaRoot keyOwnerOnly=True storeExists=... accounts=N activeAllowlist=M
+#   quarantinedTailBytes=0 quarantinedIntentTxns=0 noticeVersion=notice-v1 retentionVersion=retention-v1
+#   serverQuiescent=True restartRequired=True ready=True
+```
+
+`ready=True` (exit 0) proves target identity, owner-only key, store health, current notice/retention
+versions, and that a restart is required — WITHOUT accepting or revealing the subject. Any `ready=False`
+(exit 10) prints a subject-free `blockingResultCode`; fix that condition and re-run. Preflight never writes.
+
+### 7.2 Safe stop → backup → provision → restart → verify → rollback
+
+1. **Stop** the isolated t009l server and confirm the process is down (quiescence requirement).
+2. **Backup** the store dir byte-for-byte: `cp -a <store-dir> <store-dir>.bak-<timestamp>`. This is the
+   rollback artifact — the host NEVER truncates/reinitializes the store, but keep the backup regardless.
+3. **Provision** exactly one QA subject (subject typed on the no-echo TTY; NEVER an argv/env value):
+   ```text
+   niflheim-account-bootstrap provision \
+       --store-dir <t009l-qa-data-root>/accounts \
+       --qa-root   <t009l-qa-data-root> \
+       --forbid-root /srv/niflheim/production --forbid-root /srv/heistan/production \
+       --server-quiescent \
+       --op <unique-operation-id> \
+       --operator-contact <pilot-ops-routable-email-or-https-url> \
+       --i-acknowledge-current-disclosure
+   # → prints the current disclosure (with the routable operator contact), then prompts
+   #   (NO echo): "provider subject (no echo): "
+   #   type/paste the valbot Steam subject; it is not shown, not logged, not stored raw
+   # → resultCode=Provisioned allowlistEntryId=allow-xxxxxxxx   (record ONLY the entry id)
+   ```
+   (`--operator-contact` may be omitted if `NIFLHEIM_T009L_OPERATOR_CONTACT` is exported for the service.)
+   Rejections all fail closed with nothing written: `OperatorContactAbsent` / `OperatorContactMalformed` /
+   `OperatorContactNonRoutablePlaceholder` (no routable contact configured — set `--operator-contact` or the
+   env var), `OutsideQaRoot` / `ProductionRootForbidden` /
+   `SymlinkEscape` (target confinement), `ServerNotQuiescent` (server still running),
+   `StoreQuarantinedNeedsReview` (durable ambiguity — escalate, do not force), `KeyPathTooPermissive`
+   (`chmod 0600` the key), `SubjectChannelForbidden` (stdin redirected — use an interactive TTY),
+   `DisclosureNotAcknowledged` (pass the ack flag after reading the notice), `DisclosureIncomplete`
+   (stale notice version), `ProviderSubjectInvalid` (empty subject).
+4. **Restart** the t009l server. The new allowlist entry now admits on first join (a running server would
+   not have seen it — hence the mandatory stop).
+5. **Verify:** join with the valbot client; it is admitted (no `NotAllowlisted`). Capture the
+   server-observed valbot id and add it to the t009l adminlist.
+6. **Rollback (if anything is wrong):** stop the server, restore the backup
+   (`rm -rf <store-dir> && cp -a <store-dir>.bak-<timestamp> <store-dir>`), restart. Because provision only
+   APPENDS one allowlist entry, rollback is a clean restore; never hand-edit the journal to "undo" an entry.
+
+**Hard boundaries (enforced in code, restated):** the subject arrives ONLY on the protected no-echo TTY —
+there is no `--subject` flag and a redirected stdin is refused; the host output and the on-disk journal carry
+only the HMAC and opaque ids, never the raw subject; the store is never truncated, reset, or reinitialized;
+a non-quiescent server, an out-of-root/production/symlink target, a group/other-reachable key, or a
+quarantined store all fail closed before any subject is read.

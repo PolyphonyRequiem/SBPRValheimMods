@@ -1,0 +1,15 @@
+<Project>
+  <!-- Deliberately does NOT import the repo-root Directory.Build.props.
+       MSBuild walks up and stops at the FIRST Directory.Build.props it finds, so
+       this file shields the operator host from the root's SbprValidateSdkPaths
+       target, which hard-errors unless the Valheim managed-assembly path is set.
+
+       Like tests/ and qa-operator-harness/, this host link-compiles ONLY the
+       SHIPPED engine-free IAP-009 / T022 core source files (Application/Accounts/*,
+       Features/PilotIdentity/LocalAllowlistBootstrap.cs, LiveStoreProvisioningGuard.cs,
+       and their engine-free deps — all free of UnityEngine/HarmonyLib/Valheim refs)
+       and references no game/BepInEx assemblies, so it must not inherit the
+       Valheim-SDK requirement. It runs headless on the server host. The shipping mod
+       project at src/ lives in a sibling subtree and still finds the root props
+       unchanged, so this override does not affect it. -->
+</Project>

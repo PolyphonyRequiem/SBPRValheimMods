@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- T022 — the thin operator host CLI for `niflheim-account-bootstrap`. Binds REAL OS
+       resources (realpath/lstat/stat, no-echo TTY, on-disk journal) to the SHIPPED
+       engine-free cores (LiveStoreProvisioningGuard over LocalAllowlistBootstrap /
+       PilotAccountService / PilotAccountStore). No copy/fork: the provisioning policy IS
+       the shipped IAP-009 core; this host only does I/O + the T022 confinement/quiescence
+       boundary. Link-compiles the same source files as tests/ and qa-operator-harness. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>niflheim-account-bootstrap</AssemblyName>
+    <RootNamespace>SBPR.Niflheim.AccountBootstrap</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SbprSkipSdkValidation>true</SbprSkipSdkValidation>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- In-repo default: the shipped cores are two dirs up. Override with
+         -p:SRCDIR=<abs path> when building from a detached worktree. -->
+    <SRCDIR Condition="'$(SRCDIR)'==''">$(MSBuildThisFileDirectory)../../src/SBPR.Niflheim.HomesteadStones</SRCDIR>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(SRCDIR)/Adapters/Identity/PilotProviderGate.cs" />
+    <Compile Include="$(SRCDIR)/Adapters/Identity/PilotProvisioningInputGate.cs" />
+    <Compile Include="$(SRCDIR)/Adapters/Identity/PilotAuthLoggingContract.cs" />
+    <Compile Include="$(SRCDIR)/Adapters/Identity/LookupKeyRing.cs" />
+    <Compile Include="$(SRCDIR)/Domain/Accounts/PilotAccountIdentifiers.cs" />
+    <Compile Include="$(SRCDIR)/Domain/Accounts/PilotDisclosure.cs" />
+    <Compile Include="$(SRCDIR)/Domain/Accounts/OperatorContactPolicy.cs" />
+    <Compile Include="$(SRCDIR)/Persistence/Accounts/PilotAccountStore.cs" />
+    <Compile Include="$(SRCDIR)/Persistence/Accounts/PersistedPiiScanner.cs" />
+    <Compile Include="$(SRCDIR)/Application/Accounts/PilotAccountService.cs" />
+    <Compile Include="$(SRCDIR)/Features/PilotIdentity/LocalAllowlistBootstrap.cs" />
+    <Compile Include="$(SRCDIR)/Features/PilotIdentity/LiveStoreProvisioningGuard.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>
