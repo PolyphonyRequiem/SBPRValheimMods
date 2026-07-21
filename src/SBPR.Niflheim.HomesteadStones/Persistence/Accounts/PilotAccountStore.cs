@@ -460,6 +460,32 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
             return false;
         }
 
+        /// <summary>Wound-down re-admission barrier lookup for auto-create-on-first-join. Finds ANY
+        /// still-present credential (regardless of credential status) whose HMAC matches under the given
+        /// version and returns its owning account's status. This preserves the delete/disable/quarantine
+        /// drain barrier now that a MISSING ACTIVE binding auto-mints a new opaque account instead of
+        /// rejecting NotAllowlisted: a wound-down account's still-present (revoked) credential must reject
+        /// re-admission rather than mint a fresh account. Once the account's records are physically purged
+        /// (account-scoped compaction / whole-fixture reset) no credential remains here, so a later join
+        /// legitimately mints anew. Bounded projection read (not a journal scan); only the cold first-bind
+        /// mint path calls it.</summary>
+        public bool TryLookupAnyCredentialAccountStatus(SubjectLookupHmac hmac, string providerNs, string backendIssuer, out PilotAccountStatus status)
+        {
+            status = default;
+            string key = IndexKey(providerNs, backendIssuer, hmac);
+            foreach (var c in _credentials.Values)
+            {
+                if (!string.Equals(IndexKey(c.ProviderNamespace, c.BackendIssuer, c.Hmac), key, StringComparison.Ordinal))
+                    continue;
+                if (_accounts.TryGetValue(c.AccountId.Value, out var acct))
+                {
+                    status = acct.Status;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>Indexed allowlist lookup (NO journal scan). Active entries only.</summary>
         public bool TryLookupAllowlist(SubjectLookupHmac hmac, string providerNs, string backendIssuer, out AllowlistEntryProjection entry)
         {
@@ -561,7 +587,7 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Accounts
             var removedCreds = new List<string>();
             var removedChars = new List<string>();
             foreach (var c in _credentials.Values)
-                if (accounts.Contains(c.AccountId.Value)) { linkedIds.Add(c.CredentialBindingId.Value); linkedIds.Add(c.AllowlistEntryId.Value); removedCreds.Add(c.CredentialBindingId.Value); }
+                if (accounts.Contains(c.AccountId.Value)) { linkedIds.Add(c.CredentialBindingId.Value); if (!string.IsNullOrEmpty(c.AllowlistEntryId.Value)) linkedIds.Add(c.AllowlistEntryId.Value); removedCreds.Add(c.CredentialBindingId.Value); }
             foreach (var ch in _characters.Values)
                 if (accounts.Contains(ch.AccountId.Value)) { linkedIds.Add(ch.CharacterId.Value); removedChars.Add(ch.CharacterId.Value); }
             var removedArtifacts = new List<string>();

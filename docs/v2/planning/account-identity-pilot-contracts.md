@@ -66,27 +66,28 @@ The profile source reads the authenticated peer's server-owned character ZDO. Th
 
 **Caller:** dedicated/listen-server connection admission after transport authentication.
 
-**Inputs:** transient verified provider principal, HMAC-only allowlist snapshot, required disclosure version, `AccountOperationId`.
+**Inputs:** transient verified provider principal, required disclosure/notice version, retention policy version, `AccountOperationId`.
 
 **Validates:**
 
 - provider equals configured Gate-0-proven namespace;
 - subject nonempty and canonicalizable;
-- an active HMAC allowlist entry exists and records acknowledgement of the required disclosure version;
 - HMAC key version is available;
 - no conflicting active binding;
 - account status permits admission;
 - operation replay/conflict state.
 
+**Auto-create on first authenticated join (normal admission):** when no active credential binding resolves the subject under the active or previous key, this mints an opaque account on the spot — there is **no pre-join allowlist requirement** and **no fabricated per-account disclosure acknowledgement**. A missing binding atomically mints a new `AccountId` + `CredentialBindingId`. The minted account carries no `PilotAllowlistEntry` linkage (the credential's `allowlistEntryId` is empty) and no admission-time notice-acknowledgement timestamp; disclosure is delivered as server policy / out-of-band notice, not as a per-account admission acknowledgement record. Distinct subjects always mint distinct accounts (never name/resemblance merged).
+
+**Wound-down re-admission barrier:** before minting, if a still-present (typically revoked) credential for the same subject exists — because the owning account was disabled, deletion-pending, deleted, or quarantined — admission is **rejected** with that account's status (`AccountDisabled` / `AccountDeletionPending` / `AccountDeleted` / `QuarantinedState`) rather than silently recreating a fresh account. The barrier is probed under **both the active and (when the ring carries one) the previous key version**, matching the active-or-previous-key resolution scope above: a revoked credential still stored under the previous key after a supported rotation must not slip past an active-only check and mint a fresh account. Only after the account's records are physically purged (account-scoped compaction or whole-fixture reset) does a later join legitimately mint anew.
+
 **Commits when new:**
 
 - `PilotAccountRecord`;
-- `CredentialBindingRecord` under current HMAC key version;
+- `CredentialBindingRecord` under current HMAC key version (no allowlist linkage);
 - `AccountCreated` + `CredentialBound` terminal receipt.
 
-If enrollment matched a previous-key allowlist entry, the same account-creation transaction also creates its current-key replacement and supersedes the old entry; no account may be born linked only to a retiring key version.
-
-**Commits when a previous-key account resolves:** one terminal transaction creates the current-key allowlist and credential replacements, updates their linkage/account membership, supersedes both old records, preserves notice acknowledgement, and returns a stable replay result. No half-rekeyed state is acknowledged.
+**Commits when a previous-key account resolves:** one terminal transaction re-keys the credential in place under the active key version, updates linkage/account membership, supersedes the retiring-key record, and returns a stable replay result. No half-rekeyed state is acknowledged.
 
 **Returns:**
 
@@ -103,6 +104,8 @@ PilotAccountResolution
 The raw subject is discarded after lookup/commit and never returned.
 
 ### `ProvisionPilotAllowlistEntry`
+
+> **Deprecated for normal admission.** Normal Niflheim first bind no longer requires a pre-provisioned allowlist entry — the first authenticated Steam join auto-creates the opaque account (see `ResolveOrCreatePilotAccount`). Existing allowlist records remain readable for compatibility/audit and this surface is retained for that purpose, but it is not part of the normal join path. Avoid destructive migration of existing entries.
 
 **Caller:** either (a) an administrator authenticated by the existing live-server Valheim admin gate over the direct per-peer authority seam, or (b) the server-host service owner through an allowlist-only local bootstrap utility protected by OS account/file ownership. The local utility fails closed when its key/data paths are accessible beyond the service account (for example, broader than `0600` on Linux), and cannot inspect/export/disable/delete/reset accounts, change retention, or invoke gameplay commands. The target subject is data, never actor authority.
 
@@ -264,7 +267,7 @@ Builds `PlayerSafeAccountExport` from internal account/character/gameplay projec
 
 ### `DeletePilotAccount`
 
-Authenticate administrator, acquire the per-account mutation fence, and wait for any already-committing transaction. One terminal transaction commits `DeletionPending`, revokes every linked credential and `AllowlistEntryId`, and closes future admission/gameplay commit. Then server-close the session and schedule cataloged data/export/backup purge by `purgeEligibleAt`. Account-scoped compaction must preserve journal invariants and emit evidence; otherwise invoke explicit whole-pilot reset. A tombstone or opaque ID alone is not reported as purge, and the revoked allowlist prevents immediate account recreation.
+Authenticate administrator, acquire the per-account mutation fence, and wait for any already-committing transaction. One terminal transaction commits `DeletionPending`, revokes every linked credential (and any legacy `AllowlistEntryId` still linked), and closes future admission/gameplay commit. Then server-close the session and schedule cataloged data/export/backup purge by `purgeEligibleAt`. Account-scoped compaction must preserve journal invariants and emit evidence; otherwise invoke explicit whole-pilot reset. A tombstone or opaque ID alone is not reported as purge. Recreation is prevented by the **wound-down re-admission barrier**: while the revoked credential remains present (pre-purge), a same-subject re-join is rejected with the account's status (`AccountDeletionPending`/`AccountDeleted`) instead of auto-creating a fresh account; only physical purge removes the barrier.
 
 ### `ResetPilotData`
 
@@ -326,7 +329,7 @@ Static/operator-readable contract listing each persisted category, purpose, resp
 | `UnauthenticatedPeer` | No server-authenticated transport subject |
 | `ProviderUnsupported` | Subject belongs to a provider namespace not selected by Gate 0/config |
 | `ProviderSubjectInvalid` | Empty/ambiguous/noncanonical provider subject |
-| `NotAllowlisted` | Closed-pilot allowlist rejected the subject |
+| `NotAllowlisted` | **Deprecated** — retired from the normal first-bind path (first authenticated join auto-creates an opaque account). Retained in the vocabulary only for backward compatibility / reading historical receipts; no live code path returns it. |
 | `LookupKeyUnavailable` | Required HMAC key version missing; fail closed |
 | `CredentialConflict` | Active provider/HMAC binding conflicts with requested creation |
 | `AccountDisabled` | Account cannot open a session |

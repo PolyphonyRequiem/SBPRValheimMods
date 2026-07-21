@@ -378,8 +378,8 @@ namespace SBPR.Qa.OperatorHarness
             // Post-disable/delete admission rejection: the same QA subject cannot re-join.
             var svc = NewService(store);
             var rejoin = svc.ResolveOrCreateAccount("rejoin-after-restart", Principal(), UnixNow());
-            Check("POST-DELETE-REJECT", !rejoin.Accepted && rejoin.RejectionCode == AccountRejectionCode.NotAllowlisted,
-                $"re-join rejected after restart: {rejoin.RejectionCode} (allowlist revoked, no recreation)");
+            Check("POST-DELETE-REJECT", !rejoin.Accepted && rejoin.RejectionCode == AccountRejectionCode.AccountDeletionPending,
+                $"re-join rejected after restart: {rejoin.RejectionCode} (wound-down credential barrier, no recreation)");
 
             // Fresh process => the process-local session registry is empty (a stale session
             // cannot survive a reboot). Prove the registry starts clean.

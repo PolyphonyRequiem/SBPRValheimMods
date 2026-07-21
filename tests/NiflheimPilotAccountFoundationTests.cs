@@ -12,7 +12,7 @@
 //    AT-AIP-ACCOUNT-RECONNECT           AT-AIP-FIRST-BIND-RACE
 //    AT-AIP-ACCOUNT-CREDENTIAL-ATOMIC   AT-AIP-HMAC-CANONICAL
 //    AT-AIP-ALLOWLIST-HMAC-ONLY         AT-AIP-DISCLOSURE-COMPLETE
-//    AT-AIP-DATA-INVENTORY-BASIS        AT-AIP-NOT-ALLOWLISTED
+//    AT-AIP-DATA-INVENTORY-BASIS        AT-AIP-FIRST-JOIN-AUTOCREATE
 //    AT-AIP-UNKNOWN-CREDENTIAL-SEPARATE AT-AIP-NO-NAME-MERGE
 //    AT-AIP-KEY-STRENGTH-SEPARATION     AT-AIP-KEY-MISSING-FAIL-CLOSED
 //    AT-AIP-PREVIOUS-KEY-REKEY          AT-AIP-REKEY-MULTIHOP
@@ -99,11 +99,11 @@ namespace SBPR.Trailborne.Tests
         private PilotAccountService NewService(PilotAccountStore store, LookupKeyRing ring) =>
             new PilotAccountService(store, ring, NoticeV, RetentionV);
 
-        /// <summary>Provision an allowlist entry + first-bind an account for a subject in one call.</summary>
+        /// <summary>First-bind an account for a subject. Normal admission auto-creates the opaque account
+        /// on first authenticated join — NO allowlist provisioning is required or performed (the pre-join
+        /// allowlist is deprecated; ProvisionAllowlistEntry remains only for compatibility/audit).</summary>
         private PilotAccountResolution ProvisionAndBind(PilotAccountService svc, string subject, string opSuffix = "")
         {
-            svc.ProvisionAllowlistEntry("prov-" + subject + opSuffix, ProviderNs, Backend, subject,
-                CompleteDisclosure(), Ack(), T0);
             return svc.ResolveOrCreateAccount("bind-" + subject + opSuffix, Principal(subject), T0);
         }
 
@@ -349,16 +349,29 @@ namespace SBPR.Trailborne.Tests
             Assert.All(results, r => Assert.True(r.Accepted));
         }
 
-        // ── AT-AIP-NOT-ALLOWLISTED ──────────────────────────────────────────────
+        // ── AT-AIP-FIRST-JOIN-AUTOCREATE ────────────────────────────────────────
+        // Normal Niflheim admission: a first authenticated Steam subject with NO existing binding
+        // auto-creates exactly one opaque account + credential atomically — no pre-join allowlist, no
+        // fabricated disclosure acknowledgement. (Supersedes the retired AT-AIP-NOT-ALLOWLISTED closed-
+        // pilot rejection.)
         [Fact]
-        public void AT_AIP_NOT_ALLOWLISTED_UnknownSubject_RejectsBeforeMint()
+        public void AT_AIP_FIRST_JOIN_AUTOCREATE_UnknownSubject_MintsOneOpaqueAccount()
         {
             var store = new PilotAccountStore(JournalPath);
             var svc = NewService(store, FixedRing());
             var res = svc.ResolveOrCreateAccount("bind", Principal("76561198000000333"), T0);
-            Assert.Equal(AccountAdmissionOutcome.Rejected, res.Outcome);
-            Assert.Equal(AccountRejectionCode.NotAllowlisted, res.RejectionCode);
-            Assert.Equal(0, store.AccountCount);
+            Assert.Equal(AccountAdmissionOutcome.Created, res.Outcome);
+            Assert.Equal(AccountRejectionCode.None, res.RejectionCode);
+            Assert.False(res.AccountId.IsEmpty);
+            Assert.False(res.CredentialBindingId.IsEmpty);
+            Assert.Equal(1, store.AccountCount);
+
+            // No allowlist / disclosure record is created or required on the normal first-bind path.
+            Assert.Empty(store.AllowlistEntries);
+            Assert.True(store.TryGetAccount(res.AccountId, out var acct));
+            Assert.Equal(0, acct.NoticeAcknowledgedAt);   // no fabricated per-account admission ack
+            Assert.True(store.TryGetCredential(res.CredentialBindingId, out var cred));
+            Assert.True(cred.AllowlistEntryId.IsEmpty);    // credential carries NO PilotAllowlistEntry linkage
         }
 
         // ── AT-AIP-UNKNOWN-CREDENTIAL-SEPARATE ──────────────────────────────────
@@ -377,17 +390,18 @@ namespace SBPR.Trailborne.Tests
 
         // ── AT-AIP-NO-NAME-MERGE ────────────────────────────────────────────────
         [Fact]
-        public void AT_AIP_NO_NAME_MERGE_DifferentSubjects_NeverMerge_EvenWithoutAllowlist()
+        public void AT_AIP_NO_NAME_MERGE_DifferentSubjects_NeverMerge_EachMintsDistinctAccount()
         {
             var store = new PilotAccountStore(JournalPath);
             var svc = NewService(store, FixedRing());
             var a = ProvisionAndBind(svc, "76561198000000001");
 
-            // A second, non-allowlisted subject does NOT merge into the first account on any resemblance;
-            // it is simply rejected as not-allowlisted (no auto-merge path exists).
+            // A second, distinct subject NEVER merges into the first account on any resemblance; under
+            // auto-create it mints its OWN distinct opaque account (no name/resemblance merge path exists).
             var b = svc.ResolveOrCreateAccount("bind-b", Principal("76561198000000009"), T0);
-            Assert.Equal(AccountRejectionCode.NotAllowlisted, b.RejectionCode);
-            Assert.Equal(1, store.AccountCount);
+            Assert.Equal(AccountAdmissionOutcome.Created, b.Outcome);
+            Assert.NotEqual(a.AccountId, b.AccountId);
+            Assert.Equal(2, store.AccountCount);
             Assert.True(store.TryGetAccount(a.AccountId, out var acct));
             Assert.Single(acct.CredentialBindingIds);
         }
@@ -480,8 +494,9 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(original, r4.AccountId);
             Assert.Equal(0, s4.RunCensus().TotalForVersion(new LookupKeyVersion("k1")));
             Assert.Equal(0, s4.RunCensus().TotalForVersion(new LookupKeyVersion("k2")));
-            // k3 carries the live credential + its re-keyed allowlist entry (census counts both).
-            Assert.Equal(2, s4.RunCensus().TotalForVersion(new LookupKeyVersion("k3")));
+            // k3 carries the live credential (auto-create binds no allowlist entry, so census counts the
+            // credential only).
+            Assert.Equal(1, s4.RunCensus().TotalForVersion(new LookupKeyVersion("k3")));
             Assert.Equal(1, s4.RunCensus().CredentialCount(new LookupKeyVersion("k3")));
         }
 
