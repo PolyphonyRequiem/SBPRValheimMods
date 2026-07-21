@@ -238,6 +238,19 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
             if (_store.TryLookupAnyCredentialAccountStatus(activeHmac, providerNs, backendIssuer, out var barrierStatus))
                 return PilotAccountResolution.Reject(BarrierRejection(barrierStatus));
 
+            // The active-key probe above misses a revoked credential still stored under the PREVIOUS key
+            // version after a supported rotation: step 2's active resolution only fires for resolvable
+            // owning accounts, so a disabled/deleted/quarantined account's previous-key credential would
+            // otherwise slip past both the active resolution and the active-only barrier and silently mint
+            // a fresh account. Honor the wound-down barrier under the previous key too whenever the ring
+            // carries one (contracts.md active-or-previous-key barrier).
+            if (_keyRing.HasPrevious)
+            {
+                var prevBarrierHmac = _keyRing.CredentialHmacUnder(_keyRing.PreviousVersion, providerNs, backendIssuer, subject);
+                if (_store.TryLookupAnyCredentialAccountStatus(prevBarrierHmac, providerNs, backendIssuer, out var prevBarrierStatus))
+                    return PilotAccountResolution.Reject(BarrierRejection(prevBarrierStatus));
+            }
+
             // Mint account + credential atomically in one committed transaction. The account carries NO
             // PilotAllowlistEntry linkage (the credential's allowlistEntryId is empty) and no notice
             // acknowledgement timestamp — first bind no longer depends on a provisioned enrollment record.
