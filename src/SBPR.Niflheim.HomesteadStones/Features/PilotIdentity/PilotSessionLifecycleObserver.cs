@@ -179,8 +179,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                     }
                     else
                     {
-                        // Fail closed: log once per resolvable-but-rejected peer would spam; mark it so we
-                        // don't retry every tick. A NotAllowlisted peer simply never becomes a principal.
+                        // Fail closed on a genuine rejection (wound-down account barrier, unsupported
+                        // provider, disabled/deleted/quarantined owner). Logging once per resolvable-but-
+                        // rejected peer would spam, so mark it and don't retry every tick. Normal first
+                        // authenticated joins no longer reject here — they auto-create an opaque account.
                         admittedTransports.Add(transport);
                         Plugin.Log.LogInfo("[Niflheim/HomesteadStones] " + result.ToOperatorLine());
                     }

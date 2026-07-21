@@ -39,9 +39,11 @@ purpose: Define pilot account, credential, character-binding, session, audit, pr
 | `PilotId` | random server identifier | One bounded pilot lifecycle and closure deadline |
 | `DataArtifactId` | random server identifier | One export/backup/journal/log artifact tracked for purge evidence |
 
-## Aggregate 0 — PilotAllowlistEntry
+## Aggregate 0 — PilotAllowlistEntry (deprecated for normal admission)
 
-One pre-account enrollment record per approved credential lookup. It is created only after the playtester receives and acknowledges the named pilot disclosure. The acknowledgement is transparency evidence, not an assertion that consent is the legal basis for core authentication.
+> **Deprecated.** Normal admission no longer consults or requires a `PilotAllowlistEntry`; the first authenticated Steam join auto-creates the opaque account (see "Resolve or create pilot account"). This aggregate is retained so existing records remain readable for compatibility/audit and so the operator provisioning/revoke surface still functions, but it is NOT on the normal first-bind path. Avoid destructive migration of existing entries.
+
+One optional pre-account enrollment record per approved credential lookup, provisioned via the deprecated operator/local-bootstrap surface.
 
 ```text
 PilotAllowlistEntry
@@ -66,8 +68,8 @@ PilotAllowlistEntry
 
 - Raw provider subject is never persisted in the allowlist.
 - `(ProviderKey, SubjectLookupHmac)` is unique among active entries.
-- Account creation requires an active entry with the current required notice version.
-- Revocation prevents first account creation; it does not silently delete an already-created account.
+- Normal account creation does NOT require an allowlist entry (auto-create on first join); existing entries neither gate nor block the normal first-bind path.
+- Revocation of an entry does not silently delete an already-created account; account recreation is instead blocked by the wound-down credential barrier while a revoked credential remains.
 - Allowlist entries follow the same configured closed-data purge and bounded key-version rules as credential bindings.
 - Provisioning accepts a raw subject only transiently, computes the HMAC, writes the entry, and redacts command/log output.
 - Revoke/re-key/purge address `AllowlistEntryId`, require expected revision + operation ID, and return a durable receipt.
@@ -426,11 +428,11 @@ RetentionHold
 
 1. Provider adapter yields transient `VerifiedProviderPrincipal`.
 2. Compute current-key and configured previous-key credential HMACs.
-3. Validate one active allowlist entry with the required disclosure version/acknowledgement.
-4. If active binding exists, load its account.
-5. If no binding exists, mint `AccountId` + `CredentialBindingId`, copy the allowlist notice acknowledgement/retention-policy version into the account, and commit together. If the matched allowlist is previous-key, that same terminal transaction also creates its current-key replacement and supersedes the old entry.
-6. If previous-key allowlist/credential records exist for the resolved account, one terminal transaction creates current-key replacements, updates account membership/linkage, supersedes both old records, and preserves notice acknowledgement. No half-rekeyed state is acknowledged.
-7. Reject disabled/deletion-pending/deleted accounts.
+3. If an active binding exists under the current key, load its account.
+4. Else if an active binding exists under the previous key, load its account and lazily re-key the credential in place under the current key (same `CredentialBindingId`).
+5. Else (no active binding) — first authenticated join — AUTO-CREATE: mint `AccountId` + `CredentialBindingId` and commit together. The account records the configured notice/retention-policy version but NO admission-time acknowledgement timestamp (noticeAckAt = 0), and the credential carries an EMPTY `allowlistEntryId` (no `PilotAllowlistEntry` linkage). There is no pre-join allowlist requirement and no fabricated disclosure acknowledgement. Distinct subjects always mint distinct accounts (never name/resemblance merged).
+6. Wound-down re-admission barrier: before minting in step 5, if a still-present (typically revoked) credential for the same subject exists, reject with its owning account's status (`AccountDisabled`/`AccountDeletionPending`/`AccountDeleted`/`QuarantinedState`) instead of minting a fresh account. Only physical purge removes the barrier.
+7. Reject disabled/deletion-pending/deleted/quarantined resolved accounts.
 
 ### Begin account admission
 

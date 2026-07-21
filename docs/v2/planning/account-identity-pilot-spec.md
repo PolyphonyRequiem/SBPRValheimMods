@@ -112,7 +112,7 @@ As a playtester, I want Niflheim to retain only what the pilot needs and to expl
 
 **Acceptance scenarios:**
 
-1. **Given** first pilot enrollment, **when** the account would be created, **then** the player receives a concise disclosure of stored identity/gameplay data, purpose, retention, operator contact, and reset/deletion boundaries.
+1. **Given** first pilot enrollment (auto-created on first authenticated join), **when** the opaque account is created, **then** the pilot's published server-policy / out-of-band disclosure concisely covers stored identity/gameplay data, purpose, retention, operator contact, and reset/deletion boundaries. The disclosure is delivered as server policy, not recorded as a per-account admission acknowledgement.
 2. **Given** normal authentication/security logs, **when** they exceed the configured period (shipped default 14 days), **then** they purge automatically or through a tested scheduled operator command.
 3. **Given** an account or the pilot closes, **when** the configured closed-data period elapses (shipped default 30 days), **then** credential bindings and linked personal gameplay records are verifiably purged, including eligible backups. If account-scoped journal compaction cannot prove the purge, the disposable pilot fixture is reset in full.
 4. **Given** an incident hold, **when** retention extends, **then** scope, reason, actor, and expiry are recorded; a hold cannot silently make all data permanent.
@@ -120,13 +120,13 @@ As a playtester, I want Niflheim to retain only what the pilot needs and to expl
 ## Functional requirements
 
 - **AIP-FR-001:** The subsystem SHALL admit only authenticated subjects from one explicitly configured and Gate-0-proven transport provider namespace; Gate 0 SHALL also prove a bounded, non-logging operator path to obtain/provision the exact subject used by the HMAC-only allowlist.
-- **AIP-FR-002:** The pilot SHALL require an active HMAC-only allowlist entry carrying the acknowledged disclosure version/time before first account creation; the allowlist SHALL NOT persist raw provider subjects and no public registration exists. Acknowledgement records transparency and SHALL NOT be treated as the selected legal basis by itself.
+- **AIP-FR-002:** Normal pilot admission SHALL auto-create an opaque account on the first authenticated Steam join: there SHALL be no pre-join allowlist requirement and no fabricated per-account disclosure acknowledgement. The subsystem SHALL NOT persist raw provider subjects and no public registration exists. Disclosure is delivered as server policy / out-of-band notice and is NOT recorded as a per-account admission acknowledgement, and acknowledgement SHALL NOT be treated as the selected legal basis by itself. Existing HMAC-only allowlist records MAY remain readable for compatibility/audit but SHALL NOT be required for normal first bind; destructive migration of existing entries SHALL be avoided.
 - **AIP-FR-003:** The server SHALL mint opaque cryptographically random `AccountId` and `CharacterId` values with at least 128 bits of entropy, independent of provider/profile identifiers.
 - **AIP-FR-004:** Credential and profile lookup keys SHALL use full-length HMAC-SHA-256 over unambiguous canonical encodings with explicit domain separation; credentials bind `(credential-v1, provider namespace, issuer/backend identity, subject)` and profiles bind `(profile-v1, AccountId, s_playerID)`.
 - **AIP-FR-005:** The HMAC key SHALL contain at least 256 cryptographically random bits, live outside the account data store and its ordinary backups, carry a key version, and never appear in logs, receipts, exports, or client payloads. Key retirement or a second rotation SHALL be blocked until a version census proves zero live entries/backups on the retiring version or an explicit affected-account/fixture reset completes.
 - **AIP-FR-006:** Raw provider subjects inside the Niflheim account subsystem SHALL remain transient and SHALL NOT be persisted in Niflheim account records, gameplay records, receipt bindings, subsystem logs, or exports; Gate 0 SHALL inventory any upstream Valheim/BepInEx transport logging and vanilla world-save profile/creator facts, disclose them, and prove bounded access plus scheduled deletion/whole-fixture purge. If an upstream artifact cannot meet that boundary, pilot enrollment SHALL fail closed.
 - **AIP-FR-007:** First account creation and credential binding SHALL commit atomically/recoverably and replay idempotently.
-- **AIP-FR-008:** An unknown credential SHALL create a separate account only after allowlist validation; the server SHALL NOT auto-merge on names or resemblance.
+- **AIP-FR-008:** An unknown credential SHALL auto-create a separate opaque account on first authenticated join (no pre-join allowlist validation gate); the server SHALL NOT auto-merge on names or resemblance, so distinct subjects always mint distinct accounts. A wound-down account's still-present (revoked) credential SHALL block re-admission from silently recreating the account until its records are physically purged.
 - **AIP-FR-009:** The server SHALL treat Valheim's profile picker as the pilot selector and SHALL derive profile selection only from the authenticated peer's server-observed nonzero `s_playerID`.
 - **AIP-FR-010:** The server SHALL mint opaque `CharacterId` values and map each profile subject within one `AccountId`; `s_playerID`, character ZDOID, and display name SHALL NOT be domain `CharacterId`.
 - **AIP-FR-011:** Creator/placement validation MAY compare server-observed `s_playerID` facts, but the result SHALL resolve through the profile binding to internal `CharacterId` before domain mutation.
@@ -150,8 +150,8 @@ As a playtester, I want Niflheim to retain only what the pilot needs and to expl
 
 ## Success criteria
 
-- **AIP-SC-001:** One new allowlisted tester produces exactly one account/credential binding and one selected character; reconnect and restart resolve the same internal IDs.
-- **AIP-SC-002:** Hostile payload substitution, unauthenticated peers, unsupported provider namespaces, non-allowlisted subjects, and second simultaneous sessions reject without durable mutation.
+- **AIP-SC-001:** One new tester's first authenticated join auto-creates exactly one account/credential binding and one selected character; reconnect and restart resolve the same internal IDs.
+- **AIP-SC-002:** Hostile payload substitution, unauthenticated peers, unsupported provider namespaces, wound-down (disabled/deleted/quarantined) subjects, and second simultaneous sessions reject without durable mutation.
 - **AIP-SC-003:** Two sequential profiles on one account receive distinct internal characters; rename/reconnect preserves selection; cross-account reuse cannot cross ownership.
 - **AIP-SC-004:** Existing Foundational placement authority/replay/restart acceptance remains green after provider identity is removed from domain receipts.
 - **AIP-SC-005:** A mechanical scan of Niflheim durable fixtures, subsystem logs, exports, and receipts finds no raw provider subject or forbidden token/profile field; the Gate-0 evidence separately inventories upstream runtime logs and proves their bounded access/retention treatment.
@@ -164,7 +164,7 @@ As a playtester, I want Niflheim to retain only what the pilot needs and to expl
 | Requirement | Named acceptance |
 |---|---|
 | AIP-FR-001 | `AT-AIP-PROVIDER-GATE0`, `AT-AIP-UNAUTHENTICATED`, `AT-AIP-PROVIDER-NAMESPACE`, `AT-AIP-PROVIDER-PROVISION-INPUT`, `AT-AIP-PROVIDER-RECONNECT` |
-| AIP-FR-002 | `AT-AIP-NOT-ALLOWLISTED`, `AT-AIP-ALLOWLIST-HMAC-ONLY`, `AT-AIP-DISCLOSURE-COMPLETE` |
+| AIP-FR-002 | `AT-AIP-FIRST-JOIN-AUTOCREATE`, `AT-AIP-ALLOWLIST-HMAC-ONLY`, `AT-AIP-DISCLOSURE-COMPLETE` |
 | AIP-FR-003 | `AT-AIP-FIRST-BIND`, `AT-AIP-INTERNAL-ID-ENTROPY` |
 | AIP-FR-004 | `AT-AIP-HMAC-CANONICAL` |
 | AIP-FR-005 | `AT-AIP-KEY-STRENGTH-SEPARATION`, `AT-AIP-KEY-MISSING-FAIL-CLOSED`, `AT-AIP-PREVIOUS-KEY-REKEY`, `AT-AIP-PROFILE-PREVIOUS-KEY-REKEY`, `AT-AIP-KEY-VERSION-CENSUS`, `AT-AIP-KEY-RETIREMENT-BLOCKED`, `AT-AIP-FULL-RESET-ROTATES-KEY` |

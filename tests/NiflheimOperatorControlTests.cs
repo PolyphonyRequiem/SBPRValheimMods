@@ -276,22 +276,24 @@ namespace SBPR.Trailborne.Tests
             Assert.True(result.SessionClosed);
             Assert.Equal(77L, result.ClosedTransportHandle);
 
-            // Durable across reboot: account DeletionPending, credential revoked, allowlist revoked.
+            // Durable across reboot: account DeletionPending, credential revoked. The auto-created account
+            // has NO linked allowlist entry (first-bind mints none), so the barrier now rests on the
+            // revoked credential remaining present rather than on a revoked allowlist entry.
             var reboot = new PilotAccountStore(JournalPath);
             Assert.True(reboot.TryGetAccount(bind.AccountId, out var acct));
             Assert.Equal(PilotAccountStatus.DeletionPending, acct.Status);
             Assert.True(reboot.TryGetCredential(bind.CredentialBindingId, out var cred));
             Assert.Equal(CredentialStatus.Revoked, cred.Status);
-            Assert.True(reboot.TryGetAllowlistEntry(cred.AllowlistEntryId, out var allow));
-            Assert.Equal(AllowlistStatus.Revoked, allow.Status);
+            Assert.True(cred.AllowlistEntryId.IsEmpty);
 
             // A re-join for the SAME subject cannot recreate the account: the credential is revoked (so it
-            // no longer resolves the old account) AND the allowlist is revoked (so first-bind has no active
-            // entry) — the join is rejected as NotAllowlisted, proving no immediate recreation.
+            // no longer resolves the old account) AND the still-present revoked credential trips the
+            // wound-down re-admission barrier (so auto-create refuses to mint a fresh account for a subject
+            // whose account is being deleted) — rejected AccountDeletionPending, proving no recreation.
             var reboundSvc = NewService(reboot);
             var rejoin = reboundSvc.ResolveOrCreateAccount("rejoin", Principal("76561198000000001"), T0 + 5);
             Assert.False(rejoin.Accepted);
-            Assert.Equal(AccountRejectionCode.NotAllowlisted, rejoin.RejectionCode);
+            Assert.Equal(AccountRejectionCode.AccountDeletionPending, rejoin.RejectionCode);
         }
 
         // ── AT-AIP-LOCAL-BOOTSTRAP-SCOPE ────────────────────────────────────────

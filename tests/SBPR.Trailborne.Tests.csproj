@@ -295,6 +295,23 @@
          no recipe/mechanic mutation. Engine-free (value objects + the pure activation view), link-compiled
          like the rest. Named acceptance AT-FIELD-PREP-COOKING-POLICY. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/CookingCraftPolicy.cs" />
+    <!-- T018 (Tracer 5 — Cooking, node 3/4): the Iron Stomach food refresh-threshold provider.
+         FoodRefreshThresholdProvider derives the DURABLE Iron Stomach Permanent-Effect acquisition from
+         the character's purchase records ALONE (outcome class PermanentEffect) — no relationship/policy/
+         permission/Stone-development conjunct, so the raised 0.75 refresh/replacement threshold survives
+         relationship loss, Tree revocation, and restart. "Highest applicable provider wins" composes by
+         taking the maximum candidate over the vanilla 0.5 baseline; three food slots + normal debit/stats/
+         duration are preserved. Engine-free value objects, link-compiled. Named acceptance
+         AT-IRON-STOMACH-75. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/FoodRefreshThresholdProvider.cs" />
+    <!-- T019 (Tracer 5 — Cooking, node 4/4; the sole executable Tier-2 node): the Swift Preparation
+         menu-craft duration provider. MenuCraftDurationProvider reads the T004 DerivedActivationView active
+         bit for the Swift Preparation personal Character-Effect node and, while active, multiplies the vanilla
+         Cooking-skill-ADJUSTED menu-craft duration of eligible menu-crafted food by 1/3 — applied AFTER the
+         skill adjustment and ONLY to eligible menu-crafted food, never completing a craft or mutating a
+         recipe/prefab. Engine-free value objects, link-compiled. Named acceptance AT-SWIFT-MENU-ONLY,
+         AT-NO-COOKING-COMPLETION (and, with the shipped T013 purchase-tier derivations, AT-COOKING-TIER2). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Cooking/MenuCraftDurationProvider.cs" />
     <!-- T016 remediation: the engine-free live delivery seam for Savor. SavorFoodDrainResolver derives the
          live LocalEffectActivationView + drain factor and scales the elapsed food slice; the context index +
          factory build the established active-Savor Stone context. The net48 Player.UpdateFood prefix and the
@@ -403,6 +420,10 @@
          player-safe export. Engine-free (System.* + LINQ), link-compiled here and shipped under net48. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Accounts/PilotRetentionPolicy.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotPrivacyService.cs" />
+    <!-- IAP-013 (Tracer 5): destructive privacy lifecycle — delete/purge, retention purge, backup purge,
+         explicit + whole-fixture reset (key-epoch rotation + selector-free purge certificate), quarantine,
+         and no-time-travel. Engine-free (System.*+LINQ). -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/PilotDestructionService.cs" />
     <!-- RD-T004 (Tracer 1): qualifying loyalty sources — the pure role-pairing rule and the durable,
          event-sourced Connection source coordinator. Named acceptance AT-RD-002. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/QualifyingSourceRule.cs" />

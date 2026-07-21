@@ -113,7 +113,7 @@ dotnet $DLL --phase B --data $DATA     # -> PASS=5  FAIL=0, exit 0
 |---|---|---|
 | RESTART-REHYDRATE | AT-AIP-FR-016 recovery | account rehydrated from on-disk journal in a new PID |
 | RESTART-DELETION-DURABLE | AT-AIP-ADMIN-DISABLE (durable) | `DeletionPending` survived the process restart |
-| POST-DELETE-REJECT | AT-AIP-DELETE-DRAIN-BARRIER | same QA subject re-join `NotAllowlisted` — allowlist revoked, no recreation |
+| POST-DELETE-REJECT | AT-AIP-DELETE-DRAIN-BARRIER | same QA subject re-join rejected `AccountDeletionPending` — the still-present revoked credential trips the wound-down re-admission barrier, so auto-create does not recreate the account |
 | RESTART-SESSION-CLEARED | AT-AIP-FR-016 | process-local session registry empty in the fresh process (no stale session survives restart) |
 | DRAIN-RECOVERY-COMPLETES | AT-AIP-MUTATION-FENCE recovery | the account left `Active` by the failed drain disables cleanly after restart (`Disabled`) |
 

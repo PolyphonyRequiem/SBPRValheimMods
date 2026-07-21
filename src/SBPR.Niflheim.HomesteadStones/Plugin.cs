@@ -242,6 +242,26 @@ namespace SBPR.Niflheim.HomesteadStones
             // off-host / outside any Stone Area / without an active purchase (see FieldPrepRecipeGate).
             harmony.PatchAll(typeof(Features.Cooking.FieldPrepRecipeGate));
 
+            // T018 — Iron Stomach personal Permanent Effect. The net48 food-eat seam that raises the food
+            // refresh/replacement threshold from the vanilla 0.5 to 0.75 (refresh at 75% remaining) for the
+            // local occupant, reading the authoritative host projection through the shipped pure
+            // FoodRefreshThresholdProvider keyed on the character's durable purchase. Postfix on
+            // Player.CanEat only; rescues a same-food refresh refusal in the 0.5..0.75 band, never the
+            // three-slot cap; fails closed off-host / without a durable Iron Stomach purchase (see
+            // IronStomachRefreshGate). Permanent Effect ⇒ no relationship/policy/Stone-Area conjunct.
+            harmony.PatchAll(typeof(Features.Cooking.IronStomachRefreshGate));
+
+            // T019 — Swift Preparation personal Character Effect (the sole executable Tier-2 Cooking node).
+            // The net48 menu-craft-timer seam that multiplies the vanilla Cooking-skill-ADJUSTED menu-craft
+            // duration of an eligible menu-crafted food by 1/3 for the local occupant, reading the
+            // authoritative host projection through the shipped pure MenuCraftDurationProvider (purchase +
+            // active relationship via T004 DerivedActivationView). Transpiler on InventoryGui.UpdateRecipe
+            // scaling the num5 local at the SetMaxValue site — strictly AFTER vanilla skill adjustment; both
+            // the progress-bar max and the completion check read that same local. Ineligible crafts and a
+            // dormant/unpurchased effect keep the full vanilla duration; fails closed off-host (see
+            // SwiftPreparationCraftTimer). Character Effect ⇒ no Local policy / build Permission conjunct.
+            harmony.PatchAll(typeof(Features.Cooking.SwiftPreparationCraftTimer));
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 

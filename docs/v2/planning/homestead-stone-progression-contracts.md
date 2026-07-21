@@ -488,7 +488,22 @@ These are derived-provider contracts, not direct ledger writes.
 - `FoodRefreshThresholdProvider`: Iron Stomach supplies threshold 0.75, highest applicable provider wins; three
   slots and normal food debit remain.
 - `MenuCraftDurationProvider`: Swift Preparation supplies factor 1/3 after vanilla Cooking-skill adjustment for
-  eligible menu-crafted food only.
+  eligible menu-crafted food only. **Implemented (T019, `Adapters/Cooking/MenuCraftDurationProvider.cs`):** a
+  pure `ResolveDuration(...)` reads the T004 `DerivedActivationView` active bit for the personal
+  `SwiftPreparation@1` Character-Effect node (purchase record AND active relationship; no second ledger) and,
+  while active, returns the supplied vanilla skill-adjusted duration multiplied by 1/3. The factor is applied
+  strictly AFTER the vanilla Cooking-skill adjustment (the input IS the post-skill value) and ONLY to an
+  eligible menu-crafted food — `ClassifyCraft` requires output-is-food AND the active station's crafting skill
+  == Cooking (`Skills.SkillType.Cooking`) AND the menu-craft path; non-food, non-Cooking-station, and non-menu
+  crafts keep the full vanilla duration. It never completes a craft (a positive base stays strictly positive and
+  strictly shorter) and never fabricates one (a non-positive base returns unchanged), and it mutates no recipe,
+  item, station, or shared prefab. **Live-wired (T019, net48):** `Features/Cooking/SwiftPreparationCraftTimer`
+  transpiles `InventoryGui.UpdateRecipe`, scaling the `num5` menu-craft-duration local in place at the
+  `GuiBar.SetMaxValue` call site — both the progress-bar max and the completion comparison read that same local,
+  so the whole craft shortens by exactly the provider's factor. It reads the authoritative host projection
+  (composed `LocalProgressionObserver.Server` stores) and fails closed off-host / outside every Stone Area /
+  without an active purchase, exactly like the sibling Field Prep / Iron Stomach seams; a personal-effect client
+  delivery channel is a follow-up.
 
 ### Crafting
 
