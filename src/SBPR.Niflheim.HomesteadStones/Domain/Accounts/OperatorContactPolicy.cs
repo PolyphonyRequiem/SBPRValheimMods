@@ -77,7 +77,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Accounts
             if (string.IsNullOrWhiteSpace(contact))
                 return OperatorContactValidation.Reject(CodeAbsent);
 
-            string value = contact.Trim();
+            string value = contact!.Trim();
 
             // No internal whitespace / control characters in a single contact channel.
             foreach (char c in value)
@@ -95,7 +95,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.Accounts
                 return OperatorContactValidation.Reject(CodeMalformed);
 
             // A routable host must be a dotted name (has a TLD) and not a bare/loopback host.
-            if (host == "localhost" || !host.Contains('.'))
+            if (host == "localhost" || host.IndexOf('.') < 0)
                 return OperatorContactValidation.Reject(CodePlaceholder);
 
             foreach (var suffix in ReservedHostSuffixes)
