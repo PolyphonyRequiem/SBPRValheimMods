@@ -338,7 +338,9 @@ Deliverables after implementation authorization: executable authenticated-peer s
 
 **Named acceptance:** `AT-AIP-DEDICATED-JOIN`, `AT-AIP-DEDICATED-RECONNECT`, `AT-AIP-DEDICATED-SECOND-PROFILE`, `AT-AIP-DEDICATED-SECOND-SESSION-REJECT`, `AT-AIP-DEDICATED-RESTART`, `AT-AIP-DEDICATED-DISABLE`, `AT-AIP-OPERATOR-RUNBOOK`.
 
-**Exit:** real joined-client evidence passes; logs-green alone is insufficient.
+**`AT-AIP-DEDICATED-SECOND-SESSION-REJECT` — Option B split evidence (owner-approved, Daniel Discord `1529507269027434728`; architect DECIDE `t_13db2c95`).** Six of the seven ATs are proven by a genuine joined-GUI client on the real dedicated `Niflheim` server, unchanged. `AT-AIP-DEDICATED-SECOND-SESSION-REJECT` is proven by two conjoined obligations, both required to pass (spec AIP-SC-008 + verbatim rider): (1) a **live joined-GUI transport half** — one genuine joined modded Steam client proves the production transport→auth→`AccountId`→admission→mint wiring is real; and (2) a **shipped-binary direct-peer harness half** (`iap-015-secondsession-harness/`) that reference-links the exact shipped admission binaries and asserts two transport peers resolving to ONE authenticated `AccountId` — 2nd reserve rejects `AccountAlreadyConnected` before mint, 1st mints, lease releases on close, self-attesting the linked binary SHA-256 as evidence. Rationale: Steam enforces one live session per account client-side (a second login kicks the first), so the server-authoritative same-account reject is unreachable by two concurrent Steam GUI clients; the direct-peer harness is the only mechanism that can exercise it. This corrects the evidence *method* for this one AT only and does not weaken the one-account/one-session invariant or the no-merge/no-link identity prohibition.
+
+**Exit:** real joined-client evidence passes; logs-green alone is insufficient. This bar is **retained for all seven ATs** — including `AT-AIP-DEDICATED-SECOND-SESSION-REJECT`, whose transport half is still live-GUI and whose concurrency half is production-identical shipped-binary evidence (not logs-green, not a mock).
 
 ## Safe parallelism
 

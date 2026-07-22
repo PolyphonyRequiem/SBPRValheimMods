@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       IAP-015 — AT-AIP-DEDICATED-SECOND-SESSION-REJECT, evidence half (Option B).
+
+       Owner-approved Option B (Daniel, Discord 1529507269027434728; architect DECIDE
+       t_13db2c95, comment 1886). The live joined-GUI transport half proves the real
+       transport→auth→AccountId→admission wiring on the dedicated Niflheim server. THIS
+       harness proves the OTHER conjoined obligation: the Niflheim server-authoritative
+       one-account/one-session invariant (AIP-FR-013 / spec rule #5 / AIP-SC-002) at its
+       real enforcement seam, driven over the SHIPPED admission code path.
+
+       WHY A HARNESS AND NOT A LIVE SECOND GUI CLIENT: Steam enforces one live session per
+       account CLIENT-SIDE (a second login kicks the first), so no supported Steam GUI path
+       can ever deliver two concurrent transport peers of ONE account to the server admission
+       seam. A production-identical direct-peer harness is the only mechanism that can exercise
+       same-account concurrency against the real seam. See the verbatim rider in
+       docs/v2/planning/account-identity-pilot-spec.md (AIP-SC-008).
+
+       EXACT-BINARY REQUIREMENT: unlike tests/ and qa-operator-harness/ (which link-compile
+       shipped SOURCE), this harness REFERENCE-LINKS the COMPILED, shipped admission assemblies
+       and, at runtime, SHA-256-hashes the assembly file it actually loaded the admission types
+       from. A re-implemented or source-recompiled admission core does NOT satisfy this AT; the
+       emitted hash is the proof the assertion ran against the linked shipped binary.
+
+       The referenced DLL paths are provided at build time via -p:AdmissionDll=<abs path> and
+       -p:TrailborneCoreDll=<abs path> so the harness pins to whatever candidate/shipped build
+       an operator staged, and records those exact bytes as evidence. ══════════════════════ -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Iap015SecondSessionHarness</AssemblyName>
+    <RootNamespace>SBPR.Qa.Iap015SecondSession</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SbprSkipSdkValidation>true</SbprSkipSdkValidation>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+  <!-- The two shipped admission assemblies, reference-linked as COMPILED binaries (not source).
+       Paths are injected at build time so the harness always links the exact staged candidate. -->
+  <ItemGroup Condition="'$(AdmissionDll)' != ''">
+    <Reference Include="SBPR.Niflheim.HomesteadStones">
+      <HintPath>$(AdmissionDll)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(TrailborneCoreDll)' != ''">
+    <Reference Include="SBPR.Trailborne.Core">
+      <HintPath>$(TrailborneCoreDll)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
