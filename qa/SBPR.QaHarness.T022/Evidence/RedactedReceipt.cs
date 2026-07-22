@@ -173,7 +173,8 @@ namespace SBPR.QaHarness.T022.Core.Evidence
         public static RedactedReceipt Redact(RedactedReceipt receipt, int byteBudget = 4096)
         {
             AssertNoProductVerdict(receipt);
-            var observed = new Dictionary<string, object?>(receipt.Observed, StringComparer.Ordinal);
+            var observed = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var kv in receipt.Observed) observed[kv.Key] = kv.Value;
             // Never allow a raw values map to ride along.
             observed.Remove("custom_values");
             observed.Remove("custom_data");
