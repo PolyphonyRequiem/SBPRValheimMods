@@ -648,6 +648,21 @@ acceptance content is folded into Appendices A and B above.
   server channel (no listener) + single-slot dispatcher + `Arm/Disarm/Ping`
   (`AT-QA-LOOPBACK-ONLY`, `AT-QA-NO-SCRIPTTOOLS-LOCK`, `AT-QA-SERVER-NO-LISTENER`,
   `AT-QA-BUSY-TIMEOUT-CANCEL`).
+
+  > **Implementation note (2026-07-22, card t_1be7f7d2).** QA-M1 was split: the
+  > **engine-free contract layer landed first** — the typed request/receipt/envelope
+  > contracts (`qa/contracts/*.json` + `qa/SBPR.QaHarness.T022/Contracts/*.cs`), the
+  > immutable **capability-manifest parser** (`CapabilityManifest`/`VerbCatalog`), and
+  > the **fail-closed arming + request-admission decision** (`ArmingGate`/
+  > `RequestAdmission`), proven headless by `qa/tests-core/` under the card's named ATs
+  > (AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID, BAD-NONCE-REJECT,
+  > OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT, REPLAY-REJECT). No listener,
+  > socket, RPC, Harmony, Unity/game mutation, fixture, deployment, or live runtime is
+  > in that slice — the helper compiles the contracts but does not invoke them (nothing
+  > can arm without a channel). The **channels + single-slot dispatcher** above
+  > (`AT-QA-LOOPBACK-ONLY`, `AT-QA-NO-SCRIPTTOOLS-LOCK`, `AT-QA-SERVER-NO-LISTENER`,
+  > `AT-QA-BUSY-TIMEOUT-CANCEL`) remain the next slice and drive the arming gate that
+  > this card delivered.
 - **QA-M2** engineer: fixture verbs + owned-resource ledger + `Cleanup`
   (`AT-QA-FIXTURE-VANILLA-ONLY`, `AT-QA-CLEANUP-NO-LEAK`).
 - **QA-M3** engineer + qa: action + observation verbs + transfer + tamper + T022

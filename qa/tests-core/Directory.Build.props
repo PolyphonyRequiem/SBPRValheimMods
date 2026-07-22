@@ -1,0 +1,12 @@
+<Project>
+  <!-- Deliberately does NOT import the repo-root Directory.Build.props (MSBuild walks
+       up and stops at the FIRST it finds), shielding this engine-free net8 subtree from
+       the root's SbprValidateSdkPaths target, which hard-errors without the Valheim SDK.
+
+       This suite link-compiles the SHIPPED engine-free QA contract sources from
+       ../SBPR.QaHarness.T022/Contracts/*.cs (System.* only — no UnityEngine/BepInEx/
+       Valheim), exactly like tests/ link-compiles the product's engine-free core. The
+       asserted behaviour IS the shipped behaviour — one source, no fork. The net48
+       helper plugin consumes the same files under net48; this override does not affect
+       that build. -->
+</Project>

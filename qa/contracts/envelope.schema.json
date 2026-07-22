@@ -1,16 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sbpr.trailborne/qa/contracts/envelope.schema.json",
-  "title": "SBPR.QaHarness.T022 envelope (ADR-0009 §3.2) — M0 disabled placeholder",
-  "description": "STRUCTURE-ONLY PLACEHOLDER. In M0 there is no channel and no envelope processing. The authenticated envelope ({nonce, seq, expiry, HMAC, role, worldUid, capabilityVerb, requestId}, with the server additionally binding the actual delivering peer) is defined in M1/M2. This closed schema matches nothing until then (fail-closed).",
+  "title": "SBPR.QaHarness.T022 request envelope (ADR-0009 §3.2) — M1",
+  "description": "The authenticated wrapper every control request carries. Mirrors the engine-free RequestEnvelope in qa/SBPR.QaHarness.T022/Contracts/RequestEnvelope.cs. The server additionally binds the ACTUAL delivering peer at a later layer (M2 channels); no channel exists in M1, so this schema describes only the wire shape the arming/admission decision validates. The HMAC is computed over the canonical '\\n'-joined field order {nonce, seq, expiry, role, worldUid, verb, requestId} (RequestHmac.CanonicalString) — NOT over this JSON.",
   "type": "object",
   "additionalProperties": false,
+  "required": ["nonce", "seq", "expiry", "hmac", "role", "worldUid", "verb", "requestId", "args"],
   "properties": {
-    "disabled": {
-      "type": "boolean",
-      "const": true,
-      "description": "M0 marker. The envelope contract is not yet defined; the helper processes nothing."
-    }
-  },
-  "required": ["disabled"]
+    "nonce": { "type": "string", "minLength": 1, "description": "Per-run nonce; must equal the armed run nonce." },
+    "seq": { "type": "integer", "description": "Strictly-monotonic per-run sequence number." },
+    "expiry": { "type": "integer", "description": "Hard request expiry, unix milliseconds." },
+    "hmac": { "type": "string", "minLength": 1, "description": "Lowercase-hex HMAC-SHA256 over the canonical field string." },
+    "role": { "type": "string", "enum": ["Server", "Client"], "description": "Explicit process role; must match the armed role." },
+    "worldUid": { "type": "integer", "description": "Disposable world UID; must match the armed world." },
+    "verb": { "type": "string", "minLength": 1, "description": "A known catalog verb name (VerbCatalog)." },
+    "requestId": { "type": "string", "minLength": 1, "description": "Idempotency key; a repeat with the same seq returns the cached decision (replay)." },
+    "args": { "type": "object", "description": "Named typed argument values for the verb; validated against the verb's argument schema (closed — no undeclared args)." }
+  }
 }
