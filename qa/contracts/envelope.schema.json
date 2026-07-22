@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sbpr.trailborne/qa/contracts/envelope.schema.json",
+  "title": "SBPR.QaHarness.T022 envelope (ADR-0009 §3.2) — M0 disabled placeholder",
+  "description": "STRUCTURE-ONLY PLACEHOLDER. In M0 there is no channel and no envelope processing. The authenticated envelope ({nonce, seq, expiry, HMAC, role, worldUid, capabilityVerb, requestId}, with the server additionally binding the actual delivering peer) is defined in M1/M2. This closed schema matches nothing until then (fail-closed).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "disabled": {
+      "type": "boolean",
+      "const": true,
+      "description": "M0 marker. The envelope contract is not yet defined; the helper processes nothing."
+    }
+  },
+  "required": ["disabled"]
+}

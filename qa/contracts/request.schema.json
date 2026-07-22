@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sbpr.trailborne/qa/contracts/request.schema.json",
+  "title": "SBPR.QaHarness.T022 request (ADR-0009 §3) — M0 disabled placeholder",
+  "description": "STRUCTURE-ONLY PLACEHOLDER. In M0 the helper is inert and accepts no requests; this schema is deliberately closed and matches nothing. The finite, bounded verb catalog + typed argument bounds are defined in M1 (engine-free contracts). Until then, any request document fails validation (fail-closed).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "disabled": {
+      "type": "boolean",
+      "const": true,
+      "description": "M0 marker. The request contract is not yet defined; the helper accepts nothing."
+    }
+  },
+  "required": ["disabled"]
+}

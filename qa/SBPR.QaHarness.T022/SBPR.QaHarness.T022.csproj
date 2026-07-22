@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ════════════════════════════════════════════════════════════════════════
+       SBPR.QaHarness.T022 — QA-only, fail-closed BepInEx test-helper (ADR-0009).
+
+       M0 SCOPE (this card): an INERT skeleton only. The plugin logs a DISARMED
+       banner and returns; it registers NO verbs, hooks, sockets, RPCs, files,
+       timers, or mutation. Channels/gate/fixtures/actions/runner land in M1–M5.
+
+       HARD DEPENDENCY BOUNDARY (ADR-0009 §1/§7, gate AT-QA-NO-PRODUCT-REF):
+         • ZERO ProjectReference/Reference to any src/SBPR.* product assembly.
+         • Product code never references qa/**.
+       The helper references the Valheim/BepInEx SDK (it must, to touch the game)
+       resolved by the repo-root Directory.Build.props this project's own
+       Directory.Build.props imports.
+
+       Never ships in the product modpack (scripts/pack-modpack.sh is an explicit
+       allowlist and asserts no SBPR.QaHarness* assembly is staged, gate
+       AT-QA-MODPACK-EXCLUDES-HARNESS). Built by its own CI job, off the product
+       critical path.
+       ════════════════════════════════════════════════════════════════════════ -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>SBPR.QaHarness.T022</AssemblyName>
+    <RootNamespace>SBPR.QaHarness.T022</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Version>0.0.0</Version>
+    <Nullable>enable</Nullable>
+    <!-- Match product discipline: every warning is an error (ADR-0009 §1). -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <DebugType>none</DebugType>
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+  </PropertyGroup>
+
+  <!-- $(ValheimManaged) and $(BepInExCore) are resolved from environment variables
+       (or a gitignored repo-root .env) by the repo-root Directory.Build.props, which
+       this project's local Directory.Build.props imports. No machine-specific
+       absolute paths live in this file. -->
+
+  <!-- DELIBERATELY NO <ProjectReference>. The bidirectional dependency guard
+       (scripts/check-qa-dependency-boundary.py, gate AT-QA-NO-PRODUCT-REF) fails
+       the build if any Reference/ProjectReference to src/SBPR.* is ever added. -->
+
+  <ItemGroup>
+    <!-- Minimal SDK surface for an inert BepInPlugin: BepInEx base type + the
+         Unity/Valheim core the plugin lifecycle touches. Expanded per-milestone
+         as real behavior lands, never before. Private=false: reference-only, the
+         game/BepInEx supply these at runtime. -->
+    <Reference Include="BepInEx"><HintPath>$(BepInExCore)/BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExCore)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="assembly_valheim"><HintPath>$(ValheimManaged)/assembly_valheim.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(ValheimManaged)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ValheimManaged)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="netstandard"><HintPath>$(ValheimManaged)/netstandard.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="mscorlib"><HintPath>$(ValheimManaged)/mscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System"><HintPath>$(ValheimManaged)/System.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Core"><HintPath>$(ValheimManaged)/System.Core.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>
