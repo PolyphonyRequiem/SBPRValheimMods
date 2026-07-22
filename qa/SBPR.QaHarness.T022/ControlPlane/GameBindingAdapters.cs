@@ -98,6 +98,13 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
 
         /// <summary>Remove a previously spawned instance (cleanup). True if it existed and was removed.</summary>
         bool Despawn(string spawnedInstanceId);
+
+        /// <summary>
+        /// True iff the spawned instance is still live in the world (M3, crash-recovery reconcile).
+        /// The owned-resource ledger calls this to reconcile its belief against world truth after a
+        /// crash/reload: an instance the seam no longer reports live is treated as gone.
+        /// </summary>
+        bool IsLiveInstance(string spawnedInstanceId);
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -181,5 +188,8 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         }
 
         public bool Despawn(string spawnedInstanceId) => _spawned.Remove(spawnedInstanceId);
+
+        public bool IsLiveInstance(string spawnedInstanceId) =>
+            spawnedInstanceId != null && _spawned.ContainsKey(spawnedInstanceId);
     }
 }

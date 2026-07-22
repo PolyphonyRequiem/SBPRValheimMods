@@ -61,4 +61,24 @@
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/GameBindingAdapters.cs" />
   </ItemGroup>
 
+  <!-- M3 fixture ledger + seam adapter + execution-time authority recheck (engine-free):
+       adopted owned-resource ledger core (from the reviewed t_b5413567 prebuild, re-homed
+       into ...Core.Fixtures) + the canonical vanilla manifest, the IFixtureWorld->seam
+       bridge, and the server admin/peer recheck gate. Same link-compile discipline — the
+       tested logic IS the shipped logic. -->
+  <ItemGroup>
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/ResourceCategory.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/OwnedResourceId.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureBounds.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/ResourceAllowlist.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixturePlan.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixturePlanValidator.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/IFixtureWorld.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/OwnedResourceLedger.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/SnapshotCodec.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/VanillaFixtureManifest.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/SeamFixtureWorld.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureAuthority.cs" />
+  </ItemGroup>
+
 </Project>
