@@ -3,9 +3,12 @@ title: "Party & Guild wayfinder — formal social-system horizon"
 status: idea
 purpose: >
   Chart the way from the current Homestead substrate + emergent-party findings to
-  a buildable formal Party (temporary) and later Guild (durable) social system,
-  as a map of investigation tickets and Daniel decision clusters. Two distinct
+  a buildable formal Party (ephemeral) and later Guild (durable) social system,
+  as a map of investigation tickets and settled owner decisions. Two distinct
   horizons; Guild is NOT "Party but persistent." No implementation, no spec lock.
+  CORRECTED 2026-07-21: the earlier "derived shared-Stone cohort IS the Party"
+  premise is superseded by Daniel's explicit 2026-07-16 decisions (see §0.5) —
+  a formal Party object is required; the derived cohort is a discovery input only.
 author: architect
 card: t_33147639
 depends_on:
@@ -46,8 +49,8 @@ This wayfinder **starts from these as settled inputs**, not open questions:
 
 | # | Inherited input | Source |
 |---|---|---|
-| I1 | "Natural party" = the **shared-Stone cohort**, a *derived* read-model, not a stored aggregate. The Stone is the party object we already have. | emergent §Cluster A [LEAN] |
-| I2 | The **one thing** that genuinely needs new durable state is a **consent-to-*person*** primitive (transient invite/accept). Everything else derives. | emergent §B2, §"two structural options" |
+| I1 | ~~"Natural party" = the **shared-Stone cohort**, a *derived* read-model, not a stored aggregate. The Stone is the party object we already have.~~ **SUPERSEDED 2026-07-21 (see §0.5 D1):** a formal Party object IS required; the shared-Stone cohort (plus Homestead ownership/Attunement and later Friends) is a **discovery/suggestion input**, not Party identity. | emergent §Cluster A [LEAN] → superseded by owner D1 |
+| I2 | ~~The **one thing** that genuinely needs new durable state is a **consent-to-*person*** primitive (transient invite/accept). Everything else derives.~~ **REFRAMED (§0.5 D1):** the consent-to-person handshake is how you *join* the formal Party object; the Party object itself holds ephemeral roster/lifecycle state (§0.5 D2). | emergent §B2, reframed by owner D1/D2 |
 | I3 | **Permission never composes by union.** It resolves by **intersection per-(character, Stone, action)** at the moment of the action, against that Stone's own policy. A party/guild may *carry* a grant token but never *replace* the Stone's resolver. | emergent §Cluster C [LEAN] |
 | I4 | **No group credit.** Character AP/BP is never pooled, transferred, or read by a group. A pooled resource, if ever built, is a *separate* project ledger funded by explicit contribution — never a raid on character/Stone wallets. | emergent §Cluster D [LEAN] |
 | I5 | **Membership keys on `CharacterId`**, respecting account sibling exclusivity per Stone (one active character per account per Homestead Stone). | emergent §E-note; data-model §Aggregate 2 |
@@ -59,17 +62,70 @@ parent (its Clusters A/C/D/E/F). Those five are re-listed here as **gating decis
 G-A…G-F** because the formal design cannot start until they land. This wayfinder
 adds the *formal-system* unknowns on top of them.
 
+**Note (2026-07-21):** several of those gates have since been **settled by owner
+decision** — see §0.5. Where §0.5 answers a gate, that gate is closed and its earlier
+`[LEAN]` is superseded; the remaining open gates are marked in §3.
+
+---
+
+## 0.5 Settled owner decisions (2026-07-16, Daniel — authoritative)
+
+These are explicit decisions Daniel made on the durable threads for `t_b7ea5c03`
+and `t_33147639`. They **supersede** any earlier `[LEAN]` or derived-cohort prose in
+this document. They are settled policy for the *initial* Party model and are **not to
+be re-litigated** by downstream tickets; tickets refine the residual `[OPEN]` tuning
+only (noted per decision).
+
+- **D1 — A formal Party object is required.** The Party is its own first-class object,
+  not a derived view over the shared-Stone cohort. Homestead ownership/Attunement, and
+  later a Friends list, are **discovery/suggestion inputs** (who you *might* invite),
+  never Party identity. *(Supersedes I1/I2 and closes G-A: the fork resolves to "design
+  a formal Party object," not "derive + thin consent record.")*
+- **D2 — Party is ephemeral.** An **explicit logout removes** the character's
+  membership. An **unclean disconnect retains** membership only for a fixed
+  **reconnect-grace timeout**, after which it is dropped. *(Exact grace duration is
+  `[OPEN → tuning]` — a config value, not a design fork; W-A4 fixes it.)*
+- **D3 — Maximum Party size is 3 characters for now, configurable.** The cap is a
+  configuration value defaulting to 3. **A Party dissolves when membership falls to
+  one.** *(W-A1 stores the cap as config; the "dissolve at one" rule is settled.)*
+- **D4 — All members are peers.** There is **no enduring leader/authority role.** The
+  creator/inviter is recorded only as **event provenance** (who issued an invite),
+  which confers no ongoing authority. *(Supersedes the "optional leader role" language
+  throughout — see §4/§6; closes the leader half of G-F/W-A3.)*
+- **D5 — Forced removal requires a majority of the Party, excluding the target from
+  voting.** At the max of 3 this means **2 votes** to remove a member. A **two-character
+  Party cannot force-remove** anyone; instead either member may simply **leave, which
+  dissolves the Party** (D3). *(W-A4/W-A10 model the vote + its receipts.)*
+- **D6 — Discord integration is shelved to a future horizon.** Identity linking,
+  presence, invite transport, and voice orchestration **must not shape or block** the
+  initial Party model. Keep Discord only as a named future horizon; invent **no Discord
+  contracts** here. *(Any Discord-touching ticket is out of scope until the Party model
+  ships.)*
+- **D7 — Preserved safety invariants (still in force unless contradicted above):**
+  character-scoped membership on `CharacterId` (I5); **no pooled character AP/BP** (I4);
+  **per-action permission checks with no union-of-privilege escalation** (I3); and
+  **target-scoped Stone authority** (I6). These survive the corrections above intact.
+
+**What remains genuinely open (tuning, not policy):** the exact reconnect-grace
+duration (D2), the default and bounds of the configurable size cap (D3), the precise
+vote/receipt mechanics of majority removal (D5), and everything about Guild (Horizon B),
+which these decisions do not touch. The Discord horizon (D6) is deferred wholesale.
+
 ---
 
 ## 1. Destination
 
 **Two distinct buildable horizons, charted but NOT locked:**
 
-- **Horizon A — Temporary Party:** a bounded, server-authoritative *consent-to-person*
-  layer that survives reconnect and expresses "invite this specific player to
-  cooperate for a while" — the single capability the emergent layer proved it cannot
-  fake (emergent §scenario matrix row 7). Everything a Party can derive, it derives
-  (I1); it stores only the minimum consent/roster/lifecycle state.
+- **Horizon A — Ephemeral Party:** a bounded, server-authoritative **formal Party
+  object** (D1) that expresses "invite these specific players to cooperate for a while."
+  Joining is a *consent-to-person* handshake (invite → opt-in accept); the object itself
+  holds only ephemeral roster + lifecycle state. It is **ephemeral** (D2: explicit logout
+  drops membership; unclean disconnect held only for a reconnect-grace timeout), **capped
+  at 3 characters (configurable)** and dissolving at one member (D3), **all-peers with no
+  leader** (D4), with **forced removal by majority excluding the target** (D5). It derives
+  discovery hints from the shared-Stone cohort / Homestead ownership / Attunement (D1) but
+  those are *inputs*, not identity. It carries **no** Stone permission (D7/I3).
 
 - **Horizon B — Durable Guild:** a persistent social *identity* with roster, roles,
   succession, and audit, whose relationship to Stones is an **explicit, bounded
@@ -78,11 +134,11 @@ adds the *formal-system* unknowns on top of them.
   Guild is durable identity + governed affiliation to Stones. **The boundary between
   them is itself a deliverable (see §4).**
 
-The map is "done" when: (a) the five gating decisions G-A…G-F have Daniel answers;
-(b) every frontier ticket below is either resolved or consciously deferred; and
-(c) a minimal vertical-slice recommendation for Horizon A exists with an explicit
-"what waits for Community/Settlement Stones" list. **We are nowhere near done —
-this session charts the map; it does not resolve tickets.**
+The map is "done" when: (a) the remaining open gating decisions (see §3 — several
+are already settled in §0.5) have Daniel answers; (b) every frontier ticket below is
+either resolved or consciously deferred; and (c) a minimal vertical-slice recommendation
+for Horizon A exists with an explicit "what waits for Community/Settlement Stones" list.
+**We are nowhere near done — this session charts the map; it does not resolve tickets.**
 
 ---
 
@@ -95,7 +151,7 @@ Distinct nouns, sharp ownership. Ambiguity here is how Guild silently becomes
 |---|---|---|---|---|
 | **Co-presence** | characters in the same Stone Area / zone now | nothing (spatial, derived) | instantaneous | consent; membership |
 | **Shared-Stone cohort** | characters holding a relationship to the same Stone | derived from relationship records | as long as the relationships exist | a roster; a party |
-| **Party** | transient, opt-in, character-keyed membership set with optional leader; a *consent-to-person* object | its own roster + lifecycle + (optional) leader role | minutes–hours; dissolves on empty/expiry | a permission grant; a wallet; durable identity |
+| **Party** | ephemeral, opt-in, character-keyed formal membership object; a *consent-to-person* aggregate joined via invite/accept | its own roster + lifecycle (no leader — all members peers, D4) | minutes–hours; capped at 3 (configurable, D3), dissolves at one member/logout/expiry (D2/D3) | a permission grant; a wallet; a leader role; durable identity |
 | **Named grant** | an explicit, revocable, Stone-owned authorization from a Governor to a *named* character | the **Stone** (provenance like relationship formation) | until revoked or relationship lost | transitive; party-scoped; a role |
 | **Guild** | durable social identity: roster + roles/ranks + succession + audit | its own aggregate (identity, roster, roles) | indefinite; survives all members offline | a Stone owner by default; a permission source |
 | **Guild affiliation** | an explicit, bounded link between a Guild and a Stone (owned / hosted / allied / none) | a *link record* whose permission semantics are still I3-bounded | until dissolved | a global override of per-Stone governance |
@@ -113,33 +169,37 @@ row only to *name the thing we are refusing to build*.
 
 ## 3. Gating decisions (must land before any formal ticket starts)
 
-These are the parent's five reserved Daniel questions, promoted to **gates** because
-the formal Party/Guild design forks on each. Present **one cluster at a time**.
+These are the parent's five reserved Daniel questions. **Several are now SETTLED by
+owner decision (§0.5)** and are shown here as closed for the record; only the genuinely
+open ones still gate tickets. Present remaining open clusters **one at a time**.
 
-- **G-A (definition fork).** Confirm "natural party" = shared-Stone cohort (derived),
-  so Horizon A *adds only* the consent-to-person layer on top — vs. Daniel already
-  picturing an explicit invite group as the primary object. *Decides whether Party is
-  "derive + thin consent record" or "design a full aggregate from scratch."*
-  [LEAN: derived base + thin consent record.]
+- **G-A (definition fork). — SETTLED (§0.5 D1): a formal Party object is required.**
+  ~~Confirm "natural party" = shared-Stone cohort (derived)~~ Resolved: Party is a
+  first-class object; the shared-Stone cohort / Homestead ownership / Attunement / Friends
+  are discovery inputs, not identity. Horizon A designs a formal aggregate, not a derived
+  view + thin record.
 - **G-C (named grants now?).** Allow Governors to issue explicit, named, revocable
   cross-Stone guest grants at the emergent layer now, or defer all cross-Stone access
   to the formal card. *If "now," the named-grant primitive (I3 rule 2) exists before
-  Party and Party never needs to carry permissions at all.* [LEAN: allow now.]
+  Party and Party never needs to carry permissions at all.* **[STILL OPEN]** [LEAN: allow now.]
 - **G-D (pooled ledger?).** Is co-located individual earning enough for the
   shared-project fantasy, or does Daniel want a **pooled fundable project ledger**
   (separate from character AND Stone wallets)? *This is the single biggest scope fork
   for BOTH horizons — a Guild "treasury/project" only exists if this is "yes."*
-  [LEAN: individual earning is enough until a concrete need appears.]
-- **G-E (character-keyed membership).** Confirm membership keys on `CharacterId`
-  respecting account sibling exclusivity per Stone. [LEAN: strong yes — I5.]
+  **[STILL OPEN]** [LEAN: individual earning is enough until a concrete need appears.]
+- **G-E (character-keyed membership). — SETTLED (§0.5 D7/I5): yes.** Membership keys on
+  `CharacterId` respecting account sibling exclusivity per Stone.
 - **G-F (context resolution).** Target-drives-context (clean, exploit-resistant) vs.
   a player-selected "active group" selector (familiar to MMO players). *UX-vs-safety;
-  affects every group-scoped action's API shape.* [LEAN: target-driven; an active-group
+  affects every group-scoped action's API shape.* **[STILL OPEN — but the leader sub-question
+  is SETTLED: no leader, all peers (§0.5 D4).]** [LEAN: target-driven; an active-group
   selector, if wanted, is UI sugar over target-driven resolution, never an authority.]
 
-**Dependency note.** G-A, G-E, G-F gate **Horizon A** tickets. G-C gates the named-grant
-tickets (which both horizons reuse). G-D gates the **treasury/project** tickets in both
-horizons and is the only gate that can *expand* scope materially.
+**Dependency note.** ~~G-A, G-E, G-F gate **Horizon A** tickets.~~ G-A and G-E are now
+settled (§0.5); the residual **G-F context-resolution** question still gates the multi-group
+Horizon A tickets. G-C gates the named-grant tickets (which both horizons reuse). G-D gates
+the **treasury/project** tickets in both horizons and is the only gate that can *expand*
+scope materially.
 
 ---
 
@@ -150,15 +210,15 @@ load-bearing distinction, stated as invariants the two designs must not blur:
 
 | Axis | Party (Horizon A) | Guild (Horizon B) |
 |---|---|---|
-| **Essence** | consent *between people*, transient | durable *identity*, persistent |
-| **Exists when empty?** | No — dissolves when last member leaves/expires | Yes — survives all members offline; identity persists |
-| **Primary state** | roster + lifetime + optional leader | identity + roster + roles/ranks + succession + audit |
-| **Relationship to Stones** | none — carries no Stone authority (I3) | explicit, bounded *affiliation* link (owned/hosted/allied/none) |
-| **Permissions** | never a source; derives/target-driven (I6) | never a global override; affiliation is still I3-intersection-bounded |
-| **Progression** | never pools AP/BP (I4) | never pools AP/BP; a *guild project ledger* (if G-D=yes) is a separate funded aggregate |
-| **Leadership** | optional leader role, transient | roles/ranks + **succession** (guild must survive its founder) |
-| **Audit** | receipts for invite/accept/kick/expire | durable audit log (roster/role/affiliation changes) |
-| **Failure mode if blurred** | leader role becomes a mini-permission source | affiliation becomes the one global guild-permission that overrides Stones (T1 at guild scale) |
+| **Essence** | consent *between people*, ephemeral | durable *identity*, persistent |
+| **Exists when empty?** | No — dissolves when membership falls to one/last member leaves/expires (D3) | Yes — survives all members offline; identity persists |
+| **Primary state** | roster + lifetime (ephemeral, D2); no leader (all peers, D4) | identity + roster + roles/ranks + succession + audit |
+| **Relationship to Stones** | none — carries no Stone authority (I3/D7) | explicit, bounded *affiliation* link (owned/hosted/allied/none) |
+| **Permissions** | never a source; derives/target-driven (I6/D7) | never a global override; affiliation is still I3-intersection-bounded |
+| **Progression** | never pools AP/BP (I4/D7) | never pools AP/BP; a *guild project ledger* (if G-D=yes) is a separate funded aggregate |
+| **Leadership** | none — all members are peers (D4); forced removal by majority excluding target (D5) | roles/ranks + **succession** (guild must survive its founder) |
+| **Audit** | receipts for invite/accept/leave/kick(majority-vote)/expire/dissolve | durable audit log (roster/role/affiliation changes) |
+| **Failure mode if blurred** | a "leader" or a carried grant becomes a mini-permission source (rejected: D4 forbids leader) | affiliation becomes the one global guild-permission that overrides Stones (T1 at guild scale) |
 
 **[ARCHITECT LEAN]** The clean seam: **Party = a lifecycle over a membership set;
 Guild = an identity that *owns* memberships and *declares* affiliations.** A Guild is
@@ -179,10 +239,10 @@ Nothing here is claimed or resolved in this charting session.
 
 | id | title | type | blocked_by | risk | question |
 |---|---|---|---|---|---|
-| **W-A1** | Party membership record shape | grilling+prototype | G-A, G-E | med | What is the minimal server-authoritative membership record? Fields, keys (CharacterId), max size, and the sibling-exclusivity guard (I5). Derives cohort/co-presence; stores only consent. |
-| **W-A2** | Invite / accept consent protocol | prototype | W-A1 | **high** | The consent-to-person handshake: offer → opt-in accept, never auto-join, carries **no** grant (T5). Idempotent/revisioned like relationship formation (contracts). Anti-spam/anti-harassment seams. |
-| **W-A3** | Leaderless vs leader; role capability set | grilling | W-A1, G-F | med | Is there a leader at all? If so, what can a leader do (invite/kick/disband) and is it a *role field* on the record? Must NOT become a permission source (§4). |
-| **W-A4** | Membership lifetime, disconnect/rejoin, expiry, dissolution | grilling+prototype | W-A1 | med | Lifetime rules: idle expiry, disconnect grace + rejoin window, empty-party dissolution, explicit leave/kick. Recovered via receipt journal (spec FR-012/FR-023) on crash/reconnect. |
+| **W-A1** | Party object record shape | grilling+prototype | G-F | med | What is the minimal server-authoritative **formal Party record** (D1)? Fields, keys (CharacterId, I5/D7), the **configurable max-size cap (default 3, D3)**, the sibling-exclusivity guard (I5), and the dissolve-at-one rule (D3). Derives discovery hints from cohort/co-presence; stores consent + lifecycle. |
+| **W-A2** | Invite / accept consent protocol | prototype | W-A1 | **high** | The consent-to-person handshake: offer → opt-in accept, never auto-join, carries **no** grant (T5/D7). Inviter recorded as **event provenance only** (D4). Idempotent/revisioned like relationship formation (contracts). Anti-spam/anti-harassment seams. |
+| **W-A3** | ~~Leaderless vs leader~~ **Forced-removal (majority vote) mechanics** | grilling | W-A1 | med | **Leader question SETTLED: no leader, all peers (D4).** Remaining: model **majority-vote forced removal excluding the target** (D5) — 2 votes at max 3; a two-member Party cannot force-remove (either leaves, dissolving it, D3/D5). Define the vote record + that it grants no permission (§4). |
+| **W-A4** | Membership lifetime: logout/disconnect-grace/expiry/dissolution | grilling+prototype | W-A1 | med | Lifetime rules per **D2/D3**: **explicit logout removes membership**; **unclean disconnect retained only for a fixed reconnect-grace timeout** (exact duration `[OPEN → tuning]`); dissolve when membership falls to one (D3); explicit leave/majority-kick (D5). Recovered via receipt journal (spec FR-012/FR-023) on crash/reconnect. |
 | **W-A5** | Multi-membership + target-driven context resolution | grilling | W-A1, G-F | **high** | When a character is in multiple groups/Stones, how does a group-scoped action pick its context? Confirm target-driven (I6); define the API shape at the action site; reject ambient union (T8). |
 | **W-A6** | Party-scoped shared objectives, presence, map/pins | research+grilling | W-A1 | med | What group features are in-scope (shared presence UI, objective marker) vs routed out? **Pin-sharing is a SEPARATE subsystem** (docs/design/pin-sharing.md) — route out, do not model here (emergent §Cluster D [OPEN→RE]). |
 | **W-A7** | Loot / credit / effects under a Party | grilling | W-A1, **G-D** | **high** | Confirm NO group credit (I4). Local Effects beneficiary set is Stone policy only; membership adds nothing (T6, FR-016). If G-D=yes, a *separate* funded project ledger — never character/Stone wallets. |
@@ -230,12 +290,15 @@ Nothing here is claimed or resolved in this charting session.
 State-ownership and lifecycle at low resolution. **Not a choice made here** — options
 for the tickets to evaluate.
 
-### Shape 1 — Derived-first, thin consent (minimum viable social)
+### Shape 1 — Formal ephemeral Party, thin consent (minimum viable social) — RECOMMENDED
 
-- **Party** = shared-Stone cohort (derived, I1) + co-presence, PLUS one thin
-  server-authoritative **membership record** that stores *only* consent (who accepted,
-  optional leader, lifetime). Permissions: none carried — named grants (G-C) handle
-  host→helper; everything else target-driven (I6).
+- **Party** = a **formal server-authoritative Party object** (D1) joined by an
+  invite/accept consent handshake, storing *only* roster + lifecycle: members
+  (CharacterId), the configurable size cap (default 3, D3), ephemerality (logout drops /
+  disconnect-grace timeout, D2), all-peers with no leader (D4), majority-vote forced
+  removal (D5). Discovery hints (shared-Stone cohort, Homestead ownership, Attunement,
+  later Friends) are *inputs*, not identity. Permissions: none carried — named grants
+  (G-C) handle host→helper; everything else target-driven (I6/D7).
 - **Guild** = deferred entirely; "guild feeling" achieved by a persistent shared
   Community/Settlement Stone + named grants + social alliance (unmodeled).
 - **State added:** one small Party record family + its receipts. No Guild aggregate.
@@ -282,13 +345,14 @@ for the tickets to evaluate.
 
 ### [ARCHITECT LEAN] Recommendation to carry into the tickets
 
-**Ship Shape 1 first** (thin consent Party after S2), and **treat Shape 2's Guild as a
-bounded, separately-designed add** gated on G-D and on Community/Settlement Stones —
-never as a persistence flag on the Party. The evidence: the emergent card already
-proved 6 of 7 co-play scenarios need no aggregate at all; the 7th (consent-to-person)
-is Shape 1's thin record; and *durable identity* is a genuinely different concern that
-earns its own aggregate only when Daniel wants named persistent teams with roles and
-succession. Shape 3 is the anti-pattern the card exists to prevent.
+**Ship Shape 1 first** (formal ephemeral Party after S2, per owner decisions §0.5), and
+**treat Shape 2's Guild as a bounded, separately-designed add** gated on G-D and on
+Community/Settlement Stones — never as a persistence flag on the Party. The evidence: the
+emergent card proved co-play needs no *derived-only* aggregate, and Daniel has since settled
+that a **formal Party object is nonetheless required** (D1) as the ephemeral consent layer;
+*durable identity* is a genuinely different concern that earns its own aggregate only when
+Daniel wants named persistent teams with roles and succession. Shape 3 is the anti-pattern
+the card exists to prevent.
 
 ---
 
@@ -318,13 +382,14 @@ beyond the substrate's per-op revalidation (FR-025) + receipts/anomaly log (Aggr
 
 ## 8. Vertical-slice recommendation & sequencing
 
-**[ARCHITECT LEAN] — provisional, gated on Daniel's G-A…G-F and on S2 shipping.**
+**[ARCHITECT LEAN] — provisional, gated on the remaining open gates (G-C, G-D, G-F; §0.5
+settled the rest) and on S2 shipping.**
 
 1. **After Homestead S2 ships and is playtested** (not before — this is backlog).
-2. **First slice = Shape 1 thin-consent Party**, built from W-A1, W-A2, W-A4, W-A5,
-   W-A10 (record, consent handshake, lifecycle, target-driven context, receipts).
-   Leader role (W-A3) optional in-slice per G-F/W-A3. **No permissions carried**
-   (W-A9 → reuse named grants if G-C=yes).
+2. **First slice = Shape 1 formal ephemeral Party**, built from W-A1, W-A2, W-A3, W-A4,
+   W-A5, W-A10 (formal record with configurable cap, consent handshake, majority-removal
+   vote, ephemeral lifecycle, target-driven context, receipts). **No leader role** (settled
+   D4 — all peers). **No permissions carried** (W-A9 → reuse named grants if G-C=yes).
 3. **Defer within Party:** W-A6 pins (route to pin-sharing subsystem), W-A7 pooled
    loot (only if G-D=yes), W-A8 PvP (needs its own scoping decision first).
 4. **Guild (Horizon B) waits for two things:** (a) Daniel wanting durable named teams,
@@ -340,13 +405,14 @@ beyond the substrate's per-op revalidation (FR-025) + receipts/anomaly log (Aggr
 
 ## 9. Daniel decision points (present one cluster at a time)
 
-**Cluster 1 — the five inherited gates (must land first).** G-A definition fork,
-G-C named grants now, G-D pooled ledger, G-E character-keyed membership, G-F context
-resolution. (Details §3; leans stated.)
+**Cluster 1 — remaining open gates (§0.5 already settled G-A, G-E, and the leader
+question).** Still open: **G-C** named grants now, **G-D** pooled ledger, **G-F** context
+resolution. (Details §3; leans stated.) The settled Party model (formal object, ephemeral,
+cap 3, all-peers, majority removal, Discord shelved) is **not reopened** here.
 
-**Cluster 2 — Party shape.** Given the gates: is Shape 1 (thin-consent Party) the
-right first social system after S2, with named grants (not party permissions) as the
-cooperation primitive? Leader role in-slice or deferred?
+**Cluster 2 — Party slice confirmation.** Given the settled model and the open gates: is
+Shape 1 (formal ephemeral Party) the right first social system after S2, with named grants
+(not party permissions) as the cooperation primitive? (**No leader question — settled D4.**)
 
 **Cluster 3 — Guild appetite & timing.** Do you want durable named teams (roles,
 succession, audit) at all, and if so, is it acceptable that the richest guild↔Stone
@@ -375,16 +441,23 @@ scope (W-B11).
   but are their own future substrate (data-model marks Community Attunement/Bond policy but
   Settlement-Stone-as-guild-home is not designed). The guild-affiliation tickets depend on
   that design landing first.
+- **[FUTURE HORIZON → deferred]** **Discord integration** (identity linking, presence,
+  invite transport, voice orchestration) is **shelved by owner decision (§0.5 D6)**. It is a
+  named future horizon only and **must not shape or block** the initial Party model; invent
+  **no Discord contracts** here. Any Discord-touching ticket is out of scope until the Party
+  model ships.
 
 ---
 
 ## 11. Handoff
 
 - **To the synthesis card (t_213d4aaa):** this wayfinder is one of four future-system
-  tracks. Its headline for the roadmap: **Party is a small thin-consent record after S2;
-  Guild is a separate durable-identity aggregate that mostly waits for Community/Settlement
-  Stones; the boundary between them (§4) is a hard invariant; the two scope-expanders are
-  G-D (pooled ledger) and G-C (named grants now).** The contradiction the synthesis must
+  tracks. Its headline for the roadmap: **Party is a formal ephemeral object after S2 (all
+  members peers, capped at 3 configurable, dropped on logout / short disconnect-grace,
+  forced removal by majority excluding the target); Guild is a separate durable-identity
+  aggregate that mostly waits for Community/Settlement Stones; the boundary between them (§4)
+  is a hard invariant; Discord is a shelved future horizon (§0.5 D6); the two open
+  scope-expanders are G-D (pooled ledger) and G-C (named grants now).** The contradiction the synthesis must
   surface: the **resource-yield track** (t_6153a995) and the **social-permission track**
   (this + t_b7ea5c03) both touch "who may benefit from a Stone's output" — reconcile that
   a *yield claim* is Stone-owned and per-relationship, while a *party/guild* never widens
