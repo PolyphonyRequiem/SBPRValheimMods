@@ -663,6 +663,27 @@ acceptance content is folded into Appendices A and B above.
   > (`AT-QA-LOOPBACK-ONLY`, `AT-QA-NO-SCRIPTTOOLS-LOCK`, `AT-QA-SERVER-NO-LISTENER`,
   > `AT-QA-BUSY-TIMEOUT-CANCEL`) remain the next slice and drive the arming gate that
   > this card delivered.
+
+  > **Implementation note (2026-07-22, card t_e596652b).** The channels + dispatcher
+  > slice landed its **engine-free control-plane core** first (`qa/SBPR.QaHarness.T022/
+  > ControlPlane/*.cs`): the owner-local loopback **frame parser + `127.0.0.1`/operator-
+  > token bind policy** (`LoopbackFrameParser`), the **single-slot, deadline-bounded,
+  > cancellable dispatcher** with a bounded FIFO backlog (`ControlDispatcher`), the
+  > **delivering-peer / connection-generation** state model (`DeliveringPeerState`), and
+  > **engine-free game-binding seam interfaces + inert fakes** (`GameBindingAdapters`,
+  > written CLEAN-side from the PR #408 behavioral map, no decompiled source). All six
+  > of this slice's named ATs are proven headless by `qa/tests-core/` —
+  > `AT-QA-LOOPBACK-ONLY` (loopback-only + bad-token), `AT-QA-SERVER-NO-LISTENER` /
+  > `AT-QA-PEER-SUBSTITUTION-REJECT` (delivering-peer bound, substitution + stale-
+  > generation refused), `AT-QA-BUSY-TIMEOUT-CANCEL` (one primitive in flight;
+  > BUSY/TIMEOUT/CANCELLED), `AT-QA-REMOTE-FIXTURE-REJECT` (fixture verbs are ServerRpc-
+  > only and refuse a remote/unbound delivering peer), and `AT-QA-NO-SCRIPTTOOLS-LOCK`
+  > (the core owns no synchronization primitive and re-enters from its own scheduler
+  > continuation without deadlock — the structural non-reentry anchor). **Still no
+  > listener, socket, live ZRpc, Harmony hook, Unity/game mutation, fixture execution,
+  > deployment, or runtime** — the live TCP/ZRpc pump binding these seams to the game is
+  > the next slice; the Plugin remains inert/disarmed. No fixture/action mutations yet
+  > (§10 QA-M2 fixtures follow).
 - **QA-M2** engineer: fixture verbs + owned-resource ledger + `Cleanup`
   (`AT-QA-FIXTURE-VANILLA-ONLY`, `AT-QA-CLEANUP-NO-LEAK`).
 - **QA-M3** engineer + qa: action + observation verbs + transfer + tamper + T022

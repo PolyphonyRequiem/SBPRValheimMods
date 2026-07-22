@@ -49,4 +49,16 @@
     <Compile Include="../SBPR.QaHarness.T022/Contracts/RequestAdmission.cs" />
   </ItemGroup>
 
+  <!-- M2 control-plane core (engine-free): frame parser + bind policy, single-slot
+       dispatcher + bounded queue, delivering-peer/connection-generation state, and the
+       game-binding adapter interfaces + inert fakes. Same link-compile discipline — the
+       tested logic IS the shipped logic. -->
+  <ItemGroup>
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlPlaneReason.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/LoopbackFrameParser.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/DeliveringPeerState.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlDispatcher.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/GameBindingAdapters.cs" />
+  </ItemGroup>
+
 </Project>

@@ -12,10 +12,11 @@ trust boundary.
 |------|-----------|-----------|
 | `SBPR.QaHarness.T022/` | Fail-closed BepInEx helper (net48). **M0: inert skeleton**; **M1: engine-free contract core added under `Contracts/` (verb catalog, capability parser, fail-closed arming + request-admission decision) — compiled in but not yet invoked at runtime (no channel until M2).** | M0 → M4 |
 | `SBPR.QaHarness.T022/Contracts/` | **M1:** engine-free (System.* only) typed contracts + capability-manifest parser + fail-closed arming/admission decision. Link-compiled by `tests-core/` and consumed under net48 by the helper. | M1 → M4 |
+| `SBPR.QaHarness.T022/ControlPlane/` | **Channels+dispatcher core (engine-free):** owner-local loopback frame parser + `127.0.0.1`/operator-token bind policy (`LoopbackFrameParser`), single-slot deadline-bounded cancellable dispatcher w/ bounded FIFO (`ControlDispatcher`), delivering-peer/connection-generation state (`DeliveringPeerState`), and game-binding seam interfaces + inert fakes written CLEAN-side from the PR #408 map (`GameBindingAdapters`). Decision logic only — the live TCP/ZRpc pump binding these seams to the game is a later slice; helper stays inert. | channels+dispatcher → M4 |
 | `contracts/` | JSON Schema wire truth (request/receipt/envelope). **M0: disabled placeholders; M1: real schemas, kept in sync with `VerbCatalog`/`RejectReason` by `tests-core` guards.** | M0 → M2 |
 | `runner/` | Engine-free external Python runner — the sole scenario state machine + PASS/FAIL composer. **M0: skeleton (`--dry-run`).** | M0 → M5 |
 | `tests/` | M0 isolation guard tests (`AT-QA-NO-PRODUCT-REF`, `AT-QA-MODPACK-EXCLUDES-HARNESS`). | M0+ |
-| `tests-core/` | **M1:** net8 xUnit suite link-compiling `SBPR.QaHarness.T022/Contracts/*.cs`. Proves AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID, BAD-NONCE-REJECT, OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT, REPLAY-REJECT. Runs headless (no Valheim SDK). | M1+ |
+| `tests-core/` | net8 xUnit suite link-compiling the engine-free `Contracts/*.cs` **and** `ControlPlane/*.cs`. **M1** ATs: AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID, BAD-NONCE-REJECT, OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT, REPLAY-REJECT. **Channels+dispatcher** ATs: AT-QA-LOOPBACK-ONLY, NO-SCRIPTTOOLS-LOCK, SERVER-NO-LISTENER, BUSY-TIMEOUT-CANCEL, REMOTE-FIXTURE-REJECT, PEER-SUBSTITUTION-REJECT. Runs headless (no Valheim SDK). | M1+ |
 
 ## Firewall (load-bearing — do not undo without a new ADR)
 
