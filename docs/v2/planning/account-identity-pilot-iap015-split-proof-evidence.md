@@ -47,7 +47,7 @@ the harness half.
 |------|-------|
 | Worktree base commit | `5921e5657c9638a6025c886abd8680d6db27c3a6` (current `origin/main`) |
 | Candidate product assembly | `src/SBPR.Niflheim.HomesteadStones/bin/Release/SBPR.Niflheim.HomesteadStones.dll` |
-| Candidate assembly SHA-256 | `2a4cc51b8ee5939743bd982954e9ff3e913b4e5f3109e4c4c567b20c78f78fc0` |
+| Candidate assembly SHA-256 (this run) | `2a4cc51b8ee5939743bd982954e9ff3e913b4e5f3109e4c4c567b20c78f78fc0` — point-in-time record, NOT a reproducible constant (see note below) |
 | QA-only identity | `ForTheWort_QA` (synthetic opaque subject `ForTheWort_QA-*`, never a live provider subject) |
 
 > The live QA window MUST rebuild the candidate assembly from the exact
@@ -55,6 +55,13 @@ the harness half.
 > hash it actually loads before running, so a drifted binary fails closed. (Note: the
 > preflight `e9789c3` pin belongs to an unmerged T022 branch and is NOT an ancestor of
 > current main — do not use it for IAP-015.)
+>
+> **The SHA-256 above is a point-in-time record, not a reproducible constant.** The net48
+> Release build is not byte-deterministic across rebuilds (assembly MVID / version-constant
+> codegen vary), so a fresh build of the same source produces a different hash. That is by
+> design harmless: the harness hashes whatever assembly it loads and pins to *that* value at
+> runtime, so the attestation is self-consistent per run. The QA window pins the SHA of the
+> exact binary it deploys — it does NOT compare against this recorded literal.
 
 ## Executed commands
 
@@ -63,7 +70,7 @@ the harness half.
 dotnet build src/SBPR.Niflheim.HomesteadStones/SBPR.Niflheim.HomesteadStones.csproj -c Release
 
 DLL="$(pwd)/src/SBPR.Niflheim.HomesteadStones/bin/Release/SBPR.Niflheim.HomesteadStones.dll"
-SHA="$(sha256sum "$DLL" | cut -d' ' -f1)"        # 2a4cc51b8ee5939743bd982954e9ff3e913b4e5f3109e4c4c567b20c78f78fc0
+SHA="$(sha256sum "$DLL" | cut -d' ' -f1)"        # per-build; the harness attests whatever it loads
 
 dotnet build qa-split-session-harness/QaSplitSessionHarness.csproj -c Release -p:CANDIDATE_DLL="$DLL"
 
