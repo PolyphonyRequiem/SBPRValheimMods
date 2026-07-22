@@ -1,6 +1,6 @@
 ---
 title: "Twisted Portal — distinct silhouette (colorblind-safe, deferred→required)"
-status: proposed
+status: accepted
 purpose: "Architect art-brief + spec-delta for the v3 Swamp Twisted Portal's DISTINCT mesh. Promotes the deferred art-pass detail (twisted-portal-impl-spec §4.1, AT-GEOMETRY) to REQUIRED after Daniel's 2026-06-26 Niflheim playtest: the Twisted Portal currently ships the Ancient Portal's EXACT envelope re-tinted, and the tint differentiation rides entirely on a green hue — the one axis Daniel (colorblind) cannot read — so for him the two portals are fully identical. This doc grounds a distinct, colorblind-SAFE (shape/silhouette/form, NOT hue) silhouette from vprefab-verified vanilla parts (ADR-0006 additive), refines the acceptance tests, and carries the exact impl-spec §4.1 replacement text to apply alongside the code. Companion to ancient-portal-placeholder-art.md (the Ancient Portal precedent this supersedes for the Twisted prefab). Card: t_4ab58b42."
 ---
 
