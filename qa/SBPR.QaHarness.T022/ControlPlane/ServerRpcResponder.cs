@@ -22,6 +22,54 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         bool IsAuthorized(string deliveringPeerId);
     }
 
+    /// <summary>
+    /// The result of executing an admitted server fixture verb (M3R). Descriptive facts only — a
+    /// short status token and the counts the runner correlates, never a product verdict. The
+    /// engine-free ServerFixtureExecutor (Fixtures namespace) produces these; the responder maps
+    /// them onto a control receipt status string. Kept as a tiny value type so ServerRpcResponder
+    /// depends on an interface, not on the engine-bound seam/world.
+    /// </summary>
+    public sealed class FixtureVerbOutcome
+    {
+        public FixtureVerbOutcome(bool executed, string status)
+        {
+            Executed = executed;
+            Status = status ?? string.Empty;
+        }
+
+        /// <summary>True iff the world op ran (create/cleanup); false iff a gate/map refused it (no world side effect).</summary>
+        public bool Executed { get; }
+
+        /// <summary>A bounded, descriptive status token for the receipt (e.g. "fixture-ensured:created=4").</summary>
+        public string Status { get; }
+    }
+
+    /// <summary>
+    /// Executes an admitted server FIXTURE verb (SpawnStation / PlaceVanillaPiece /
+    /// GrantVanillaMaterials / their cleanup) through the real vanilla seam behind the
+    /// execution-time authority gate. Engine-free interface: the M3R implementation
+    /// (ServerFixtureExecutor) composes the crash-safe ledger + seam; the engine-bound
+    /// ZNetVanillaFixtureSeam / ZNetServerAuthoritySource are injected into it by the plugin.
+    /// A responder with no executor (M2R behaviour / fixture-free tests) simply reports fixtures
+    /// as not-implemented, exactly as before.
+    /// </summary>
+    public interface IServerFixtureVerbExecutor
+    {
+        /// <summary>True iff <paramref name="verb"/> is a fixture verb this executor handles.</summary>
+        bool Handles(string? verb);
+
+        /// <summary>
+        /// Run the admitted fixture verb. The request already passed the responder's delivering-peer
+        /// + generation binding, the execution-time admin recheck, and the shared M1 admission +
+        /// single-slot dispatch — so this only maps the verb to a bounded vanilla plan and drives the
+        /// gated, crash-safe lifecycle. The executor re-applies its own authority gate internally
+        /// (defence in depth), so a refused recheck performs NO world side effect.
+        /// </summary>
+        FixtureVerbOutcome Execute(
+            string verb, System.Collections.Generic.IReadOnlyDictionary<string, object?> args,
+            string deliveringPeerId, long claimedGeneration);
+    }
+
     /// <summary>A fixed-yes/no admin recheck for tests.</summary>
     public sealed class FakeServerAuthorityRecheck : IServerAuthorityRecheck
     {
@@ -37,17 +85,46 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
     /// </summary>
     public sealed class ServerRpcResponder
     {
-        private readonly DeliveringPeerState _peerState = new();
+        private readonly DeliveringPeerState _peerState;
         private readonly ControlPlaneRuntime _runtime;
         private readonly IServerAuthorityRecheck _authority;
+        private readonly IServerFixtureVerbExecutor? _fixtures;
+
+        // Fixture-execution idempotency cache (requestId -> upgraded receipt). The shared runtime
+        // caches its OWN pre-execution receipt (NotImplementedInMilestone for a fixture verb); this
+        // cache holds the UPGRADED receipt so a genuine replay returns the executed result and the
+        // world lifecycle never re-runs. Only populated when a fixture executor is injected.
+        private readonly System.Collections.Generic.Dictionary<string, ControlReceipt> _fixtureReceipts =
+            new(StringComparer.Ordinal);
 
         public ServerRpcResponder(ArmedState armed, IServerAuthorityRecheck authority, long requestTimeoutMs = 5_000)
+            : this(armed, authority, null, null, requestTimeoutMs)
+        {
+        }
+
+        public ServerRpcResponder(
+            ArmedState armed, IServerAuthorityRecheck authority,
+            IServerFixtureVerbExecutor? fixtures, long requestTimeoutMs = 5_000)
+            : this(armed, authority, fixtures, null, requestTimeoutMs)
+        {
+        }
+
+        /// <summary>
+        /// Construct the responder. <paramref name="peerState"/> lets the caller SHARE the delivering-
+        /// peer/generation state with the M3R fixture executor (so both gate against the same bound
+        /// peer + generation); when null a fresh private state is created (M2R / fixture-free behaviour).
+        /// </summary>
+        public ServerRpcResponder(
+            ArmedState armed, IServerAuthorityRecheck authority,
+            IServerFixtureVerbExecutor? fixtures, DeliveringPeerState? peerState, long requestTimeoutMs = 5_000)
         {
             if (armed == null) throw new ArgumentNullException(nameof(armed));
             if (armed.Role != HarnessRole.Server)
                 throw new ArgumentException("ServerRpcResponder requires a Server-role armed state", nameof(armed));
+            _peerState = peerState ?? new DeliveringPeerState();
             _runtime = new ControlPlaneRuntime(armed, requestTimeoutMs);
             _authority = authority ?? throw new ArgumentNullException(nameof(authority));
+            _fixtures = fixtures;
         }
 
         /// <summary>The current bound peer/generation (for tests + audit). Null when unbound.</summary>
@@ -110,8 +187,42 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
             // 3. Shared fail-closed admission + single-slot dispatch + receipt. The HMAC re-check
             //    inside admission covers the generation too (it is part of the canonical input),
             //    so a generation tampered without re-signing rejects as BadHmac.
-            return _runtime.Handle(payload, nowUnixMs).WithGeneration(current);
+            ControlReceipt receipt = _runtime.Handle(payload, nowUnixMs).WithGeneration(current);
+
+            // 4. M3R fixture execution. In M2R an admitted fixture verb returned
+            //    NotImplementedInMilestone (the slot was taken + freed, no game I/O). With a real
+            //    executor injected, that same admitted-and-dispatched fixture verb now runs the
+            //    bounded, crash-safe vanilla lifecycle behind the executor's OWN execution-time
+            //    authority gate (defence in depth over the recheck above). Only an ADMITTED fixture
+            //    verb reaches here — a rejected/replay/busy receipt is returned unchanged, so the
+            //    fixture never runs without passing every prior gate.
+            if (_fixtures != null &&
+                receipt.Outcome == ControlOutcome.NotImplementedInMilestone &&
+                _fixtures.Handles(receipt.Verb))
+            {
+                // Replay: a fixture request already executed returns its cached upgraded receipt,
+                // never a second world lifecycle run.
+                if (!string.IsNullOrEmpty(receipt.RequestId) &&
+                    _fixtureReceipts.TryGetValue(receipt.RequestId, out var prior))
+                    return prior;
+
+                var args = decode.Envelope!.Args ?? EmptyArgs;
+                var outcome = _fixtures.Execute(
+                    receipt.Verb, args, deliveringPeerId!, claimedGeneration);
+                receipt = new ControlReceipt(
+                    receipt.RequestId, receipt.Verb,
+                    outcome.Executed ? ControlOutcome.Ok : ControlOutcome.Rejected,
+                    receipt.Reason, receipt.Role, receipt.WorldUid, receipt.Seq, nowUnixMs,
+                    outcome.Status, current);
+                if (!string.IsNullOrEmpty(receipt.RequestId))
+                    _fixtureReceipts[receipt.RequestId] = receipt;
+            }
+
+            return receipt;
         }
+
+        private static readonly System.Collections.Generic.Dictionary<string, object?> EmptyArgs =
+            new(StringComparer.Ordinal);
 
         private ControlReceipt TransportReject(ControlPlaneReason reason, long nowUnixMs, string status = "transport-rejected")
             => new("", "", ControlOutcome.TransportRejected, reason.ToString(),

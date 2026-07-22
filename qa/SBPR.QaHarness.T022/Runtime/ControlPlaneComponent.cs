@@ -42,6 +42,22 @@ namespace SBPR.QaHarness.T022.Runtime
         internal void Configure(
             ArmedState armed, string operatorToken, int loopbackPort,
             IServerAuthorityRecheck serverAuthority, ManualLogSource log)
+            => Configure(armed, operatorToken, loopbackPort, serverAuthority, null, log);
+
+        /// <summary>
+        /// Arm the component for a run. For a Client role it starts the loopback listener on the
+        /// bootstrap port; for a Server role it prepares the per-peer responder (no listener),
+        /// optionally with an M3R fixture executor that runs bounded vanilla fixtures behind the
+        /// execution-time authority gate. <paramref name="fixtureExecutorFactory"/> receives the
+        /// SHARED delivering-peer state the responder binds, so the fixture gate and the control
+        /// gate validate against the same bound peer + connection generation. Called exactly once,
+        /// on the main thread, after ArmingGate accepted.
+        /// </summary>
+        internal void Configure(
+            ArmedState armed, string operatorToken, int loopbackPort,
+            IServerAuthorityRecheck serverAuthority,
+            Func<DeliveringPeerState, IServerFixtureVerbExecutor>? fixtureExecutorFactory,
+            ManualLogSource log)
         {
             _armed = armed ?? throw new ArgumentNullException(nameof(armed));
             _log = log;
@@ -55,8 +71,14 @@ namespace SBPR.QaHarness.T022.Runtime
             }
             else
             {
-                _serverResponder = new ServerRpcResponder(armed, serverAuthority);
-                Banner("ARMED", "role=Server per-peer-ZRpc (NO host listener)");
+                // One delivering-peer state shared by the responder (it binds the peer on connect)
+                // and the fixture executor's execution-time gate, so both see the same generation.
+                var peerState = new DeliveringPeerState();
+                IServerFixtureVerbExecutor? fixtureExecutor = fixtureExecutorFactory?.Invoke(peerState);
+                _serverResponder = new ServerRpcResponder(armed, serverAuthority, fixtureExecutor, peerState);
+                Banner("ARMED", fixtureExecutor != null
+                    ? "role=Server per-peer-ZRpc (NO host listener) + M3R fixtures"
+                    : "role=Server per-peer-ZRpc (NO host listener)");
             }
             IsArmed = true;
         }

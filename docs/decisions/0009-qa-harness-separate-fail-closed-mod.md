@@ -552,6 +552,44 @@ deferred to M4 but are required before M6.**
     throwaway item only; product renders no line; **no signature added/copied**.
   - `AT-QA-T022-COLD-30MIN` — one **cold** end-to-end T022 cycle
     (issue→upgrade→transfer→tamper) completes in **≤30 minutes**, no manual hunting.
+
+  > **Implementation note (2026-07-22, card t_4db82cc0 + t_1572d041).** M3 landed in two
+  > slices. First (t_4db82cc0) shipped the ENGINE-FREE fixture core: the owned-resource
+  > ledger + deterministic plan validation + `VanillaFixtureManifest` (real vanilla
+  > allowlist + bounds + product-id guard) + the `SeamFixtureWorld` bridge to the additive
+  > `IVanillaFixtureSeam` + the execution-time `FixtureAuthority` recheck — but the seam was
+  > FAKE-ONLY (`FakeVanillaFixtureSeam`); nothing touched the game and the ledger had no
+  > durable persistence. The corrective slice **M3R (t_1572d041)** wires the REAL net48
+  > server adapter behind the M1/M2R gates and closes the fake-only gap:
+  >   • `ZNetVanillaFixtureSeam` (Runtime, engine-bound) — the additive vanilla implementation
+  >     of `IVanillaFixtureSeam`: materials via `ItemDrop.DropItem` of the item's own drop
+  >     prefab; stations/anchors via `Instantiate` of the UNMODIFIED vanilla prefab read as a
+  >     blueprint through `ZNetScene.GetPrefab` (ADR-0006 additive — a genuine server spawn of
+  >     the game's own prefab, never a clone-and-strip of a mutable base); cleanup via the
+  >     network-aware `ZNetView.Destroy` / `ZNetScene.Destroy` / `ZDOMan.DestroyZDO` path so no
+  >     ZDO survives (AT-QA-CLEANUP-NO-LEAK). The handle the ledger stores is the object's full
+  >     stable `ZDOID` ("UserID:ID"), so only the EXACT owned instance is ever despawned.
+  >   • `ZNetServerAuthoritySource` (Runtime, engine-bound) — the real `IServerAuthoritySource`:
+  >     live `ZNet.IsServer()` / world-load / admin re-read (same admin surface as the M2R
+  >     control-plane recheck), fail-closed on any drift.
+  >   • `LedgerSnapshotStore` (engine-free) — CRASH-SAFE durable persistence: atomic
+  >     temp+fsync+`File.Replace` write; fail-closed read (missing = Absent, unreadable = IoError,
+  >     undecodable = Corrupt — never a silent empty ledger that would orphan a prior run).
+  >   • `FixtureRequestMapper` + `ServerFixtureExecutor` + `FixtureVerbExecutorBridge`
+  >     (engine-free) — map an admitted fixture verb+args to a bounded vanilla-only plan (product
+  >     ids refused pre-allowlist), then run recover+reconcile → execution-time authority gate →
+  >     ensure/cleanup → atomic snapshot, reconciling ONLY the exact owned ids across a restart.
+  >     The `ServerRpcResponder` runs this ONLY after a fixture verb has passed delivering-peer +
+  >     generation binding, execution-time admin recheck, and the shared M1 admission + single-slot
+  >     dispatch — so a fixture never mutates the world without every prior gate.
+  > M3R adds NO product state, NO craft/upgrade/transfer/tamper, and NO verdict — those remain
+  > later work. Proven headless in `tests-core` (crash-safe store round-trip/corrupt/atomic;
+  > request→plan mapping incl. exact allowlist/bounds/radius + product-id refusal; gated executor
+  > with peer-substitution / stale-generation / non-admin / non-server / world-not-loaded rejects
+  > all zero-side-effect; partial spawn; restart reconcile; owned-only cleanup; unrelated
+  > preservation) + the net48 helper Release build (0w/0e) compiling against the exact pinned
+  > vanilla members. **No live game launch / deploy / in-game qualification is part of this card**
+  > — in-game execution is NOT verified here (that is M6, a separate operator authorization).
 - **M4 — adversarial + evidence hardening (required before M6).**
   - `AT-QA-BAD-NONCE-REJECT`, `AT-QA-OUT-OF-MANIFEST-REJECT`,
     `AT-QA-REMOTE-FIXTURE-REJECT`, `AT-QA-OUT-OF-BOUNDS-ARG-REJECT`,

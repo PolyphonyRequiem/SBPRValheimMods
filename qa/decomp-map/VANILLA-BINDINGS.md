@@ -274,6 +274,26 @@ public bool InUseDistance(Humanoid human);                               // @382
   `GrantVanillaMaterials(string itemId, int qty)` (loops `DropItem` or
   `Inventory.AddItem` on the target — see §3.10), `CleanupLedger()`. All bounded
   by exact ids/counts/radius per ADR-0009 §3.1.
+- **M3R realized bindings (card t_1572d041).** The real net48 seam
+  (`Runtime/ZNetVanillaFixtureSeam.cs`) implements this section against these exact,
+  now-probe-pinned members (see `probe_vanilla_bindings.py`):
+  - **Materials** → `ObjectDB.GetItemPrefab(name)` → the item prefab's `ItemDrop` →
+    `ItemDrop.DropItem(m_itemData, amount, pos, rot)` (the vanilla clone-onto-world-drop
+    grant seam; §3.5/§3.7).
+  - **Stations / anchors** → `ZNetScene.GetPrefab(name)` (blueprint, no Awake) then
+    `Object.Instantiate(prefab, pos, rot)` of the **unmodified** vanilla prefab — a genuine
+    additive server spawn, never a clone-and-strip (ADR-0006). The identical pattern the
+    product's `HomesteadStoneWorldPlacement` uses.
+  - **Owned handle** = the spawned object's full stable `ZNetView.GetZDO().m_uid`
+    (`ZDOID(UserID, ID)`), serialized as `"UserID:ID"` — never a truncated numeric.
+  - **Despawn / reconcile** → `ZNetScene.FindInstance(ZDOID)` → `ZNetView.ClaimOwnership()`
+    + `ZNetView.Destroy()` when instanced locally, else `ZDOMan.GetZDO(ZDOID)` +
+    `ZDOMan.DestroyZDO(zdo)` (the network-replicated despawn). `IsLiveInstance` uses the
+    same lookup for crash reconcile. Exactly the idiom the product's
+    `WarriorTwigDedicatedIngressObserver.UndoInstance` already uses.
+  - **Verified:** the net48 Release helper build (0w/0e, `<TreatWarningsAsErrors>`) compiles
+    against every member above, which resolves them in the live `assembly_valheim` more
+    strictly than a signature grep. **No in-game execution is claimed** (M6 is separate).
 
 ### 3.6 Local craft / upgrade through `InventoryGui` (M3) — **client-only-live**
 

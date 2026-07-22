@@ -5,6 +5,7 @@ using BepInEx.Logging;
 using HarmonyLib;
 using SBPR.QaHarness.T022.Core;
 using SBPR.QaHarness.T022.Core.ControlPlane;
+using SBPR.QaHarness.T022.Core.Fixtures;
 using SBPR.QaHarness.T022.Runtime;
 using UnityEngine;
 
@@ -121,13 +122,38 @@ namespace SBPR.QaHarness.T022
             // 5. Gate passed. Attach the pump and (server role) install the Harmony ZRpc bridge.
             _component = gameObject.AddComponent<ControlPlaneComponent>();
             var authority = new ZNetServerAuthorityRecheck();
-            _component.Configure(decision.State, boot.OperatorToken, boot.LoopbackPort, authority, Logger);
 
             if (decision.State.Role == HarnessRole.Server)
             {
+                // M3R: build the REAL vanilla fixture executor for the server role. The engine-free
+                // executor composes the crash-safe owned-resource ledger + the additive vanilla seam
+                // behind its own execution-time authority gate; the durable snapshot lives under the
+                // BepInEx config dir scoped to this world so a crash recovers only THIS run's ids.
+                // The factory receives the responder's SHARED delivering-peer state so the fixture
+                // gate binds the same peer + connection generation the control plane validated.
+                var fixtureSeam = new ZNetVanillaFixtureSeam();
+                var fixtureWorld = new SeamFixtureWorld(fixtureSeam);
+                var fixtureAuthority = new ZNetServerAuthoritySource();
+                string snapshotDir = Path.Combine(Paths.ConfigPath, "sbpr-qa-t022-fixtures",
+                    decision.State.World.WorldUid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                _component.Configure(decision.State, boot.OperatorToken, boot.LoopbackPort, authority,
+                    peerState =>
+                    {
+                        var executor = new ServerFixtureExecutor(
+                            fixtureAuthority, peerState, fixtureWorld,
+                            fixtureId => new LedgerSnapshotStore(Path.Combine(snapshotDir, fixtureId + ".ledger")));
+                        return new FixtureVerbExecutorBridge(executor);
+                    },
+                    Logger);
+
                 _harmony = new Harmony(PluginGuid);
                 _harmony.PatchAll(typeof(ZNetOnNewConnectionPatch));
                 QaServerRpcBridge.Arm(_component, Logger);
+            }
+            else
+            {
+                _component.Configure(decision.State, boot.OperatorToken, boot.LoopbackPort, authority, Logger);
             }
         }
 

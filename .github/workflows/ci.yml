@@ -321,18 +321,21 @@ jobs:
       - name: 'Runner skeleton --dry-run (no game/network/file I/O)'
         run: python3 qa/runner/sbpr-qa-t022.py --dry-run
 
-      # ADR-0009 M1–M3 + M2R: engine-free contracts + capability parser + fail-closed arming
+      # ADR-0009 M1–M3 + M2R + M3R: engine-free contracts + capability parser + fail-closed arming
       # gate, the M2 control-plane core, the M3 vanilla-fixture ledger + seam adapter + execution-
-      # time authority recheck, AND the M2R real-runtime control-plane brain (MiniJson envelope
-      # codec, ControlPlaneRuntime, real loopback TcpListener, server per-peer responder, assembly
-      # drift guard, arm bootstrap parser). This xUnit suite link-compiles the SHIPPED engine-free
-      # sources (System.* only — no game/BepInEx), so it runs headless with NO Valheim SDK and
-      # gates FIRST, off the helper's SteamCMD critical path. Named ATs:
-      # AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID, BAD-NONCE-REJECT,
-      # OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT, REPLAY-REJECT (M1); LOOPBACK-ONLY,
-      # NO-SCRIPTTOOLS-LOCK, SERVER-NO-LISTENER, BUSY-TIMEOUT-CANCEL, REMOTE-FIXTURE-REJECT,
-      # PEER-SUBSTITUTION-REJECT (M2/M2R); AT-QA-FIXTURE-VANILLA-ONLY, AT-QA-CLEANUP-NO-LEAK (M3).
-      - name: 'AT-QA M1–M3 + M2R — engine-free contracts + arming + fixtures + runtime (xUnit, no SDK)'
+      # time authority recheck, the M3R real-fixture adapter core (crash-safe LedgerSnapshotStore,
+      # request→plan mapper, gated ServerFixtureExecutor + responder bridge), AND the M2R real-
+      # runtime control-plane brain (MiniJson envelope codec, ControlPlaneRuntime, real loopback
+      # TcpListener, server per-peer responder, assembly drift guard, arm bootstrap parser). This
+      # xUnit suite link-compiles the SHIPPED engine-free sources (System.* only — no game/BepInEx),
+      # so it runs headless with NO Valheim SDK and gates FIRST, off the helper's SteamCMD critical
+      # path. Named ATs: AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID,
+      # BAD-NONCE-REJECT, OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT, REPLAY-REJECT (M1);
+      # LOOPBACK-ONLY, NO-SCRIPTTOOLS-LOCK, SERVER-NO-LISTENER, BUSY-TIMEOUT-CANCEL,
+      # REMOTE-FIXTURE-REJECT, PEER-SUBSTITUTION-REJECT (M2/M2R); AT-QA-FIXTURE-VANILLA-ONLY,
+      # AT-QA-CLEANUP-NO-LEAK + M3R crash-safe store / owned-only cleanup / restart reconcile /
+      # zero-side-effect authority rejects (M3/M3R).
+      - name: 'AT-QA M1–M3 + M2R + M3R — engine-free contracts + arming + fixtures + runtime (xUnit, no SDK)'
         run: |
           dotnet test qa/tests-core/SBPR.QaHarness.T022.Core.Tests.csproj -c Release \
             --logger "console;verbosity=normal"
