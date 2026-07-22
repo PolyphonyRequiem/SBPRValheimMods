@@ -43,9 +43,9 @@
        the build if any Reference/ProjectReference to src/SBPR.* is ever added. -->
 
   <ItemGroup>
-    <!-- Minimal SDK surface for an inert BepInPlugin: BepInEx base type + the
-         Unity/Valheim core the plugin lifecycle touches. Expanded per-milestone
-         as real behavior lands, never before. Private=false: reference-only, the
+    <!-- SDK surface for the M2R runtime control plane: BepInEx base + HarmonyX (the
+         ZNet.OnNewConnection postfix + AccessTools) + the Unity/Valheim core the pump,
+         world-identity reads, and per-peer ZRpc bindings touch. Private=false: the
          game/BepInEx supply these at runtime. -->
     <Reference Include="BepInEx"><HintPath>$(BepInExCore)/BepInEx.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="0Harmony"><HintPath>$(BepInExCore)/0Harmony.dll</HintPath><Private>false</Private></Reference>
