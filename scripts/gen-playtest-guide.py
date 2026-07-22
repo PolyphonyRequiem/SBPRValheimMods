@@ -296,9 +296,13 @@ Check each item in-game. **Logs-green ≠ playable** — actually do the action.
     guide.append("\n## 4. After the playtest\n")
     guide.append(f"""
 - Record results inline (check the boxes, note failures).
-- File a kanban card per failure (assign the right specialist; the planner cron can seed these).
-- When the next `-playtest` tag ships, `sbpr-playtest-planner` archives this list under
-  Playtest #{n} in the ledger, bumps the counter, and opens the Playtest #{int(n)+1 if str(n).isdigit() else '(N+1)'} planning card.
+- File a kanban card per failure (assign the right specialist).
+- Preparing the NEXT playtest is one explicit human command,
+  `scripts/prepare-playtest.py` (dry-run by default) — there is no cron that rolls
+  this ledger. After a human cuts the next `-playtest` tag, a human archives this
+  list under Playtest #{n} in the ledger, bumps the counter, and updates
+  `last_playtest_tag`. (The `sbpr-playtest-planner` cron that used to be described
+  here was removed — it rolled the ledger zero times.)
 """)
 
     out = "\n".join(guide)
