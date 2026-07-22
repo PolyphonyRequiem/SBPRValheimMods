@@ -1,7 +1,7 @@
 ---
 title: Playtest
 status: living
-last_updated: 2026-06-18
+last_updated: 2026-07-22
 ---
 
 # Playtest
@@ -31,14 +31,34 @@ span builds; the counter tracks the testing cadence, not the version.
 ## How it stays reliable
 
 1. Items are added **as work merges**, not from memory — the generator cross-checks
-   every `src/**/*.cs` change since the last tag against the ledger and flags any
-   with no test item, so nothing ships untested silently.
-2. The `sbpr-playtest-planner` cron watches for a new `-playtest` tag. When one
-   lands it archives the shipped playtest, bumps the counter, re-seeds PENDING from
-   git, regenerates the next guide, and opens the next **PLAYTEST #N** planning card
-   on the kanban board.
+   every scoped change since the last tag against the ledger and flags any with no
+   test item, so nothing ships untested silently.
+2. Preparing a playtest is **one explicit human command**, not a polling cron. Run
+   `scripts/prepare-playtest.py` (dry-run by default) to get an exact
+   release-candidate identity + a fail-closed verdict; it mutates nothing. The old
+   `sbpr-playtest-planner` / `sbpr-playtest-ready-watch` cron jobs were **removed**
+   (50 checks rolled the ledger zero times) — they do not exist and nothing rolls
+   the ledger automatically. Archiving/counter-bump is a deliberate human edit made
+   only after a tag is actually cut.
 3. **logs-green ≠ playable** — a guide is a checklist; Daniel's in-game run is the
    acceptance.
+
+## The prepare → tag → release path
+
+```bash
+# 1. Prepare (dry-run, safe, mutates nothing). READY or BLOCKED verdict.
+python3 scripts/prepare-playtest.py --manifest trailborne --ref main
+#    optionally emit a candidate guide for review (ledger untouched):
+python3 scripts/prepare-playtest.py --ref main --write-guide /tmp/candidate-guide.md
+# 2. If READY, a human APPROVES by cutting the proposed tag (the ONE gated action):
+#      git tag vX.Y.Z-playtest <commit> && git push origin vX.Y.Z-playtest
+# 3. .github/workflows/release.yml then builds → packages → publishes the release,
+#    and opens the installer URL+SHA pin PR (publish-then-pin, no broken window).
+#    A scoped read-only preflight in that workflow refuses to publish a -playtest
+#    tag whose manifest/guide is stale or incomplete.
+# 4. Merge the installer-pin PR → the public one-liner serves the new build.
+# 5. Playtesters install, play, file feedback as kanban cards.
+```
 
 ## Regenerating a guide
 
