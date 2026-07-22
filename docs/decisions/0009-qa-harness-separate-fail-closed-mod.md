@@ -692,6 +692,34 @@ acceptance content is folded into Appendices A and B above.
   `AT-QA-TRANSFER-PRESERVES`, `AT-QA-TAMPER-DEGRADES`, `AT-QA-T022-COLD-30MIN`).
 - **QA-M4** engineer + reviewer: adversarial suite + deferred receipt hash chain /
   connection-generation hardening + clean-room sign-off.
+
+  > **Implementation note (2026-07-22, card t_3cef643f).** QA-M4 landed its
+  > **engine-free evidence + adversarial-hardening core** (`qa/SBPR.QaHarness.T022/
+  > Evidence/*.cs`): the tracked-item `ItemFingerprint` + `ItemContinuity`
+  > (drop→pickup transfer preservation, upgrade source→replacement mapping with a
+  > **no-second-issuance** guard that refuses any new signature-prefixed key), the
+  > bounded `TamperPolicy` (replace/remove an existing allowlisted key on an exact
+  > **throwaway** item only — `TamperOperation` has **no `add` member**, so a
+  > signature can never be minted/copied here — threat T5), the `RedactedReceipt` +
+  > `ReceiptFirewall` (mechanical `ReceiptOutcome` with **no PASS/FAIL member** §6,
+  > raw-value redaction to bounded digests, byte-budget for hostile oversized
+  > observations, verdict-key firewall) and `ProductFirewall` (the harness may
+  > *observe* a stamp but never *claim* it wrote one — threat T11), the
+  > `ReceiptHashChain` + connection-generation `ReceiptCache` (`AT-QA-RECEIPT-HASH-CHAIN`
+  > tamper-evident append-only receipts detecting insert/drop/reorder/edit, plus
+  > stale-replay rejection across a reconnect, §10), and the `IActionAdapter`/
+  > `IObservationAdapter`/`IPeerBindingAdapter` seams + `FactSource` direct-vs-inferred
+  > labels — every adapter method pins a PR #408 vanilla binding point in a
+  > `TODO(PR408 §x.y)` reference, **never a decompiled body** (clean-room Chinese
+  > wall; `AT-QA-CLEANROOM`). All named M4 ATs (`AT-QA-TRANSFER-PRESERVES`,
+  > `AT-QA-TAMPER-DEGRADES`, `AT-QA-RECEIPT-HASH-CHAIN`, `AT-QA-TOOLTIP-OBSERVE`) plus
+  > the adversarial suite (no-second-issuance, fingerprint continuity, stale-cache
+  > hostile order, token/signature redaction, replay/stale generation, large-inventory
+  > /frame budget, verdict smuggling, product-state claim) are proven headless by
+  > `qa/tests-core/EvidenceM4Tests.cs`. **Still no live channel, socket, ZRpc, Harmony
+  > hook, Unity/game mutation, craft/tamper execution, deployment, runtime, or runner
+  > verdict** — the helper emits primitive facts only (never an AT PASS), and the live
+  > qualification is the separate operator-authorized M6 card.
 - **QA-M5** engineer: QA bundle manifest + sha256 pin + drift rejection + deploy
   hash pinning.
 
