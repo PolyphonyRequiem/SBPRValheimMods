@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sbpr.trailborne/qa/contracts/receipt.schema.json",
-  "title": "SBPR.QaHarness.T022 receipt (ADR-0009 §6) — M1",
-  "description": "The DESCRIPTIVE primitive-fact receipt the helper emits per request. It NEVER contains a product PASS/FAIL verdict — only the external runner composes a verdict (ADR-0009 §6). In M1 the helper still exposes no channel/executor, so no receipt is produced at runtime yet; this schema pins the shape the arming/admission decision would stamp. The 'reason' enum mirrors RejectReason (Core/RejectReason.cs); 'None' denotes an admitted request.",
+  "title": "SBPR.QaHarness.T022 receipt (ADR-0009 §6) — M1 admission shape + M4 evidence shape",
+  "description": "The DESCRIPTIVE primitive-fact receipt the helper emits per request. It NEVER contains a product PASS/FAIL verdict — only the external runner composes a verdict (ADR-0009 §6). Two outcome vocabularies coexist: the M1 admission-decision shape (admitted/rejected/replayed, 'reason' mirrors Core/RejectReason.cs) and the M4 evidence-primitive shape (OK/REJECTED/BUSY/TIMEOUT/CANCELLED — a mechanical outcome with deliberately NO PASS/FAIL member, see Evidence/RedactedReceipt.cs::ReceiptOutcome). The M4 shape adds 'connectionGeneration' (stale-replay binding, §10) and carries only redacted 'observed' facts (present KEY names + bounded value digests, never a raw signature value). The helper still exposes no live channel; this schema pins the shape.",
   "type": "object",
   "additionalProperties": false,
   "required": ["requestId", "verb", "role", "worldUid", "nonce", "seq", "ts", "outcome"],
@@ -13,12 +13,13 @@
     "worldUid": { "type": "integer" },
     "nonce": { "type": "string", "minLength": 1 },
     "seq": { "type": "integer" },
+    "connectionGeneration": { "type": "integer", "description": "M4 (§10): the connection generation this receipt was minted on. A receipt from an older generation is stale after a reconnect (Evidence/ReceiptHashChain.cs::ReceiptCache)." },
     "ts": { "type": "integer", "description": "Emit time, unix milliseconds." },
     "connectionGeneration": { "type": "integer", "minimum": 0, "description": "The server's CURRENT bound connection generation at receipt time (ADR-0009 §5.1); 0 on the client channel. The authorized runner reads this to form its next request's connectionGeneration — a reconnect advances it so pre-reconnect envelopes reject as StaleGeneration." },
     "outcome": {
       "type": "string",
-      "enum": ["admitted", "rejected", "replayed"],
-      "description": "admitted = passed the admission gate; rejected = fail-closed; replayed = cached decision returned for a duplicate (requestId, seq)."
+      "enum": ["admitted", "rejected", "replayed", "OK", "REJECTED", "BUSY", "TIMEOUT", "CANCELLED"],
+      "description": "M1 admission decision (admitted/rejected/replayed) OR M4 mechanical evidence outcome (OK/REJECTED/BUSY/TIMEOUT/CANCELLED). There is deliberately NO PASS/FAIL — a product verdict is the external runner's sole authority (ADR-0009 §6)."
     },
     "reason": {
       "type": "string",
