@@ -1,0 +1,15 @@
+<Project>
+  <!-- IAP-015 Option-B split-proof harness (t_0d853e78).
+
+       Deliberately does NOT import the repo-root Directory.Build.props. MSBuild
+       walks up and stops at the FIRST Directory.Build.props it finds, so this
+       file shields the harness from the root's SbprValidateSdkPaths target (which
+       hard-errors unless the Valheim managed-assembly path is set).
+
+       CRITICAL DIFFERENCE from tests/ and qa-operator-harness/: this harness does
+       NOT link-compile shipped source. It takes a BINARY <Reference> on the
+       COMPILED candidate product assembly (SBPR.Niflheim.HomesteadStones.dll) and
+       attests its SHA-256 at runtime before exercising it. The proven behaviour is
+       therefore the SHIPPED, COMPILED behaviour of the exact candidate binary — not
+       a source-linked test double or a reimplementation. See README.md. -->
+</Project>

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- IAP-015 Option-B same-account concurrent-session split-proof harness.
+
+       This is the SHIPPED-BINARY half of AT-AIP-DEDICATED-SECOND-SESSION-REJECT
+       (spec AIP-FR-028 / AIP-SC-008 split-evidence rider). It BINARY-references the
+       COMPILED candidate product assembly and calls the shipped
+       LiveSessionAdmission.Admit / AccountAdmissionIndex.TryReserve path with typed
+       calls (no reflection, no source-linking). Before exercising anything it attests
+       the referenced assembly's SHA-256 against a caller-supplied expected hash, so
+       the evidence is pinned to the exact candidate binary built from this head.
+
+       Point CANDIDATE_DLL at the freshly built product DLL and pass the expected
+       SHA-256 to enforce the attestation. See README.md for the exact build+run
+       commands (they use MSBuild double-dash flags that cannot appear in XML).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>QaSplitSessionHarness</AssemblyName>
+    <RootNamespace>SBPR.Qa.SplitSessionHarness</RootNamespace>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Absolute path to the COMPILED candidate product assembly under test. The
+         harness refuses to run (and this reference fails) if it is not built. In-repo
+         default points at the Release output; override with -p:CANDIDATE_DLL=<abs>. -->
+    <CANDIDATE_DLL Condition="'$(CANDIDATE_DLL)'==''">$(MSBuildThisFileDirectory)../src/SBPR.Niflheim.HomesteadStones/bin/Release/SBPR.Niflheim.HomesteadStones.dll</CANDIDATE_DLL>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- BINARY reference on the compiled candidate assembly. NOT a ProjectReference
+         and NOT a source <Compile Include>: the proven code is the exact shipped
+         binary, whose SHA-256 the harness attests at startup. Private=true so the DLL
+         is copied beside the harness and the attested file is the one actually loaded. -->
+    <Reference Include="SBPR.Niflheim.HomesteadStones">
+      <HintPath>$(CANDIDATE_DLL)</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
