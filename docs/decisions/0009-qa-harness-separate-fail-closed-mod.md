@@ -379,9 +379,18 @@ hooks** until **every** condition holds:
   fail-closes.
 - **HMAC + sequence/idempotency.** Every request is HMAC-signed and
   sequence/idempotency-checked.
-- **Delivering-peer binding + admin recheck at execution.** Server fixture verbs
-  bind the **actual delivering peer** and **re-check admin/owner authority at the
-  moment of execution**, not just at arm.
+- **Delivering-peer binding + connection generation + admin recheck at execution.**
+  Server fixture verbs bind the **actual delivering peer** (resolved from the transport,
+  never a claimed identity) and re-check admin/owner authority at the **moment of
+  execution**, not just at arm. Every request carries a required, strictly-positive
+  **`connectionGeneration`** in its authenticated envelope (part of the HMAC input); the
+  server bumps the generation on every peer (re)bind and **rejects any request whose
+  claimed generation is not the current bound one (StaleGeneration)** — so a pre-reconnect
+  envelope is refused before any fixture/action mutation even if its HMAC verifies. The
+  claimed generation is **decoded from the signed envelope, never injected by the transport
+  bridge**, so the stale-generation defense is reachable on the real RPC path. The server's
+  current generation is echoed on every receipt (`connectionGeneration`) so the authorized
+  runner can form its next request; a reconnect advances it.
 
 #### 5.2 Control-channel non-reentry (the deadlock proof obligation)
 
@@ -498,6 +507,35 @@ deferred to M4 but are required before M6.**
     via authenticated per-peer ZRpc, delivering-peer bound.
   - `AT-QA-BUSY-TIMEOUT-CANCEL` — one primitive in flight; `BUSY`/`TIMEOUT`/
     `CANCELLED` semantics; channel stays responsive.
+- **M2R — real fail-closed runtime control plane (corrective implementation).** A fresh
+  audit found merged M1/M2/M3 were engine-free CORES with `Plugin.cs` still inert; this
+  slice wires the *actual* net48 runtime that ADR §2/§3.2/§5.1–§5.3 promised, on current
+  main after merged M3. Delivered:
+  - `Plugin.cs` stays default-disabled: it arms ONLY when the runner places an explicit
+    local bootstrap doc (path via `SBPR_QA_T022_BOOTSTRAP` env — never inferred) AND the
+    world has loaded AND the assembly/MVID drift guard (PR #408 §1 pins) passes AND the
+    exact M1 arming AND-gate accepts. Otherwise it performs zero I/O and zero mutation.
+  - Client role: a REAL `TcpListener` bound to `IPAddress.Loopback` only, owner-local
+    operator token, bounded 4-byte-prefixed framing, one connection/request slot, read
+    deadlines; parsed requests flow through M1 `RequestAdmission` and the M2
+    `ControlDispatcher` before any receipt.
+  - The helper's OWN `MonoBehaviour.Update` pump drains the loopback queue on the main
+    thread; the socket accept loop only enqueues. It shares no Terminal/ScriptTools/
+    ValBridge lock.
+  - Server role: NO host listener. A Harmony postfix on the pinned private
+    `ZNet.OnNewConnection(ZNetPeer)` registers exactly one fixed, namespaced helper ZRpc
+    (`SBPRQA.Control`) on that peer's `m_rpc`; the handler binds the ACTUAL delivering
+    peer via `ZNet.GetPeer(rpc)`, validates connection generation + execution-time admin
+    recheck, and supports status/ping/reject-only in M2R (no fixtures/actions).
+  - Conspicuous ARMED/DISARMED audit banners; safe unbind on disable/destroy; no secret
+    logging; no product references.
+  - Engine-free brain (`MiniJson`/`EnvelopeCodec`/`ControlPlaneRuntime`/
+    `LoopbackControlServer`/`ServerRpcResponder`/`AssemblyDriftGuard`/
+    `ArmBootstrapParser`) is link-compiled into the headless xUnit suite and proven by
+    real-loopback component tests (remote bind refused, malformed/partial/oversized
+    frames, wrong token), peer-substitution / stale-generation / admin-recheck rejects,
+    server-no-listener assertion, drift fail-closed, and full-gate arm-only. M2R executes
+    no fixtures/actions and mutates no game state.
 - **M2 — fixtures + cleanup.** Server-role `SpawnStation`/`GrantVanillaMaterials`/
   `PlaceVanillaPiece` + owned-resource ledger + `Cleanup`.
   - `AT-QA-FIXTURE-VANILLA-ONLY` — attempt to grant any product-authored state is

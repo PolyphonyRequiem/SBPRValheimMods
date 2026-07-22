@@ -14,12 +14,13 @@ namespace SBPR.QaHarness.T022.Core
     {
         /// <summary>
         /// Build the canonical signing string. Fields are joined with '\n' in a FIXED
-        /// order; every field is included so tampering any of them invalidates the MAC.
+        /// order; every authenticated field — including the connection generation — is
+        /// included so tampering any of them (generation included) invalidates the MAC.
         /// Deliberately not JSON — a stable manual layout avoids serializer ambiguity.
         /// </summary>
         public static string CanonicalString(
             string nonce, long seq, long expiryUnixMs, string role,
-            long worldUid, string verb, string requestId)
+            long worldUid, string verb, string requestId, long connectionGeneration)
         {
             var sb = new StringBuilder();
             sb.Append(nonce ?? string.Empty).Append('\n');
@@ -28,7 +29,8 @@ namespace SBPR.QaHarness.T022.Core
             sb.Append(role ?? string.Empty).Append('\n');
             sb.Append(worldUid.ToString(CultureInfo.InvariantCulture)).Append('\n');
             sb.Append(verb ?? string.Empty).Append('\n');
-            sb.Append(requestId ?? string.Empty);
+            sb.Append(requestId ?? string.Empty).Append('\n');
+            sb.Append(connectionGeneration.ToString(CultureInfo.InvariantCulture));
             return sb.ToString();
         }
 

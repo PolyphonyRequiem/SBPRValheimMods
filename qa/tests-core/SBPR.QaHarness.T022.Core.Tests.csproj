@@ -59,6 +59,13 @@
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/DeliveringPeerState.cs" />
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlDispatcher.cs" />
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/GameBindingAdapters.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/MiniJson.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/EnvelopeCodec.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlPlaneRuntime.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/LoopbackControlServer.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ServerRpcResponder.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/AssemblyDriftGuard.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ArmBootstrapParser.cs" />
   </ItemGroup>
 
   <!-- M3 fixture ledger + seam adapter + execution-time authority recheck (engine-free):

@@ -155,21 +155,21 @@ namespace SBPR.QaHarness.T022.Core.Tests
         [Fact]
         public void SameInputs_SameMac()
         {
-            var c = RequestHmac.CanonicalString("n", 1, 2, "Server", 3, "Ping", "r");
+            var c = RequestHmac.CanonicalString("n", 1, 2, "Server", 3, "Ping", "r", 1);
             Assert.Equal(RequestHmac.Compute("s", c), RequestHmac.Compute("s", c));
         }
 
         [Fact]
         public void DifferentSecret_DifferentMac()
         {
-            var c = RequestHmac.CanonicalString("n", 1, 2, "Server", 3, "Ping", "r");
+            var c = RequestHmac.CanonicalString("n", 1, 2, "Server", 3, "Ping", "r", 1);
             Assert.NotEqual(RequestHmac.Compute("s1", c), RequestHmac.Compute("s2", c));
         }
 
         [Fact]
         public void Verify_ConstantTimeMatch()
         {
-            var c = RequestHmac.CanonicalString("n", 1, 2, "Server", 3, "Ping", "r");
+            var c = RequestHmac.CanonicalString("n", 1, 2, "Server", 3, "Ping", "r", 1);
             var mac = RequestHmac.Compute("s", c);
             Assert.True(RequestHmac.Verify(mac, mac));
             Assert.False(RequestHmac.Verify(mac, mac.Substring(0, mac.Length - 1) + "0"));

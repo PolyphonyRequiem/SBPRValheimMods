@@ -59,15 +59,16 @@ namespace SBPR.QaHarness.T022.Core.Tests
             long? expiry = null,
             string? nonceOverride = null,
             string? roleOverride = null,
-            long? worldUidOverride = null)
+            long? worldUidOverride = null,
+            long connectionGeneration = 1)
         {
             string nonce = nonceOverride ?? armed.Nonce;
             string role = roleOverride ?? RoleToken(armed.Role);
             long worldUid = worldUidOverride ?? armed.World.WorldUid;
             long exp = expiry ?? (Now + 60_000);
-            string canonical = RequestHmac.CanonicalString(nonce, seq, exp, role, worldUid, verb, requestId);
+            string canonical = RequestHmac.CanonicalString(nonce, seq, exp, role, worldUid, verb, requestId, connectionGeneration);
             string hmac = RequestHmac.Compute(armed.HmacSecret, canonical);
-            return new RequestEnvelope(nonce, seq, exp, hmac, role, worldUid, verb, requestId, args);
+            return new RequestEnvelope(nonce, seq, exp, hmac, role, worldUid, verb, requestId, connectionGeneration, args);
         }
 
         public static string RoleToken(HarnessRole role) => role == HarnessRole.Server ? "Server" : "Client";
