@@ -379,9 +379,18 @@ hooks** until **every** condition holds:
   fail-closes.
 - **HMAC + sequence/idempotency.** Every request is HMAC-signed and
   sequence/idempotency-checked.
-- **Delivering-peer binding + admin recheck at execution.** Server fixture verbs
-  bind the **actual delivering peer** and **re-check admin/owner authority at the
-  moment of execution**, not just at arm.
+- **Delivering-peer binding + connection generation + admin recheck at execution.**
+  Server fixture verbs bind the **actual delivering peer** (resolved from the transport,
+  never a claimed identity) and re-check admin/owner authority at the **moment of
+  execution**, not just at arm. Every request carries a required, strictly-positive
+  **`connectionGeneration`** in its authenticated envelope (part of the HMAC input); the
+  server bumps the generation on every peer (re)bind and **rejects any request whose
+  claimed generation is not the current bound one (StaleGeneration)** — so a pre-reconnect
+  envelope is refused before any fixture/action mutation even if its HMAC verifies. The
+  claimed generation is **decoded from the signed envelope, never injected by the transport
+  bridge**, so the stale-generation defense is reachable on the real RPC path. The server's
+  current generation is echoed on every receipt (`connectionGeneration`) so the authorized
+  runner can form its next request; a reconnect advances it.
 
 #### 5.2 Control-channel non-reentry (the deadlock proof obligation)
 

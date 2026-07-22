@@ -16,13 +16,17 @@ namespace SBPR.QaHarness.T022.Core.Tests
             IReadOnlyDictionary<string, object?>? args = null,
             long? expiry = null, string? nonceOverride = null,
             string? roleOverride = null, long? worldUidOverride = null,
-            string? hmacOverride = null)
+            string? hmacOverride = null, long connectionGeneration = 1,
+            long? signedGenerationOverride = null, bool omitGeneration = false)
         {
             string nonce = nonceOverride ?? armed.Nonce;
             string role = roleOverride ?? (armed.Role == HarnessRole.Server ? "Server" : "Client");
             long worldUid = worldUidOverride ?? armed.World.WorldUid;
             long exp = expiry ?? (Fixtures.Now + 60_000);
-            string canonical = RequestHmac.CanonicalString(nonce, seq, exp, role, worldUid, verb, requestId);
+            // The generation the HMAC is computed over may differ from the one placed on the wire
+            // (signedGenerationOverride) so a test can prove a tampered/unsigned generation rejects.
+            long signedGen = signedGenerationOverride ?? connectionGeneration;
+            string canonical = RequestHmac.CanonicalString(nonce, seq, exp, role, worldUid, verb, requestId, signedGen);
             string hmac = hmacOverride ?? RequestHmac.Compute(armed.HmacSecret, canonical);
 
             var sb = new StringBuilder();
@@ -35,6 +39,11 @@ namespace SBPR.QaHarness.T022.Core.Tests
             sb.Append("\"worldUid\":").Append(worldUid.ToString(CultureInfo.InvariantCulture)).Append(',');
             sb.Append("\"verb\":\"").Append(verb).Append("\",");
             sb.Append("\"requestId\":\"").Append(requestId).Append("\"");
+            if (!omitGeneration)
+            {
+                sb.Append(",\"connectionGeneration\":")
+                  .Append(connectionGeneration.ToString(CultureInfo.InvariantCulture));
+            }
             if (args != null && args.Count > 0)
             {
                 sb.Append(",\"args\":{");

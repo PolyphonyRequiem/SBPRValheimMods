@@ -62,7 +62,7 @@ namespace SBPR.QaHarness.T022.Core
             if (env == null) return AdmitDecision.Reject(RejectReason.MalformedEnvelope);
             if (string.IsNullOrEmpty(env.RequestId) || string.IsNullOrEmpty(env.Verb) ||
                 string.IsNullOrEmpty(env.Nonce) || string.IsNullOrEmpty(env.Hmac) ||
-                string.IsNullOrEmpty(env.Role))
+                string.IsNullOrEmpty(env.Role) || env.ConnectionGeneration <= 0)
                 return AdmitDecision.Reject(RejectReason.MalformedEnvelope);
 
             // 1. Idempotency / replay: a previously-seen requestId.
@@ -113,7 +113,8 @@ namespace SBPR.QaHarness.T022.Core
 
             // 11. HMAC must verify over the canonical authenticated fields.
             string canonical = RequestHmac.CanonicalString(
-                env.Nonce!, env.Seq, env.ExpiryUnixMs, env.Role!, env.WorldUid, env.Verb!, env.RequestId!);
+                env.Nonce!, env.Seq, env.ExpiryUnixMs, env.Role!, env.WorldUid, env.Verb!, env.RequestId!,
+                env.ConnectionGeneration);
             string expected = RequestHmac.Compute(_armed.HmacSecret, canonical);
             if (!RequestHmac.Verify(expected, env.Hmac!))
                 return Remember(env, RejectReason.BadHmac);

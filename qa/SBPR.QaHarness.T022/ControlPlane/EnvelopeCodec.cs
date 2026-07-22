@@ -46,8 +46,10 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
     {
         /// <summary>
         /// Decode a frame payload (JSON) into a RequestEnvelope. The shape is a flat object:
-        /// {nonce, seq, expiry, hmac, role, worldUid, verb, requestId, args:{...}} where args is
-        /// a single nested flat object of scalar values. Missing/mis-typed required scalars fail.
+        /// {nonce, seq, expiry, hmac, role, worldUid, verb, requestId, connectionGeneration,
+        /// args:{...}} where args is a single nested flat object of scalar values. Missing/
+        /// mis-typed required scalars fail; a missing or non-positive connectionGeneration is
+        /// a decode failure (fail-closed — the server never admits a generation-less request).
         /// The presented operator token is carried OUT-of-band (bind policy), not in the envelope.
         /// </summary>
         public static EnvelopeDecode Decode(string? payload)
@@ -62,6 +64,12 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
             if (!obj.TryGetLong("seq", out var seq)) return EnvelopeDecode.Fail();
             if (!obj.TryGetLong("expiry", out var expiry)) return EnvelopeDecode.Fail();
             if (!obj.TryGetLong("worldUid", out var worldUid)) return EnvelopeDecode.Fail();
+            // Connection generation is REQUIRED and strictly positive on the wire (ADR-0009 §5.1):
+            // a missing or non-positive value is a malformed frame, never a default-0 that would
+            // silently sidestep the stale-generation defense.
+            if (!obj.TryGetLong("connectionGeneration", out var connectionGeneration) ||
+                connectionGeneration <= 0)
+                return EnvelopeDecode.Fail();
 
             var args = new Dictionary<string, object?>(StringComparer.Ordinal);
             if (obj.TryGetObject("args", out var argsObj))
@@ -70,7 +78,8 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
                     args[kv.Key] = kv.Value.AsArgValue();
             }
 
-            var env = new RequestEnvelope(nonce, seq, expiry, hmac, role, worldUid, verb, requestId, args);
+            var env = new RequestEnvelope(
+                nonce, seq, expiry, hmac, role, worldUid, verb, requestId, connectionGeneration, args);
             return EnvelopeDecode.Success(env);
         }
 
@@ -87,6 +96,7 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
             sb.Append("\"worldUid\":").Append(r.WorldUid.ToString(CultureInfo.InvariantCulture)).Append(',');
             sb.Append("\"seq\":").Append(r.Seq.ToString(CultureInfo.InvariantCulture)).Append(',');
             sb.Append("\"ts\":").Append(r.TsUnixMs.ToString(CultureInfo.InvariantCulture)).Append(',');
+            sb.Append("\"connectionGeneration\":").Append(r.Generation.ToString(CultureInfo.InvariantCulture)).Append(',');
             sb.Append("\"status\":\"").Append(MiniJson.EscapeString(r.Status)).Append("\"");
             sb.Append('}');
             return sb.ToString();
@@ -109,9 +119,18 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         public long TsUnixMs { get; }
         public string Status { get; }
 
+        /// <summary>
+        /// The server's CURRENT bound connection generation at receipt time (ADR-0009 §5.1).
+        /// 0 on the client channel (no per-peer generation there). The authorized runner reads
+        /// this from each receipt to form its next request's connectionGeneration, and a
+        /// reconnect advances it so pre-reconnect envelopes reject as StaleGeneration.
+        /// </summary>
+        public long Generation { get; }
+
         public ControlReceipt(
             string requestId, string verb, ControlOutcome outcome, string reason,
-            string role, long worldUid, long seq, long tsUnixMs, string status)
+            string role, long worldUid, long seq, long tsUnixMs, string status,
+            long generation = 0)
         {
             RequestId = requestId ?? string.Empty;
             Verb = verb ?? string.Empty;
@@ -122,6 +141,11 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
             Seq = seq;
             TsUnixMs = tsUnixMs;
             Status = status ?? string.Empty;
+            Generation = generation;
         }
+
+        /// <summary>Return a copy of this receipt stamped with the given current generation.</summary>
+        public ControlReceipt WithGeneration(long generation) =>
+            new(RequestId, Verb, Outcome, Reason, Role, WorldUid, Seq, TsUnixMs, Status, generation);
     }
 }

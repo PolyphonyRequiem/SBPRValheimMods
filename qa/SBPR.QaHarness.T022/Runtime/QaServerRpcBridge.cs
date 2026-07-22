@@ -4,9 +4,11 @@
 // ZNet.OnNewConnection(ZNetPeer) registers exactly ONE fixed helper ZRpc verb on that peer's
 // m_rpc after vanilla registration. When the runner (an authenticated GUI helper peer)
 // invokes that verb, the handler resolves the ACTUAL delivering peer from the inbound ZRpc
-// (ZNet.GetPeer(rpc)) — never a claimed identity — captures the connection generation, and
-// delegates to the engine-free ServerRpcResponder for admission + admin recheck + a receipt,
-// which it returns to the caller over the same peer rpc. In M2R the responder supports only
+// (ZNet.GetPeer(rpc)) — never a claimed identity — and delegates to the engine-free
+// ServerRpcResponder for admission + admin recheck + a receipt, which it returns to the
+// caller over the same peer rpc. The claimed connection generation is decoded from the
+// authenticated envelope by the responder (part of the HMAC input), NOT injected by this
+// bridge, so the stale-generation defense is reachable in the real path. In M2R the responder supports only
 // status/ping/reject (no fixtures/actions), so this bridge performs ZERO game mutation.
 //
 // The hook is only installed once the arming gate has passed and the role is Server; the
@@ -78,13 +80,13 @@ namespace SBPR.QaHarness.T022.Runtime
                 if (ZNet.instance != null)
                     peer = Traverse.Create(ZNet.instance).Method("GetPeer", new object[] { rpc }).GetValue<ZNetPeer>();
                 string deliveringPeerId = peer != null ? peer.m_uid.ToString() : string.Empty;
-                long generation = responder.Generation; // current bound generation
                 long now = (long)(UnityEngine.Time.realtimeSinceStartupAsDouble * 1000.0);
 
-                // The envelope carries its own claimed generation; the responder validates it
-                // against the delivering peer. We pass the claimed generation via the payload's
-                // admission path — the responder re-derives peer facts from the transport.
-                ControlReceipt receipt = responder.Handle(deliveringPeerId, generation, payload, now);
+                // Pass ONLY the actual delivering peer, the raw wire payload, and the time. The
+                // responder decodes the claimed connection generation from the authenticated
+                // envelope itself (part of the HMAC input) — the bridge injects no generation,
+                // so the stale-generation defense is reachable in this real path.
+                ControlReceipt receipt = responder.Handle(deliveringPeerId, payload, now);
                 string json = EnvelopeCodec.EncodeReceipt(receipt);
                 rpc.Invoke(RpcReplyName, json);
             }

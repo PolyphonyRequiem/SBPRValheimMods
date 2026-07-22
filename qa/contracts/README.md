@@ -14,7 +14,7 @@ matching the engine-free contract core in `../SBPR.QaHarness.T022/Contracts/`:
 | File | Defined in | Contents (per ADR-0009) |
 |------|-----------|--------------------------|
 | `request.schema.json`  | M1 | The finite verb enum (kept identical to `VerbCatalog`) + typed argument-bound summary (§3.1). |
-| `envelope.schema.json` | M1 | `{nonce, seq, expiry, hmac, role, worldUid, verb, requestId, args}`; the server binds the actual delivering peer at the M2 channel layer (§3.2). |
+| `envelope.schema.json` | M1 (generation added M2R) | `{nonce, seq, expiry, hmac, role, worldUid, verb, requestId, connectionGeneration, args}`; the server binds the ACTUAL delivering peer at the channel layer and validates `connectionGeneration` against the current bound connection (StaleGeneration on a stale pre-reconnect value). The generation is part of the canonical HMAC input (§3.2, §5.1). |
 | `receipt.schema.json`  | M1 | Descriptive primitive facts only — **never a product PASS/FAIL verdict** (§6); the `reason` enum mirrors `RejectReason`. |
 
 Spec⇄code drift is prevented mechanically: `qa/tests-core/SchemaSyncTests.cs` fails

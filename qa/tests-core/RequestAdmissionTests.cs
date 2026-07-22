@@ -151,7 +151,8 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var (adm, armed) = Armed();
             var good = Fixtures.SignedRequest(armed, "Ping", 1, "req-h", new Dictionary<string, object?>());
             var tampered = new RequestEnvelope(good.Nonce, good.Seq, good.ExpiryUnixMs,
-                "deadbeef" + good.Hmac!.Substring(8), good.Role, good.WorldUid, good.Verb, good.RequestId, good.Args);
+                "deadbeef" + good.Hmac!.Substring(8), good.Role, good.WorldUid, good.Verb, good.RequestId,
+                good.ConnectionGeneration, good.Args);
             Assert.Equal(RejectReason.BadHmac, adm.Admit(tampered, Fixtures.Now).Reason);
         }
 
@@ -162,8 +163,28 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var good = Fixtures.SignedRequest(armed, "GrantVanillaMaterials", 1, "req-tf", Fixtures.GrantArgs(5));
             // Keep the signature but change the sequence — canonical string no longer matches.
             var tampered = new RequestEnvelope(good.Nonce, 999, good.ExpiryUnixMs, good.Hmac,
-                good.Role, good.WorldUid, good.Verb, good.RequestId, good.Args);
+                good.Role, good.WorldUid, good.Verb, good.RequestId, good.ConnectionGeneration, good.Args);
             Assert.Equal(RejectReason.BadHmac, adm.Admit(tampered, Fixtures.Now).Reason);
+        }
+
+        [Fact]
+        public void TamperedGenerationBreaksHmac_Rejected()
+        {
+            var (adm, armed) = Armed();
+            var good = Fixtures.SignedRequest(armed, "GrantVanillaMaterials", 1, "req-tg", Fixtures.GrantArgs(5));
+            // Keep the signature but change the connection generation — canonical string no longer matches.
+            var tampered = new RequestEnvelope(good.Nonce, good.Seq, good.ExpiryUnixMs, good.Hmac,
+                good.Role, good.WorldUid, good.Verb, good.RequestId, good.ConnectionGeneration + 7, good.Args);
+            Assert.Equal(RejectReason.BadHmac, adm.Admit(tampered, Fixtures.Now).Reason);
+        }
+
+        [Fact]
+        public void NonPositiveGeneration_Malformed()
+        {
+            var (adm, armed) = Armed();
+            var env = Fixtures.SignedRequest(armed, "Ping", 1, "req-g0", new Dictionary<string, object?>(),
+                connectionGeneration: 0);
+            Assert.Equal(RejectReason.MalformedEnvelope, adm.Admit(env, Fixtures.Now).Reason);
         }
 
         // ── REPLAY-REJECT ────────────────────────────────────────────────────

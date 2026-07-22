@@ -14,6 +14,7 @@
     "nonce": { "type": "string", "minLength": 1 },
     "seq": { "type": "integer" },
     "ts": { "type": "integer", "description": "Emit time, unix milliseconds." },
+    "connectionGeneration": { "type": "integer", "minimum": 0, "description": "The server's CURRENT bound connection generation at receipt time (ADR-0009 §5.1); 0 on the client channel. The authorized runner reads this to form its next request's connectionGeneration — a reconnect advances it so pre-reconnect envelopes reject as StaleGeneration." },
     "outcome": {
       "type": "string",
       "enum": ["admitted", "rejected", "replayed"],

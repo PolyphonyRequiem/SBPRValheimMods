@@ -74,24 +74,43 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
 
         /// <summary>
         /// Handle one inbound server-channel request. <paramref name="deliveringPeerId"/> is the
-        /// ACTUAL peer the ZRpc transport delivered from (authoritative); <paramref name="claimedGeneration"/>
-        /// is the generation the envelope asserts. Fail-closed order: peer/generation binding,
-        /// then execution-time admin recheck, then the shared admission+dispatch runtime.
+        /// ACTUAL peer the ZRpc transport delivered from (authoritative). The claimed connection
+        /// generation is NOT a caller argument — it is decoded from the authenticated envelope in
+        /// <paramref name="payload"/> (part of the HMAC input), so a caller cannot inject a
+        /// current-generation value that would make the stale-generation branch unreachable.
+        /// Fail-closed order: envelope decode, then peer/generation binding, then execution-time
+        /// admin recheck, then the shared admission+dispatch runtime. Every receipt is stamped
+        /// with the server's CURRENT generation so the runner can form its next request.
         /// </summary>
         public ControlReceipt Handle(
-            string? deliveringPeerId, long claimedGeneration, string? payload, long nowUnixMs)
+            string? deliveringPeerId, string? payload, long nowUnixMs)
         {
+            long current = _peerState.Generation;
+
+            // 0. Decode the authenticated envelope to recover its CLAIMED generation. A frame
+            //    that carries no valid positive generation is malformed (fail-closed).
+            var decode = EnvelopeCodec.Decode(payload);
+            if (!decode.Ok || decode.Envelope == null)
+                return TransportReject(ControlPlaneReason.MalformedFrame, nowUnixMs, status: "malformed-frame")
+                    .WithGeneration(current);
+
+            long claimedGeneration = decode.Envelope.ConnectionGeneration;
+
             // 1. Delivering-peer + generation binding (rejects substitution + post-reconnect replay).
+            //    The claimed generation comes from the signed envelope, never a caller argument.
             var admit = _peerState.Validate(deliveringPeerId, claimedGeneration);
             if (!admit.Ok)
-                return TransportReject(admit.Reason, nowUnixMs);
+                return TransportReject(admit.Reason, nowUnixMs).WithGeneration(current);
 
             // 2. Execution-time admin/owner recheck (ADR-0009 §5.1 — not just at arm).
             if (!_authority.IsAuthorized(deliveringPeerId!))
-                return TransportReject(ControlPlaneReason.PeerUnbound, nowUnixMs, status: "admin-recheck-failed");
+                return TransportReject(ControlPlaneReason.PeerUnbound, nowUnixMs, status: "admin-recheck-failed")
+                    .WithGeneration(current);
 
-            // 3. Shared fail-closed admission + single-slot dispatch + receipt.
-            return _runtime.Handle(payload, nowUnixMs);
+            // 3. Shared fail-closed admission + single-slot dispatch + receipt. The HMAC re-check
+            //    inside admission covers the generation too (it is part of the canonical input),
+            //    so a generation tampered without re-signing rejects as BadHmac.
+            return _runtime.Handle(payload, nowUnixMs).WithGeneration(current);
         }
 
         private ControlReceipt TransportReject(ControlPlaneReason reason, long nowUnixMs, string status = "transport-rejected")
