@@ -79,7 +79,11 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                         familyResolver: ServerHomesteadFamilyResolver.Instance,
                         governorAuthority: ServerHomesteadGovernorAuthority.Instance,
                         developmentAuthority: ServerHomesteadDevelopmentAuthority.Instance,
-                        ownerAuthority: ownerAuthority);
+                        ownerAuthority: ownerAuthority,
+                        // T022 split-ledger fix: share the Foundational runtime's AUTHORITATIVE Personal-AP
+                        // earn ledger so Masterwork purchase reads the same balance genuine placement credits
+                        // (earned − spent), instead of the character aggregate's stored-but-never-earned field.
+                        characterApStore: server.CharacterApStore);
 
                     LocalProgressionObserver.Server = localServer;
 
