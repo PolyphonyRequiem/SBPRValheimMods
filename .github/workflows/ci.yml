@@ -321,6 +321,17 @@ jobs:
       - name: 'Runner skeleton --dry-run (no game/network/file I/O)'
         run: python3 qa/runner/sbpr-qa-t022.py --dry-run
 
+      # ADR-0009 M1: engine-free contracts + capability parser + fail-closed arming
+      # gate. This xUnit suite link-compiles the SHIPPED engine-free contract sources
+      # (System.* only — no game/BepInEx), so it runs headless with NO Valheim SDK and
+      # gates FIRST, off the helper's SteamCMD critical path. Named ATs:
+      # AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID, BAD-NONCE-REJECT,
+      # OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT, REPLAY-REJECT.
+      - name: 'AT-QA M1 — engine-free contracts + arming gate (xUnit, no SDK)'
+        run: |
+          dotnet test qa/tests-core/SBPR.QaHarness.T022.Core.Tests.csproj -c Release \
+            --logger "console;verbosity=normal"
+
       # ── Valheim dedicated-server managed assemblies (helper build references) ─
       - name: Compute weekly cache epoch
         id: weekstamp

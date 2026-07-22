@@ -7,11 +7,16 @@ namespace SBPR.QaHarness.T022
     /// SBPR.QaHarness.T022 — QA-only, fail-closed BepInEx test-helper (ADR-0009).
     ///
     /// <para>
-    /// <b>M0 skeleton — INERT BY CONSTRUCTION.</b> This plugin's entire runtime
-    /// behavior is: log a conspicuous DISARMED / default-disabled banner in
-    /// <see cref="Awake"/>, then return. It registers <b>no</b> command verb, no
-    /// Harmony hook, no socket, no ZRpc, no file write, no timer, and performs no
-    /// game or product mutation. There is no arming path in this milestone at all.
+    /// <b>M1 UPDATE — contracts compiled in, still INERT at runtime.</b> This plugin
+    /// now compiles the engine-free QA contract core (<c>Contracts/*.cs</c>: the verb
+    /// catalog, capability-manifest parser, and the fail-closed arming + request-
+    /// admission decision). Those are pure decision logic exercised by the
+    /// <c>qa/tests-core</c> xUnit suite; <b>nothing here invokes them at runtime yet</b>.
+    /// The plugin's entire runtime behavior remains: log a conspicuous DISARMED banner
+    /// in <see cref="Awake"/>, then return. There is still no channel to receive an arm
+    /// manifest (the loopback TCP / per-peer ZRpc dispatcher lands in M2), so the gate
+    /// cannot be driven and the helper cannot arm. It registers <b>no</b> command verb,
+    /// Harmony hook, socket, ZRpc, file write, timer, and performs no game mutation.
     /// </para>
     ///
     /// <para>
