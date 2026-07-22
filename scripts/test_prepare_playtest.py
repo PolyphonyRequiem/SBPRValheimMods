@@ -186,6 +186,43 @@ class PreparePlaytestTests(unittest.TestCase):
         self.assertEqual(len(v["exempt"]), 1)
         self.assertEqual(v["verdict"], "READY", msg=str(v["blockers"]))
 
+    def test_no_card_no_pr_direct_push_blocks_without_sha(self):
+        # a feat pushed straight to main (no t_ card, no trailing (#NNN)) is
+        # unrepresentable by PR/card rescue — must block until its SHA is named.
+        self.fx.set_ship_version("0.2.41")
+        self.fx._ledger(pending="- some prose naming PR #294 but not the sha",
+                        counter=1, base_tag="v0.2.40-playtest")
+        self.fx.commit("feat(core): P0 direct push", {"src/Core/C.cs": "// v2\n"})
+        v, rc = self.fx.verdict()
+        self.assertEqual(v["verdict"], "BLOCKED")
+        self.assertEqual(len(v["unledgered"]), 1)
+
+    def test_no_card_no_pr_direct_push_sha_rescue_passes(self):
+        # naming the commit's own SHA in PENDING ledgers a direct-to-main push.
+        self.fx.set_ship_version("0.2.41")
+        self.fx.commit("feat(core): P0 direct push", {"src/Core/C.cs": "// v2\n"})
+        sha = self.fx.git("rev-parse", "--short", "HEAD")
+        self.fx._ledger(pending=f"- P0 core seam (direct push, {sha})",
+                        counter=1, base_tag="v0.2.40-playtest")
+        self.fx.git("commit", "-aqm", "ledger names the sha")
+        v, rc = self.fx.verdict()
+        self.assertEqual(v["unledgered"], [], msg=str(v["unledgered"]))
+        self.assertEqual(v["verdict"], "READY", msg=str(v["blockers"]))
+        self.assertEqual(rc, 0)
+
+    def test_sha_rescue_does_not_rescue_idcarrying_commit(self):
+        # an id-carrying commit whose card id is ABSENT from PENDING stays flagged
+        # even if some SHA is named — the rescue is strict to no-card-id commits.
+        self.fx.set_ship_version("0.2.41")
+        self.fx.commit("feat(ship): thing t_22222222", {"src/Ship/A.cs": "// v2\n"})
+        sha = self.fx.git("rev-parse", "--short", "HEAD")
+        self.fx._ledger(pending=f"- unrelated note mentioning {sha}",
+                        counter=1, base_tag="v0.2.40-playtest")
+        self.fx.git("commit", "-aqm", "ledger")
+        v, rc = self.fx.verdict()
+        self.assertEqual(v["verdict"], "BLOCKED")
+        self.assertEqual(len(v["unledgered"]), 1)
+
     def test_stale_version_blocks(self):
         # ship version still equals released base → must block.
         self.fx.commit("feat(ship): thing t_11111111", {"src/Ship/A.cs": "// v2\n"})
