@@ -560,8 +560,18 @@ These are derived-provider contracts, not direct ledger writes.
   headless server has no local crafter and a pure joined crafter is unarmed/keyless), so
   `Features/Crafting/MasterworkDedicatedDeliveryObserver` adds a bounded per-peer ZRpc channel that makes
   issuance authoritative AND client-delivered **without ever shipping the raw integrity key**: a joined crafter
-  sends server-observed produced-item facts, the server re-derives entitlement from its own stores (transport-
-  authenticated bound principal — never the payload), mints + SIGNS the stamp through the engine-free
+  sends server-observed produced-item facts, the server re-derives entitlement from its own stores keyed by the
+  requesting peer's BOUND INTERNAL principal — never the payload. **Identity space (T022 dedicated-ISSUE fix,
+  t_33cc8c05):** that principal is resolved the SAME way the listen-host issuance seam
+  (`MasterworkIssuanceObserver.ResolveHostMasterworkActive`) and the purchase path (`sbpr_master buy` →
+  `MasterworkOwnershipProvisioningAdmin`) resolve it — the transport-authenticated peer's durable `s_playerID` is
+  rendered to a `ServerCreatorIdentity.CharacterSubject` peer key and looked up in
+  `FoundationalProgressionServer.BoundSessions` to get the server-minted internal `(AccountId, CharacterId)`.
+  The character/authority stores are keyed by that internal identity, so binding instead to the RAW transport
+  facts (`AuthenticatedSenderBinder`: platform/socket host as account, `player:<s_playerID>` as character) would
+  query the stores under keys the accepted purchase never wrote and the server would REFUSE to sign for the very
+  crafter whose Masterwork purchase it just accepted (the reproduced dedicated-server `AT-MASTERWORK-ISSUE`
+  failure). An unbound peer fails closed. The server then mints + SIGNS the stamp through the engine-free
   `Application/Crafting/WorkmanshipDeliveryService`, and the client writes the exact signed bytes via
   `WorkmanshipCodec.WriteSigned` (byte-identical to a host stamp). A joined receiver VALIDATES a stamp it read
   keylessly (`WorkmanshipCodec.TryReadRaw`) by relaying the fields+token for the server to check under its key

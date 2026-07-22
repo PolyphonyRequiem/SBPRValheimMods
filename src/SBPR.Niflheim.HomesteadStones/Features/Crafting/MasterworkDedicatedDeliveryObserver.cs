@@ -149,10 +149,21 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Crafting
         }
 
         /// <summary>Re-derive the requesting peer's internal crafter account + Masterwork activation from the
-        /// composed server stores, keyed by the transport-authenticated bound principal (never the payload).
-        /// The Stone id is the client's "which Stone am I asking about" hint; the server only reports active
-        /// when THAT (occupant, character) genuinely holds active Masterwork there. Fail closed on any absent
-        /// fact.</summary>
+        /// composed server stores, keyed by the transport-authenticated peer's BOUND INTERNAL principal (never
+        /// the payload). The Stone id is the client's "which Stone am I asking about" hint; the server only
+        /// reports active when THAT (occupant, character) genuinely holds active Masterwork there. Fail closed
+        /// on any absent fact.
+        ///
+        /// IDENTITY SPACE (T022 dedicated ISSUE fix): the character/authority stores are keyed by the internal,
+        /// server-minted (AccountId, CharacterId) that admission (Tracer 1/2) published into
+        /// <see cref="FoundationalProgressionServer.BoundSessions"/> — the SAME space the purchase path
+        /// (<c>sbpr_master buy</c> → MasterworkOwnershipProvisioningAdmin) commits under and the listen-host
+        /// issuance seam (MasterworkIssuanceObserver.ResolveHostMasterworkActive) reads. The raw transport
+        /// facts (platform/socket host as account, "player:&lt;s_playerID&gt;" as character) live in a DIFFERENT
+        /// space, so binding to them here would query the stores under keys the accepted purchase never wrote —
+        /// the server would refuse to sign for the very crafter whose purchase it just accepted. Resolve the
+        /// durable peer key (s_playerID → CharacterSubject) and look up the bound internal principal, exactly
+        /// like the host observer.</summary>
         private static bool ResolveRequesterActivation(
             ZNet znet, ZRpc rpc, LocalProgressionServer server, StoneId stoneId,
             out string crafterAccount, out bool active)
@@ -160,14 +171,26 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Crafting
             crafterAccount = string.Empty;
             active = false;
 
-            var peer = ZdoAuthenticatedSenderSource.PeerForRpc(znet, rpc);
-            if (!ZdoAuthenticatedSenderSource.Instance.TryResolveFromPeer(peer, out var senderFacts)
-                || !AuthenticatedSenderBinder.TryBind(senderFacts, out string account, out string character))
-                return false;
-            if (string.IsNullOrEmpty(account) || string.IsNullOrEmpty(stoneId.Value)) return false;
+            var foundational = FoundationalPlacementObserver.Server;
+            if (foundational == null || string.IsNullOrEmpty(stoneId.Value)) return false;
 
-            var occupant = new AccountId(account);
-            var ch = new CharacterId(character);
+            // Transport-authenticated peer → durable server-owned peer key (s_playerID), never the payload.
+            var peer = ZdoAuthenticatedSenderSource.PeerForRpc(znet, rpc);
+            if (!ZdoAuthenticatedSenderSource.Instance.TryResolveFromPeer(peer, out var senderFacts))
+                return false;
+
+            // Resolve the BOUND INTERNAL principal (the space purchases/relationships were committed under).
+            // An unbound peer (no admitted session) fails closed rather than probing the stores under the
+            // raw transport identity, which the accepted purchase never keyed.
+            string peerKey = ServerCreatorIdentity.CharacterSubject(senderFacts.PlayerId);
+            if (string.IsNullOrEmpty(peerKey)
+                || !foundational.BoundSessions.TryResolve(peerKey, out var principal)
+                || string.IsNullOrEmpty(principal.Account.Value)
+                || string.IsNullOrEmpty(principal.Character.Value))
+                return false;
+
+            var occupant = principal.Account;
+            var ch = principal.Character;
 
             var stone = server.Stones.GetStone(stoneId);
             var characterAgg = server.Characters.GetCharacter(occupant, ch);
