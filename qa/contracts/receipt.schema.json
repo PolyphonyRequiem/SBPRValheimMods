@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sbpr.trailborne/qa/contracts/receipt.schema.json",
+  "title": "SBPR.QaHarness.T022 receipt (ADR-0009 §6) — M0 disabled placeholder",
+  "description": "STRUCTURE-ONLY PLACEHOLDER. In M0 the helper emits no receipts (it only logs a disarmed banner). The primitive-fact receipt shape ({requestId, verb, role, worldUid, nonce, seq, ts, outcome, observed}) — which is DESCRIPTIVE ONLY and never contains a product PASS/FAIL verdict — is defined in M1+. This closed schema matches nothing until then.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "disabled": {
+      "type": "boolean",
+      "const": true,
+      "description": "M0 marker. The receipt contract is not yet defined; the helper emits nothing."
+    }
+  },
+  "required": ["disabled"]
+}

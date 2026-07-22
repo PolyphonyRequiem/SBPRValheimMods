@@ -1,0 +1,25 @@
+<Project>
+  <!-- ==========================================================================
+       SBPR.QaHarness.T022 — QA-only test-helper (ADR-0009 M0 skeleton)
+       ==========================================================================
+       UNLIKE tests/ and qa-operator-harness/ (whose local Directory.Build.props
+       deliberately do NOT import the repo root, shielding their engine-free
+       subtrees from the Valheim/BepInEx SDK gate), THIS helper is a BepInEx
+       plugin: it must reference the Valheim managed assemblies + BepInEx core to
+       touch the game. So it IMPORTS the repo-root props to inherit the proven
+       $(ValheimManaged) / $(BepInExCore) resolution (env var / .env fallback) and
+       the SbprValidateSdkPaths early-failure guard — the same gate the product
+       assemblies use.
+
+       ADR-0009 §1 (Location, identifiers, references, dependency boundary):
+         "Helper build: net48; own Directory.Build.props that imports the repo-root
+          props (it needs $(ValheimManaged)/$(BepInExCore)) but sets its own
+          AssemblyName, GUID, <TreatWarningsAsErrors>true."
+
+       The M0 skeleton is INERT: the plugin only logs a DISARMED banner and returns
+       (no verbs, hooks, sockets, RPCs, files, timers, or mutation). The channels,
+       gate, fixtures, actions, and runner arrive in later milestones (M1–M5) —
+       each its own reviewed card.
+       ========================================================================== -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+</Project>

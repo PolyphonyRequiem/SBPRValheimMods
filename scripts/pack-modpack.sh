@@ -189,6 +189,22 @@ cp "$SDC_DIR/manifest.json"        "$PLUGDIR_SDC/"
 cp "$SDC_DIR/LICENSE"              "$PLUGDIR_SDC/" 2>/dev/null || true
 ok "ServerDevcommands 1.106.0 bundled"
 
+# ── PRODUCTION-EXCLUSION ASSERTION (ADR-0009 §7, gate AT-QA-MODPACK-EXCLUDES-HARNESS)
+# The QA test-harness (qa/**, SBPR.QaHarness*) must NEVER ship in the product
+# modpack. The overlay above is an explicit allowlist that never globs qa/**, so
+# exclusion is the default — but we HARDEN it into a fail-closed assertion here so
+# a future overlay edit can't silently leak a QA artifact. Resistant to case-fold,
+# rename, nested-path and path-traversal evasion (normalized path + .NET assembly
+# identity/content signature), delegated to the shared guard used by CI + tests.
+QA_GUARD="$SCRIPT_DIR/check-modpack-excludes-harness.py"
+if [ -f "$QA_GUARD" ]; then
+    python3 "$QA_GUARD" --tree "$TREE" \
+        || fail "production-exclusion assertion FAILED: a QA harness artifact was found in the staged modpack tree (ADR-0009 §7)."
+    ok "Production-exclusion assertion passed: no QA harness artifact staged"
+else
+    fail "QA production-exclusion guard missing: $QA_GUARD (ADR-0009 §7 requires it)."
+fi
+
 # ── Zip it (DETERMINISTIC: fixed mtimes, sorted entries, no extra attrs) ─────
 # Normalising timestamps makes the zip's SHA256 reproducible for identical
 # content — so the same commit always packs to the same hash. That is what lets
