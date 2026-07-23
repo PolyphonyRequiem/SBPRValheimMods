@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Reflection;
 using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Application.Accounts;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
@@ -285,6 +288,90 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
             {
                 Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Operator reply render failed (ignored): " + ex.Message);
             }
+        }
+    }
+
+    /// <summary>
+    /// IAP-015 — startup conformance diagnostic for the live operator command surface.
+    ///
+    /// The three operator patch classes (<see cref="OperatorCommandIngressObserver"/> — SERVER request
+    /// handler; <see cref="OperatorCommandConsole"/> — CLIENT console command; <see cref="OperatorCommandReplyClient"/>
+    /// — CLIENT reply handler) compile and ship even when <c>Plugin.Awake()</c> forgets to hand them to
+    /// <c>harmony.PatchAll(typeof(X))</c>. When that happens the whole surface is dead code with NO build
+    /// error and NO boot signal — exactly the runtime-proven defect from live smoke t_48797ca3 at 04efd544.
+    ///
+    /// This runs at the END of <c>Plugin.Awake()</c>, after the operator <c>PatchAll</c> calls. It walks
+    /// Harmony's global registry (same technique as SBPR.Trailborne's PatchCheck) and confirms each of the
+    /// three classes produced at least one WOVEN patch method owned by this mod. It emits a per-role line so
+    /// the next live smoke can distinguish console-registered / server-request-bound / client-reply-bound,
+    /// and ERROR-logs (fail-closed signal) naming any missing role. It does NOT prove playability — a joined
+    /// admin still has to actually run a verb — it only proves the wiring is armed.
+    /// </summary>
+    internal static class OperatorSurfaceConformance
+    {
+        public static void Verify(string ownerId)
+        {
+            try
+            {
+                HashSet<Type> woven = CollectWovenPatchClasses(ownerId);
+
+                bool serverRequest = woven.Contains(typeof(OperatorCommandIngressObserver));
+                bool console       = woven.Contains(typeof(OperatorCommandConsole));
+                bool clientReply   = woven.Contains(typeof(OperatorCommandReplyClient));
+
+                Plugin.Log.LogInfo(
+                    "[Niflheim/HomesteadStones] Operator surface conformance: "
+                    + "console=" + (console ? "REGISTERED" : "MISSING") + ", "
+                    + "server-request-handler=" + (serverRequest ? "BOUND" : "MISSING") + ", "
+                    + "client-reply-handler=" + (clientReply ? "BOUND" : "MISSING") + ".");
+
+                var missing = new List<string>();
+                if (!console) missing.Add(nameof(OperatorCommandConsole) + " (sbpr_pilotop console command)");
+                if (!serverRequest) missing.Add(nameof(OperatorCommandIngressObserver) + " (server request handler)");
+                if (!clientReply) missing.Add(nameof(OperatorCommandReplyClient) + " (client reply handler)");
+
+                if (missing.Count > 0)
+                    Plugin.Log.LogError(
+                        "[Niflheim/HomesteadStones] ✗ OPERATOR SURFACE DEAD — unregistered patch class(es): "
+                        + string.Join(", ", missing)
+                        + ". Did Plugin.Awake() forget harmony.PatchAll(typeof(...))? "
+                        + "The live operator command surface (sbpr_pilotop) is NON-FUNCTIONAL until fixed.");
+                else
+                    Plugin.Log.LogInfo(
+                        "[Niflheim/HomesteadStones] ✓ Operator surface armed (console + server request + client reply all woven).");
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogError("[Niflheim/HomesteadStones] Operator surface conformance check threw: " + ex);
+            }
+        }
+
+        private static HashSet<Type> CollectWovenPatchClasses(string ownerId)
+        {
+            var woven = new HashSet<Type>();
+            foreach (MethodBase target in Harmony.GetAllPatchedMethods())
+            {
+                if (target == null) continue;
+                Patches info = Harmony.GetPatchInfo(target);
+                if (info == null) continue;
+
+                ReadOnlyCollection<Patch>[] buckets =
+                {
+                    info.Prefixes, info.Postfixes, info.Transpilers,
+                    info.Finalizers, info.ILManipulators,
+                };
+                foreach (ReadOnlyCollection<Patch> bucket in buckets)
+                {
+                    if (bucket == null) continue;
+                    foreach (Patch p in bucket)
+                    {
+                        if (p == null || p.owner != ownerId) continue;
+                        Type? declaring = p.PatchMethod?.DeclaringType;
+                        if (declaring != null) woven.Add(declaring);
+                    }
+                }
+            }
+            return woven;
         }
     }
 }
