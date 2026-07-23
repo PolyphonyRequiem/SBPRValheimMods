@@ -137,12 +137,17 @@ namespace SBPR.QaHarness.T022
                 string snapshotDir = Path.Combine(Paths.ConfigPath, "sbpr-qa-t022-fixtures",
                     decision.State.World.WorldUid.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
+                // The disposable world uid + armed run nonce every spawned fixture's durable ownership
+                // marker is stamped with and crash recovery is scoped to (ADR-0009 §5.4 repair).
+                var fixtureRunContext = new FixtureRunContext(decision.State.World.WorldUid, decision.State.Nonce);
+
                 _component.Configure(decision.State, boot.OperatorToken, boot.LoopbackPort, authority,
                     peerState =>
                     {
                         var executor = new ServerFixtureExecutor(
                             fixtureAuthority, peerState, fixtureWorld,
-                            fixtureId => new LedgerSnapshotStore(Path.Combine(snapshotDir, fixtureId + ".ledger")));
+                            fixtureId => new LedgerSnapshotStore(Path.Combine(snapshotDir, fixtureId + ".ledger")),
+                            fixtureRunContext);
                         return new FixtureVerbExecutorBridge(executor);
                     },
                     Logger);

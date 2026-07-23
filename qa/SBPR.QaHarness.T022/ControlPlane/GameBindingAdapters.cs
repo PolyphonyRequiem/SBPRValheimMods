@@ -88,13 +88,18 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         bool PrefabExists(string prefabName);
 
         /// <summary>
-        /// Spawn an allowlisted vanilla station/piece prefab at a bounded offset; returns a
-        /// stable spawned-instance id recorded in the owned-resource ledger for cleanup.
+        /// Additively construct an allowlisted vanilla station/piece shell at a bounded offset (ADR-0006:
+        /// new GameObject + intended components from a read-only blueprint, never a prefab clone), durably
+        /// stamp <paramref name="markerPayload"/> onto its ZDO as part of construction, and return a stable
+        /// spawned-instance id recorded in the owned-resource ledger for cleanup. Returns empty on failure
+        /// (including a failure to durably stamp the marker — the half-built object is destroyed).
         /// </summary>
-        string SpawnPrefab(string prefabName, double posRadius);
+        string SpawnPrefab(string prefabName, double posRadius, string markerPayload);
 
-        /// <summary>Grant a bounded quantity of an allowlisted vanilla item; returns a spawned-instance id for the ledger.</summary>
-        string GrantItem(string itemId, long qty);
+        /// <summary>Grant a bounded quantity of an allowlisted vanilla item, durably stamping
+        /// <paramref name="markerPayload"/> onto the spawned drop's ZDO; returns a spawned-instance id for
+        /// the ledger (empty on failure, including marker-write failure).</summary>
+        string GrantItem(string itemId, long qty, string markerPayload);
 
         /// <summary>Remove a previously spawned instance (cleanup). True if it existed and was removed.</summary>
         bool Despawn(string spawnedInstanceId);
@@ -105,6 +110,27 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         /// crash/reload: an instance the seam no longer reports live is treated as gone.
         /// </summary>
         bool IsLiveInstance(string spawnedInstanceId);
+
+        /// <summary>
+        /// Enumerate every live world object carrying a QA ownership marker: (raw marker payload,
+        /// spawned-instance id). Bounded to objects the harness stamped — an unmarked/unrelated vanilla
+        /// object is never returned, so recovery can never adopt or destroy it. The engine-free layer
+        /// decodes/scopes/validates/adopts fail-closed; this only reports raw marked candidates.
+        /// </summary>
+        System.Collections.Generic.IReadOnlyList<MarkedInstanceInfo> DiscoverMarked();
+    }
+
+    /// <summary>A live QA-marked world object as reported by the seam: its raw marker payload + handle.</summary>
+    public readonly struct MarkedInstanceInfo
+    {
+        public MarkedInstanceInfo(string markerPayload, string spawnedInstanceId)
+        {
+            MarkerPayload = markerPayload ?? string.Empty;
+            SpawnedInstanceId = spawnedInstanceId ?? string.Empty;
+        }
+
+        public string MarkerPayload { get; }
+        public string SpawnedInstanceId { get; }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -162,7 +188,8 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
     public sealed class FakeVanillaFixtureSeam : IVanillaFixtureSeam
     {
         private readonly HashSet<string> _knownPrefabs;
-        private readonly Dictionary<string, string> _spawned = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _spawned = new(StringComparer.Ordinal); // handle -> prefab/item
+        private readonly Dictionary<string, string> _markers = new(StringComparer.Ordinal); // handle -> marker payload
         private long _seq;
 
         public FakeVanillaFixtureSeam(IEnumerable<string>? knownPrefabs = null)
@@ -171,25 +198,62 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         /// <summary>Live spawned-instance ids not yet despawned (the ledger's view).</summary>
         public IReadOnlyCollection<string> Live => _spawned.Keys;
 
+        /// <summary>Adversarial knob: when true, the next spawn/grant durably-fails to write its marker
+        /// and returns empty (the half-built object is discarded) — proves marker-write failure is a
+        /// Create failure, not a silent untracked leak.</summary>
+        public bool FailMarkerWrite { get; set; }
+
         public bool PrefabExists(string prefabName) => _knownPrefabs.Contains(prefabName);
 
-        public string SpawnPrefab(string prefabName, double posRadius)
+        public string SpawnPrefab(string prefabName, double posRadius, string markerPayload) => Stamp("spawn", prefabName, markerPayload);
+
+        public string GrantItem(string itemId, long qty, string markerPayload) => Stamp("item", itemId, markerPayload);
+
+        private string Stamp(string kind, string logical, string markerPayload)
         {
-            string id = "spawn-" + (++_seq).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            _spawned[id] = prefabName;
+            if (FailMarkerWrite) return string.Empty; // durable marker write failed => Create failed, no object tracked
+            string id = kind + "-" + (++_seq).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _spawned[id] = logical;
+            _markers[id] = markerPayload ?? string.Empty;
             return id;
         }
 
-        public string GrantItem(string itemId, long qty)
+        public bool Despawn(string spawnedInstanceId)
         {
-            string id = "item-" + (++_seq).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            _spawned[id] = itemId;
-            return id;
+            _markers.Remove(spawnedInstanceId);
+            return _spawned.Remove(spawnedInstanceId);
         }
-
-        public bool Despawn(string spawnedInstanceId) => _spawned.Remove(spawnedInstanceId);
 
         public bool IsLiveInstance(string spawnedInstanceId) =>
             spawnedInstanceId != null && _spawned.ContainsKey(spawnedInstanceId);
+
+        public IReadOnlyList<MarkedInstanceInfo> DiscoverMarked()
+        {
+            var list = new List<MarkedInstanceInfo>();
+            foreach (var kv in _markers)
+                if (!string.IsNullOrEmpty(kv.Value)) list.Add(new MarkedInstanceInfo(kv.Value, kv.Key));
+            return list;
+        }
+
+        // ── Test-only adversarial seeding for crash/recovery scenarios ──
+
+        /// <summary>Seed a live object carrying an EXACT marker payload but with NO snapshot recorded
+        /// (models a crash-before-snapshot survivor). Returns the handle.</summary>
+        public string SeedMarkedSurvivor(string logical, string markerPayload)
+        {
+            string id = "survivor-" + (++_seq).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _spawned[id] = logical;
+            _markers[id] = markerPayload ?? string.Empty;
+            return id;
+        }
+
+        /// <summary>Seed an UNMARKED live object of the same prefab the harness uses (must be preserved
+        /// — never discovered, adopted, or destroyed by recovery).</summary>
+        public string SeedUnmarked(string logical)
+        {
+            string id = "unmarked-" + (++_seq).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            _spawned[id] = logical;
+            return id;
+        }
     }
 }

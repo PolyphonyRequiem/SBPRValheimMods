@@ -145,8 +145,8 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.True(seam.PrefabExists("piece_workbench"));
             Assert.False(seam.PrefabExists("unknown_prefab"));
 
-            string st = seam.SpawnPrefab("piece_workbench", 2.0);
-            string it = seam.GrantItem("Wood", 5);
+            string st = seam.SpawnPrefab("piece_workbench", 2.0, "m1");
+            string it = seam.GrantItem("Wood", 5, "m2");
             Assert.Equal(2, seam.Live.Count);
 
             Assert.True(seam.Despawn(st));

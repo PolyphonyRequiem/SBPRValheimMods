@@ -67,7 +67,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var seam = new FakeVanillaFixtureSeam(new[] { "piece_workbench", "Wood" });
             var world = new SeamFixtureWorld(seam);
             var ledger = OwnedResourceLedger.ForPlan(Plan("fx", "Wood", 3, 1.0));
-            ledger.Ensure(world);
+            ledger.Ensure(world, TestRun.Ctx);
 
             store.Save(ledger);
             Assert.True(store.Exists());
@@ -229,7 +229,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var auth = new FakeAuthority();
             var peers = new DeliveringPeerState();
             var exec = new ServerFixtureExecutor(auth, peers, world,
-                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")));
+                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")), TestRun.Ctx);
             return (exec, seam, auth, peers);
         }
 
@@ -323,7 +323,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var peers2 = new DeliveringPeerState();
             var bind = peers2.Bind("owner");
             var exec2 = new ServerFixtureExecutor(auth2, peers2, world,
-                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")));
+                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")), TestRun.Ctx);
 
             failing.FailGrant = true;
             var first = exec2.Ensure("fx", "GrantVanillaMaterials", Args(("itemId", "Wood"), ("qty", 2L)), "owner", bind.Generation);
@@ -348,7 +348,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var bind = peers.Bind("owner");
             Func<string, LedgerSnapshotStore> factory = id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger"));
 
-            var exec1 = new ServerFixtureExecutor(auth, peers, world, factory);
+            var exec1 = new ServerFixtureExecutor(auth, peers, world, factory, TestRun.Ctx);
             var r1 = exec1.Ensure("fx", "SpawnStation", Args(("prefab", "piece_workbench"), ("posRadius", 2.0)), "owner", bind.Generation);
             Assert.Equal(1, r1.Created);
 
@@ -358,7 +358,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             // Run 2: a fresh executor loads the snapshot, reconciles (downgrades vanished), re-creates.
             var peers2 = new DeliveringPeerState();
             var bind2 = peers2.Bind("owner");
-            var exec2 = new ServerFixtureExecutor(auth, peers2, world, factory);
+            var exec2 = new ServerFixtureExecutor(auth, peers2, world, factory, TestRun.Ctx);
             var r2 = exec2.Ensure("fx", "SpawnStation", Args(("prefab", "piece_workbench"), ("posRadius", 2.0)), "owner", bind2.Generation);
             Assert.Equal(1, r2.Reconciled);   // the vanished entry was downgraded
             Assert.Equal(1, r2.Created);      // and re-created, not double-created
@@ -387,13 +387,13 @@ namespace SBPR.QaHarness.T022.Core.Tests
         public void Cleanup_PreservesUnrelated()
         {
             var seam = new FakeVanillaFixtureSeam(new[] { "piece_workbench" });
-            string unrelated = seam.SpawnPrefab("piece_workbench", 1.0);
+            string unrelated = seam.SeedUnmarked("piece_workbench");
             var world = new SeamFixtureWorld(seam);
             var auth = new FakeAuthority(); auth.Admins.Add("owner");
             var peers = new DeliveringPeerState();
             var bind = peers.Bind("owner");
             var exec = new ServerFixtureExecutor(auth, peers, world,
-                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")));
+                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")), TestRun.Ctx);
             var args = Args(("prefab", "piece_workbench"), ("posRadius", 2.0));
 
             exec.Ensure("fx", "SpawnStation", args, "owner", bind.Generation);
@@ -444,7 +444,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             auth = new FakeAuthority();
             peers = new DeliveringPeerState();
             var exec = new ServerFixtureExecutor(auth, peers, world,
-                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")));
+                id => new LedgerSnapshotStore(Path.Combine(_dir, id + ".ledger")), TestRun.Ctx);
             return new FixtureVerbExecutorBridge(exec);
         }
 

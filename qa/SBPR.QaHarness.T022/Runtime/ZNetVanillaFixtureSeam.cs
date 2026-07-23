@@ -1,54 +1,94 @@
-// Engine-bound REAL vanilla fixture seam (ADR-0009 §3.5, PR #408 VANILLA-BINDINGS.md §3.5) — M3R.
+// Engine-bound REAL vanilla fixture seam (ADR-0009 §3.5, PR #408 VANILLA-BINDINGS.md §3.5) — M3R
+// + repair t_0e3a88bd (true ADR-0006 additive construction + durable exact ownership markers).
 //
 // ZNetVanillaFixtureSeam is the thin Valheim/Unity implementation of the engine-free
 // IVanillaFixtureSeam that the owned-resource ledger drives through SeamFixtureWorld. It
 // is the ONLY game-touching code in the M3R fixture slice; every invariant that keeps this
 // safe is enforced ABOVE it in engine-free, headlessly-tested code (the manifest allowlist,
-// the plan validator, the request mapper, the execution-time authority gate). This adapter
-// therefore only has to do the bounded vanilla spawn/grant/despawn the game itself does.
+// the plan validator, the request mapper, the execution-time authority gate, and the
+// fail-closed marker recovery).
 //
-// ADR-0006 ADDITIVE COMPLIANCE (the load-bearing point):
-//   • Materials: granted by ItemDrop.DropItem of the vanilla item's OWN m_dropPrefab
-//     (ObjectDB.GetItemPrefab(id) -> ItemDrop -> DropItem). That is the exact vanilla
-//     "spawn a real world item" seam (§3.5) — the game clones the item's drop prefab, we
-//     do not clone-and-strip anything.
-//   • Stations / anchors: placed by Instantiate of the UNMODIFIED vanilla prefab read as a
-//     blueprint via ZNetScene.GetPrefab (which fires no Awake). This is a genuine
-//     server-authoritative spawn of the game's own prefab — the SAME additive pattern the
-//     product's HomesteadStoneWorldPlacement uses (Instantiate the registered prefab, never
-//     strip components off it). There is NO subtractive clone: we never Instantiate a prefab
-//     to mutate it and remove parts; we place it as-is and, at cleanup, destroy it whole.
-//   • Cleanup: the network-aware despawn path (ZNetView.Destroy / ZNetScene.Destroy /
-//     ZDOMan.DestroyZDO) so the removal replicates and the world save carries no ZDO
-//     (AT-QA-CLEANUP-NO-LEAK). We destroy ONLY the exact instance whose ZDOID the ledger
-//     recorded — an unrelated object is never reachable here.
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-0006 ADDITIVE COMPLIANCE (the load-bearing repair — see docs/decisions/0006):
+//   The owner review of PR #414 rejected the previous implementation because it called
+//   `UnityEngine.Object.Instantiate(vanillaStationPrefab)` — a RUNTIME CLONE of a vanilla
+//   ZNetView-bearing prefab, exactly the subtractive pattern ADR-0006 forbids. This file
+//   now builds a TRUE ADDITIVE SHELL, mirroring the product's Assets.TryConstructPieceShell:
+//
+//     • Stations / anchors: an INACTIVE `new GameObject(...)` is created and only the
+//       INTENDED components are AddComponent'd — a `ZNetView` (the networked identity, whose
+//       three PUBLIC fields m_persistent/m_type/m_distant we set ourselves; ZNetView.Awake
+//       needs only ZDOMan up + a registered prefab name and builds its OWN ZDO), a root
+//       `BoxCollider` (placement/hit raycasts), and, for a station category, a `CraftingStation`
+//       component named from the blueprint. We read the vanilla prefab ONLY as a blueprint via
+//       `ZNetScene.GetPrefab` (which fires no Awake) to copy VALUE fields (station name, a
+//       shared mesh for a visual child) — reading an asset reference is not cloning. The shell
+//       is registered in ZNetScene by name, then instantiated into the world. There is NO
+//       `Instantiate(prefab)` of a ZNetView-bearing donor and no clone-and-strip anywhere.
+//     • Materials: granted by ItemDrop.DropItem of the vanilla item's OWN m_dropPrefab
+//       (ObjectDB.GetItemPrefab(id) -> ItemDrop -> DropItem). That is the exact vanilla
+//       "spawn a real world item" seam (§3.5); the game clones the item's drop prefab, which
+//       is the game's own additive grant path (ADR-0006 permits using the game's own spawn
+//       seams — the ban is on US cloning a prefab as a mutable base).
+//     • Cleanup: the network-aware despawn path (ZNetView.Destroy / ZNetScene.Destroy /
+//       ZDOMan.DestroyZDO) so the removal replicates and the world save carries no ZDO
+//       (AT-QA-CLEANUP-NO-LEAK). We destroy ONLY the exact instance whose ZDOID the ledger
+//       recorded / whose marker we adopted — an unrelated object is never reachable here.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// DURABLE EXACT OWNERSHIP MARKERS (the crash-safety repair):
+//   Every spawned object is stamped, as PART of creation, with a QA ownership marker on its
+//   ZDO under the single namespaced key FixtureOwnershipMarker.ZdoKey. The marker encodes
+//   (world uid, run nonce, fixture id, owned-resource canonical id). Because the marker lives
+//   on the game-persisted ZDO, a crash at ANY point after spawn leaves a self-describing
+//   survivor. If the marker cannot be durably written, the half-built object is destroyed and
+//   an EMPTY handle is returned (a Create failure) — never a silently untracked leak.
+//   DiscoverMarked walks the live ZDOs, reads the marker key, and returns every marked object
+//   (payload + handle) so the engine-free RecoverFromMarkers can scope/validate/adopt exactly
+//   this run's survivors and fail closed on anything foreign/malformed/duplicate. Unmarked
+//   objects are never returned, so unrelated world objects are structurally un-adoptable.
 //
 // The spawned-instance HANDLE the ledger stores is the object's ZDOID serialized as
 // "UserID:ID" (full stable identity, never a truncated numeric — two ZDOs can share ID
 // across UserIDs). IsLiveInstance/Despawn resolve that handle back to the live ZDO/GO.
 //
 // FIREWALL: this seam spawns ordinary allowlisted vanilla items/stations only; it mints no
-// product identity/entitlement/AP/ownership/signature/verdict (ADR-0009 §4). Reflecting on
-// / calling the base game is clean-room permitted (ADR-0001); no other-mod source is used.
+// product identity/entitlement/AP/ownership/signature/verdict (ADR-0009 §4). The QA marker is
+// a disposable-scaffolding tag, not a product ownership token. Reflecting on / calling the
+// base game is clean-room permitted (ADR-0001); no other-mod source is used.
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using SBPR.QaHarness.T022.Core.ControlPlane;
+using SBPR.QaHarness.T022.Core.Fixtures;
 using UnityEngine;
 
 namespace SBPR.QaHarness.T022.Runtime
 {
-    /// <summary>Live Valheim implementation of the additive vanilla fixture seam (server role, post-world-load).</summary>
+    /// <summary>Live Valheim implementation of the ADDITIVE vanilla fixture seam (server role, post-world-load).</summary>
     internal sealed class ZNetVanillaFixtureSeam : IVanillaFixtureSeam
     {
+        // The inactive holder under which shells are constructed so NO Awake fires during
+        // construction (same discipline as the product's Assets.GetHolder / TryConstructPieceShell).
+        private static GameObject? _holder;
+
+        private static GameObject Holder()
+        {
+            if (_holder == null)
+            {
+                _holder = new GameObject("SBPR.QaHarness.FixtureShellHolder");
+                _holder.SetActive(false);
+                UnityEngine.Object.DontDestroyOnLoad(_holder);
+            }
+            return _holder;
+        }
+
         // Where owned fixtures are spawned relative to. The engine-free bounds already cap the
         // radius; the concrete origin is the server's own reference point (world origin here — a
         // disposable QA world — offset by the bounded radius). Kept deterministic and bounded.
         private static Vector3 OriginFor(double posRadius)
         {
             float r = (float)posRadius;
-            // A single, deterministic bounded offset from world origin. QA fixtures are scaffolding
-            // in a disposable world; they do not need player-relative placement, and using a fixed
-            // origin keeps the seam free of GUI/Player state (server role has no local player).
             return new Vector3(r, 0f, 0f);
         }
 
@@ -69,37 +109,66 @@ namespace SBPR.QaHarness.T022.Runtime
         }
 
         /// <summary>
-        /// Additively place an allowlisted vanilla station/anchor prefab (Instantiate of the
-        /// unmodified vanilla prefab read as a blueprint — ADR-0006, no clone-and-strip). Returns
-        /// the spawned instance's ZDOID handle, or empty on failure (a failure the ledger records).
+        /// ADDITIVELY construct an allowlisted vanilla station/anchor shell (new GameObject +
+        /// intended components, blueprint read-only — ADR-0006, NO Instantiate of a ZNetView donor),
+        /// durably stamp the ownership marker onto its ZDO, and return the spawned instance's ZDOID
+        /// handle. Returns empty on ANY failure (including a marker-write failure, in which case the
+        /// half-built object is destroyed) — a failure the ledger records as a partial failure.
         /// </summary>
-        public string SpawnPrefab(string prefabName, double posRadius)
+        public string SpawnPrefab(string prefabName, double posRadius, string markerPayload)
         {
             var zns = ZNetScene.instance;
             if (zns == null) return string.Empty;
 
-            GameObject? prefab = zns.GetPrefab(prefabName); // blueprint read — fires no Awake
-            if (prefab == null) return string.Empty;
+            GameObject? blueprint = zns.GetPrefab(prefabName); // blueprint read — fires no Awake
+            if (blueprint == null) return string.Empty;
 
-            // Genuine server-authoritative spawn of the game's OWN prefab (additive; the same pattern
-            // the product uses). We place it as-is and never strip components off it.
-            GameObject go = UnityEngine.Object.Instantiate(prefab, OriginFor(posRadius), Quaternion.identity);
-            var nview = go.GetComponent<ZNetView>();
-            if (nview == null || !nview.IsValid())
+            GameObject? shell = null;
+            GameObject? instance = null;
+            try
             {
-                // No networked identity to track/clean — destroy immediately and report failure.
-                if (nview != null) { try { nview.Destroy(); return string.Empty; } catch (Exception) { } }
-                UnityEngine.Object.Destroy(go);
+                // 1. Build the INACTIVE additive shell (no clone; components are ours by construction).
+                shell = BuildStationShell(prefabName, blueprint);
+                if (shell == null) return string.Empty;
+
+                // 2. Register the shell's name in ZNetScene so ZNetView.Awake can resolve its prefab
+                //    hash and build a valid ZDO (additive networked object, ADR-0006). Idempotent.
+                if (!RegisterShellPrefab(zns, shell)) { DestroyShell(shell); return string.Empty; }
+
+                // 3. Instantiate OUR OWN registered shell into the world (this is spawning the prefab
+                //    WE built, not cloning a vanilla ZNetView donor). Awake now runs down CreateNewZDO.
+                instance = UnityEngine.Object.Instantiate(shell, OriginFor(posRadius), Quaternion.identity);
+                var nview = instance.GetComponent<ZNetView>();
+                if (nview == null || !nview.IsValid())
+                {
+                    DestroyInstance(instance);
+                    return string.Empty;
+                }
+
+                // 4. Durably stamp the ownership marker onto the ZDO as PART of creation. If it cannot
+                //    be written+read back, destroy the object and fail closed (no untracked leak).
+                if (!StampMarker(nview, markerPayload))
+                {
+                    DestroyInstance(instance);
+                    return string.Empty;
+                }
+
+                return EncodeHandle(nview.GetZDO().m_uid);
+            }
+            catch (Exception)
+            {
+                if (instance != null) DestroyInstance(instance);
                 return string.Empty;
             }
-            return EncodeHandle(nview.GetZDO().m_uid);
         }
 
         /// <summary>
         /// Grant a bounded quantity of an allowlisted vanilla item by spawning its OWN drop prefab
-        /// via the vanilla ItemDrop.DropItem seam (§3.5). Returns the spawned drop's ZDOID handle.
+        /// via the vanilla ItemDrop.DropItem seam (§3.5), then durably stamp the ownership marker onto
+        /// the spawned drop's ZDO. Returns the spawned drop's ZDOID handle (empty on failure, incl.
+        /// marker-write failure — the drop is destroyed).
         /// </summary>
-        public string GrantItem(string itemId, long qty)
+        public string GrantItem(string itemId, long qty, string markerPayload)
         {
             var odb = ObjectDB.instance;
             if (odb == null) return string.Empty;
@@ -109,24 +178,39 @@ namespace SBPR.QaHarness.T022.Runtime
             if (itemDrop == null || itemDrop.m_itemData == null) return string.Empty;
 
             int amount = qty < 1 ? 1 : (qty > int.MaxValue ? int.MaxValue : (int)qty);
-            // ItemDrop.DropItem Clones the item data onto a real world drop — the vanilla grant path.
-            ItemDrop spawned = ItemDrop.DropItem(itemDrop.m_itemData, amount, OriginFor(0.0), Quaternion.identity);
+            ItemDrop spawned;
+            try
+            {
+                // ItemDrop.DropItem clones the item DATA onto a real world drop — the vanilla grant
+                // path (the game's own additive spawn seam, not a prefab-clone-and-strip by us).
+                spawned = ItemDrop.DropItem(itemDrop.m_itemData, amount, OriginFor(0.0), Quaternion.identity);
+            }
+            catch (Exception)
+            {
+                return string.Empty;
+            }
             if (spawned == null) return string.Empty;
+
             var nview = spawned.GetComponent<ZNetView>();
             if (nview == null || !nview.IsValid())
             {
-                if (nview != null) { try { nview.Destroy(); } catch (Exception) { } }
-                else UnityEngine.Object.Destroy(spawned.gameObject);
+                DestroyInstance(spawned.gameObject);
                 return string.Empty;
             }
+
+            if (!StampMarker(nview, markerPayload))
+            {
+                DestroyInstance(spawned.gameObject);
+                return string.Empty;
+            }
+
             return EncodeHandle(nview.GetZDO().m_uid);
         }
 
         /// <summary>
         /// Network-aware despawn of the EXACT instance the ledger recorded (by ZDOID handle). Owner-
         /// claim then destroy so the removal replicates and no ZDO survives (AT-QA-CLEANUP-NO-LEAK).
-        /// Returns true when an instance/ZDO existed and was removed; false when already gone (the
-        /// ledger treats already-gone as idempotent success).
+        /// Returns true when an instance/ZDO existed and was removed; false when already gone.
         /// </summary>
         public bool Despawn(string spawnedInstanceId)
         {
@@ -184,6 +268,156 @@ namespace SBPR.QaHarness.T022.Runtime
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Walk the live ZDOs and return every object carrying our QA ownership marker (payload +
+        /// ZDOID handle). Bounded to QA-marked objects — an unmarked/unrelated world object is never
+        /// returned, so recovery can never adopt or destroy it. Fail-closed: any read error yields the
+        /// markers found so far (a survivor we cannot enumerate is simply not adopted, never guessed).
+        /// </summary>
+        public IReadOnlyList<MarkedInstanceInfo> DiscoverMarked()
+        {
+            var found = new List<MarkedInstanceInfo>();
+            var zdoMan = ZDOMan.instance;
+            if (zdoMan == null) return found;
+
+            try
+            {
+                // ZDOMan has no public "get all ZDOs" accessor; the server-side full set lives in the
+                // private m_objectsByID dictionary (ZDOID -> ZDO). Reach it reflectively (base game,
+                // permitted ADR-0001). The disposable QA world is tiny; a full walk is acceptable and
+                // reading the marker key is a cheap string get per ZDO.
+                var byId = HarmonyLib.Traverse.Create(zdoMan).Field("m_objectsByID").GetValue()
+                    as System.Collections.IDictionary;
+                if (byId == null) return found;
+
+                foreach (var value in byId.Values)
+                {
+                    var zdo = value as ZDO;
+                    if (zdo == null || !zdo.IsValid()) continue;
+                    string payload;
+                    try { payload = zdo.GetString(FixtureOwnershipMarker.ZdoKey, string.Empty); }
+                    catch (Exception) { continue; }
+                    if (string.IsNullOrEmpty(payload)) continue; // unmarked → never a candidate
+                    found.Add(new MarkedInstanceInfo(payload, EncodeHandle(zdo.m_uid)));
+                }
+            }
+            catch (Exception)
+            {
+                // Fail-closed: return whatever we could enumerate; a survivor we cannot read is not
+                // adopted (it will be re-created / re-marked, never silently destroyed).
+            }
+            return found;
+        }
+
+        // ── Additive shell construction (ADR-0006) ──────────────────────────────
+
+        // Build an INACTIVE additive shell for a station/anchor from a read-only blueprint. Only the
+        // INTENDED components are added — ZNetView (networked identity), a root BoxCollider, and (for
+        // a station blueprint) a CraftingStation named from the blueprint. NO Instantiate of the donor.
+        private static GameObject? BuildStationShell(string prefabName, GameObject blueprint)
+        {
+            string shellName = "SBPR_QAFixture_" + prefabName;
+            var zns = ZNetScene.instance;
+            // If we already registered this shell in a prior spawn this run, reuse the registered
+            // template (registration is idempotent) by reading it back as a blueprint.
+            if (zns != null)
+            {
+                var existing = zns.GetPrefab(shellName);
+                if (existing != null) return existing;
+            }
+
+            var go = new GameObject(shellName);
+            go.transform.SetParent(Holder().transform, worldPositionStays: false);
+
+            // Root collider — additive shells need one for placement/hit raycasts.
+            var box = go.AddComponent<BoxCollider>();
+            box.size = Vector3.one;
+
+            // ZNetView — the networked identity. Public fields ZNetView.Awake reads to build its own
+            // ZDO (verified against decompiled ZNetView.Awake; same as product TryConstructPieceShell).
+            var nview = go.AddComponent<ZNetView>();
+            nview.m_persistent = true;
+            nview.m_type = ZDO.ObjectType.Default;
+            nview.m_distant = false;
+
+            // If the blueprint is a crafting station, add OUR OWN CraftingStation and copy the VALUE
+            // name field off the blueprint (reference-copy, not inheritance) so it reads as that
+            // station. A non-station (bare anchor) blueprint gets no station component.
+            var blueprintStation = blueprint.GetComponent<CraftingStation>();
+            if (blueprintStation != null)
+            {
+                var station = go.AddComponent<CraftingStation>();
+                station.m_name = blueprintStation.m_name;
+                station.m_useDistance = blueprintStation.m_useDistance;
+            }
+
+            return go;
+        }
+
+        // Register the additive shell's name in ZNetScene so ZNetView.Awake can resolve its prefab
+        // hash (mirrors the product's Assets.RegisterPrefabInZNetScene). Idempotent; fail-closed.
+        private static bool RegisterShellPrefab(ZNetScene zns, GameObject shell)
+        {
+            try
+            {
+                if (zns.GetPrefab(shell.name) != null) return true;
+                int hash = shell.name.GetStableHashCode();
+                var named = HarmonyLib.Traverse.Create(zns).Field("m_namedPrefabs").GetValue()
+                    as System.Collections.Generic.Dictionary<int, GameObject>;
+                if (named == null) return false;
+                zns.m_prefabs.Add(shell);
+                named[hash] = shell;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // Durably write the marker onto the ZDO under the single namespaced key, claiming ownership
+        // first, then read it back to confirm it persisted. Returns false on any failure (caller
+        // destroys the object and fails closed — no untracked leak).
+        private static bool StampMarker(ZNetView nview, string markerPayload)
+        {
+            if (string.IsNullOrEmpty(markerPayload)) return false;
+            try
+            {
+                if (!nview.IsOwner()) nview.ClaimOwnership();
+                var zdo = nview.GetZDO();
+                if (zdo == null || !zdo.IsValid()) return false;
+                zdo.Set(FixtureOwnershipMarker.ZdoKey, markerPayload);
+                // Read-back confirmation the write landed on the durable ZDO.
+                return string.Equals(zdo.GetString(FixtureOwnershipMarker.ZdoKey, string.Empty),
+                    markerPayload, StringComparison.Ordinal);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static void DestroyShell(GameObject shell)
+        {
+            try { UnityEngine.Object.Destroy(shell); } catch (Exception) { }
+        }
+
+        private static void DestroyInstance(GameObject go)
+        {
+            try
+            {
+                var nview = go.GetComponent<ZNetView>();
+                if (nview != null && nview.IsValid())
+                {
+                    if (!nview.IsOwner()) nview.ClaimOwnership();
+                    nview.Destroy();
+                    return;
+                }
+            }
+            catch (Exception) { }
+            try { UnityEngine.Object.Destroy(go); } catch (Exception) { }
         }
 
         // ── Handle encoding: full stable ZDOID as "UserID:ID" (never truncated). ──

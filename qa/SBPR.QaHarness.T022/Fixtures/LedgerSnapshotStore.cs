@@ -78,7 +78,7 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
     /// (temp + fsync + replace); reads are fail-closed (missing = Absent, unreadable = IoError,
     /// undecodable = Corrupt — never a partial ledger). One store instance owns one snapshot path.
     /// </summary>
-    public sealed class LedgerSnapshotStore
+    public class LedgerSnapshotStore
     {
         private readonly string _path;
         private readonly string _tempPath;
@@ -159,20 +159,33 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
 
         /// <summary>
         /// Delete the durable snapshot + any temp/backup siblings (called after a fully-verified
-        /// cleanup so the world save carries no harness ledger). Idempotent and best-effort per
-        /// sibling; a missing file is success.
+        /// cleanup so the world save carries no harness ledger). Idempotent: a missing primary file
+        /// is success. Returns TRUE only when the durable primary path is gone afterwards; returns
+        /// FALSE (observable, not swallowed) when the primary snapshot could not be removed, so the
+        /// caller can surface it and retry rather than reporting a clean cleanup over a durable leak.
         /// </summary>
-        public void Delete()
+        public virtual bool Delete()
         {
-            TryDelete(_path);
+            // Siblings are best-effort (a stale temp/backup is harmless — the next Save republishes),
+            // but the PRIMARY path deletion is load-bearing: it is the durable ledger. Its failure is
+            // reported so cleanup does not claim success while the ledger persists.
+            bool primaryGone = TryDelete(_path);
             TryDelete(_tempPath);
             TryDelete(_backupPath);
+            return primaryGone;
         }
 
-        private static void TryDelete(string path)
+        private static bool TryDelete(string path)
         {
-            try { if (File.Exists(path)) File.Delete(path); }
-            catch (Exception) { /* best effort — a leftover sibling is harmless and re-published next Save */ }
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                return !File.Exists(path);
+            }
+            catch (Exception)
+            {
+                return false; // observable failure — caller decides whether it is load-bearing
+            }
         }
     }
 }

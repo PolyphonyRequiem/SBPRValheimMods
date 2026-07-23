@@ -50,7 +50,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var ledger = OwnedResourceLedger.ForPlan(plan);
             var world = new FakeFixtureWorld();
 
-            var ensure = ledger.Ensure(world);
+            var ensure = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(4, ensure.Created);
             Assert.Equal(0, ensure.Failed);
             Assert.True(ensure.FullySatisfied);
@@ -71,10 +71,10 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var ledger = OwnedResourceLedger.ForPlan(plan);
             var world = new FakeFixtureWorld();
 
-            var first = ledger.Ensure(world);
+            var first = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(2, first.Created);
 
-            var second = ledger.Ensure(world);
+            var second = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(0, second.Created);
             Assert.Equal(2, second.AlreadyPresent);
             Assert.Equal(2, world.LiveCount);
@@ -98,7 +98,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var plan = Validated(Plan("fx1", ("vanilla.wood.pile", 3, 1.0)));
             var ledger = OwnedResourceLedger.ForPlan(plan);
             var world = new FakeFixtureWorld();
-            ledger.Ensure(world);
+            ledger.Ensure(world, TestRun.Ctx);
 
             var cp = ledger.CleanupPlan().Select(i => i.Canonical).ToArray();
             Assert.Equal(new[] { "fx1/vanilla.wood.pile#2", "fx1/vanilla.wood.pile#1", "fx1/vanilla.wood.pile#0" }, cp);
@@ -206,7 +206,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var world = new FakeFixtureWorld();
             world.FailCreateForLogicalId.Add("vanilla.workbench");
 
-            var ensure = ledger.Ensure(world);
+            var ensure = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(2, ensure.Created);
             Assert.Equal(1, ensure.Failed);
             Assert.False(ensure.FullySatisfied);
@@ -228,10 +228,10 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var world = new FakeFixtureWorld();
             world.FailCreateForLogicalId.Add("vanilla.workbench");
 
-            Assert.Equal(1, ledger.Ensure(world).Failed);
+            Assert.Equal(1, ledger.Ensure(world, TestRun.Ctx).Failed);
 
             world.FailCreateForLogicalId.Clear(); // world recovered
-            var retry = ledger.Ensure(world);
+            var retry = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(1, retry.Created);
             Assert.True(retry.FullySatisfied);
             Assert.Equal(1, world.LiveCount);
@@ -243,7 +243,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var plan = Validated(Plan("fx1", ("vanilla.wood.pile", 2, 1.0)));
             var ledger = OwnedResourceLedger.ForPlan(plan);
             var world = new FakeFixtureWorld();
-            ledger.Ensure(world);
+            ledger.Ensure(world, TestRun.Ctx);
 
             // Fail destroy of the first-cleaned object (reverse order => #1 first).
             var firstToClean = ledger.CleanupPlan()[0];
@@ -272,7 +272,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var ledger = OwnedResourceLedger.ForPlan(plan);
             var world = new FakeFixtureWorld();
             var bystander = world.SeedUnrelated("player-house");
-            ledger.Ensure(world);
+            ledger.Ensure(world, TestRun.Ctx);
 
             ledger.Cleanup(world);
 
@@ -289,7 +289,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var plan = Validated(Plan("fx1", ("vanilla.wood.pile", 2, 3.5), ("vanilla.workbench", 1, 0.0)));
             var ledger = OwnedResourceLedger.ForPlan(plan);
             var world = new FakeFixtureWorld();
-            ledger.Ensure(world);
+            ledger.Ensure(world, TestRun.Ctx);
 
             string text = SnapshotCodec.Encode(ledger.ToSnapshot());
             var decoded = SnapshotCodec.Decode(text);
@@ -309,7 +309,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var world = new FakeFixtureWorld();
 
             var before = OwnedResourceLedger.ForPlan(plan);
-            before.Ensure(world);
+            before.Ensure(world, TestRun.Ctx);
             string snapshot = SnapshotCodec.Encode(before.ToSnapshot());
 
             // Process death: a FRESH ledger is reconstructed from the durable snapshot only.
@@ -329,7 +329,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var world = new FakeFixtureWorld();
 
             var before = OwnedResourceLedger.ForPlan(plan);
-            before.Ensure(world);
+            before.Ensure(world, TestRun.Ctx);
             string snapshot = SnapshotCodec.Encode(before.ToSnapshot());
 
             // Crash BETWEEN create and durable landing: created objects vanished from the world.
@@ -340,7 +340,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.Equal(2, recovered.CountInState(OwnedResourceState.Planned));
 
             // Ensure re-creates the missing tail; no double-create, converges to exactly the plan.
-            var ensure = recovered.Ensure(world);
+            var ensure = recovered.Ensure(world, TestRun.Ctx);
             Assert.Equal(2, ensure.Created);
             Assert.Equal(2, world.LiveCount);
 

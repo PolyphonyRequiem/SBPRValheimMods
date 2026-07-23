@@ -167,6 +167,12 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                     return new FixtureVerbOutcome(false, prefix + "-rejected:authority=" + r.AuthorityReason);
                 case FixtureExecStatus.PersistFailed:
                     return new FixtureVerbOutcome(false, prefix + "-rejected:persist=" + r.Detail);
+                case FixtureExecStatus.RecoveryRefused:
+                    return new FixtureVerbOutcome(false, prefix + "-rejected:recovery=" + r.Detail);
+                case FixtureExecStatus.SnapshotDeleteFailed:
+                    return new FixtureVerbOutcome(false,
+                        prefix + "-snapshot-delete-failed:removed=" + r.Removed + ",gone=" + r.AlreadyGone +
+                        ",retryable=" + r.Retryable + ":" + r.Detail);
                 default:
                     return new FixtureVerbOutcome(false, prefix + "-rejected:unknown");
             }

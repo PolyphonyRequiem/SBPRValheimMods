@@ -116,12 +116,15 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
         private readonly IServerAuthoritySource _authority;
         private readonly DeliveringPeerState _peerState;
         private readonly IFixtureWorld _world;
+        private readonly FixtureRunContext _runContext;
 
-        public FixtureProvisioner(IServerAuthoritySource authority, DeliveringPeerState peerState, IFixtureWorld world)
+        public FixtureProvisioner(IServerAuthoritySource authority, DeliveringPeerState peerState,
+            IFixtureWorld world, FixtureRunContext runContext)
         {
             _authority = authority ?? throw new ArgumentNullException(nameof(authority));
             _peerState = peerState ?? throw new ArgumentNullException(nameof(peerState));
             _world = world ?? throw new ArgumentNullException(nameof(world));
+            _runContext = runContext;
         }
 
         /// <summary>The last authority decision (for receipt/telemetry). None until a call is made.</summary>
@@ -134,7 +137,7 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             var decision = FixtureAuthority.Recheck(_authority, _peerState, deliveringPeerId, claimedGeneration);
             LastDecision = decision;
             if (!decision.Ok) return null;   // fail closed: no world side effect
-            return ledger.Ensure(_world);
+            return ledger.Ensure(_world, _runContext);
         }
 
         /// <summary>Gated cleanup. Returns null (and sets LastDecision) when the recheck refuses.</summary>

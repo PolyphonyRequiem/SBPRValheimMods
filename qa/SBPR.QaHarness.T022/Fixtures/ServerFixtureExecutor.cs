@@ -53,6 +53,14 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
 
         /// <summary>A durable snapshot could not be persisted after a world op (fail-closed I/O surface).</summary>
         PersistFailed = 3,
+
+        /// <summary>Bounded durable-marker recovery found a corrupt/ambiguous/foreign world state and refused
+        /// (fail-closed): NO world side effect, NO snapshot write. The disposable world must be inspected.</summary>
+        RecoveryRefused = 4,
+
+        /// <summary>Cleanup removed every owned object but the durable snapshot could not be deleted, so a
+        /// leftover ledger persists. Observable + retryable rather than a silently-swallowed leak.</summary>
+        SnapshotDeleteFailed = 5,
     }
 
     /// <summary>The descriptive result of one fixture execution (primitive facts only — never a verdict).</summary>
@@ -106,6 +114,14 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             new(FixtureExecStatus.PersistFailed, FixtureMapReason.None, FixtureAuthorityReason.None,
                 0, 0, 0, 0, 0, 0, reconciled, detail);
 
+        internal static FixtureExecResult RecoveryRefused(string detail) =>
+            new(FixtureExecStatus.RecoveryRefused, FixtureMapReason.None, FixtureAuthorityReason.None,
+                0, 0, 0, 0, 0, 0, 0, detail);
+
+        internal static FixtureExecResult SnapshotDeleteFailed(CleanupResult r, int reconciled, string detail) =>
+            new(FixtureExecStatus.SnapshotDeleteFailed, FixtureMapReason.None, FixtureAuthorityReason.None,
+                0, 0, 0, r.Removed, r.AlreadyGone, r.Retryable, reconciled, detail);
+
         internal static FixtureExecResult Ensured(EnsureResult r, int reconciled) =>
             new(FixtureExecStatus.Executed, FixtureMapReason.None, FixtureAuthorityReason.None,
                 r.Created, r.AlreadyPresent, r.Failed, 0, 0, 0, reconciled, string.Empty);
@@ -125,21 +141,26 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
         private readonly DeliveringPeerState _peerState;
         private readonly IFixtureWorld _world;
         private readonly Func<string, LedgerSnapshotStore> _storeFactory;
+        private readonly FixtureRunContext _runContext;
 
         /// <summary>
         /// Construct the executor from its (engine-free) collaborators. <paramref name="storeFactory"/>
         /// maps a fixture id to its durable snapshot store, so each fixture persists to its own path.
+        /// <paramref name="runContext"/> is the disposable world uid + run nonce every spawned object's
+        /// durable ownership marker is stamped with and recovery is scoped to.
         /// </summary>
         public ServerFixtureExecutor(
             IServerAuthoritySource authority,
             DeliveringPeerState peerState,
             IFixtureWorld world,
-            Func<string, LedgerSnapshotStore> storeFactory)
+            Func<string, LedgerSnapshotStore> storeFactory,
+            FixtureRunContext runContext)
         {
             _authority = authority ?? throw new ArgumentNullException(nameof(authority));
             _peerState = peerState ?? throw new ArgumentNullException(nameof(peerState));
             _world = world ?? throw new ArgumentNullException(nameof(world));
             _storeFactory = storeFactory ?? throw new ArgumentNullException(nameof(storeFactory));
+            _runContext = runContext;
         }
 
         /// <summary>The last authority decision (for receipts/telemetry).</summary>
@@ -147,7 +168,7 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
 
         /// <summary>
         /// Provision the fixture named by <paramref name="verb"/>+<paramref name="args"/> under
-        /// <paramref name="fixtureId"/>. Maps->recovers+reconciles->gates->ensures->persists.
+        /// <paramref name="fixtureId"/>. Maps->recovers(markers+snapshot)->gates->ensures->persists.
         /// </summary>
         public FixtureExecResult Ensure(
             string fixtureId, string? verb, IReadOnlyDictionary<string, object?> args,
@@ -158,17 +179,20 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                 return FixtureExecResult.MapRejected(map.Reason, map.Detail);
 
             var store = _storeFactory(fixtureId);
-            var (ledger, reconciled) = RecoverAndReconcile(map.Plan, store);
+            if (!TryRecover(map.Plan, store, out var ledger, out int reconciled, out var recoveryDetail))
+                return FixtureExecResult.RecoveryRefused(recoveryDetail);
 
             var decision = FixtureAuthority.Recheck(_authority, _peerState, deliveringPeerId, claimedGeneration);
             LastDecision = decision;
             if (!decision.Ok)
                 return FixtureExecResult.AuthorityRejected(decision.Reason);
 
-            EnsureResult ensured = ledger.Ensure(_world);
+            EnsureResult ensured = ledger.Ensure(_world, _runContext);
 
-            // Persist AFTER the world op so a crash between create and snapshot is recovered by the
-            // next run's reconcile (a Created-but-vanished entry is downgraded and re-created).
+            // Persist AFTER the world op. The durable ON-OBJECT marker (written as part of each spawn)
+            // — not this snapshot — is the crash-safety anchor: a crash between spawn and this Save is
+            // recovered next run by the bounded marker scan, which adopts the exact survivor. The
+            // snapshot is a fast-path cache of that truth, so a persist failure is still fail-closed.
             try { store.Save(ledger); }
             catch (Exception ex) { return FixtureExecResult.PersistFailed(ex.GetType().Name + ": " + ex.Message, reconciled); }
 
@@ -176,9 +200,9 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
         }
 
         /// <summary>
-        /// Tear down the fixture under <paramref name="fixtureId"/>. Recovers+reconciles the ledger,
+        /// Tear down the fixture under <paramref name="fixtureId"/>. Recovers (markers+snapshot),
         /// gates authority, destroys ONLY owned ids, persists; when fully cleaned deletes the durable
-        /// snapshot so the world save carries no harness ledger.
+        /// snapshot so the world save carries no harness ledger. A snapshot delete failure is observable.
         /// </summary>
         public FixtureExecResult Cleanup(
             string fixtureId, string? verb, IReadOnlyDictionary<string, object?> args,
@@ -191,7 +215,8 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                 return FixtureExecResult.MapRejected(map.Reason, map.Detail);
 
             var store = _storeFactory(fixtureId);
-            var (ledger, reconciled) = RecoverAndReconcile(map.Plan, store);
+            if (!TryRecover(map.Plan, store, out var ledger, out int reconciled, out var recoveryDetail))
+                return FixtureExecResult.RecoveryRefused(recoveryDetail);
 
             var decision = FixtureAuthority.Recheck(_authority, _peerState, deliveringPeerId, claimedGeneration);
             LastDecision = decision;
@@ -202,8 +227,11 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
 
             if (cleaned.FullyCleaned)
             {
-                // Nothing owned remains — remove the durable snapshot entirely (no-leak).
-                store.Delete();
+                // Nothing owned remains — remove the durable snapshot entirely (no-leak). A delete
+                // failure is surfaced (not swallowed): the durable ledger persisted, so report it.
+                if (!store.Delete())
+                    return FixtureExecResult.SnapshotDeleteFailed(cleaned, reconciled,
+                        "durable snapshot could not be deleted after full cleanup: " + store.Path);
             }
             else
             {
@@ -215,15 +243,24 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             return FixtureExecResult.Cleaned(cleaned, reconciled);
         }
 
-        // Load a prior crash snapshot for this plan's fixture id and reconcile beliefs against world
-        // truth. A fresh/absent snapshot starts a clean ledger from the plan; a corrupt/IoError
-        // snapshot ALSO starts from the plan (fail-closed: we never assume the corrupt file's
-        // contents, and the plan's deterministic ids let a reconcile find any surviving owned object).
-        private (OwnedResourceLedger ledger, int reconciled) RecoverAndReconcile(
-            ValidatedFixturePlan plan, LedgerSnapshotStore store)
+        // Recover the ledger for this plan. TWO durable sources, in fail-closed precedence:
+        //   1. The durable ON-OBJECT markers (world truth) — a bounded, exact-scope scan that adopts
+        //      exactly this run/world/fixture's survivors and REFUSES on any malformed/duplicate/
+        //      foreign/unexpected marker. This closes the crash-before-snapshot window the snapshot
+        //      file structurally cannot, and it never treats a corrupt/absent snapshot as "empty":
+        //      the survivor's own marker is authoritative.
+        //   2. The snapshot file — a fast-path cache of belief. A successfully-loaded snapshot for the
+        //      SAME fixture seeds the ledger; a Corrupt/IoError/Absent load is NOT treated as empty —
+        //      we start from the plan and let the marker scan (step 1) rediscover real survivors.
+        // Returns false (fail-closed) only when the marker scan reports an integrity violation.
+        private bool TryRecover(
+            ValidatedFixturePlan plan, LedgerSnapshotStore store,
+            out OwnedResourceLedger ledger, out int reconciled, out string recoveryDetail)
         {
+            reconciled = 0;
+            recoveryDetail = string.Empty;
+
             var load = store.Load();
-            OwnedResourceLedger ledger;
             if (load.Ok && load.Snapshot != null &&
                 string.Equals(load.Snapshot.FixtureId, plan.FixtureId, StringComparison.Ordinal))
             {
@@ -231,11 +268,25 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             }
             else
             {
+                // Absent / Corrupt / IoError / fixture-id mismatch: NEVER assume empty. Start from the
+                // plan; the durable markers below are the authority on what actually survived.
                 ledger = OwnedResourceLedger.ForPlan(plan);
             }
 
-            int reconciled = ledger.ReconcileWithWorld(_world);
-            return (ledger, reconciled);
+            // Durable exact-marker recovery (world truth) — fail-closed on any integrity violation.
+            var status = ledger.RecoverFromMarkers(_world, _runContext, out int adopted);
+            if (status != FixtureRecoveryStatus.Ok)
+            {
+                recoveryDetail = "marker-recovery-refused: " + status;
+                return false;
+            }
+
+            // Reconcile belief vs world truth: a Created entry whose object vanished (crash between
+            // create and any durable record) is downgraded so ensure re-creates it. Adoptions from the
+            // marker scan are already Created-with-live-handle, so they survive reconcile.
+            int downgraded = ledger.ReconcileWithWorld(_world);
+            reconciled = downgraded + adopted;
+            return true;
         }
     }
 }

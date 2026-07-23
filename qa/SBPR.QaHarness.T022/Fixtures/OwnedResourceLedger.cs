@@ -170,10 +170,12 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
 
         // ---- ENSURE: idempotently create every Planned/Failed resource, skip Created ----
 
-        /// <summary>Drive the world to create every not-yet-Created resource. Idempotent: an entry
-        /// already Created is skipped (counted AlreadyPresent). A Failed entry from a prior partial
-        /// run is retried. Never creates the artifact under test — only allowlisted scaffolding.</summary>
-        public EnsureResult Ensure(IFixtureWorld world)
+        /// <summary>Drive the world to create every not-yet-Created resource, durably stamping each
+        /// with an exact QA ownership marker (world uid + run nonce + fixture id + owned id) as part
+        /// of creation. Idempotent: an entry already Created is skipped (counted AlreadyPresent). A
+        /// Failed entry from a prior partial run is retried. Never creates the artifact under test —
+        /// only allowlisted scaffolding.</summary>
+        public EnsureResult Ensure(IFixtureWorld world, FixtureRunContext runContext)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
 
@@ -195,7 +197,8 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                     continue;
                 }
 
-                var op = world.Create(e.Id, e.Category, e.LogicalId, e.RadiusMeters);
+                var marker = FixtureOwnershipMarker.For(runContext, _fixtureId, e.Id);
+                var op = world.Create(e.Id, e.Category, e.LogicalId, e.RadiusMeters, marker);
                 if (op.Ok)
                 {
                     _entries[key] = e.With(OwnedResourceState.Created, op.Handle);
@@ -287,6 +290,78 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                 }
             }
             return downgraded;
+        }
+
+        // ---- DURABLE MARKER RECOVERY: adopt this run's exact survivors after a crash ----
+
+        /// <summary>
+        /// Bounded, fail-closed recovery from the durable ON-OBJECT ownership markers. This closes the
+        /// "crashed after spawn, before the snapshot was written" gap the snapshot file alone cannot:
+        /// a fresh/corrupt ledger has empty handles and cannot rediscover a survivor, but the survivor
+        /// carries its own exact marker, so we scope discovery to EXACTLY (this world uid, this run
+        /// nonce, this fixture id) and adopt each matching object into the Created state under the
+        /// owned id its marker names.
+        ///
+        /// FAIL-CLOSED: the whole recovery refuses (no adoption, no world side effect, ledger left
+        /// untouched) if ANY candidate is malformed, two candidates claim the same owned id, a
+        /// candidate carries a foreign world/run, or a candidate for THIS world/run/fixture names an
+        /// owned id the current plan does not expect. Unmarked / unrelated objects are never returned
+        /// by discovery, so they are structurally un-adoptable and preserved. Same-run markers whose
+        /// entry is already Created are treated as idempotent (handle refreshed, not double-created).
+        /// Returns the number of entries adopted (0 when there is nothing to recover).
+        /// </summary>
+        public FixtureRecoveryStatus RecoverFromMarkers(IFixtureWorld world, FixtureRunContext runContext, out int adopted)
+        {
+            if (world == null) throw new ArgumentNullException(nameof(world));
+            adopted = 0;
+
+            var candidates = world.DiscoverMarked();
+            if (candidates == null || candidates.Count == 0)
+                return FixtureRecoveryStatus.Ok;
+
+            // First pass: decode + scope + validate EVERY candidate before mutating anything, so a
+            // violation aborts the entire recovery closed (no partial adoption).
+            var claims = new Dictionary<string, string>(StringComparer.Ordinal); // resourceCanonical -> handle
+            foreach (var cand in candidates)
+            {
+                if (!FixtureOwnershipMarker.TryDecode(cand.MarkerPayload, out var marker))
+                    return FixtureRecoveryStatus.MalformedMarker;
+
+                // Foreign world/run: not ours — but this is a HARD refuse, because a disposable QA
+                // world/run should never see another run's marker; if it does, ownership is unsafe.
+                if (marker.WorldUid != runContext.WorldUid)
+                    return FixtureRecoveryStatus.ForeignWorld;
+                if (!string.Equals(marker.RunNonce, runContext.RunNonce, StringComparison.Ordinal))
+                    return FixtureRecoveryStatus.ForeignRun;
+
+                // Different fixture id under the SAME run belongs to a sibling fixture's ledger — not
+                // this ledger's concern; skip it (it will be adopted by its own fixture's recovery).
+                if (!string.Equals(marker.FixtureId, _fixtureId, StringComparison.Ordinal))
+                    continue;
+
+                // A marker for THIS world/run/fixture MUST name an owned id the current plan expects.
+                if (!_entries.ContainsKey(marker.ResourceCanonical))
+                    return FixtureRecoveryStatus.UnexpectedResource;
+
+                if (claims.ContainsKey(marker.ResourceCanonical))
+                    return FixtureRecoveryStatus.DuplicateMarker;
+
+                if (string.IsNullOrEmpty(cand.SpawnedInstanceId))
+                    return FixtureRecoveryStatus.MalformedMarker;
+
+                claims[marker.ResourceCanonical] = cand.SpawnedInstanceId;
+            }
+
+            // Second pass: every claim validated — adopt into Created (idempotent handle refresh).
+            foreach (var kv in claims)
+            {
+                var e = _entries[kv.Key];
+                if (e.State != OwnedResourceState.Created || !string.Equals(e.Handle, kv.Value, StringComparison.Ordinal))
+                    adopted++;
+                _entries[kv.Key] = e.With(OwnedResourceState.Created, kv.Value);
+            }
+
+            return FixtureRecoveryStatus.Ok;
         }
 
         // ---- Snapshot (pure durable form for crash recovery) ----
