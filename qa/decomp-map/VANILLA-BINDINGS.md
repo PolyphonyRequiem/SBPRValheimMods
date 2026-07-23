@@ -254,12 +254,15 @@ public int GetLevel(bool checkExtensions = true);                        // @362
 public bool InUseDistance(Humanoid human);                               // @382
 ```
 
-- **ADR-0006 compliance:** the harness reads a vanilla prefab as a **blueprint**
-  via `ZNetScene.GetPrefab` (fires no `Awake`) and then does a **normal
-  server-authoritative spawn** — it uses vanilla *spawn* seams (`DropItem` for
-  materials; `Instantiate` of a real station/piece prefab the game itself uses),
-  **not** a subtractive clone-and-strip of a mutable base. Materials granted are
-  ordinary allowlisted vanilla items only (§4 firewall).
+- **ADR-0006 compliance:** materials use the vanilla `DropItem` spawn seam. For
+  stations/anchors, the harness reads the vanilla prefab only as a **blueprint**
+  via `ZNetScene.GetPrefab` (fires no `Awake`), constructs an inactive
+  `new GameObject()` shell with only `ZNetView`, `BoxCollider`, and category-required
+  `CraftingStation`, copies only `m_name` and `m_useDistance`, and refuses a station
+  blueprint missing that component or valid required values before it registers that
+  shell, and instantiates the shell — never the vanilla donor. No path performs
+  subtractive clone-and-strip. Materials granted are ordinary allowlisted
+  vanilla items only (§4 firewall).
 - **Owned-resource ledger:** every spawn returns a `GameObject`/`ItemDrop` whose
   `ZNetView`/`ZDOID` the ledger records; **cleanup** calls
   `ZNetScene.instance.Destroy(go)` per ledger entry, then verifies no ledger
@@ -274,6 +277,35 @@ public bool InUseDistance(Humanoid human);                               // @382
   `GrantVanillaMaterials(string itemId, int qty)` (loops `DropItem` or
   `Inventory.AddItem` on the target — see §3.10), `CleanupLedger()`. All bounded
   by exact ids/counts/radius per ADR-0009 §3.1.
+- **M3R realized bindings (card t_1572d041).** The real net48 seam
+  (`Runtime/ZNetVanillaFixtureSeam.cs`) implements this section against these exact,
+  now-probe-pinned members (see `probe_vanilla_bindings.py`):
+  - **Materials** → `ObjectDB.GetItemPrefab(name)` → the item prefab's `ItemDrop` →
+    `ItemDrop.DropItem(m_itemData, amount, pos, rot)` (the vanilla clone-onto-world-drop
+    grant seam; §3.5/§3.7).
+  - **Stations / anchors** → `ZNetScene.GetPrefab(name)` as a read-only blueprint (no
+    Awake), then construct an inactive shell from `new GameObject()` with only
+    `ZNetView`, `BoxCollider`, and a `CraftingStation` required only for station-category
+    requests. The seam copies only `CraftingStation.m_name` and `m_useDistance`, refuses
+    missing/invalid required station data, registers the shell in `ZNetScene`, and
+    instantiates **that shell** at the requested position. It never instantiates or strips
+    the vanilla donor prefab (ADR-0006).
+  - **Bounded marker discovery** → `ZoneSystem.GetZone(Vector3)` +
+    `ZDOMan.FindSectorObjects(...)`, then `ZDO.GetPrefab()` allowlist filtering and
+    `ZDO.GetPosition()` exact-radius filtering before `ZDO.GetString(...)` reads the marker.
+    Additive registration's `ZNetScene.m_prefabs` / `m_namedPrefabs`, the required
+    `CraftingStation.m_name` / `m_useDistance` blueprint fields, and marker
+    `ZDO.Set(string,string)` / ownership methods are all drift-probe pinned.
+  - **Owned handle** = the spawned object's full stable `ZNetView.GetZDO().m_uid`
+    (`ZDOID(UserID, ID)`), serialized as `"UserID:ID"` — never a truncated numeric.
+  - **Despawn / reconcile** → `ZNetScene.FindInstance(ZDOID)` → `ZNetView.ClaimOwnership()`
+    + `ZNetView.Destroy()` when instanced locally, else `ZDOMan.GetZDO(ZDOID)` +
+    `ZDOMan.DestroyZDO(zdo)` (the network-replicated despawn). `IsLiveInstance` uses the
+    same lookup for crash reconcile. Exactly the idiom the product's
+    `WarriorTwigDedicatedIngressObserver.UndoInstance` already uses.
+  - **Verified:** the net48 Release helper build (0w/0e, `<TreatWarningsAsErrors>`) compiles
+    against every member above, which resolves them in the live `assembly_valheim` more
+    strictly than a signature grep. **No in-game execution is claimed** (M6 is separate).
 
 ### 3.6 Local craft / upgrade through `InventoryGui` (M3) — **client-only-live**
 

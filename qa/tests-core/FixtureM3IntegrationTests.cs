@@ -122,7 +122,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var world = new SeamFixtureWorld(seam);
             var ledger = OwnedResourceLedger.ForPlan(ValidPlan("fx", ("piece_workbench", 1, 2.0), ("Wood", 3, 1.0)));
 
-            var ensured = ledger.Ensure(world);
+            var ensured = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(4, ensured.Created);
             Assert.True(ensured.FullySatisfied);
             Assert.Equal(4, seam.Live.Count);
@@ -139,11 +139,11 @@ namespace SBPR.QaHarness.T022.Core.Tests
         {
             var seam = Seam("piece_workbench");
             // Independently spawn an object NOT owned by the ledger.
-            string unrelated = seam.SpawnPrefab("piece_workbench", 1.0);
+            string unrelated = seam.SeedUnmarked("piece_workbench");
             var world = new SeamFixtureWorld(seam);
             var ledger = OwnedResourceLedger.ForPlan(ValidPlan("fx", ("piece_workbench", 1, 2.0)));
 
-            ledger.Ensure(world);
+            ledger.Ensure(world, TestRun.Ctx);
             ledger.Cleanup(world);
 
             // The ledger's own object is gone; the unrelated one is untouched.
@@ -159,7 +159,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var seam = Seam("SBPR_Masterwork"); // pretend the prefab even "exists"
             var world = new SeamFixtureWorld(seam);
             var id = new OwnedResourceId("fx", "SBPR_Masterwork", 0);
-            var op = world.Create(id, ResourceCategory.Station, "SBPR_Masterwork", 2.0);
+            var op = world.Create(id, ResourceCategory.Station, "SBPR_Masterwork", 2.0, TestRun.Marker("fx", id));
             Assert.False(op.Ok);
             Assert.Contains("product-id-refused", op.FailureReason);
             Assert.Empty(seam.Live); // nothing was spawned
@@ -185,7 +185,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var seam = Seam(/* nothing known */);
             var world = new SeamFixtureWorld(seam);
             var id = new OwnedResourceId("fx", "piece_workbench", 0);
-            var op = world.Create(id, ResourceCategory.Station, "piece_workbench", 2.0);
+            var op = world.Create(id, ResourceCategory.Station, "piece_workbench", 2.0, TestRun.Marker("fx", id));
             Assert.False(op.Ok);
             Assert.Contains("unknown-prefab", op.FailureReason);
         }
@@ -200,13 +200,13 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var ledger = OwnedResourceLedger.ForPlan(ValidPlan("fx", ("Wood", 2, 1.0)));
 
             seam.FailGrant = true;
-            var first = ledger.Ensure(world);
+            var first = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(0, first.Created);
             Assert.Equal(2, first.Failed);
             Assert.False(first.FullySatisfied);
 
             seam.FailGrant = false;
-            var second = ledger.Ensure(world);
+            var second = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(2, second.Created);
             Assert.True(second.FullySatisfied);
         }
@@ -219,7 +219,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var seam = Seam("piece_workbench");
             var world = new SeamFixtureWorld(seam);
             var ledger = OwnedResourceLedger.ForPlan(ValidPlan("fx", ("piece_workbench", 2, 2.0)));
-            ledger.Ensure(world);
+            ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(2, seam.Live.Count);
 
             // Simulate a crash: the world loses the objects (despawn all live).
@@ -227,7 +227,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
 
             int downgraded = ledger.ReconcileWithWorld(world);
             Assert.Equal(2, downgraded);
-            var re = ledger.Ensure(world);
+            var re = ledger.Ensure(world, TestRun.Ctx);
             Assert.Equal(2, re.Created);
             Assert.Equal(2, seam.Live.Count);
         }
@@ -238,6 +238,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
     {
         private readonly HashSet<string> _known;
         private readonly Dictionary<string, string> _live = new(System.StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _markers = new(System.StringComparer.Ordinal);
         private long _seq;
         public bool FailGrant { get; set; }
         public bool FailSpawn { get; set; }
@@ -246,24 +247,47 @@ namespace SBPR.QaHarness.T022.Core.Tests
         public IReadOnlyCollection<string> Live => _live.Keys;
         public bool PrefabExists(string prefabName) => _known.Contains(prefabName);
 
-        public string SpawnPrefab(string prefabName, double posRadius)
+        public string SpawnPrefab(string prefabName, ResourceCategory category, double posRadius, string markerPayload)
         {
             if (FailSpawn) throw new System.InvalidOperationException("injected spawn failure");
             string id = "spawn-" + (++_seq);
             _live[id] = prefabName;
+            _markers[id] = markerPayload ?? string.Empty;
             return id;
         }
 
-        public string GrantItem(string itemId, long qty)
+        public string GrantItem(string itemId, long qty, string markerPayload)
         {
             if (FailGrant) throw new System.InvalidOperationException("injected grant failure");
             string id = "item-" + (++_seq);
             _live[id] = itemId;
+            _markers[id] = markerPayload ?? string.Empty;
             return id;
         }
 
-        public bool Despawn(string spawnedInstanceId) => _live.Remove(spawnedInstanceId);
+        public bool Despawn(string spawnedInstanceId)
+        {
+            _markers.Remove(spawnedInstanceId);
+            return _live.Remove(spawnedInstanceId);
+        }
         public bool IsLiveInstance(string spawnedInstanceId) => _live.ContainsKey(spawnedInstanceId);
+
+        public SeamDiscoveryResult DiscoverMarked(FixtureSeamScope scope)
+        {
+            var allowed = scope.AllowedPrefabNames as ICollection<string>;
+            var list = new List<MarkedInstanceInfo>();
+            foreach (var kv in _markers)
+            {
+                if (string.IsNullOrEmpty(kv.Value)) continue;
+                if (allowed != null && allowed.Count > 0 &&
+                    _live.TryGetValue(kv.Key, out var logical) && !allowed.Contains(logical))
+                    continue;
+                list.Add(new MarkedInstanceInfo(kv.Value, kv.Key));
+            }
+            if (scope.MaxCandidates > 0 && list.Count > scope.MaxCandidates)
+                return SeamDiscoveryResult.Refused("candidate-cap-overflow");
+            return SeamDiscoveryResult.Complete(list);
+        }
     }
 
     public sealed class FixtureAuthorityRecheckTests
@@ -277,7 +301,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             var plan = new FixturePlan("fx", new[] { new ResourceSpec("piece_workbench", 1, 2.0) });
             var validated = FixturePlanValidator.Validate(plan, allow, VanillaFixtureManifest.Bounds).Plan!;
             var ledger = OwnedResourceLedger.ForPlan(validated);
-            return (new FixtureProvisioner(auth, peers, world), ledger, seam);
+            return (new FixtureProvisioner(auth, peers, world, TestRun.Ctx), ledger, seam);
         }
 
         // Happy path: server + world-loaded + bound admin peer on current generation -> ensure runs.

@@ -81,11 +81,16 @@
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixturePlan.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixturePlanValidator.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/IFixtureWorld.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureOwnership.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/OwnedResourceLedger.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/SnapshotCodec.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/VanillaFixtureManifest.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/SeamFixtureWorld.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureAuthority.cs" />
-  </ItemGroup>
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/LedgerSnapshotStore.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureRequestMapper.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/ServerFixtureExecutor.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureVerbExecutorBridge.cs" />
+    </ItemGroup>
 
 </Project>

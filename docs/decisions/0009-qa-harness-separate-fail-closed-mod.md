@@ -552,6 +552,97 @@ deferred to M4 but are required before M6.**
     throwaway item only; product renders no line; **no signature added/copied**.
   - `AT-QA-T022-COLD-30MIN` — one **cold** end-to-end T022 cycle
     (issue→upgrade→transfer→tamper) completes in **≤30 minutes**, no manual hunting.
+
+  > **Implementation note (2026-07-22, card t_4db82cc0 + t_1572d041).** M3 landed in two
+  > slices. First (t_4db82cc0) shipped the ENGINE-FREE fixture core: the owned-resource
+  > ledger + deterministic plan validation + `VanillaFixtureManifest` (real vanilla
+  > allowlist + bounds + product-id guard) + the `SeamFixtureWorld` bridge to the additive
+  > `IVanillaFixtureSeam` + the execution-time `FixtureAuthority` recheck — but the seam was
+  > FAKE-ONLY (`FakeVanillaFixtureSeam`); nothing touched the game and the ledger had no
+  > durable persistence. The corrective slice **M3R (t_1572d041)** wires the REAL net48
+  > server adapter behind the M1/M2R gates and closes the fake-only gap:
+  >   • `ZNetVanillaFixtureSeam` (Runtime, engine-bound) — the additive vanilla implementation
+  >     of `IVanillaFixtureSeam`: materials via `ItemDrop.DropItem` of the item's own drop
+  >     prefab (the game's own additive grant seam); stations/anchors via TRUE ADDITIVE
+  >     CONSTRUCTION per ADR-0006 — an INACTIVE `new GameObject` with only the INTENDED
+  >     components AddComponent'd (`ZNetView` with m_persistent/m_type/m_distant set ourselves,
+  >     a root `BoxCollider`, and, for a station request, a required `CraftingStation` whose `m_name` and
+  >     `m_useDistance` are value-copied off the vanilla prefab read as a read-only blueprint via
+  >     `ZNetScene.GetPrefab` — no mesh/renderer or other component is read or attached). A station
+  >     blueprint missing `CraftingStation`, a non-empty `m_name`, or a finite positive `m_useDistance`
+  >     is treated as drift and creation fails closed rather than degrading to a bare anchor. The shell is
+  >     registered in `ZNetScene` by name and then instantiated — there is NO `Instantiate` of a
+  >     vanilla ZNetView-bearing prefab and no clone-and-strip anywhere (mirrors the product's
+  >     `Assets.TryConstructPieceShell`). Cleanup via the network-aware `ZNetView.Destroy` /
+  >     `ZNetScene.Destroy` / `ZDOMan.DestroyZDO` path so no ZDO survives (AT-QA-CLEANUP-NO-LEAK).
+  >     The handle the ledger stores is the object's full stable `ZDOID` ("UserID:ID"), so only
+  >     the EXACT owned instance is ever despawned.
+  >   • **Durable exact ownership markers (crash-safe ownership, ADR-0009 §5.4).** Every spawned
+  >     fixture object is stamped, as PART of creation, with a QA ownership marker on its ZDO under
+  >     the single namespaced key `SBPRQA_FixtureOwner`, encoding (world uid, run nonce, fixture id,
+  >     owned-resource id). Because the marker lives on the game-persisted ZDO, a crash at ANY point
+  >     after spawn — including BEFORE the snapshot is written — leaves a self-describing survivor.
+  >     On the next run, `OwnedResourceLedger.RecoverFromMarkers` scopes discovery to EXACTLY (this
+  >     world uid, this run nonce, this fixture id) and adopts each matching survivor into the Created
+  >     state; it FAILS CLOSED (no adoption, no world side effect) on any malformed / duplicate /
+  >     foreign-world / foreign-run / unexpected-resource marker. If the marker cannot be durably
+  >     written+read-back at create time, the half-built object is destroyed and the create is
+  >     reported as a failure — never a silently untracked leak. Unmarked/unrelated world objects are
+  >     never discovered, so they are structurally un-adoptable and un-deletable (preserved).
+  >   • `ZNetServerAuthoritySource` (Runtime, engine-bound) — the real `IServerAuthoritySource`:
+  >     live `ZNet.IsServer()` / world-load / admin re-read (same admin surface as the M2R
+  >     control-plane recheck), fail-closed on any drift.
+  >   • `LedgerSnapshotStore` (engine-free) — CRASH-SAFE durable FAST-PATH cache: atomic
+  >     temp+fsync+`File.Replace` write; fail-closed read (missing = Absent, unreadable = IoError,
+  >     undecodable = Corrupt — NEVER treated as an empty ledger; a Corrupt/IoError/Absent load
+  >     falls back to the durable ON-OBJECT markers as the authority on what survived). `Delete`
+  >     returns an observable success/failure so a snapshot that cannot be removed after full cleanup
+  >     is surfaced/retryable, not swallowed over a durable leak.
+  >   • `FixtureRequestMapper` + `ServerFixtureExecutor` + `FixtureVerbExecutorBridge`
+  >     (engine-free) — map an admitted fixture verb+args to a bounded vanilla-only plan (product
+  >     ids refused pre-allowlist), then run durable-marker recovery (fail-closed) + snapshot load +
+  >     reconcile → execution-time authority gate → ensure/cleanup → atomic snapshot, adopting/
+  >     reconciling ONLY the exact owned ids across a restart. The `ServerRpcResponder` runs this
+  >     ONLY after a fixture verb has passed delivering-peer + generation binding, execution-time
+  >     admin recheck, and the shared M1 admission + single-slot dispatch — so a fixture never
+  >     mutates the world without every prior gate.
+  > M3R adds NO product state, NO craft/upgrade/transfer/tamper, and NO verdict — those remain
+  > later work. Proven headless in `tests-core` (crash-safe store round-trip/corrupt/atomic;
+  > durable-marker crash recovery: crash-before-snapshot adoption, corrupt-snapshot-never-empty,
+  > duplicate/foreign-world/foreign-run/unexpected/malformed marker fail-closed refusal, unmarked
+  > same-prefab preservation, marker-write-failure as a create failure, observable snapshot-delete
+  > failure; request→plan mapping incl. exact allowlist/bounds/radius + product-id refusal; gated
+  > executor with peer-substitution / stale-generation / non-admin / non-server / world-not-loaded
+  > rejects all zero-side-effect; partial spawn; restart reconcile; owned-only cleanup; unrelated
+  > preservation) + the net48 helper Release build (0w/0e) compiling against the exact pinned
+  > vanilla members. **No live game launch / deploy / in-game qualification is part of this card**
+  > — in-game execution is NOT verified here (that is M6, a separate operator authorization).
+  >
+  > **Repair note (2026-07-22, card t_0e3a88bd on PR #414).** Owner review of the first M3R push
+  > found two load-bearing defects that this repair corrects: (1) the seam directly `Instantiate`d
+  > a vanilla ZNetView-bearing station prefab while calling it additive — an ADR-0006 violation,
+  > now replaced with the true `new GameObject` + intended-`AddComponent` shell above; and (2)
+  > "crash-safe ownership" was false because world creation preceded the durable snapshot and a
+  > corrupt/absent snapshot was treated as empty — now closed by the durable ON-OBJECT ownership
+  > markers + bounded fail-closed recovery above, with observable snapshot-delete failure.
+  >
+  > **Second-review repair (2026-07-22, same card).** A follow-up owner review found the durable-
+  > marker recovery's world scan was still a WHOLE-WORLD walk of `ZDOMan.m_objectsByID` mislabelled
+  > "bounded", and that on a read/enumeration fault it returned the partial list found so far, which
+  > the ledger treated as complete (an unenumerated survivor could be duplicated). Both are now
+  > corrected: discovery is a typed **complete/refused** result over a **bounded spatial query** —
+  > the engine-free recovery hands the seam a `FixtureWorldScope` (the plan's allowlisted prefabs,
+  > max radius, and a hard candidate cap), and the engine-bound seam answers it with a pinned
+  > `ZoneSystem.GetZone` + `ZDOMan.FindSectorObjects` sector query around the deterministic fixture
+  > origin, filtered to the allowlisted prefab hashes, then to the exact maximum radius and the QA
+  > marker key, with a hard sector-ring and allowlisted-candidate cap. Any binding failure,
+  > enumeration exception, per-candidate position/marker/handle error,
+  > or cap overflow yields a **refusal with ZERO candidates and ZERO world mutation**; the ledger
+  > fails closed (`FixtureRecoveryStatus.DiscoveryRefused`) and never adopts a partial list. There is
+  > no parameterless (full-world) discovery path on either the engine-free port or the seam. New
+  > headless tests: discovery-fault refuses and creates nothing, cap overflow refuses, an
+  > out-of-region (non-allowlisted-prefab) marked object is neither adopted nor destroyed, a valid
+  > survivor still adopts exactly once, and the contract exposes only the scoped overload.
 - **M4 — adversarial + evidence hardening (required before M6).**
   - `AT-QA-BAD-NONCE-REJECT`, `AT-QA-OUT-OF-MANIFEST-REJECT`,
     `AT-QA-REMOTE-FIXTURE-REJECT`, `AT-QA-OUT-OF-BOUNDS-ARG-REJECT`,

@@ -32,6 +32,7 @@
 // ============================================================================
 
 using System;
+using System.Collections.Generic;
 using SBPR.QaHarness.T022.Core.ControlPlane;
 
 namespace SBPR.QaHarness.T022.Core.Fixtures
@@ -51,7 +52,8 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             _seam = seam ?? throw new ArgumentNullException(nameof(seam));
         }
 
-        public WorldOpResult Create(OwnedResourceId id, ResourceCategory category, string logicalId, double radiusMeters)
+        public WorldOpResult Create(OwnedResourceId id, ResourceCategory category, string logicalId,
+            double radiusMeters, FixtureOwnershipMarker marker)
         {
             // Defence in depth: a product id must never reach the world seam, even though the
             // validator already refused it. Fail closed.
@@ -62,6 +64,8 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             if (!_seam.PrefabExists(logicalId))
                 return WorldOpResult.Failure("unknown-prefab: '" + logicalId + "' not present in the live ObjectDB/ZNetScene");
 
+            string markerPayload = marker.Encode();
+
             try
             {
                 string handle;
@@ -69,19 +73,21 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                 {
                     case ResourceCategory.Material:
                         // One owned resource == one granted unit (the plan expanded Count into N ids).
-                        handle = _seam.GrantItem(logicalId, 1);
+                        handle = _seam.GrantItem(logicalId, 1, markerPayload);
                         break;
 
                     case ResourceCategory.Station:
                     case ResourceCategory.PlacementAnchor:
-                        // Additive server-authoritative spawn at a bounded offset (ADR-0006).
-                        handle = _seam.SpawnPrefab(logicalId, radiusMeters);
+                        // Additive server-authoritative construction at a bounded offset (ADR-0006).
+                        handle = _seam.SpawnPrefab(logicalId, category, radiusMeters, markerPayload);
                         break;
 
                     default:
                         return WorldOpResult.Failure("unsupported-category: " + category);
                 }
 
+                // An empty handle means the seam could not durably stand up AND mark the object
+                // (including a marker-write failure): treat as a partial-failure, never a leak.
                 if (string.IsNullOrEmpty(handle))
                     return WorldOpResult.Failure("seam-returned-empty-handle for '" + logicalId + "'");
 
@@ -119,6 +125,31 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             // The seam tracks live spawned-instance ids; existence == the seam still holds it.
             // We conservatively treat a seam that no longer reports the instance as gone.
             return _seam.IsLiveInstance(handle);
+        }
+
+        public WorldDiscoveryResult DiscoverMarked(FixtureWorldScope scope)
+        {
+            // Translate the engine-free bounded scope into the seam's scope and consume its typed result.
+            var seamScope = new FixtureSeamScope(scope.AllowedPrefabNames, scope.MaxRadiusMeters, scope.MaxCandidates);
+            SeamDiscoveryResult raw;
+            try
+            {
+                raw = _seam.DiscoverMarked(seamScope);
+            }
+            catch (Exception ex)
+            {
+                // A seam fault is a refusal, never an empty complete set (fail-closed).
+                return WorldDiscoveryResult.Refused("seam-discovery-fault: " + ex.Message);
+            }
+
+            if (raw == null || raw.Outcome != SeamDiscoveryOutcome.Complete)
+                return WorldDiscoveryResult.Refused("seam-discovery-refused: " + (raw?.Detail ?? "null-result"));
+
+            var list = new List<MarkedInstance>(raw.Marked?.Count ?? 0);
+            if (raw.Marked != null)
+                foreach (var m in raw.Marked)
+                    list.Add(new MarkedInstance(m.MarkerPayload, m.SpawnedInstanceId));
+            return WorldDiscoveryResult.Complete(list);
         }
     }
 }

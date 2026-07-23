@@ -21,6 +21,8 @@ namespace SBPR.QaHarness.T022.Core.Tests
     {
         // handle -> logical id of live objects the ledger created.
         private readonly Dictionary<string, string> _live = new Dictionary<string, string>(StringComparer.Ordinal);
+        // handle -> marker payload durably stamped on the object at create time.
+        private readonly Dictionary<string, string> _markers = new Dictionary<string, string>(StringComparer.Ordinal);
         // Independently-seeded objects the ledger did NOT create (must survive cleanup).
         private readonly HashSet<string> _unrelated = new HashSet<string>(StringComparer.Ordinal);
         private int _seq;
@@ -28,6 +30,9 @@ namespace SBPR.QaHarness.T022.Core.Tests
         // Adversarial injection knobs.
         public HashSet<string> FailCreateForLogicalId { get; } = new HashSet<string>(StringComparer.Ordinal);
         public HashSet<string> FailDestroyForHandle { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>When true, Create durably fails to stamp its marker → reported as a Create failure.</summary>
+        public bool FailMarkerWrite { get; set; }
 
         public int LiveCount => _live.Count;
         public int UnrelatedCount => _unrelated.Count;
@@ -43,14 +48,36 @@ namespace SBPR.QaHarness.T022.Core.Tests
         public bool UnrelatedExists(string handle) => _unrelated.Contains(handle);
 
         /// <summary>Simulate process death: every ledger-created object vanishes (never yet durable).</summary>
-        public void WipeCreated() => _live.Clear();
+        public void WipeCreated() { _live.Clear(); _markers.Clear(); }
 
-        public WorldOpResult Create(OwnedResourceId id, ResourceCategory category, string logicalId, double radiusMeters)
+        /// <summary>Seed a live object carrying an exact marker payload but with NO ledger/snapshot record
+        /// (models a crash-before-snapshot survivor). Returns the handle.</summary>
+        public string SeedMarkedSurvivor(string logical, string markerPayload)
+        {
+            var handle = "survivor:" + (_seq++).ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + logical;
+            _live[handle] = logical;
+            _markers[handle] = markerPayload ?? string.Empty;
+            return handle;
+        }
+
+        /// <summary>Seed an UNMARKED live object of the same prefab the harness uses (must be preserved).</summary>
+        public string SeedUnmarked(string logical)
+        {
+            var handle = "unmarked:" + (_seq++).ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + logical;
+            _live[handle] = logical;
+            return handle;
+        }
+
+        public WorldOpResult Create(OwnedResourceId id, ResourceCategory category, string logicalId,
+            double radiusMeters, FixtureOwnershipMarker marker)
         {
             if (FailCreateForLogicalId.Contains(logicalId))
                 return WorldOpResult.Failure("injected create failure for " + logicalId);
+            if (FailMarkerWrite)
+                return WorldOpResult.Failure("injected marker-write failure for " + logicalId);
             var handle = "h" + (_seq++).ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" + id.Canonical;
             _live[handle] = logicalId;
+            _markers[handle] = marker.Encode();
             return WorldOpResult.Success(handle);
         }
 
@@ -59,9 +86,35 @@ namespace SBPR.QaHarness.T022.Core.Tests
             if (FailDestroyForHandle.Contains(handle))
                 return WorldOpResult.Failure("injected destroy failure for " + handle);
             _live.Remove(handle);
+            _markers.Remove(handle);
             return WorldOpResult.Success(handle);
         }
 
         public bool Exists(string handle) => _live.ContainsKey(handle);
+
+        /// <summary>When true, the bounded scan REFUSES (models a binding/enumeration/read fault or cap overflow).</summary>
+        public bool FailDiscovery { get; set; }
+
+        public WorldDiscoveryResult DiscoverMarked(FixtureWorldScope scope)
+        {
+            if (FailDiscovery)
+                return WorldDiscoveryResult.Refused("injected discovery fault");
+
+            var allowed = scope.AllowedPrefabNames as ICollection<string>;
+            var list = new List<MarkedInstance>();
+            foreach (var kv in _markers)
+            {
+                if (string.IsNullOrEmpty(kv.Value)) continue;
+                // Bounded to the scope's allowlisted prefabs: an out-of-region (non-allowlisted) marked
+                // object is never returned.
+                if (allowed != null && allowed.Count > 0 &&
+                    _live.TryGetValue(kv.Key, out var logical) && !allowed.Contains(logical))
+                    continue;
+                list.Add(new MarkedInstance(kv.Value, kv.Key));
+            }
+            if (scope.MaxCandidates > 0 && list.Count > scope.MaxCandidates)
+                return WorldDiscoveryResult.Refused("candidate-cap-overflow: " + list.Count + " > " + scope.MaxCandidates);
+            return WorldDiscoveryResult.Complete(list);
+        }
     }
 }
