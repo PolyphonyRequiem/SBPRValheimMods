@@ -280,10 +280,12 @@ public bool InUseDistance(Humanoid human);                               // @382
   - **Materials** → `ObjectDB.GetItemPrefab(name)` → the item prefab's `ItemDrop` →
     `ItemDrop.DropItem(m_itemData, amount, pos, rot)` (the vanilla clone-onto-world-drop
     grant seam; §3.5/§3.7).
-  - **Stations / anchors** → `ZNetScene.GetPrefab(name)` (blueprint, no Awake) then
-    `Object.Instantiate(prefab, pos, rot)` of the **unmodified** vanilla prefab — a genuine
-    additive server spawn, never a clone-and-strip (ADR-0006). The identical pattern the
-    product's `HomesteadStoneWorldPlacement` uses.
+  - **Stations / anchors** → `ZNetScene.GetPrefab(name)` as a read-only blueprint (no
+    Awake), then construct an inactive shell from `new GameObject()` with only
+    `ZNetView`, `BoxCollider`, and optional `CraftingStation`. The seam copies only
+    `CraftingStation.m_name` and `m_useDistance`, registers the shell in `ZNetScene`, and
+    instantiates **that shell** at the requested position. It never instantiates or strips
+    the vanilla donor prefab (ADR-0006).
   - **Owned handle** = the spawned object's full stable `ZNetView.GetZDO().m_uid`
     (`ZDOID(UserID, ID)`), serialized as `"UserID:ID"` — never a truncated numeric.
   - **Despawn / reconcile** → `ZNetScene.FindInstance(ZDOID)` → `ZNetView.ClaimOwnership()`
