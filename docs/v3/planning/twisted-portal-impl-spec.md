@@ -375,12 +375,18 @@ for name-pairing — but the teleport *method* is ours, not vanilla's.
   Ancient Portal path, `Portals.cs:215` — note the current helper is the `TryX(out)` form after the
   null-remediation refactor, t_0234cc42 / PR #187). Use a wood/organic effect donor (`portal_wood`
   read as a blueprint) so hit/destroy/place sounds read as a portal.
-- **Visual kitbash** — reuse the Ancient Portal's grafted ring/legs/roots envelope
-  (`Portals.BuildLegs` `:245` / `Portals.BuildRoots` `:248` + the grafted `small_portal` ring) but
-  **re-tinted / re-themed** to read as "twisted/swamp" rather than "ancient/forest" — a darker,
-  sicklier emission. Exact retint is a flagged art-pass detail (AT-GEOMETRY); v3.0 ships the Ancient
-  envelope with a swamp tint so it's visually distinguishable at a glance. All grafts are
-  mesh-reference, ZNetView-free (ADR-0006).
+- **Visual kitbash — a DISTINCT silhouette (colorblind-safe; deferred→required, card t_4ab58b42).**
+  The Twisted Portal must read as its own object by **shape**, not hue: Daniel is colorblind, so a
+  tint-only diff from the Ancient Portal is invisible to him. Per
+  [`../../design/twisted-portal-distinct-mesh.md`](../../design/twisted-portal-distinct-mesh.md), build a
+  distinct additive kitbash (ADR-0006, all mesh-reference grafts, ZNetView-free): a cluster of
+  **5 uneven inward-leaning tapered spikes** (`Stalagmite` `default` mesh) on a tighter ~0.9 m
+  radius, crowned by a **self-emissive `GuckSack` (`Cancer`/`sack`) mass** in place of the
+  `small_portal` wooden hoop. Because the Twisted Portal carries **no `TeleportWorld`**, the ring
+  is purely cosmetic and free to drop — nothing reads its renderer. The swamp `MaterialPropertyBlock`
+  tint is retained as a *secondary* cue only (never `sharedMaterial`). Exact transforms are
+  desk-estimated and flagged **AT-GEOMETRY** for in-game tuning; the **AT-DISTINCT-SHAPE** accept
+  is Daniel's by-eye, **monochrome-legible** side-by-side check, not logs-green.
 - **The per-instance class IS the portal's brain.** Unlike the Ancient Portal (which bolts a real
   `TeleportWorld` + a separate `AncientPortalTag`), Twisted's `SBPR_TwistedPortal` MonoBehaviour *is*
   both the teleporter and the ZDO-discipline owner. It implements `Hoverable` (`GetHoverText`
@@ -1081,7 +1087,8 @@ the build PRs do NOT self-close these.
 **Portal mechanism (carried forward — the base portal shipped):**
 - **AT-PORTAL-PLACE** — `piece_sbpr_twisted_portal` is placeable with the **Hammer**, **no station in
   range**, solid-earth only (rejected on structures), costs the recipe-1 materials. Visually distinct
-  from the Ancient Portal (swamp tint).
+  from the Ancient Portal by **shape / silhouette** (5 uneven inward-leaning spikes + a self-emissive
+  guck crown — colorblind-safe, monochrome-legible; card t_4ab58b42), not by hue.
 - **AT-NOPORTALS-BYPASS** (🔴 the headline, card AC#2) — with the `NoPortals` global key SET, a Twisted
   Portal **still teleports**. A vanilla portal next to it does NOT (proves we bypass the gate that
   still binds vanilla).

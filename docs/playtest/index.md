@@ -1,7 +1,7 @@
 ---
 title: index — docs/playtest
 status: living
-last_updated: 2026-06-20
+last_updated: 2026-07-22
 ---
 
 # index — docs/playtest
@@ -10,7 +10,7 @@ Machine-readable manifest of the playtest tracking system.
 
 | file | status | purpose |
 |------|--------|---------|
-| README.md | living | What the playtest system is — ledger + numbered testers guides, Playtest #N vs build tags |
+| README.md | living | What the playtest system is — ledger + numbered testers guides, the explicit dry-run prepare→tag→release path, Playtest #N vs build tags |
 | playtest-ledger.md | living | Living source of truth for what needs in-game testing: PENDING (accrues as work merges) + ARCHIVE (shipped playtests). Carries `playtest_counter` + `last_playtest_tag` in frontmatter. |
 | playtest-1-testers-guide.md | historical | Generated Playtest #1 testers guide — install + acceptance checklist for everything merged since v0.2.25-playtest, with git ground-truth cross-check. Superseded by #2/#3. |
 | playtest-2-testers-guide.md | historical | Generated Playtest #2 testers guide (cut at the v0.2.28 build) — disc render / fog-shroud / cursor-free cartography work. Its Sunstone item is stale (trophy-ring landed in v0.2.29 #199, ~6 min after this guide was generated); the corrected Sunstone checklist is in #3. |
@@ -27,5 +27,8 @@ Machine-readable manifest of the playtest tracking system.
   Playtest number (distinct from the `vX.Y.Z-playtest` build tag).
 - A shipped playtest's guide keeps `status: current` while it's the active test
   target; flip to `status: historical` once the next playtest supersedes it.
-- The `sbpr-playtest-planner` cron maintains the roll (archive → bump → re-seed →
-  regenerate → open next planning card) when a new `-playtest` tag lands.
+- Preparing a playtest is one explicit human command
+  (`scripts/prepare-playtest.py`, dry-run by default). There is **no** cron that
+  rolls the ledger — the `sbpr-playtest-planner` / `sbpr-playtest-ready-watch`
+  jobs were removed (they rolled it zero times over 50 checks). Archive → bump →
+  re-seed is a deliberate human edit made only after a tag is actually cut.

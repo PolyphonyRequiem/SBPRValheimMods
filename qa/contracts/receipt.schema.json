@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sbpr.trailborne/qa/contracts/receipt.schema.json",
+  "title": "SBPR.QaHarness.T022 receipt (ADR-0009 §6) — M1",
+  "description": "The DESCRIPTIVE primitive-fact receipt the helper emits per request. It NEVER contains a product PASS/FAIL verdict — only the external runner composes a verdict (ADR-0009 §6). In M1 the helper still exposes no channel/executor, so no receipt is produced at runtime yet; this schema pins the shape the arming/admission decision would stamp. The 'reason' enum mirrors RejectReason (Core/RejectReason.cs); 'None' denotes an admitted request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "verb", "role", "worldUid", "nonce", "seq", "ts", "outcome"],
+  "properties": {
+    "requestId": { "type": "string", "minLength": 1 },
+    "verb": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "enum": ["Server", "Client"] },
+    "worldUid": { "type": "integer" },
+    "nonce": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer" },
+    "ts": { "type": "integer", "description": "Emit time, unix milliseconds." },
+    "connectionGeneration": { "type": "integer", "minimum": 0, "description": "The server's CURRENT bound connection generation at receipt time (ADR-0009 §5.1); 0 on the client channel. The authorized runner reads this to form its next request's connectionGeneration — a reconnect advances it so pre-reconnect envelopes reject as StaleGeneration." },
+    "outcome": {
+      "type": "string",
+      "enum": ["admitted", "rejected", "replayed"],
+      "description": "admitted = passed the admission gate; rejected = fail-closed; replayed = cached decision returned for a duplicate (requestId, seq)."
+    },
+    "reason": {
+      "type": "string",
+      "description": "The RejectReason that fired (None when admitted). Mirrors Core/RejectReason.cs.",
+      "enum": [
+        "None",
+        "DisabledByDefault", "MalformedManifest", "UnknownRole", "MissingActor",
+        "WorldUidMismatch", "WorldNameMismatch", "ProductionWorldDenied", "WorldNotAllowlisted",
+        "HashManifestDrift", "MissingNonce", "Expired", "EmptyCapability",
+        "NotArmed", "MalformedEnvelope", "BadNonce", "RoleMismatch", "RequestWorldMismatch",
+        "UnknownVerb", "OutOfManifest", "OutOfBoundsArg", "BadHmac", "RequestExpired",
+        "Replay", "SequenceConflict"
+      ]
+    },
+    "observed": {
+      "type": "object",
+      "description": "Descriptive facts only (e.g. tooltip text, field-present bool, quality int). Never a product verdict."
+    }
+  }
+}

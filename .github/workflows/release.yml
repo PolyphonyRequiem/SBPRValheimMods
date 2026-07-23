@@ -65,6 +65,39 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Set up Python (playtest preflight)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ── Scoped playtest preflight (fail-closed). Runs BEFORE build/publish so a
+      # tag whose scoped manifest/guide is stale or incomplete can never publish.
+      # It is READ-ONLY: it creates no tag, release, or ledger mutation — it only
+      # validates that the tag being released has a complete, correctly-versioned
+      # Trailborne playtest manifest. Skipped for non-playtest tags (e.g. a plain
+      # vX.Y.Z release with no `-playtest` suffix) since those don't drive the
+      # playtest ledger series. See scripts/prepare-playtest.py. ───────────────
+      - name: Playtest manifest preflight (scoped, read-only)
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.name }}'
+          case "$TAG" in
+            *-playtest)
+              python3 -m pip install --quiet pyyaml
+              # Validate the manifest at the CHECKED-OUT tag tree (the checkout
+              # step already put us on the tag). --no-fetch: no network; --ref HEAD:
+              # evaluate exactly what's about to be built. The base playtest tag +
+              # ledger completeness come from the ledger's last_playtest_tag. A
+              # stale/incomplete/mis-versioned scoped manifest exits non-zero here
+              # and fails the release BEFORE any build, publish, or installer PR.
+              python3 scripts/prepare-playtest.py \
+                --manifest trailborne --ref HEAD --no-fetch
+              ;;
+            *)
+              echo "Tag $TAG is not a -playtest tag — skipping playtest preflight."
+              ;;
+          esac
+
       - name: Compute weekly cache epoch
         id: weekstamp
         run: echo "week=$(( $(date +%s) / 604800 ))" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,36 @@
+# playtest-manifests.yaml — declarative playtest scope definitions.
+#
+# Each manifest names ONE ship project (the .csproj whose package is published to
+# playtesters) and where its living ledger + generated guide live. The actual file
+# scope is NOT listed here as path prefixes — it is DERIVED at run time from the
+# ship project's transitive <ProjectReference> closure (see scripts/playtest_scope.py),
+# so it always matches build reality. Add/remove a ProjectReference and the scope
+# moves with it; you never hand-maintain a path list that can drift from the build.
+#
+# To add a second mod's playtest track (e.g. HomesteadStones), add a sibling entry.
+# The prepare tool takes --manifest <key> and stays project-scoped: one mod's
+# commits can never leak into another mod's manifest.
+
+manifests:
+  trailborne:
+    # The plugin DLL that pack-modpack.sh ships. Its ProjectReference closure is
+    # SBPR.Trailborne + SBPR.Trailborne.Core (verified against pack-modpack.sh,
+    # which bundles exactly SBPR.Trailborne.dll + SBPR.Trailborne.Core.dll).
+    ship_project: src/SBPR.Trailborne/SBPR.Trailborne.csproj
+    ledger: docs/playtest/playtest-ledger.md
+    guide_template: docs/playtest/playtest-{n}-testers-guide.md
+    tag_prefix: v
+    tag_suffix: -playtest
+
+  # Example of extensibility — a separate mod gets its own manifest, ledger, and
+  # tag series without forking the tool. Commented out until Homestead actually
+  # runs a public playtest track with its own ledger; uncommenting + adding the
+  # ledger file is all it takes. (HomesteadStones has no ProjectReferences today,
+  # so its closure would be just itself.)
+  #
+  # homestead:
+  #   ship_project: src/SBPR.Niflheim.HomesteadStones/SBPR.Niflheim.HomesteadStones.csproj
+  #   ledger: docs/playtest/homestead-playtest-ledger.md
+  #   guide_template: docs/playtest/homestead-playtest-{n}-testers-guide.md
+  #   tag_prefix: homestead-v
+  #   tag_suffix: -playtest

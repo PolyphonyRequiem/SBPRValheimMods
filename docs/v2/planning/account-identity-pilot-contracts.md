@@ -251,6 +251,20 @@ A rejection changes nothing.
 
 ## Operator commands
 
+> **Implemented live (IAP-015, t_818742f8).** These commands are now driven on a live server through the
+> shipped `sbpr_pilotop` client console command over a DIRECT per-peer `ZRpc` handler
+> (`OperatorCommandIngressObserver`). The server resolves the ACTUAL delivering `ZNetPeer` and authorizes
+> via the live-server admin gate (`OperatorAdminGate` over `ZNet.GetAdminList()`) — payload identity and
+> routed-sender ids never grant authority. Every command runs over the SAME shared `PilotAccountStore` /
+> `PilotSessionRegistry` / privacy + lifecycle services the live admission path uses
+> (`LiveOperatorServices`), so a join-created account is inspectable and an operator disable drops the exact
+> live session (real `ZNet.Disconnect`). Responses carry only opaque ids/coarse statuses/result+receipt
+> ids/safe counts. The bounded live verb set is open-pilot/inspect/export/disable/delete/purge/
+> retention-purge/close-pilot; whole-fixture reset, scoped reset, quarantine, raw-subject lookup, and
+> journal editing are deliberately NOT exposed by this client surface. Evidence:
+> [`account-identity-pilot-operator-evidence.md`](account-identity-pilot-operator-evidence.md) §IAP-015;
+> runbook: [`../runbooks/account-identity-pilot-operator-runbook.md`](../runbooks/account-identity-pilot-operator-runbook.md).
+
 ### `GetPilotAccountSummary`
 
 **Caller:** authenticated server administrator.

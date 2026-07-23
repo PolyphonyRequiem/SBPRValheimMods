@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sbpr.trailborne/qa/contracts/envelope.schema.json",
+  "title": "SBPR.QaHarness.T022 request envelope (ADR-0009 §3.2, §5.1) — M2R",
+  "description": "The authenticated wrapper every control request carries. Mirrors the engine-free RequestEnvelope in qa/SBPR.QaHarness.T022/Contracts/RequestEnvelope.cs. On the server channel the helper binds the ACTUAL delivering peer from the transport and validates 'connectionGeneration' against the current bound connection; a request carrying a stale (pre-reconnect) generation is rejected (StaleGeneration) even if its HMAC verifies. The HMAC is computed over the canonical '\\n'-joined field order {nonce, seq, expiry, role, worldUid, verb, requestId, connectionGeneration} (RequestHmac.CanonicalString) — NOT over this JSON — so tampering the generation invalidates authentication.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["nonce", "seq", "expiry", "hmac", "role", "worldUid", "verb", "requestId", "connectionGeneration", "args"],
+  "properties": {
+    "nonce": { "type": "string", "minLength": 1, "description": "Per-run nonce; must equal the armed run nonce." },
+    "seq": { "type": "integer", "description": "Strictly-monotonic per-run sequence number." },
+    "expiry": { "type": "integer", "description": "Hard request expiry, unix milliseconds." },
+    "hmac": { "type": "string", "minLength": 1, "description": "Lowercase-hex HMAC-SHA256 over the canonical field string (includes connectionGeneration)." },
+    "role": { "type": "string", "enum": ["Server", "Client"], "description": "Explicit process role; must match the armed role." },
+    "worldUid": { "type": "integer", "description": "Disposable world UID; must match the armed world." },
+    "verb": { "type": "string", "minLength": 1, "description": "A known catalog verb name (VerbCatalog)." },
+    "requestId": { "type": "string", "minLength": 1, "description": "Idempotency key; a repeat with the same seq returns the cached decision (replay)." },
+    "connectionGeneration": { "type": "integer", "minimum": 1, "description": "The connection generation this request claims (ADR-0009 §5.1). Required and strictly positive. The server bumps it on every peer (re)bind and rejects a request whose claimed generation is not the current bound one (StaleGeneration). Part of the canonical HMAC input; the runner reads the current value from each receipt's connectionGeneration to form the next request." },
+    "args": { "type": "object", "description": "Named typed argument values for the verb; validated against the verb's argument schema (closed — no undeclared args)." }
+  }
+}

@@ -87,6 +87,19 @@ namespace SBPR.Niflheim.HomesteadStones
             // 100% server-observed off the transport-authenticated peer, never a client payload.
             harmony.PatchAll(typeof(Features.PilotIdentity.PilotSessionLifecycleObserver));
 
+            // IAP-015 — the LIVE operator command surface. THREE net48-only patch classes that together
+            // form the client console -> server direct-RPC -> client reply adapter over the SAME shared
+            // operator services PilotSessionLifecycleObserver composes (registered directly above, so
+            // OperatorServices is available when a request lands). ALL THREE must be registered here or the
+            // entire surface ships as dead code — the runtime-proven defect from live smoke t_48797ca3 at
+            // 04efd544, where sbpr_pilotop was absent from Terminal.commands and none of these three wove.
+            //   • OperatorCommandIngressObserver — SERVER: per-peer ZRpc request handler on ZNet.OnNewConnection.
+            //   • OperatorCommandConsole         — CLIENT: the sbpr_pilotop console command (Terminal.InitTerminal).
+            //   • OperatorCommandReplyClient     — CLIENT: the server-reply handler on ZNet.OnNewConnection.
+            harmony.PatchAll(typeof(Features.PilotIdentity.OperatorCommandIngressObserver));
+            harmony.PatchAll(typeof(Features.PilotIdentity.OperatorCommandConsole));
+            harmony.PatchAll(typeof(Features.PilotIdentity.OperatorCommandReplyClient));
+
             // T009R3 (Blocker 3) — admin/test relationship provisioning seam. DISABLED by default: the
             // routed handler is only registered when this server-owned flag is ON, and even then only an
             // authenticated Valheim ADMIN sender is accepted. It exists so a real playtest session can
@@ -261,6 +274,12 @@ namespace SBPR.Niflheim.HomesteadStones
             // dormant/unpurchased effect keep the full vanilla duration; fails closed off-host (see
             // SwiftPreparationCraftTimer). Character Effect ⇒ no Local policy / build Permission conjunct.
             harmony.PatchAll(typeof(Features.Cooking.SwiftPreparationCraftTimer));
+
+            // IAP-015 — startup conformance for the live operator command surface. Runs AFTER every operator
+            // PatchAll above and walks Harmony's registry to prove all three roles (console / server request /
+            // client reply) actually wove. Fails LOUD (ERROR) if any is missing — the fail-closed signal the
+            // next live smoke reads to distinguish an armed surface from the 04efd544 dead-code defect.
+            Features.PilotIdentity.OperatorSurfaceConformance.Verify(ModId);
 
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }

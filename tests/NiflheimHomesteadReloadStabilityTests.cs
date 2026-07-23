@@ -1,32 +1,36 @@
 // ============================================================================
-//  Wayfinder 0003 — reload identity/count gate (kanban t_1a1164f4).
+//  Niflheim 0003 — StoneAreaRegistrar reconciliation stability (unit layer).
 // ----------------------------------------------------------------------------
-//  The visual acceptance for 0003 (representative-live-3) is banked and
-//  reviewer-verified. The ONE remaining gate is the reload identity/count
-//  proof: after a world save + client reload, the production selector's
-//  assignment set must be identity- AND count-stable, and stale assignment
-//  ZDOs outside the current selected set must be REMOVED, not accumulated —
-//  proven across a persistence boundary, not just within one session.
+//  SCOPE HONESTY (read first): this suite is a DETERMINISTIC UNIT TEST of the
+//  shipped engine-free StoneAreaRegistrar.Reconcile / StoneAreaMembership /
+//  StoneId types (link-compiled from ../src). It proves those pure functions
+//  behave correctly when handed a resident Stone-fact set:
+//    * membership rebuilt from the same facts is count- and identity-stable;
+//    * a stale assignment fact outside the current selected set is UNREGISTERED
+//      (removal, not union accumulation) on reconcile;
+//    * a repeated reconcile with the same facts is a stable no-op.
 //
-//  This suite proves that at the layer the gate actually lives in, using the
-//  SHIPPED engine-free types (StoneAreaRegistrar / StoneAreaMembership /
-//  StoneId — link-compiled from ../src), which are exactly what the runtime
-//  adapter HomesteadStoneWorldPlacement.ReconcileExisting / ReconcileStoneAreas
-//  invoke each realization tick. The fixture is the REAL Astley
-//  (world UID 2413287143) production selector output — 285 candidates,
-//  114 assigned — captured from the production selector CLI
-//  (tools/niflheim-homestead-selector) and asserted here as ground truth.
+//  WHAT THIS SUITE DOES NOT PROVE (the still-open live gate on t_1a1164f4):
+//    * It does NOT run the production HomesteadSelector.Select. The literal
+//      114-assignment set below is a FIXED, deterministic reconciler INPUT
+//      fixture — a representative Stone-fact set — NOT verified production
+//      selector output. There is no committed selector input (the selector's
+//      `astley-real-locations.tsv`) or committed selector output in this repo
+//      from which the 285/114 identity could be reproduced, so no "selector
+//      reproduces the same set on cold reload" claim is asserted here.
+//    * It does NOT exercise any Unity world `.db` save/load, ZoneSystem
+//      Location generation, or `ZDOMan` serialization round-trip. No persistence
+//      boundary is crossed. A cold Unity save+reload identity/count proof is the
+//      one mandatory 0003 acceptance gate and it REMAINS OPEN on kanban card
+//      t_1a1164f4 — deterministic unit tests do not substitute for it.
 //
-//  Why this is a valid reload proof and not a re-run of determinism:
-//    * The selector is a pure function of (persisted world UID, persisted
-//      Location instances). A save/reload changes NEITHER input, so a second
-//      cold process MUST reproduce the same 285/114 set and the same per-host
-//      zone-coord set — that is the identity/count half.
-//    * The reconciliation half is proven by simulating the ZDO membership that
-//      SURVIVES a save (a resident set including a stale assignment left by a
-//      prior selector pass) and reconciling it against the post-reload selected
-//      set. The stale entry must be dropped and the live set must converge to
-//      exactly 114 — removal, not union accumulation, across the boundary.
+//  History: this file previously carried a same-literal-vs-same-literal
+//  "Reload_reproduces_identical_perhost_zonecoord_set_no_reroll" assertion that
+//  projected one literal into two sets and compared them — a tautology that
+//  invoked no selector and proved nothing about reload. That assertion was
+//  removed (PR correcting the merged #346 surface); the genuinely valuable
+//  reconciliation, stale-reap, and idempotence tests are retained and renamed
+//  to what they actually prove.
 // ============================================================================
 
 using System;
@@ -40,15 +44,17 @@ namespace SBPR.Trailborne.Tests
 {
     public sealed class NiflheimHomesteadReloadStabilityTests
     {
-        // Real Astley world identity — the invariant world UID the production selector keys on.
-        private static readonly WorldId Astley = new WorldId("uid:2413287143");
-        private const int ExpectedCandidates = 285;
-        private const int ExpectedAssigned = 114;
+        // A fixed world identity used only to key the reconciler-input StoneIds below. It is a stable
+        // literal for these deterministic tests — NOT a claim that any live Astley world was reloaded.
+        private static readonly WorldId FixtureWorld = new WorldId("uid:2413287143");
+        private const int FixtureAssigned = 114;
 
-        // The REAL 114 assigned (prefab, zoneX, zoneZ) triples for Astley UID 2413287143, captured
-        // from the production selector CLI (NiflheimHomesteadSelector generate ... 2413287143).
-        // This is the persisted-world fact set a reload must reproduce identically.
-        private static readonly (string Prefab, int ZoneX, int ZoneZ)[] AstleyAssigned = new[]
+        // A FIXED, deterministic reconciler-INPUT fixture: 114 representative (prefab, zoneX, zoneZ)
+        // Stone-fact triples used purely to drive StoneAreaRegistrar.Reconcile below. This is NOT verified
+        // production HomesteadSelector output — no committed selector input/output exists to reproduce it,
+        // and this suite makes no selector-reproduction claim. It is exercised only as a stable resident
+        // Stone-fact set for the reconciliation, stale-reap, and idempotence assertions.
+        private static readonly (string Prefab, int ZoneX, int ZoneZ)[] FixtureFacts = new[]
         {
             ("WoodFarm1", 21, -21),
             ("WoodHouse1", -21, -13),
@@ -166,125 +172,106 @@ namespace SBPR.Trailborne.Tests
             ("WoodHouse9", -6, 15),
         };
 
-        // A resident membership rebuilt from the persisted Stone ZDOs of a given assigned set —
-        // exactly what HomesteadStoneWorldPlacement.ReconcileStoneAreas builds each tick from the
-        // ZDOs that survived the save. One Area per assigned zone, centered on that zone.
+        // A resident membership rebuilt from a set of Stone facts — exactly what
+        // HomesteadStoneWorldPlacement.ReconcileStoneAreas builds each tick from resident Stone ZDOs.
+        // One Area per fact, centered deterministically on that zone.
         private static StoneAreaMembership ResidentMembershipFor(
-            IEnumerable<(string Prefab, int ZoneX, int ZoneZ)> assigned)
+            IEnumerable<(string Prefab, int ZoneX, int ZoneZ)> facts)
         {
-            var facts = assigned.Select(a => new StoneAreaRegistrar.StoneAreaFact(
-                StoneId.FromHostZone(Astley, a.ZoneX, a.ZoneZ),
+            var stoneFacts = facts.Select(a => new StoneAreaRegistrar.StoneAreaFact(
+                StoneId.FromHostZone(FixtureWorld, a.ZoneX, a.ZoneZ),
                 a.ZoneX * 64.0,   // arbitrary but deterministic world center per zone
                 a.ZoneZ * 64.0,
                 StoneAreaMembership.DefaultAreaRadius));
             var membership = new StoneAreaMembership();
-            StoneAreaRegistrar.Reconcile(membership, facts.ToArray());
+            StoneAreaRegistrar.Reconcile(membership, stoneFacts.ToArray());
             return membership;
         }
 
         private static IReadOnlyCollection<StoneAreaRegistrar.StoneAreaFact> SelectedFacts(
-            IEnumerable<(string Prefab, int ZoneX, int ZoneZ)> assigned) =>
-            assigned.Select(a => new StoneAreaRegistrar.StoneAreaFact(
-                StoneId.FromHostZone(Astley, a.ZoneX, a.ZoneZ),
+            IEnumerable<(string Prefab, int ZoneX, int ZoneZ)> facts) =>
+            facts.Select(a => new StoneAreaRegistrar.StoneAreaFact(
+                StoneId.FromHostZone(FixtureWorld, a.ZoneX, a.ZoneZ),
                 a.ZoneX * 64.0, a.ZoneZ * 64.0, StoneAreaMembership.DefaultAreaRadius)).ToArray();
 
-        // ── Ground-truth guards on the captured fixture ─────────────────────────
+        // ── Fixture integrity guard ─────────────────────────────────────────────
 
         [Fact]
-        public void Fixture_matches_the_expected_astley_counts()
+        public void Fixture_facts_are_a_distinct_set_of_expected_size()
         {
-            Assert.Equal(ExpectedAssigned, AstleyAssigned.Length);
-            // Per-host zone coords are a SET — no duplicate (prefab,zone) assignments.
-            var distinct = AstleyAssigned
+            Assert.Equal(FixtureAssigned, FixtureFacts.Length);
+            // Per-host zone coords are a SET — no duplicate (prefab,zone) facts.
+            var distinct = FixtureFacts
                 .Select(a => a.Prefab + ":" + a.ZoneX + ":" + a.ZoneZ)
                 .Distinct(StringComparer.Ordinal)
                 .Count();
-            Assert.Equal(ExpectedAssigned, distinct);
+            Assert.Equal(FixtureAssigned, distinct);
         }
 
-        // ── Identity/count stability across the reload boundary ─────────────────
+        // ── Reconcile membership is count- and identity-stable for a fixed fact set ─
 
         [Fact]
-        public void Reload_reproduces_identical_perhost_zonecoord_set_no_reroll()
+        public void Reconcile_membership_is_count_stable_and_identity_stable()
         {
-            // Fresh load: the persisted-world selected set (the ZDOs that will be saved).
-            var freshZones = AstleyAssigned
-                .Select(a => a.Prefab + ":" + a.ZoneX + ":" + a.ZoneZ)
-                .ToHashSet(StringComparer.Ordinal);
+            var first = ResidentMembershipFor(FixtureFacts);
+            Assert.Equal(FixtureAssigned, first.Count);
 
-            // Cold reload: the same persisted world UID + same Location instances feed the same pure
-            // selector, so the post-reload selected set is the SAME captured fixture. Identity of the
-            // per-host zone-coord set is the no-reroll assertion.
-            var reloadZones = AstleyAssigned
-                .Select(a => a.Prefab + ":" + a.ZoneX + ":" + a.ZoneZ)
-                .ToHashSet(StringComparer.Ordinal);
+            // Rebuilding membership from the SAME facts yields the same StoneId set — deterministic.
+            var second = ResidentMembershipFor(FixtureFacts);
+            Assert.Equal(FixtureAssigned, second.Count);
 
-            Assert.Equal(ExpectedAssigned, freshZones.Count);
-            Assert.True(freshZones.SetEquals(reloadZones));   // no coord added, dropped, or moved
+            var firstIds = first.RegisteredStoneIds().ToHashSet(StringComparer.Ordinal);
+            var secondIds = second.RegisteredStoneIds().ToHashSet(StringComparer.Ordinal);
+            Assert.True(firstIds.SetEquals(secondIds));   // identity-stable StoneId set
         }
 
-        [Fact]
-        public void Reload_membership_is_count_stable_and_identity_stable()
-        {
-            var before = ResidentMembershipFor(AstleyAssigned);
-            Assert.Equal(ExpectedAssigned, before.Count);
-
-            // Reload rebuilds membership from the persisted ZDOs — same StoneIds, same centers.
-            var after = ResidentMembershipFor(AstleyAssigned);
-            Assert.Equal(ExpectedAssigned, after.Count);
-
-            var beforeIds = before.RegisteredStoneIds().ToHashSet(StringComparer.Ordinal);
-            var afterIds = after.RegisteredStoneIds().ToHashSet(StringComparer.Ordinal);
-            Assert.True(beforeIds.SetEquals(afterIds));   // identity-stable StoneId set
-        }
-
-        // ── Stale-ZDO reconciliation across the boundary (removal, not accumulation) ─
+        // ── Stale-fact reconciliation: removal, not accumulation ────────────────
 
         [Fact]
-        public void Stale_assignment_zdo_outside_selected_set_is_removed_not_accumulated()
+        public void Stale_assignment_fact_outside_selected_set_is_removed_not_accumulated()
         {
-            // Persisted membership as it survives a save: the 114 live assignments PLUS one stale
-            // assignment ZDO left by an earlier selector pass at a zone NOT in the current selected
-            // set. This mirrors the v7 production run reaping the stale (-25,-30) Stone.
+            // Resident membership including one stale assignment fact at a zone NOT in the selected set —
+            // e.g. a stale assignment ZDO left by an earlier selector pass. This mirrors the v7 production
+            // run reaping the stale (-25,-30) Stone.
             var staleZone = (Prefab: "WoodHouse1", ZoneX: -25, ZoneZ: -30);
             Assert.DoesNotContain(
-                AstleyAssigned,
+                FixtureFacts,
                 a => a.ZoneX == staleZone.ZoneX && a.ZoneZ == staleZone.ZoneZ);   // genuinely stale
 
-            var persisted = new List<(string, int, int)>(
-                AstleyAssigned.Select(a => (a.Prefab, a.ZoneX, a.ZoneZ)))
+            var resident = new List<(string, int, int)>(
+                FixtureFacts.Select(a => (a.Prefab, a.ZoneX, a.ZoneZ)))
             {
                 (staleZone.Prefab, staleZone.ZoneX, staleZone.ZoneZ),
             };
             var membership = ResidentMembershipFor(
-                persisted.Select(p => (p.Item1, p.Item2, p.Item3)));
-            Assert.Equal(ExpectedAssigned + 1, membership.Count);   // stale present pre-reconcile
+                resident.Select(p => (p.Item1, p.Item2, p.Item3)));
+            Assert.Equal(FixtureAssigned + 1, membership.Count);   // stale present pre-reconcile
 
-            // Post-reload reconciliation against the CURRENT selected set (the 114). The stale Area
-            // must be UNREGISTERED — the set converges to exactly 114, never 115 (no union).
-            var result = StoneAreaRegistrar.Reconcile(membership, SelectedFacts(AstleyAssigned));
+            // Reconcile against the CURRENT selected set (the 114). The stale Area must be UNREGISTERED —
+            // the set converges to exactly 114, never 115 (no union accumulation).
+            var result = StoneAreaRegistrar.Reconcile(membership, SelectedFacts(FixtureFacts));
 
             Assert.Equal(1, result.Unregistered);
-            Assert.Equal(0, result.Registered);   // every live one already resident — no reroll
-            Assert.Equal(0, result.Updated);       // centers unchanged across the boundary
-            Assert.Equal(ExpectedAssigned, result.Total);
-            Assert.Equal(ExpectedAssigned, membership.Count);
-            var staleId = StoneId.FromHostZone(Astley, staleZone.ZoneX, staleZone.ZoneZ);
+            Assert.Equal(0, result.Registered);   // every live one already resident
+            Assert.Equal(0, result.Updated);       // centers unchanged
+            Assert.Equal(FixtureAssigned, result.Total);
+            Assert.Equal(FixtureAssigned, membership.Count);
+            var staleId = StoneId.FromHostZone(FixtureWorld, staleZone.ZoneX, staleZone.ZoneZ);
             Assert.DoesNotContain(staleId.Value, membership.RegisteredStoneIds());
         }
 
         [Fact]
-        public void Repeated_reload_reconciliation_is_a_stable_noop()
+        public void Repeated_reconciliation_is_a_stable_noop()
         {
-            // First reload converges to the live set; a SECOND reload with the same persisted ZDOs
-            // (no new stale, nothing dropped) must be a pure no-op — stable, not oscillating.
-            var membership = ResidentMembershipFor(AstleyAssigned);
-            var again = StoneAreaRegistrar.Reconcile(membership, SelectedFacts(AstleyAssigned));
+            // A reconcile with the same facts (no new stale, nothing dropped) must be a pure no-op —
+            // stable, not oscillating. This is the idempotence guarantee the realization cadence relies on.
+            var membership = ResidentMembershipFor(FixtureFacts);
+            var again = StoneAreaRegistrar.Reconcile(membership, SelectedFacts(FixtureFacts));
 
             Assert.Equal(0, again.Registered);
             Assert.Equal(0, again.Updated);
             Assert.Equal(0, again.Unregistered);
-            Assert.Equal(ExpectedAssigned, again.Total);
+            Assert.Equal(FixtureAssigned, again.Total);
         }
     }
 }

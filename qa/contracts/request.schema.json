@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sbpr.trailborne/qa/contracts/request.schema.json",
+  "title": "SBPR.QaHarness.T022 request (ADR-0009 §3) — M1",
+  "description": "A control request = the authenticated envelope (envelope.schema.json) plus a verb drawn from the finite, closed catalog (VerbCatalog.cs). The catalog is the ONLY set of verbs that can exist; a per-run capability manifest permits a SUBSET, never a superset. Every verb argument is typed and bounded; undeclared arguments are rejected (closed schema). This document pins the catalog + argument bounds as the wire truth; the authoritative bounds live in qa/SBPR.QaHarness.T022/Contracts/VerbCatalog.cs.",
+  "$ref": "#/$defs/request",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "allOf": [ { "$ref": "envelope.schema.json" } ],
+      "properties": {
+        "verb": { "$ref": "#/$defs/verbName" }
+      }
+    },
+    "verbName": {
+      "type": "string",
+      "enum": [
+        "SpawnStation", "GrantVanillaMaterials", "PlaceVanillaPiece", "SetWorldTime",
+        "Craft", "UpgradeItem", "DropItem", "PickUpNearest", "TamperField",
+        "ReadInventory", "ReadItem", "ReadTooltip", "ReadWorldName", "ReadWorldUid",
+        "Ping", "Cleanup", "Disarm"
+      ],
+      "description": "The finite verb catalog. Fixture verbs are Server-role (per-peer ZRpc); action verbs are Client-role (loopback); observation/lifecycle verbs are either role."
+    },
+    "argumentBounds": {
+      "description": "Non-normative summary of the typed argument bounds enforced by VerbCatalog/VerbArg. AllowlistedId: exact static-allowlist id, length 1..128. BoundedInt qty: 1..64. BoundedDouble radius/posRadius: 0..8. BoundedInt targetQuality: 1..4. BoundedString slot: 1..32. BoundedString phase/scope: 1..16."
+    }
+  }
+}

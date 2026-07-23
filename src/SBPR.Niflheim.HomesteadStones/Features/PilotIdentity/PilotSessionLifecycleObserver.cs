@@ -5,6 +5,7 @@ using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Adapters.Identity;
 using SBPR.Niflheim.HomesteadStones.Application.Accounts;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
+using SBPR.Niflheim.HomesteadStones.Domain.Accounts;
 using SBPR.Niflheim.HomesteadStones.Features.Progression;
 using SBPR.Niflheim.HomesteadStones.Persistence.Accounts;
 
@@ -50,6 +51,12 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
         private static LiveSessionAdmission? live;
         private static PilotProviderGate? providerGate;
 
+        /// <summary>IAP-015 — the SHARED live operator service bundle composed at ZNet.Awake over the SAME
+        /// durable store + session registry + bound-session index this observer drives admission through. The
+        /// operator command ingress (OperatorCommandIngressObserver) reads it so operator commands act on the
+        /// exact live universe admission mutates. Null on a client / before composition.</summary>
+        internal static LiveOperatorServices? OperatorServices { get; private set; }
+
         // transportHandle -> true for peers this observer has admitted, so it admits once and closes on
         // disconnect. Purely process-local (mirrors the admission index): cleared on restart.
         private static readonly HashSet<long> admittedTransports = new HashSet<long>();
@@ -78,42 +85,69 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                     accountStore, keyRing, PilotDisclosureVersions.NoticeVersion, PilotDisclosureVersions.RetentionVersion);
                 var characters = new PilotCharacterAdmissionService(accountStore, keyRing, new AccountAdmissionIndex());
 
-                // IAP-012 fix-forward (t_f6c8c748): compose the privacy service over the SAME durable store
-                // and wire its fail-closed admission gate. If the rehydrated journal already carries an
-                // Active pilot lifecycle record and a cataloged WorldSave fixture (opened/cataloged through
-                // the operator privacy path), configure the gate to that pilot+fixture and enforce it: a
-                // closed pilot or an uncataloged/expired/purged world fixture then rejects live admission
-                // before any bind. When no pilot has been opened yet, the gate stays unconfigured and
-                // admission proceeds as before (server not bricked mid-migration) — logged prominently.
-                var privacy = new PilotPrivacyService(
-                    accountStore, new OperatorAdminGate(Array.Empty<string>()), new AccountMutationFence(),
-                    System.TimeSpan.FromSeconds(5));
-                IPrivacyAdmissionGate? privacyGate = null;
-                var activePilot = accountStore.Pilots.FirstOrDefault(p => p.Status == PilotLifecycleStatus.Active);
-                var worldFixture = accountStore.Artifacts.FirstOrDefault(a =>
-                    a.ArtifactType == PilotArtifactType.WorldSave && a.Status == ArtifactStatus.Active);
-                if (activePilot != null && worldFixture != null)
+                // IAP-015 fix: compose the operator DECISION cores + the live admission over ONE shared store,
+                // session registry, mutation fence, and bound-session index — the exact gap EXECUTE run 1426
+                // exposed. Previously this observer built its own inline PilotAccountStore + PilotPrivacyService
+                // with NO operator ingress; now the operator command surface (OperatorCommandIngressObserver)
+                // and this admission path provably act on the SAME universe.
+                //
+                // The admin gate reads the LIVE server-owned adminlist.txt on EVERY authorization (via a
+                // provider closure over ZNet.GetAdminList) — never a boot snapshot — so an admin removed
+                // mid-run is rejected on the next command (fail closed on removal). Payload identity is never
+                // authority (AIP-FR-019).
+                var adminGate = new OperatorAdminGate(() =>
                 {
-                    privacy.ConfigureAdmission(activePilot.PilotId, worldFixture.StorageLocator);
-                    privacyGate = privacy;
+                    var z = ZNet.instance;
+                    var list = z != null ? z.GetAdminList() : null;
+                    return list != null ? new List<string>(list) : (IReadOnlyCollection<string>)Array.Empty<string>();
+                });
+
+                var retentionPolicy = PilotRetentionPolicy.ShippedDefault(PilotDisclosureVersions.RetentionVersion);
+
+                // The active world-save fixture locator: the server's own world name+uid, server-derived
+                // (never a client claim). open-pilot catalogs THIS fixture and binds the admission gate to it.
+                string worldFixture = SafeWorldFixtureLocator(__instance);
+
+                var boundSessions = server.BoundSessions;
+
+                // Rehydrate the privacy admission gate from the durable journal exactly as before: if an Active
+                // pilot + cataloged WorldSave already exist, ENFORCE the fail-closed gate; else leave it open
+                // (server not bricked mid-migration) — logged prominently. The privacy SERVICE is composed by
+                // LiveOperatorServices.Compose over the same store, so we resolve the gate from that service.
+                var services = LiveOperatorServices.Compose(
+                    accountStore, accounts, characters, boundSessions, adminGate,
+                    retentionPolicy, worldFixture, privacyGate: null);
+
+                var activePilot = accountStore.Pilots.FirstOrDefault(p => p.Status == PilotLifecycleStatus.Active);
+                var worldFixtureArtifact = accountStore.Artifacts.FirstOrDefault(a =>
+                    a.ArtifactType == PilotArtifactType.WorldSave && a.Status == ArtifactStatus.Active);
+                IPrivacyAdmissionGate? privacyGate = null;
+                if (activePilot != null && worldFixtureArtifact != null)
+                {
+                    services.Privacy.ConfigureAdmission(activePilot.PilotId, worldFixtureArtifact.StorageLocator);
+                    privacyGate = services.Privacy;
                     Plugin.Log.LogInfo("[Niflheim/HomesteadStones] Privacy admission gate ENFORCED for pilot='"
-                        + activePilot.PilotId.Value + "' worldFixture='" + worldFixture.StorageLocator + "'.");
+                        + activePilot.PilotId.Value + "' worldFixture='" + worldFixtureArtifact.StorageLocator + "'.");
                 }
                 else
                 {
                     Plugin.Log.LogWarning("[Niflheim/HomesteadStones] No open pilot + cataloged world fixture in the "
                         + "durable journal; privacy admission gate NOT enforced (open a pilot via the operator "
-                        + "privacy path to fail closed on closure/uncataloged fixtures).");
+                        + "open-pilot command to fail closed on closure/uncataloged fixtures).");
                 }
 
-                live = new LiveSessionAdmission(accounts, characters, server.BoundSessions, privacyGate);
+                // Recompose the live admission WITH the resolved privacy gate but over the SAME shared store,
+                // session registry, and bound-session index (so operator + admission stay one universe).
+                live = new LiveSessionAdmission(accounts, characters, boundSessions, privacyGate, services.Sessions);
+                OperatorServices = services;
                 providerGate = new PilotProviderGate(PilotProviderKey.Steamworks(PilotBackendIssuer));
                 admittedTransports.Clear();
                 composedFor = __instance;
 
                 Plugin.Log.LogInfo(
-                    "[Niflheim/HomesteadStones] Live session admission composed (server-authoritative). " +
-                    "durable='" + durableDir + "' provider=" + providerGate.DescribeProviderClass() + ".");
+                    "[Niflheim/HomesteadStones] Live session admission + operator command surface composed " +
+                    "(server-authoritative, shared store). durable='" + durableDir + "' provider=" +
+                    providerGate.DescribeProviderClass() + ".");
             }
             catch (Exception ex)
             {
@@ -130,7 +164,26 @@ namespace SBPR.Niflheim.HomesteadStones.Features.PilotIdentity
                 composedFor = null;
                 live = null;
                 providerGate = null;
+                OperatorServices = null;
                 admittedTransports.Clear();
+            }
+        }
+
+        /// <summary>The server-owned world-save fixture locator, derived from the server's own world name +
+        /// durable world UID (never a client claim). Used as the WorldSave artifact locator that open-pilot
+        /// catalogs and the fail-closed admission gate binds to. Falls back to a stable marker if the world
+        /// is not loaded yet.</summary>
+        private static string SafeWorldFixtureLocator(ZNet znet)
+        {
+            try
+            {
+                string name = znet.GetWorldName() ?? "world";
+                long uid = znet.GetWorldUID();
+                return "world-save:" + name + "/" + uid.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return "world-save:unknown";
             }
         }
 

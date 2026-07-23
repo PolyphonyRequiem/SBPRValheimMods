@@ -19,18 +19,24 @@ markers; the **Playtest #N** counter here is the *human-facing* testing series.
 ## How this stays reliable (read before editing)
 
 1. **Items are added as work merges, not from memory.** Two feeders:
-   - **Auto (ground truth):** `scripts/gen-playtest-guide.py` derives candidate items
-     from `git log <last_playtest_tag>..main -- 'src/**/*.cs'` — every code change since
-     the last playtest is a candidate test item, even if nobody added it by hand.
+   - **Auto (ground truth):** the prepare tool (`scripts/prepare-playtest.py`) and
+     `scripts/gen-playtest-guide.py` derive candidate items from the git changes
+     since `<last_playtest_tag>` — every code change since the last playtest is a
+     candidate test item, even if nobody added it by hand. **Scope is per-mod:** the
+     prepare tool considers only the manifest's dependency closure (Trailborne +
+     Core), so a sibling mod's commits never enter this ledger.
    - **Manual (judgment):** specific test instructions a commit message can't capture
      (exact steps, what "correct" looks like, edge cases) go in **PENDING** below.
      Kanban workers append here on a review-required handoff; the orchestrator appends
      on merge.
-2. **The cron `sbpr-playtest-planner` fires when a new `-playtest` tag lands** → it
-   archives PENDING under the shipped Playtest #N, bumps `playtest_counter`, updates
-   `last_playtest_tag`, and creates the next-playtest **planning card** on the board.
-   Items that did **not** actually ship in the tag (still `todo`/`blocked`/unmerged) are
-   **not** archived as shipped — they carry forward into the next PENDING.
+2. **Preparing a playtest is one explicit human command — there is no cron.** Run
+   `scripts/prepare-playtest.py` (dry-run by default) to get a fail-closed READY/
+   BLOCKED verdict + exact candidate identity; it mutates NOTHING. The old
+   `sbpr-playtest-planner` / `sbpr-playtest-ready-watch` cron jobs were **removed**
+   (they rolled this ledger zero times over 50 checks). Archiving PENDING under a
+   shipped Playtest #N, bumping `playtest_counter`, and updating `last_playtest_tag`
+   is a deliberate **human edit made only after a tag is actually cut** — never
+   during a dry run. Items that did not ship in the tag carry forward into PENDING.
 3. **Nothing is "tested" until Daniel says so in-game** (logs-green ≠ playable). The
    guide produces a checklist; Daniel's run fills it in.
 

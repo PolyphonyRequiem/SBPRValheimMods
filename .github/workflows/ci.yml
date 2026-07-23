@@ -14,6 +14,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'scripts/**'
+      - 'qa/**'
       - 'tools/stone-content-workbench/**'
       - 'Directory.Build.props'
       - '.github/workflows/ci.yml'
@@ -22,6 +23,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'scripts/**'
+      - 'qa/**'
       - 'tools/stone-content-workbench/**'
       - 'Directory.Build.props'
       - '.github/workflows/ci.yml'
@@ -282,3 +284,134 @@ jobs:
         run: |
           dotnet run --project tools/stone-content-workbench/src/StoneContent.Workbench.Cli -c Release -- \
             check tools/stone-content-workbench/assets/homestead-stone.content.json --generated "$RUNNER_TEMP/gen1"
+
+  # ── QA test-harness (ADR-0009 M0) ────────────────────────────────────────────
+  # The QA-only, fail-closed test-helper subsystem (qa/**). Kept in its OWN job so
+  # a harness change is gated independently and NEVER sits on the product build's
+  # critical path (ADR-0009 §7). Proves the two M0 structural-firewall gates plus
+  # an inert helper Release build.
+  qa-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      # AT-QA-NO-PRODUCT-REF (direction a+b): qa/** and src/SBPR.* are
+      # dependency-disjoint. Structural project-XML parse, engine-free — no SDK
+      # needed, so it gates fast and first.
+      - name: 'AT-QA-NO-PRODUCT-REF — bidirectional dependency guard'
+        run: python3 scripts/check-qa-dependency-boundary.py
+
+      # AT-QA-MODPACK-EXCLUDES-HARNESS + AT-QA-NO-PRODUCT-REF isolation suite,
+      # including the adversarial rename/case/nested/traversal negative fixtures.
+      - name: 'M0 isolation guard tests (unittest, no pip)'
+        run: python3 -m unittest discover -s qa/tests -p 'test_*.py' -v
+
+      # Runner skeleton must be import/execute-clean and side-effect-free.
+      - name: 'Runner skeleton --dry-run (no game/network/file I/O)'
+        run: python3 qa/runner/sbpr-qa-t022.py --dry-run
+
+      # ADR-0009 M1–M3 + M2R + M3R: engine-free contracts + capability parser + fail-closed arming
+      # gate, the M2 control-plane core, the M3 vanilla-fixture ledger + seam adapter + execution-
+      # time authority recheck, the M3R real-fixture adapter core (crash-safe LedgerSnapshotStore,
+      # request→plan mapper, gated ServerFixtureExecutor + responder bridge), AND the M2R real-
+      # runtime control-plane brain (MiniJson envelope codec, ControlPlaneRuntime, real loopback
+      # TcpListener, server per-peer responder, assembly drift guard, arm bootstrap parser). This
+      # xUnit suite link-compiles the SHIPPED engine-free sources (System.* only — no game/BepInEx),
+      # so it runs headless with NO Valheim SDK and gates FIRST, off the helper's SteamCMD critical
+      # path. Named ATs: AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID,
+      # BAD-NONCE-REJECT, OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT, REPLAY-REJECT (M1);
+      # LOOPBACK-ONLY, NO-SCRIPTTOOLS-LOCK, SERVER-NO-LISTENER, BUSY-TIMEOUT-CANCEL,
+      # REMOTE-FIXTURE-REJECT, PEER-SUBSTITUTION-REJECT (M2/M2R); AT-QA-FIXTURE-VANILLA-ONLY,
+      # AT-QA-CLEANUP-NO-LEAK + M3R crash-safe store / owned-only cleanup / restart reconcile /
+      # zero-side-effect authority rejects (M3/M3R).
+      - name: 'AT-QA M1–M3 + M2R + M3R — engine-free contracts + arming + fixtures + runtime (xUnit, no SDK)'
+        run: |
+          dotnet test qa/tests-core/SBPR.QaHarness.T022.Core.Tests.csproj -c Release \
+            --logger "console;verbosity=normal"
+
+      # ── Valheim dedicated-server managed assemblies (helper build references) ─
+      - name: Compute weekly cache epoch
+        id: weekstamp
+        run: echo "week=$(( $(date +%s) / 604800 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Valheim server assemblies
+        id: cache-valheim
+        uses: actions/cache@v5
+        with:
+          path: ~/valheim-server/valheim_server_Data/Managed
+          key: valheim-managed-${{ env.VALHEIM_SERVER_APPID }}-${{ hashFiles('.github/workflows/ci.yml') }}-week${{ steps.weekstamp.outputs.week }}
+
+      - name: Install SteamCMD + fetch server assemblies (on cache miss)
+        if: steps.cache-valheim.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          sudo add-apt-repository -y multiverse
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          echo steam steam/question select "I AGREE" | sudo debconf-set-selections
+          echo steam steam/license note '' | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y steamcmd
+          MANAGED="$HOME/valheim-server/valheim_server_Data/Managed"
+          n=0
+          until [ -f "$MANAGED/assembly_valheim.dll" ] || [ "$n" -ge 3 ]; do
+            n=$((n+1))
+            echo "::group::steamcmd attempt $n/3"
+            steamcmd +force_install_dir "$HOME/valheim-server" \
+                     +login anonymous \
+                     +app_update "$VALHEIM_SERVER_APPID" \
+                     +quit || true
+            echo "::endgroup::"
+            [ -f "$MANAGED/assembly_valheim.dll" ] && break
+            echo "attempt $n did not produce the Managed assemblies; sleeping $((n*15))s before retry"
+            sleep $((n*15))
+          done
+          ls "$MANAGED/assembly_valheim.dll"
+
+      - name: Point the build at the server assemblies
+        run: echo "VALHEIM_MANAGED=$HOME/valheim-server/valheim_server_Data/Managed" >> "$GITHUB_ENV"
+
+      - name: Fetch BepInEx SDK
+        run: |
+          set -euo pipefail
+          bash scripts/fetch-sdk.sh
+          echo "BEPINEX_CORE=$GITHUB_WORKSPACE/.sdk/BepInExPack_Valheim/BepInEx/core" >> "$GITHUB_ENV"
+
+      - name: NuGet cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.nuget/packages
+          key: nuget-qa-${{ hashFiles('qa/**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-
+
+      # Helper Release build: net48, 0 warnings / 0 errors, inert/default-disabled.
+      - name: Build QA helper (Release, 0w/0e, inert)
+        run: |
+          dotnet build qa/SBPR.QaHarness.T022/SBPR.QaHarness.T022.csproj -c Release \
+            | tee qa-build.log
+          test -f qa/SBPR.QaHarness.T022/bin/Release/SBPR.QaHarness.T022.dll
+
+      # The freshly-built helper DLL must still be rejected by the modpack
+      # exclusion guard by CONTENT signature (renamed or not) — proves the gate
+      # catches the real artifact, not just a synthetic fixture.
+      - name: 'AT-QA-MODPACK-EXCLUDES-HARNESS — real helper DLL rejected by content signature'
+        run: |
+          set -euo pipefail
+          STAGE="$(mktemp -d)"
+          mkdir -p "$STAGE/BepInEx/plugins/Innocent"
+          cp qa/SBPR.QaHarness.T022/bin/Release/SBPR.QaHarness.T022.dll \
+             "$STAGE/BepInEx/plugins/Innocent/renamed-to-look-legit.dll"
+          if python3 scripts/check-modpack-excludes-harness.py --tree "$STAGE"; then
+            echo "GUARD FAILED TO DETECT the real (renamed) helper DLL"; exit 1
+          fi
+          echo "OK: guard detected the real helper DLL under a renamed path"

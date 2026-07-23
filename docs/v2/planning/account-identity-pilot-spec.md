@@ -146,7 +146,7 @@ As a playtester, I want Niflheim to retain only what the pilot needs and to expl
 - **AIP-FR-025:** Before pilot enrollment, a responsible human SHALL document the pilot purpose/lawful-basis position per data category, and the player disclosure SHALL enumerate stored categories, purposes, retention, operator contact, export/deletion route, and the possibility of explicit unreleased-data reset; notice acknowledgement alone SHALL NOT be recorded as that basis.
 - **AIP-FR-026:** Recovery SHALL use journal replay and quarantine; no point-in-time restore, silent repair, automatic merge, or name-based reassignment exists.
 - **AIP-FR-027:** Discord linking, OIDC, OAuth portals, passkeys, email/password auth, recovery factors, cross-provider migration, cross-server portability, and a server character-select UI SHALL remain absent.
-- **AIP-FR-028:** The accepted implementation SHALL prove dedicated-server joined-client behavior, not only engine-free tests or registration logs.
+- **AIP-FR-028:** The accepted implementation SHALL prove dedicated-server joined-client behavior, not only engine-free tests or registration logs. For `AT-AIP-DEDICATED-SECOND-SESSION-REJECT` ONLY, this proof is SPLIT into two conjoined obligations, both required to pass (Option B, owner-approved on `t_13db2c95`): (a) a genuine joined modded Steam client on the real dedicated `Niflheim` server drives the live transport→provider-auth→`AccountId`→admission→character-mint wiring (unchanged live-GUI bar); and (b) a production-identical direct-peer harness invokes the SHIPPED `LiveSessionAdmission.Admit` / `AccountAdmissionIndex.TryReserve` code from the exact compiled candidate assembly (attesting its SHA-256 before running), presents two transport peers resolving to ONE authenticated `AccountId`, and proves the second reserves reject `AccountAlreadyConnected` BEFORE any character mint while the first lease still mints and releases correctly on close. The split proves the server-authoritative one-account/one-session invariant at its real enforcement seam. It does NOT prove Steam's transport layer independently rejects a duplicate account login — Steam enforces that client-side by kicking the first session, which is precisely why the server seam is unreachable by two concurrent Steam GUI clients and why a production-identical direct-peer harness is the only mechanism that can exercise same-account concurrency. The harness MUST link the shipped candidate admission binary; a re-implemented, source-linked, or mocked admission core does not satisfy this AT. The other six ATs (JOIN/RECONNECT/SECOND-PROFILE/RESTART/DISABLE/OPERATOR-RUNBOOK) keep the full live-joined-GUI bar unchanged.
 
 ## Success criteria
 
@@ -157,7 +157,7 @@ As a playtester, I want Niflheim to retain only what the pilot needs and to expl
 - **AIP-SC-005:** A mechanical scan of Niflheim durable fixtures, subsystem logs, exports, and receipts finds no raw provider subject or forbidden token/profile field; the Gate-0 evidence separately inventories upstream runtime logs and proves their bounded access/retention treatment.
 - **AIP-SC-006:** A synthetic 10,000-binding test proves post-rehydration account and character resolution uses indexed lookup with no journal scan or network call per lookup.
 - **AIP-SC-007:** Disable, export, verified account/fixture purge, reset, retention purge, backup purge, and incident-hold expiry each have a named automated test and operator runbook proof.
-- **AIP-SC-008:** A real dedicated server and joined modded client complete first bind, reconnect, second-profile selection, second-session rejection, restart, and post-disable rejection.
+- **AIP-SC-008:** A real dedicated server and joined modded client complete first bind, reconnect, second-profile selection, second-session rejection, restart, and post-disable rejection. For second-session rejection ONLY, the evidence is split-proof (AIP-FR-028 Option B): the live joined client proves the transport/auth/admission wiring, and a production-identical direct-peer harness against the exact compiled candidate admission binary proves two peers resolving to one `AccountId` reject the second as `AccountAlreadyConnected` before character mint. The harness half does not, and does not claim to, prove Steam's client-side duplicate-login kick.
 
 ## Requirement-to-acceptance coverage
 
@@ -190,7 +190,7 @@ As a playtester, I want Niflheim to retain only what the pilot needs and to expl
 | AIP-FR-025 | `AT-AIP-DISCLOSURE-COMPLETE`, `AT-AIP-DATA-INVENTORY-BASIS` |
 | AIP-FR-026 | `AT-AIP-RECEIPT-REPLAY`, `AT-AIP-QUARANTINE`, `AT-AIP-NO-TIME-TRAVEL`, `AT-AIP-FULL-RESET-ROTATES-KEY` |
 | AIP-FR-027 | `AT-AIP-DEFERRED-SURFACE-ABSENT` |
-| AIP-FR-028 | `AT-AIP-DEDICATED-JOIN`, `AT-AIP-DEDICATED-RECONNECT`, `AT-AIP-DEDICATED-SECOND-PROFILE`, `AT-AIP-DEDICATED-SECOND-SESSION-REJECT`, `AT-AIP-DEDICATED-RESTART`, `AT-AIP-DEDICATED-DISABLE` |
+| AIP-FR-028 | `AT-AIP-DEDICATED-JOIN`, `AT-AIP-DEDICATED-RECONNECT`, `AT-AIP-DEDICATED-SECOND-PROFILE`, `AT-AIP-DEDICATED-SECOND-SESSION-REJECT` (split-evidence: live-GUI transport half + shipped-binary direct-peer harness half — see AIP-FR-028), `AT-AIP-DEDICATED-RESTART`, `AT-AIP-DEDICATED-DISABLE` |
 
 ## Edge cases
 

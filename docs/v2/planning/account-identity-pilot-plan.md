@@ -334,11 +334,17 @@ Deliverables after implementation authorization: executable authenticated-peer s
 
 **Goal:** prove the whole journey in the real game and rehearse recovery/privacy operations.
 
-**Journey:** first bind → profile character mint → progression operation → logout/reconnect → second profile sequentially → concurrent-session rejection → server restart → export → disable → post-disable join rejection → delete/purge dry-run or fixture execution.
+**Journey:** first bind → profile character mint → progression operation → logout/reconnect → second profile sequentially → concurrent-session rejection (split-proof: live-GUI transport half + shipped-binary direct-peer harness half) → server restart → export → disable → post-disable join rejection → delete/purge dry-run or fixture execution.
 
 **Named acceptance:** `AT-AIP-DEDICATED-JOIN`, `AT-AIP-DEDICATED-RECONNECT`, `AT-AIP-DEDICATED-SECOND-PROFILE`, `AT-AIP-DEDICATED-SECOND-SESSION-REJECT`, `AT-AIP-DEDICATED-RESTART`, `AT-AIP-DEDICATED-DISABLE`, `AT-AIP-OPERATOR-RUNBOOK`.
 
-**Exit:** real joined-client evidence passes; logs-green alone is insufficient.
+**Split-evidence rider (`AT-AIP-DEDICATED-SECOND-SESSION-REJECT` only, Option B owner-approved on `t_13db2c95`; see spec AIP-FR-028 / AIP-SC-008):** the server-authoritative one-account/one-session invariant (AIP-FR-013) is enforced at the `AccountAdmissionIndex.TryReserve` / `LiveSessionAdmission.Admit` seam, which sits upstream of and independent from Steam's transport layer. Steam enforces one live session per account client-side (a second login kicks the first), so no supported joined-GUI path can deliver two concurrent transport peers of one account to the server seam. This AT is therefore proven by two conjoined halves, both required:
+> 1. **Transport/admission (live joined GUI, unchanged bar):** one genuine joined modded Steam client on the real dedicated `Niflheim` server completes real provider-auth → account resolution → admission → character mint and drives the live path.
+> 2. **Same-account concurrent rejection (production-identical direct-peer harness):** the `qa-split-session-harness` binary-references the exact compiled candidate admission assembly (attesting its SHA-256 first), presents two transport peers resolving to ONE authenticated `AccountId`, and asserts the second reserves reject `AccountAlreadyConnected` before any character mint, while the first lease still mints normally and releases on close.
+>
+> This split proves the invariant at its real enforcement seam, exercised over the shipped admission code path with a genuine live-joined client proving the transport/auth wiring. It does **not** prove Steam's transport layer independently rejects a duplicate account login — Steam enforces that client-side by kicking the first session, which is precisely why the server seam is unreachable by two concurrent Steam GUI clients and why a production-identical direct-peer harness is the only mechanism that can exercise same-account concurrency. The harness MUST link the shipped candidate admission binary; a re-implemented or mocked admission core does not satisfy this AT.
+
+**Exit:** real joined-client evidence passes; logs-green alone is insufficient. This bar is RETAINED for all seven ATs — the split harness is production-identical shipped-binary evidence (not logs-green), and the transport half of `AT-AIP-DEDICATED-SECOND-SESSION-REJECT` is still live-GUI.
 
 ## Safe parallelism
 

@@ -1,0 +1,96 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ════════════════════════════════════════════════════════════════════════
+       SBPR.QaHarness.T022.Core.Tests — engine-free xUnit gate for ADR-0009 M1.
+
+       Proves the M1 named acceptance tests over the SHIPPED QA contract sources:
+         AT-QA-DISABLED-BY-DEFAULT, PROD-WORLD-REJECT, EXACT-WORLD-UID,
+         BAD-NONCE-REJECT, OUT-OF-MANIFEST-REJECT, OUT-OF-BOUNDS-ARG-REJECT,
+         REPLAY-REJECT.
+
+       It LINK-COMPILES ../SBPR.QaHarness.T022/Contracts/*.cs (engine-free, System.*
+       only) rather than copying them, so the tested logic IS the shipped logic — the
+       same drift-free mechanism tests/SBPR.Trailborne.Tests uses. References NO game/
+       BepInEx assembly, so it runs headless in CI with no Valheim SDK fetched.
+       tests-core/Directory.Build.props shields this subtree from the repo-root SDK gate.
+       ════════════════════════════════════════════════════════════════════════ -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>SBPR.QaHarness.T022.Core.Tests</AssemblyName>
+    <RootNamespace>SBPR.QaHarness.T022.Core.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Source under test: the SHIPPED, engine-free QA contract core (link-compiled). -->
+  <ItemGroup>
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/HarnessRole.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/RejectReason.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/VerbCatalog.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/ArmManifest.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/CapabilityManifest.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/WorldPolicy.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/RequestHmac.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/RequestEnvelope.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/ArmingGate.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/RequestAdmission.cs" />
+  </ItemGroup>
+
+  <!-- M2 control-plane core (engine-free): frame parser + bind policy, single-slot
+       dispatcher + bounded queue, delivering-peer/connection-generation state, and the
+       game-binding adapter interfaces + inert fakes. Same link-compile discipline — the
+       tested logic IS the shipped logic. -->
+  <ItemGroup>
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlPlaneReason.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/LoopbackFrameParser.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/DeliveringPeerState.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlDispatcher.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/GameBindingAdapters.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/MiniJson.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/EnvelopeCodec.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlPlaneRuntime.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/LoopbackControlServer.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ServerRpcResponder.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/AssemblyDriftGuard.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ArmBootstrapParser.cs" />
+  </ItemGroup>
+
+  <!-- M3 fixture ledger + seam adapter + execution-time authority recheck (engine-free):
+       adopted owned-resource ledger core (from the reviewed t_b5413567 prebuild, re-homed
+       into ...Core.Fixtures) + the canonical vanilla manifest, the IFixtureWorld->seam
+       bridge, and the server admin/peer recheck gate. Same link-compile discipline — the
+       tested logic IS the shipped logic. -->
+  <ItemGroup>
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/ResourceCategory.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/OwnedResourceId.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureBounds.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/ResourceAllowlist.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixturePlan.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixturePlanValidator.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/IFixtureWorld.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureOwnership.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/OwnedResourceLedger.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/SnapshotCodec.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/VanillaFixtureManifest.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/SeamFixtureWorld.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureAuthority.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/LedgerSnapshotStore.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureRequestMapper.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/ServerFixtureExecutor.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureVerbExecutorBridge.cs" />
+    </ItemGroup>
+
+</Project>

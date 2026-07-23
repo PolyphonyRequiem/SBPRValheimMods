@@ -65,3 +65,52 @@ dotnet build src/SBPR.Niflheim.HomesteadStones/SBPR.Niflheim.HomesteadStones.csp
 
 The operator runbook lives at
 [`../runbooks/account-identity-pilot-operator-runbook.md`](../runbooks/account-identity-pilot-operator-runbook.md).
+
+## IAP-015 — LIVE operator command surface (shipped net48 ingress) — t_818742f8
+
+EXECUTE run 1426 exposed that the operator DECISION cores above shipped with **no net48 console/direct-peer
+RPC ingress**, and the runbook's IAP-010 "wired live" claim was false. IAP-015 closes that shipped-surface
+gap: a joined server admin now drives the operator lifecycle through a real client console command over a
+DIRECT per-peer `ZRpc` handler, acting on the exact live account universe.
+
+### Source
+
+| File | Role |
+|---|---|
+| `Application/Accounts/LiveOperatorServices.cs` | The SINGLE shared operator+admission service bundle. Composes `OperatorAccountService`, `PilotPrivacyService`, `PilotDestructionService`, and the `LiveSessionAdmission` over ONE `PilotAccountStore` + `PilotSessionRegistry` + `AccountMutationFence` + `BoundSessionPrincipalIndex`, so the operator ingress and the live admission observer provably act on the SAME durable store and session state (no duplicate universe). Engine-free. |
+| `Application/Accounts/OperatorWireContract.cs` | The bounded wire request/response codec. Parses a delimited request with hard length/arg/width bounds (malformed/oversized fails closed), exposes only the bounded verb set (open-pilot/inspect/export/disable/delete/purge/retention-purge/close-pilot), refuses a non-`acct-` selector (no raw-subject drive), and scrubs every response field to opaque ids/coarse statuses/result+receipt/correlation ids/safe counts. Engine-free. |
+| `Application/Accounts/LiveOperatorCommandRouter.cs` | The command router brain. One authenticated wire request → one shipped lifecycle mutation over the shared services, with a single up-front admin gate (non-admin/unauthenticated reject, no mutation/leak), idempotent replay, output scrub, and the REAL server-side peer close via `IServerPeerCloser` on a disable/delete that closed a session. Engine-free. |
+| `Application/Accounts/OperatorAdminGate.cs` (+live provider ctor) | Now also accepts a LIVE adminlist provider re-read on every authorization (`() => ZNet.GetAdminList()`), so an admin removed from `adminlist.txt` mid-run is rejected on the next command (fail closed on removal). Payload identity is never authority. |
+| `Application/Runtime/LiveSessionAdmission.cs` (+shared registry) | Admission now publishes/removes the live session into/from the SAME `PilotSessionRegistry` the operator disable/delete path closes against, stale-safe, so an operator command sees and can drop the exact live admission session. |
+| `Features/PilotIdentity/OperatorCommandIngressObserver.cs` (net48-only) | The direct per-peer `ZRpc` ingress + `sbpr_pilotop` console command + client reply handler + `ZNetPeerCloser` (real `ZNet.Disconnect`). The server resolves the ACTUAL delivering `ZNetPeer` (`ZdoAuthenticatedSenderSource.PeerForRpc`) and derives the admin context from its authenticated socket host — never the payload, never a routed sender. NOT link-compiled (references ZNet/ZRpc/Terminal). |
+| `Features/PilotIdentity/PilotSessionLifecycleObserver.cs` (net48-only) | Composes `LiveOperatorServices` once at `ZNet.Awake` over the shared store and exposes it to the ingress; recomposes the live admission with the rehydrated privacy gate + shared registry. |
+
+### Acceptance / proof coverage
+
+Executable evidence: `tests/NiflheimLiveOperatorSurfaceTests.cs` (14 tests). Proven:
+
+- **shared-store visibility** — a JOIN-created account (driven through the real shared admission) is
+  inspectable through the operator ingress; a **non-vacuous red-first** test proves an operator wired to a
+  SEPARATE store CANNOT see it (`AccountNotFound`), and the correctly-shared one can — so the shared-store
+  binding is load-bearing;
+- **authority** — admin accept; non-admin `NotAdmin`; unauthenticated (empty-host, the shape a forged/routed
+  sender with no delivering peer yields) `UnauthenticatedPeer`; all reject with NO mutation (verified across
+  a reboot) and NO data leak;
+- **safe projection + output scrub** — inspect emits provider CLASS + coarse status only, no raw
+  subject/HMAC in any field; a positive-control test proves a delimiter-bearing value is neutralized, not
+  leaked;
+- **disable/delete** — durable status commit, deterministic session removal from the shared registry, and
+  the REAL server-side peer close triggered (recording `IServerPeerCloser`); post-disable reconnect rejects;
+  delete + account-scoped purge proves absence and prevents recreation;
+- **open/configure pilot** — catalogs the server-derived world fixture, gates admission, survives restart;
+  close-pilot then gates admission closed;
+- **replay/idempotency**; **malformed/oversized/injection/unknown-verb** fail closed with no mutation;
+  **forbidden destructive verbs** (full-reset/scoped-reset/quarantine/journal-edit) are `UnknownVerb`;
+- **dynamic adminlist** — an admin removed from the live list is rejected on the next command.
+
+`dotnet test` green (**1501/1501**), net8 `TreatWarningsAsErrors` clean; both net48 mods build with the
+Valheim SDK at **0 warnings / 0 errors**.
+
+> **Still a live requirement (Option B):** logs/tests green here does NOT prove the joined-client
+> experience. The exact-binary `qa-split-session-harness` half already PASSed; the six joined-GUI acceptance
+> tests remain the dedicated-server gate's job.
