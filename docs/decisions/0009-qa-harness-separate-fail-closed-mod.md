@@ -566,8 +566,9 @@ deferred to M4 but are required before M6.**
   >     prefab (the game's own additive grant seam); stations/anchors via TRUE ADDITIVE
   >     CONSTRUCTION per ADR-0006 — an INACTIVE `new GameObject` with only the INTENDED
   >     components AddComponent'd (`ZNetView` with m_persistent/m_type/m_distant set ourselves,
-  >     a root `BoxCollider`, and, for a station blueprint, a `CraftingStation` whose name is
-  >     value-copied off the vanilla prefab read as a read-only blueprint via `ZNetScene.GetPrefab`),
+  >     a root `BoxCollider`, and, for a station blueprint, a `CraftingStation` whose `m_name` and
+  >     `m_useDistance` are value-copied off the vanilla prefab read as a read-only blueprint via
+  >     `ZNetScene.GetPrefab` — no mesh/renderer or other component is read or attached),
   >     registered in `ZNetScene` by name and then instantiated — there is NO `Instantiate` of a
   >     vanilla ZNetView-bearing prefab and no clone-and-strip anywhere (mirrors the product's
   >     `Assets.TryConstructPieceShell`). Cleanup via the network-aware `ZNetView.Destroy` /

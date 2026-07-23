@@ -21,8 +21,9 @@
 //       needs only ZDOMan up + a registered prefab name and builds its OWN ZDO), a root
 //       `BoxCollider` (placement/hit raycasts), and, for a station category, a `CraftingStation`
 //       component named from the blueprint. We read the vanilla prefab ONLY as a blueprint via
-//       `ZNetScene.GetPrefab` (which fires no Awake) to copy VALUE fields (station name, a
-//       shared mesh for a visual child) — reading an asset reference is not cloning. The shell
+//       `ZNetScene.GetPrefab` (which fires no Awake) to copy exactly two VALUE fields off its
+//       `CraftingStation` — `m_name` and `m_useDistance` — reading an asset reference is not
+//       cloning (no mesh, renderer, or other component is read or attached). The shell
 //       is registered in ZNetScene by name, then instantiated into the world. There is NO
 //       `Instantiate(prefab)` of a ZNetView-bearing donor and no clone-and-strip anywhere.
 //     • Materials: granted by ItemDrop.DropItem of the vanilla item's OWN m_dropPrefab
