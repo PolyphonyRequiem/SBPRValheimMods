@@ -155,6 +155,64 @@ namespace SBPR.Niflheim.HomesteadStones
             // decision routes through the same pure provider; structure/build gates are never eligible ops.
             harmony.PatchAll(typeof(Features.Progression.RefinedWorkshopStationLevelPatch));
 
+            // T022-RT — Crafting / Masterwork runtime seam. On the authoritative host, a postfix on
+            // InventoryGui.DoCrafting stamps one deterministic, server-keyed-integrity-protected Workmanship
+            // Property onto a freshly crafted/upgraded eligible non-stackable durable item while the
+            // crafter's personal Masterwork Character Effect is active, explicitly dirtying persistence. The
+            // stamp rides ItemData.m_customData through clone/inventory/container transfer and survives a
+            // preserving upgrade; a hand-edited/foreign/partial stamp degrades to vanilla. Consumes the
+            // shipped, unit-tested WorkmanshipIssuanceProvider + WorkmanshipCodec. Armed with the durable
+            // integrity key by the runtime bootstrap below.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkIssuanceObserver));
+
+            // T022 remediation — the REAL upgrade carry-forward seam (AT-ITEM-UPGRADE-PRESERVE). Vanilla
+            // InventoryGui.DoCrafting's upgrade branch REMOVES the exact source instance and creates a fresh
+            // prefab-backed replacement with an empty custom-data map, destroying the source's server-signed
+            // Workmanship stamp. This highest-priority prefix/postfix pair CAPTURES the complete signed stamp map
+            // off the upgrade source before vanilla removes it and RESTORES it byte-for-byte onto the fresh
+            // replacement at the same grid position — same prov_id/token/property, no re-mint/reissue, quality
+            // still rises. Runs before the issuance/delivery postfixes so they see an already-valid stamp and
+            // no-op (no duplicate grant). Consumes the engine-free, unit-tested Capture/Restore primitives.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkUpgradePreservationObserver));
+
+            // T022 remediation (t_cdc76200) — the DEDICATED-server joined-client Workmanship delivery
+            // transport. The host-only observer above cannot issue on an isolated dedicated server (headless
+            // server has no local crafter; a pure joined crafter is unarmed/keyless), so this per-peer ZRpc
+            // channel makes issuance authoritative AND client-delivered WITHOUT shipping the raw key: a joined
+            // crafter requests issuance, the server re-derives entitlement + mints + SIGNS, the client writes
+            // the signed bytes; and a client can ask the server to VALIDATE a stamp it read keylessly. Server
+            // registers the request handlers + client the reply handlers on ZNet.OnNewConnection; the client
+            // send is a DoCrafting postfix (no-op on the host). Consumes the engine-free, unit-tested
+            // WorkmanshipDeliveryService + codec.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkDedicatedDeliveryObserver));
+
+            // T022 remediation R4 (t_4ce3873a) — the isolated-QA Masterwork OWNERSHIP provisioning seam. The
+            // direct per-peer handler is only registered when this server-owned flag is ON, and even then only
+            // an authenticated Valheim ADMIN sender is accepted. It drives the accepted develop+offer+purchase
+            // handlers so a joined admin can acquire an ACTIVE PURCHASED Masterwork personal node — the missing
+            // runtime caller that left IsMasterworkActive always false and the genuine four-AT run unreachable.
+            // It never mints Attunement or AP: the subject must already hold a Bond + Attunement (sbpr_provision)
+            // and earned Personal AP. Never a shipping gameplay command; never client-open; production fails
+            // closed (default false).
+            Features.Crafting.MasterworkOwnershipProvisioningAdmin.EnableProvisioning = Config.Bind(
+                "Crafting", "EnableAdminMasterworkOwnershipProvisioning", false,
+                "Isolated-QA ONLY. When true, server admins may acquire an active purchased Masterwork personal "
+                + "node for themselves via the SBPR_Niflheim_ProvisionMasterworkOwnership direct RPC (accepted "
+                + "develop+offer+purchase handlers) so Masterwork issuance can be proven on a joined client. "
+                + "Requires a prior Bond + Attunement and earned Personal AP. Server-owned; not client-settable. "
+                + "Leave false on any non-QA server.");
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkOwnershipProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkOwnershipProvisioningConsole));
+
+            // T022 remediation — the in-world PRESENTATION seam. Postfixes the static ItemDrop.GetTooltip to
+            // append one deterministic "Workmanship: Masterwork" line ONLY when the stamp on that exact
+            // instance is confirmed genuine: validated directly under the composed key on the host, or against
+            // the server-delivered verdict cache on a pure client (requesting a verdict once per COMPLETE signed-
+            // stamp fingerprint, so a post-validation tamper that mutates a signed field misses the cache and is
+            // re-validated fail-closed; rendering nothing for absent/malformed/tampered/unconfirmed). This is the joined-client visible
+            // artifact and the client-side tamper-degrade. Additive (ADR-0006); mutates nothing.
+            harmony.PatchAll(typeof(Features.Crafting.MasterworkWorkmanshipTooltip));
+
             // T025-RT — Archer / Practice Range runtime seam. Registers the Practice Arrow item + its
             // 100-for-8-Wood recipe, wires the deterministic vanilla target return (ArrowPractice added to
             // ArcheryTarget.m_returnAmmo), and adds the exact vanilla piece_ArcheryTarget build piece to

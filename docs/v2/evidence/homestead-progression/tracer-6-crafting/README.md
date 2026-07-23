@@ -74,3 +74,25 @@ Level 3 at a real Level-2 station for all three portable operations, fails close
 every negative case, and rehydrates the developed state across a restart. See
 `T021-JOINED-CLIENT-RERUN-PASS.md`; the GPU pixel last mile is reasoned (headless
 box, no user client present), not claimed observed.
+
+## T022 — Masterwork ownership provisioning (R4)
+
+Acceptance context: `AT-MASTERWORK-ISSUE` (issuance was accepted; the four-AT
+joined-client run needed a reachable ACTIVE purchased Masterwork).
+
+**Same class of gap as T021.** The Masterwork issuance provider + delivery were
+correct, but `IsMasterworkActive` requires a personal **purchase record** for
+`Masterwork@1` — and at PR #392 head `LocalProvisioningIngress.PurchaseNode` had
+**zero runtime callers** while the Local develop seam only develops Stone-cultivated
+nodes, so no joined principal could acquire an owned Masterwork and the four-AT run
+was structurally unreachable. Closed by a gated isolated-QA ownership seam through
+the SAME accepted handlers: `ProvisionOffered` (develop+offer the personal node),
+`OfferMasterwork` / `BuyMasterwork` / `OwnMasterwork` on `LocalProvisioningIngress`,
+and the net48 `sbpr_master offer|buy` admin seam
+(`Crafting.EnableAdminMasterworkOwnershipProvisioning`, default OFF). offer/buy are
+split because the reservation model gives one character only one active relationship
+per Stone (develop needs a Bond, purchase needs an Attunement). Proven by
+`tests/NiflheimLocalProvisioningIngressTests.cs` (+7 tests, incl. the offer→buy→active
+positive path via the exact `IsMasterworkActive` gate). Full detail:
+`T022-REMEDIATION-R4-OWNERSHIP-PROVISIONING.md`. The genuine two-client four-AT rerun
+is QA `t_4f181af7`.

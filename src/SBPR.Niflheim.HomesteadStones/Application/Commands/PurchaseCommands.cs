@@ -138,13 +138,24 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private readonly IAccountStoneAuthorityStore _authorityStore;
         private readonly HomesteadProgressionCatalog _catalog;
 
+        // T022 split-ledger fix: the AUTHORITATIVE Personal-AP EARN ledger (the same receipt-derived
+        // ICharacterApStore that OperationReceiptStore.SubmitFoundationalAp credits on every valid
+        // Foundational placement). Personal AP has exactly one earning authority; purchasing must observe
+        // it. The character aggregate's CharacterStoneRecord.PersonalAp is NOT an independent balance —
+        // when this store is supplied the spendable balance is DERIVED as
+        //   available = earned(ICharacterApStore) − PersonalAP already spent (this purchase journal),
+        // both idempotent receipt projections, so no second synchronization ledger and no double-credit.
+        // Null only on the legacy pure-domain test seam, which seeds PersonalAp directly on the aggregate.
+        private readonly ICharacterApStore? _apStore;
+
         public PurchaseCommandHandler(
             string journalPath,
             PrincipalResolver resolver,
             IStoneAggregateStore stoneStore,
             ICharacterAggregateStore characterStore,
             IAccountStoneAuthorityStore authorityStore,
-            HomesteadProgressionCatalog? catalog = null)
+            HomesteadProgressionCatalog? catalog = null,
+            ICharacterApStore? apStore = null)
         {
             _journalPath = journalPath ?? throw new ArgumentNullException(nameof(journalPath));
             _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
@@ -152,6 +163,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             _characterStore = characterStore ?? throw new ArgumentNullException(nameof(characterStore));
             _authorityStore = authorityStore ?? throw new ArgumentNullException(nameof(authorityStore));
             _catalog = catalog ?? new HomesteadProgressionCatalog();
+            _apStore = apStore;
 
             RehydrateFromJournal();
         }
@@ -205,6 +217,18 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             var character = _characterStore.GetCharacter(principal.Account, principal.Character);
             if (character == null)
                 return Reject("CharacterNotFound");
+
+            // T022 split-ledger fix: overlay the AUTHORITATIVE spendable Personal AP onto the caller's
+            // Stone record before the pure transition. Personal AP is earned on ONE authority (the
+            // receipt-derived ICharacterApStore that Foundational placement credits), never on the
+            // character aggregate's stored PersonalAp field. Spendable balance is derived as
+            //   earned(ICharacterApStore) − Personal-AP already spent by this caller's committed purchases,
+            // both idempotent receipt/journal projections — no second synchronization ledger, no
+            // double-credit, and fail-closed (a caller with no earn ledger reads 0). When no ApStore is
+            // wired (legacy pure-domain test seam) the aggregate's PersonalAp is used verbatim.
+            if (_apStore != null)
+                character = WithAuthoritativePersonalAp(character, principal, command.StoneId);
+
             var authority = _authorityStore.GetAuthority(principal.Account, command.StoneId);
 
             // Authority: purchase requires an ACTIVE ATTUNEMENT. Bond alone is NOT purchase authority
@@ -304,6 +328,68 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         {
             _characterStore.ApplyCharacterProjection(operationId,
                 CharacterProgressionAggregate.Deserialize(record.CharacterSnapshot));
+        }
+
+        /// <summary>T022 split-ledger fix — return a copy of <paramref name="character"/> whose Stone
+        /// record for <paramref name="stoneId"/> carries the AUTHORITATIVE spendable Personal AP:
+        /// earned(ICharacterApStore) − Personal-AP already spent by this caller's committed purchases at
+        /// this Stone. Both terms are idempotent receipt/journal projections, so this is a pure derived
+        /// read (no stored second balance). Never negative: a spent total exceeding earned clamps to 0,
+        /// which fail-closes an over-spend to InsufficientPersonalAP in the pure transition. Only the
+        /// PersonalAp field is overwritten; every other balance/record/field and the aggregate revision
+        /// are preserved so the CAS/idempotency/purchase-record invariants are untouched.</summary>
+        private CharacterProgressionAggregate WithAuthoritativePersonalAp(
+            CharacterProgressionAggregate character, AuthoritativePrincipal principal, StoneId stoneId)
+        {
+            int earned = _apStore!.GetPersonalAp(principal.Account, principal.Character, stoneId);
+            int spent = SpentPersonalAp(principal, stoneId);
+            int available = earned - spent;
+            if (available < 0) available = 0;
+
+            var newRecords = new List<CharacterStoneRecord>(character.StoneRecords.Count + 1);
+            bool found = false;
+            foreach (var sr in character.StoneRecords)
+            {
+                if (!sr.StoneId.Equals(stoneId))
+                {
+                    newRecords.Add(sr);
+                    continue;
+                }
+                found = true;
+                newRecords.Add(new CharacterStoneRecord(sr.StoneId, available, sr.CumulativeAp, sr.PersonalBp,
+                    sr.FacetCredits, sr.Purchases, sr.Relationships, sr.SkillCapChoices));
+            }
+            if (!found)
+                newRecords.Add(new CharacterStoneRecord(stoneId, available, 0, 0));
+
+            return new CharacterProgressionAggregate(
+                character.Account, character.Character, character.WorldProductScope,
+                character.Revision, character.BondSlots, character.AttunementSlots,
+                character.LastAppliedReceiptId, newRecords, character.SchemaVersion);
+        }
+
+        /// <summary>Sum the Personal-AP already spent by this principal at this Stone across every COMMITTED
+        /// purchase in the durable journal. Read straight off the same durable records the rehydration and
+        /// idempotency paths use, so it converges to exactly one debit per committed operation regardless of
+        /// crash point (a partial/non-terminal intent contributes nothing). Facet-Credit purchases are
+        /// excluded — they debit a separate balance, never Personal AP.</summary>
+        private int SpentPersonalAp(AuthoritativePrincipal principal, StoneId stoneId)
+        {
+            var counted = new HashSet<string>(StringComparer.Ordinal);
+            int spent = 0;
+            foreach (var line in ReadDurable())
+            {
+                var rec = ParseRecord(line);
+                if (rec == null || rec.Value.Boundary != PurchaseBoundary.Committed) continue;
+                var r = rec.Value.Record;
+                if (!counted.Add(r.OperationId)) continue; // one debit per committed op
+                if (!string.Equals(r.AccountId, principal.Account.Value, StringComparison.Ordinal)) continue;
+                if (!string.Equals(r.CharacterId, principal.Character.Value, StringComparison.Ordinal)) continue;
+                if (!string.Equals(r.StoneId, stoneId.Value, StringComparison.Ordinal)) continue;
+                if (!string.Equals(r.PaymentSource, "PersonalAP", StringComparison.Ordinal)) continue;
+                spent += r.ApDebited;
+            }
+            return spent;
         }
 
         private static PurchaseCommandResult Reject(string code) =>

@@ -528,7 +528,67 @@ These are derived-provider contracts, not direct ledger writes.
   transport does not round-trip to the host itself); the proven effective-Level-3 topology is a dedicated server
   with a joined client.
 - `WorkmanshipIssuanceProvider`: active Masterwork may issue one deterministic property on an eligible exact
-  non-stackable durable output.
+  non-stackable durable output. **Implemented (T022, `Adapters/Crafting/WorkmanshipIssuanceProvider.cs` +
+  `Domain/CharacterProgression/ItemProvenance.cs`):** Masterwork is a personal Character Effect, so its
+  active/dormant status derives through the shipped T004 `DerivedActivationView` (purchase record for
+  `Masterwork@1` at this Stone AND an active relationship; no second ledger). While active, the provider's
+  `Decide(...)` issues ONE deterministic visible Workmanship Property (`Workmanship=Masterwork`; no RNG, no
+  tier catalog — the final catalog is deferred) on an eligible output (`WorkmanshipCodec.IsEligible`:
+  non-stackable AND durable), returning stable outcomes `Issue`/`EffectNotActive`/`IneligibleItem`/
+  `AlreadyStamped` (idempotent — never overwrites an existing valid stamp). The engine-free `WorkmanshipCodec`
+  stamps/reads/validates the property onto an item's `m_customData` behind an abstract metadata surface and
+  protects it with a server-held HMAC-SHA-256 integrity token over the canonical, length-framed IMMUTABLE
+  fields ONLY (schema, issuing node, `ItemProvenanceId`, crafter, item type, property). Because the token
+  excludes mutable per-instance facts (quality/durability/stack), a stamp that is carried onto the upgraded/
+  transferred instance keeps validating; a hand-edited/forged/foreign-key/partial/unknown-schema/lifted-and-
+  pasted stamp reads `Tampered` and degrades to vanilla. **Upgrade carry-forward is EXPLICIT, not incidental
+  (T022 remediation, t_8311fdd3):** vanilla `InventoryGui.DoCrafting`'s upgrade branch REMOVES the exact source
+  instance and `AddItem`-creates a FRESH prefab-backed replacement with an EMPTY `m_customData` — so a stamp is
+  NOT preserved for free. `Features/Crafting/MasterworkUpgradePreservationObserver` (highest-priority prefix/
+  postfix on `DoCrafting`) captures the complete server-signed Workmanship map off the source before vanilla
+  removes it (`WorkmanshipCodec.CaptureStamp`) and restores it byte-for-byte onto the fresh replacement at the
+  same grid position (`WorkmanshipCodec.RestoreStamp`) — same `prov_id`, token, and property tuple, quality
+  still rises, NO re-mint/reissue under a new provenance id; it runs before the issuance/delivery postfixes so
+  they observe an already-valid stamp and no-op (no duplicate grant). A non-upgrade craft, a vanilla/unstamped
+  source, or an inventory-full/error path carries nothing. **Live-wired (net48):** `Features/Crafting/
+  MasterworkIssuanceObserver` postfixes `InventoryGui.DoCrafting` on the authoritative host, resolves the
+  crafter's Masterwork activation from the composed server stores, stamps the exact provenance onto the
+  just-produced eligible item via `ItemDataMetadataAccessor`, and explicitly dirties persistence
+  (`Inventory.Changed()`). The durable server integrity key (`WorkmanshipIntegrityKeyFile`) is armed in the
+  runtime bootstrap; issuance fails closed with no key/server. **Dedicated-server joined-client delivery
+  (T022 remediation, t_cdc76200):** the host-only observer cannot issue on an isolated dedicated server (the
+  headless server has no local crafter and a pure joined crafter is unarmed/keyless), so
+  `Features/Crafting/MasterworkDedicatedDeliveryObserver` adds a bounded per-peer ZRpc channel that makes
+  issuance authoritative AND client-delivered **without ever shipping the raw integrity key**: a joined crafter
+  sends server-observed produced-item facts, the server re-derives entitlement from its own stores keyed by the
+  requesting peer's BOUND INTERNAL principal — never the payload. **Identity space (T022 dedicated-ISSUE fix,
+  t_33cc8c05):** that principal is resolved the SAME way the listen-host issuance seam
+  (`MasterworkIssuanceObserver.ResolveHostMasterworkActive`) and the purchase path (`sbpr_master buy` →
+  `MasterworkOwnershipProvisioningAdmin`) resolve it — the transport-authenticated peer's durable `s_playerID` is
+  rendered to a `ServerCreatorIdentity.CharacterSubject` peer key and looked up in
+  `FoundationalProgressionServer.BoundSessions` to get the server-minted internal `(AccountId, CharacterId)`.
+  The character/authority stores are keyed by that internal identity, so binding instead to the RAW transport
+  facts (`AuthenticatedSenderBinder`: platform/socket host as account, `player:<s_playerID>` as character) would
+  query the stores under keys the accepted purchase never wrote and the server would REFUSE to sign for the very
+  crafter whose Masterwork purchase it just accepted (the reproduced dedicated-server `AT-MASTERWORK-ISSUE`
+  failure). An unbound peer fails closed. The server then mints + SIGNS the stamp through the engine-free
+  `Application/Crafting/WorkmanshipDeliveryService`, and the client writes the exact signed bytes via
+  `WorkmanshipCodec.WriteSigned` (byte-identical to a host stamp). A joined receiver VALIDATES a stamp it read
+  keylessly (`WorkmanshipCodec.TryReadRaw`) by relaying the fields+token for the server to check under its key
+  (`WorkmanshipCodec.Validate`), caching the Valid/Tampered verdict (`WorkmanshipVerdictCache`).
+  **The verdict cache is keyed by the COMPLETE signed-stamp fingerprint (`WorkmanshipCodec.Fingerprint` — every
+  signed field AND value), NOT the provenance id (T022 remediation, t_8311fdd3):** the earlier prov-id-only key
+  let a post-validation tamper reuse a stale Valid — after a transferred item validated, changing `prop_value`
+  while retaining `prov_id`/token left the cached Valid reusable and the tooltip skipped revalidation. Binding
+  the verdict to the fingerprint closes that: the instant any signed field changes the fingerprint changes, the
+  cache MISSES, and the presentation seam fails closed and requests a fresh server verdict for the mutated bytes
+  (which the server rejects) — it never renders using the stale Valid.
+  `Features/Crafting/MasterworkWorkmanshipTooltip` postfixes `ItemDrop.ItemData.GetTooltip` to render the one
+  deterministic `Workmanship: Masterwork` line only for a confirmed-valid stamp — validated under the composed
+  key on the host, or against the fingerprint-keyed server verdict cache on a pure client — so a forged/foreign/
+  unconfirmed/mutated stamp degrades to a plain vanilla tooltip on the joined client. The four ATs (`AT-MASTERWORK-ISSUE`,
+  `AT-ITEM-UPGRADE-PRESERVE`, `AT-ITEM-TRANSFER`, `AT-ITEM-TAMPER-DEGRADE`) are therefore reachable on the
+  dedicated-server + genuine-joined-client topology, not host-only.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on
   future eligible outputs after relationship loss as well.
 - Both item providers bind a server-validated `ItemProvenanceId`, survive upgrade/transfer where valid, explicitly
@@ -694,6 +754,42 @@ is the smallest server-authoritative seam that closes it, mirroring `Relationshi
   character ZDO position. Outside that gate the handler is never registered or rejects — production fails closed.
   No provisional activation, no direct node-state write, no second ledger, no bypass of Local policy/governance/
   dormancy; Refined Workshop mechanics are unchanged.
+
+### Masterwork ownership provisioning (T022 remediation R4)
+
+The accepted T022 Masterwork node (`Crafting / Masterwork@1`, a personal `CharacterEffect`) issues a Workmanship
+Property only while it is ACTIVE for the crafter — which the shipped gate (`WorkmanshipIssuanceProvider.IsMasterworkActive`
+→ `DerivedActivationView`) derives from a personal **purchase record** for Masterwork at the Stone AND an active
+relationship. At PR #392 head that active-purchased state was **structurally unreachable** at runtime:
+`LocalProvisioningIngress.PurchaseNode` had zero runtime callers and the Local develop seam only develops
+Stone-cultivated Local nodes, so no joined principal could ever acquire a Masterwork purchase record and
+`IsMasterworkActive` was always false. R4 closes it with the smallest QA-only ownership seam, through the SAME
+accepted, receipt-backed handlers — no gameplay shortcut, no progression redesign, production fails closed:
+
+- `LocalNodeProvisioningDriver.ProvisionOffered` develops a personal **Offered** node to completion (so it is
+  Offered/purchasable) via the identical accepted commit Tree → credit BP → `ApplyBPToNode` chain the Local path
+  uses — the only difference is the authored ownership the driver accepts (`PersonalOffered` vs `StoneCultivated`);
+  a wrong-ownership node rejects `NotAnOfferedNode` / `NotALocalNode`.
+- `LocalProvisioningIngress.OfferMasterwork` (Governor half) seeds the bare Stone envelope when absent and drives
+  `ProvisionOffered` for Masterwork under the caller's active **Bond**; idempotent replay re-develops nothing.
+- `LocalProvisioningIngress.BuyMasterwork` (buyer half) routes the Masterwork purchase through the accepted
+  `PurchaseCommandHandler`, so the active-**Attunement** authority (Bond alone rejects `RelationshipRequired`),
+  the Personal-AP debit (an unfunded buyer rejects `InsufficientPersonalAP`), the not-yet-Offered gate
+  (`NodeNotOffered`), and one-purchase idempotency (replay returns the recorded terminal result — a single purchase
+  record, a single AP debit) are all a real reachable caller. `OwnMasterwork` composes both halves for a
+  two-subject QA subject.
+- The net48 seam is `Features/Crafting/MasterworkOwnershipProvisioningAdmin.cs`: a DIRECT per-peer `ZRpc` handler
+  (`SBPR_Niflheim_ProvisionMasterworkOwnership`) + the `sbpr_master offer|buy` console command, registered ONLY when
+  the server-owned `Crafting.EnableAdminMasterworkOwnershipProvisioning` flag is true (default false) AND the
+  transport-authenticated sender is a normalized server ADMIN. Identity is the peer's bound-internal principal
+  (never the routed sender / a client claim); the Stone is resolved from the peer's server-owned character ZDO
+  position. The two halves are separate because the reservation model allows one character only ONE active
+  relationship per Stone (develop needs a Bond, purchase needs an Attunement), so the genuine two-client QA matrix
+  runs `offer` as the Governor and `buy` as the attuned buyer. It never mints Attunement or AP — the subject must
+  already hold the relationship (via `sbpr_provision`) and earned Personal AP (real Foundational placement). Outside
+  that gate the handler is never registered or rejects — production fails closed. No provisional activation, no
+  direct purchase/node-state write, no second ledger; Masterwork's exact dedicated-server entitlement and
+  key-never-on-wire issuance contracts are unchanged.
 
 ## Security and hostile-client contract
 

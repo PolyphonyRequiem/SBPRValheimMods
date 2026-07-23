@@ -142,6 +142,17 @@ indexed by stable `StoneId`; exact physical persistence is left to Gate A.
 - Personal BP is never negative and can be spent only by that bonded character within their current
   Responsibility Range.
 - Personal AP is Stone-wide. It has no source-Tree restriction or Personal Target.
+  - **Implementation note (T022 split-ledger fix):** Personal AP has exactly ONE earning authority — the
+    receipt-derived `ICharacterApStore` credited by `OperationReceiptStore.SubmitFoundationalAp` on every
+    valid Foundational placement. Purchasing MUST observe that same balance. The character aggregate's
+    `CharacterStoneRecord.PersonalAp` field is NOT an independent balance: the spendable balance a purchase
+    reads is DERIVED as `earned(ICharacterApStore) − Personal-AP already spent by that character's committed
+    purchases at the Stone` (both idempotent receipt/journal projections — no second synchronization ledger,
+    no double-credit, fail-closed to `InsufficientPersonalAP` on over-spend). `PurchaseCommandHandler` is
+    composed with the shared earn ledger (`LocalProgressionServer.CharacterApStore`, sourced from the
+    Foundational runtime) so earned placement AP is authoritatively visible to Masterwork purchase. Restart
+    is safe with no fabricated migration: both terms rehydrate from their durable journals at server boot.
+    The legacy pure-domain seam (no `ICharacterApStore`) still reads the aggregate's `PersonalAp` verbatim.
 - Facet Credit is separate from Personal AP and usable only in the matching replacement Facet under the
   revocation contract.
 - A node purchase is unique by character, Stone, stable node identity/version, and authored repeatability.

@@ -42,6 +42,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             IStoneAggregateStore stones,
             ICharacterAggregateStore characters,
             IAccountStoneAuthorityStore authority,
+            ICharacterApStore? characterApStore,
             RelationshipCommandHandler relationships,
             FacetCommandHandler facets,
             ActivityCommandHandler activities,
@@ -56,6 +57,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             Stones = stones;
             Characters = characters;
             Authority = authority;
+            CharacterApStore = characterApStore;
             Relationships = relationships;
             Facets = facets;
             Activities = activities;
@@ -75,6 +77,15 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
 
         public ICharacterAggregateStore Characters { get; }
         public IAccountStoneAuthorityStore Authority { get; }
+
+        /// <summary>T022 split-ledger fix — the AUTHORITATIVE Personal-AP earn ledger (the same
+        /// receipt-derived ICharacterApStore the Foundational runtime credits on every valid placement).
+        /// The purchase handler composed by <see cref="CreateLocalProvisioningIngress"/> reads spendable
+        /// Personal AP from here (earned − spent) instead of the character aggregate's stored PersonalAp,
+        /// so earned placement AP is authoritatively visible to Masterwork purchase. Shared by reference,
+        /// never copied — one earn authority. Null only on the legacy composition path where a caller
+        /// pre-seeds PersonalAp directly on the character aggregate (purchase then reads that verbatim).</summary>
+        public ICharacterApStore? CharacterApStore { get; }
 
         public RelationshipCommandHandler Relationships { get; }
         public FacetCommandHandler Facets { get; }
@@ -133,7 +144,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         {
             var purchases = new PurchaseCommandHandler(
                 Path.Combine(DurableDirectory, PurchaseJournalFile), new PrincipalResolver(),
-                Stones, Characters, Authority, Catalog);
+                Stones, Characters, Authority, Catalog, CharacterApStore);
             return new LocalProvisioningIngress(this, purchases);
         }
 
@@ -153,7 +164,8 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             IGovernorDevelopmentAuthority developmentAuthority,
             IHomesteadOwnerAuthority ownerAuthority,
             HomesteadProgressionCatalog? catalog = null,
-            TreeDevelopmentConfig? developmentConfig = null)
+            TreeDevelopmentConfig? developmentConfig = null,
+            ICharacterApStore? characterApStore = null)
         {
             if (string.IsNullOrEmpty(durableDirectory)) throw new ArgumentNullException(nameof(durableDirectory));
             if (stones == null) throw new ArgumentNullException(nameof(stones));
@@ -164,6 +176,14 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             if (governorAuthority == null) throw new ArgumentNullException(nameof(governorAuthority));
             if (developmentAuthority == null) throw new ArgumentNullException(nameof(developmentAuthority));
             if (ownerAuthority == null) throw new ArgumentNullException(nameof(ownerAuthority));
+
+            // T022 split-ledger fix: the Personal-AP earn ledger. Production passes the Foundational
+            // runtime's shared ICharacterApStore (server.CharacterApStore) so purchase reads the same
+            // authoritative earned balance placement credits (earned − spent). When null (legacy tests
+            // that pre-seed PersonalAp directly on the character aggregate and never exercise the earn
+            // path), the purchase handler falls back to the aggregate's stored PersonalAp verbatim, so
+            // those callers keep their prior behavior. There is never a fabricated second earn ledger.
+            var apStore = characterApStore;
 
             Directory.CreateDirectory(durableDirectory);
             var effectiveCatalog = catalog ?? new HomesteadProgressionCatalog();
@@ -190,7 +210,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             var governorPresence = new GovernorPresenceResolver(characters, authority);
 
             return new LocalProgressionServer(
-                stones, characters, authority, relationships, facets, activities, development, localPolicy,
+                stones, characters, authority, apStore, relationships, facets, activities, development, localPolicy,
                 activation, personalActivation, governorPresence, effectiveCatalog, durableDirectory);
         }
     }
