@@ -16,7 +16,8 @@ purpose: >
 # IAP-015 — Dedicated pilot preflight manifest & evidence matrix
 
 **Executing worker:** the assignee of `t_8a3a55c6` (`starbright-engineering` / qa-playtest lane).
-**Do NOT begin execution until the OPEN gates in §0 are closed by the owner.**
+**Preflight gates §0.4 are SETTLED** from the completed environment card `t_52f12248`
+(READY_FOR_EXECUTE) — no owner gate remains open; see §0.4 for the recorded dispositions.
 
 **Source of truth (read all before executing):**
 - Spec: `../planning/account-identity-pilot-spec.md` (AIP-FR-028, AIP-SC-001..008)
@@ -66,28 +67,32 @@ parity-staged Niflheim-equivalent QA lane** as the real dedicated-server target 
 journey, then tear it down. This does NOT touch standing Niflheim and does NOT consume its
 first-bind state.
 
-### 0.4 OPEN gates — owner must close before execution
-- **OPEN-1 (topology ratification):** Owner must confirm Option (a) (dedicated non-crossplay QA
-  lane) vs Option (b) (temporarily flip standing Niflheim off `-crossplay` for the window). This
-  manifest is written for **(a)**. If the owner picks (b), steps P1–P4 are replaced by "flip
-  standing server `-crossplay` off, restart, restore after" and the target host/port become
-  standing `127.0.0.1:2456`; all journey steps §2 are otherwise unchanged. Do not choose
-  unilaterally.
-- **OPEN-2 (joining Steam identity / adminlist):** This box has exactly ONE Steam login. The
-  minted pilot `AccountId` derives from that Steam subject regardless of the local character
-  profile chosen. Owner must confirm it is acceptable for the QA lane's `adminlist.txt` to contain
-  the box's Steam id `76561197965627562` (the operator identity used for `sbpr_pilotop` admin
-  authorization). The **prohibition on "regular characters/accounts and Pololol" is enforced at
-  the local-character-profile layer** (only `ForTheWort_QA` profiles, never Pololol or any
-  existing character) — it cannot and does not change which single Steam identity the OS is logged
-  into. Confirm this reading is acceptable or supply an alternate admin Steam id.
-- **OPEN-3 (second-Steam-identity for a live concurrent join):** A genuine two-GUI-client
-  concurrent same-account login is **not physically producible** on a single-Steam-login box, and
-  by design Steam kicks the first session client-side (AIP-FR-028). `AT-AIP-DEDICATED-SECOND-SESSION-REJECT`
-  is therefore split-evidence: the **harness half already PASSed** (attempt 7, 18/18, exact-binary
-  direct-peer `qa-split-session-harness`) and the **live half** only needs the single-client
-  transport→auth→admission→mint wiring (covered by JOIN). No second Steam box is required; do not
-  attempt to fabricate one.
+### 0.4 Gate dispositions — SETTLED from the completed environment card `t_52f12248`
+All six preflight gates are now closed by the authoritative, completed dedicated-environment card
+`t_52f12248` (assignee `starbright-engineering`, run 1458, READY_FOR_EXECUTE) and its
+`ENVIRONMENT-REPORT.md` (SHA-256 `9aee6e52a4b3028355b6bdf203fc61d51085f331651845493918f78228313315`).
+These are not open owner questions; they record the environment that was actually built and
+verified. No standing Niflheim state was consumed and no new owner gate is introduced.
+
+- **OPEN-1 (topology ratification) — CLOSED: Option (a).** The prepared fixture is an isolated,
+  dedicated, non-crossplay, parity-staged Niflheim clone (container `niflheim-iap015-t52-server`,
+  join `127.0.0.1:2486`, status `127.0.0.1:9014`, `SERVER_ARGS=-preset hardcore`, no `-crossplay`).
+  Standing Niflheim is **never** flipped off `-crossplay`; it was not modified or writable-shared
+  (`ENVIRONMENT-REPORT.md` §"Safety decision"; card comment 1784800860). Option (b) is rejected.
+- **OPEN-2 (joining Steam identity / adminlist) — CLOSED: validated valbot QA Steam identity.** The
+  isolated admin/operator identity is the **distinct licensed `valbot` QA Steam account** (Steam
+  logged on, subscribed to Valheim, self-owned, not family-shared), NOT the standing box's regular
+  login. `adminlist.txt` on the QA lane contains exactly that validated valbot QA Steam identity
+  and is mode 0600. The **raw SteamID is withheld** from this manifest and all published evidence
+  (`ENVIRONMENT-REPORT.md` §"Client and identity confinement"). Wherever an admin id would appear
+  in a command below, use the adminlist file by path — do not paste a raw Steam id.
+- **OPEN-3 (second-Steam-identity for a live concurrent join) — CLOSED: approved Option-B split
+  evidence, no second GUI identity.** A genuine two-GUI-client concurrent same-account login is not
+  physically producible on this single-licensed-client box, and by design Steam kicks the first
+  session (AIP-FR-028). `AT-AIP-DEDICATED-SECOND-SESSION-REJECT` is satisfied as split-evidence: the
+  **harness half already PASSed** (attempt 7, 18/18, exact-binary direct-peer
+  `qa-split-session-harness`) and the **live half** is the single-client transport→auth→admission→
+  mint wiring covered by JOIN. No second Steam identity is created or fabricated.
 
 ---
 
@@ -107,9 +112,11 @@ first-bind state.
 ### 1.2 Isolated QA identity naming — MANDATORY
 - Local character/profile name: **`ForTheWort_QA`** (derived as `<exact server seed>_QA`).
 - Second sequential profile (for `AT-AIP-DEDICATED-SECOND-PROFILE`): **`ForTheWort_QA2`**
-  (`<seed>_QA` family; a distinct local character on the same account). **OPEN-4:** confirm the
-  `_QA2` suffix convention is acceptable, or the executing worker may use `ForTheWort_QA_b` — pick
-  one and record it; do not use any non-`ForTheWort_QA*` name.
+  (`<seed>_QA` family; a distinct local character on the same account). **OPEN-4 — CLOSED:** the
+  `_QA2` suffix is the ratified sibling local profile name (env card `t_52f12248`
+  `ENVIRONMENT-REPORT.md` §"Client and identity confinement" reserves exactly `ForTheWort_QA2`
+  for the second profile). Do not use `ForTheWort_QA_b` or any other name; use only
+  `ForTheWort_QA*`, never Pololol or a regular character.
 - The pilot **AccountId** is opaque and server-minted; it is NOT a chosen name.
 
 ### 1.3 Hard prohibitions
@@ -126,11 +133,20 @@ first-bind state.
 
 ## 2. Preflight — stand up the dedicated non-crossplay parity lane (Option a)
 
-> These steps CREATE a throwaway lane. They do NOT touch `niflheim-server` and do NOT read or
-> mutate its `niflheim.db` first-bind state. Copying the `.fwl`/`.db` for a *fresh clean world* is
-> OPEN-5: prefer generating a fresh world from seed `ForTheWort` so no standing gameplay state is
-> imported. If the owner wants the exact standing world contents, that is a separate decision —
-> default here is a **fresh clean `ForTheWort` world**.
+> **§2 provenance note — this fixture already exists (env card `t_52f12248`).** The dedicated
+> non-crossplay lane described below was already stood up and verified by `t_52f12248`
+> (`ENVIRONMENT-REPORT.md`); the steps here are its reproducible specification, not a fresh build to
+> improvise. Reuse the prepared instance
+> `/home/polyphonyrequiem/valheim/niflheim-iap015-t_52f12248`, container
+> `niflheim-iap015-t52-server`, join `127.0.0.1:2486`, status `127.0.0.1:9014`. Standing
+> `niflheim-server` is NOT touched and its first-bind state is NOT consumed.
+>
+> **OPEN-5 — CLOSED: use the UID-preserved isolated writable clone + pristine pilot store from
+> `t_52f12248`.** The world fixture is the byte-identical isolated writable clone of the accepted
+> `niflheim` world — world `niflheim`, seed `ForTheWort` (numeric `-756187396`), **World UID
+> `196451874500733651` preserved** — NOT a regenerated-from-seed world and NOT the standing
+> writable state. The pilot store is pristine: `pilot-account.journal` is absent and only the fresh
+> owner-only mode-0600 lookup key exists, so the first authenticated join remains the first bind.
 
 Correlation id for the whole run: set `RUN=iap015-$(date -u +%Y%m%dT%H%M%SZ)` and stamp every
 artifact filename and log grep with it.
@@ -158,10 +174,17 @@ Bring up a second `lloesche/valheim-server` container, **without `-crossplay`**:
   (the block the attempt-8 smoke used) or the next free block; record the exact chosen port.
 - mount a FRESH config dir (e.g. `~/valheim/niflheim-qa-$RUN/config`) so no standing state is
   shared.
-- **OPEN-6:** the exact `docker run`/compose invocation the standing lane uses is not committed in
-  this repo; the executing worker must mirror the standing container's image + BepInEx plugin
-  mount pattern. Do not guess flags — copy the standing container's mount/plugin layout
-  (`docker inspect niflheim-server`) and drop `-crossplay`.
+- **OPEN-6 — CLOSED: exact invocation semantics come from `t_52f12248`'s `ENVIRONMENT-REPORT.md`.**
+  The lane runs image `lloesche/valheim-server@sha256:20fde516ce311e6084f82f295c9eb6934af57b357c657937a04f62bdf5946149`
+  as compose project `niflheim-iap015-t52`, container `niflheim-iap015-t52-server`, with
+  `SERVER_NAME=Niflheim-IAP015-QA`, world `niflheim`, `SERVER_PUBLIC=false`,
+  `SERVER_ARGS=-preset hardcore` (**no `-crossplay`**), game bind `127.0.0.1:2486-2488/udp`
+  (join `127.0.0.1:2486`), status bind `127.0.0.1:9014/tcp`, `TZ=UTC`, restart policy `no`,
+  auto-update/restart/backups disabled for deterministic evidence. The `SERVER_PASS` lives only in
+  a mode-0600 `.env` and is **never printed or committed** — reference it as `<qa-pass>`. Join /
+  restart / rollback / pre-run invocations are the exact commands in `ENVIRONMENT-REPORT.md`
+  §"Baseline backup and tested rollback", §"Restart evidence instructions", and the
+  `scripts/pre-run-guard.sh` gate — copy them verbatim; do not guess flags.
 
 Expected observable: `docker logs niflheim-qa-$RUN` reaches `Game server connected` and, once the
 mod loads, the operator-surface arm line (see P4).
@@ -191,10 +214,11 @@ in `03-client-parity.txt`.
 
 ### P4 — arm + confirm the operator surface, set adminlist
 ```
-# adminlist: the joining Steam admin id (OPEN-2), one per line
-echo 76561197965627562 > (QA lane)/config/adminlist.txt   # via docker exec/write into mount
-docker restart niflheim-qa-$RUN   # if adminlist changed
-docker logs niflheim-qa-$RUN 2>&1 | grep -iE 'Operator surface|provider=' \
+# adminlist: the validated valbot QA Steam identity (OPEN-2), one per line, mode 0600.
+# Raw SteamID withheld — the QA lane's adminlist.txt already contains exactly this identity
+# (env card t_52f12248). Reference it by path; do not paste a raw Steam id into artifacts.
+docker restart niflheim-iap015-t52-server   # if adminlist changed
+docker logs niflheim-iap015-t52-server 2>&1 | grep -iE 'Operator surface|provider=' \
   > .../$RUN/04-operator-arm.txt
 ```
 Expected (must all be present):
@@ -271,7 +295,7 @@ password via `FejdStartup.ServerPassword`, and invoke join with `hasServerToJoin
 
 Preflight:
 - [ ] `00-docker-baseline.txt`, `00-standing-env.txt` — standing server untouched, shows `-crossplay`
-- [ ] OPEN-1..OPEN-6 closed by owner (record dispositions)
+- [ ] OPEN-1..OPEN-6 dispositions confirmed as SETTLED per §0.4 / §1.2 / §2 (env card `t_52f12248`)
 - [ ] `02-qa-seed.txt` — QA world seed == `ForTheWort`
 - [ ] `03-qa-parity.txt` + `03-client-parity.txt` — all three DLL SHA-256 == §0.2
 - [ ] `04-operator-arm.txt` — console REGISTERED + both handlers BOUND + `provider=Steam`
@@ -303,5 +327,6 @@ Teardown (zero residue — mirror attempt-8 discipline):
 - A raw Steam subject or HMAC appears in any pilot log/artifact → scrub, treat as a defect, file it.
 - Any runbook step that would require hand-editing `account-journal.bin`, HMAC key, or
   `adminlist.txt` outside the documented commands → escalate (runbook §9).
-- Owner has not closed OPEN-1..OPEN-3 → do not begin; the topology and admin-identity decisions are
-  owner calls, exactly as attempt 8 concluded.
+- OPEN-1..OPEN-6 are SETTLED by env card `t_52f12248` (§0.4/§1.2/§2). No owner gate remains; the
+  topology and admin-identity decisions were recorded, not left open — do not reopen them or
+  fabricate a second identity/topology.
