@@ -566,9 +566,11 @@ deferred to M4 but are required before M6.**
   >     prefab (the game's own additive grant seam); stations/anchors via TRUE ADDITIVE
   >     CONSTRUCTION per ADR-0006 — an INACTIVE `new GameObject` with only the INTENDED
   >     components AddComponent'd (`ZNetView` with m_persistent/m_type/m_distant set ourselves,
-  >     a root `BoxCollider`, and, for a station blueprint, a `CraftingStation` whose `m_name` and
+  >     a root `BoxCollider`, and, for a station request, a required `CraftingStation` whose `m_name` and
   >     `m_useDistance` are value-copied off the vanilla prefab read as a read-only blueprint via
-  >     `ZNetScene.GetPrefab` — no mesh/renderer or other component is read or attached),
+  >     `ZNetScene.GetPrefab` — no mesh/renderer or other component is read or attached). A station
+  >     blueprint missing `CraftingStation`, a non-empty `m_name`, or a finite positive `m_useDistance`
+  >     is treated as drift and creation fails closed rather than degrading to a bare anchor. The shell is
   >     registered in `ZNetScene` by name and then instantiated — there is NO `Instantiate` of a
   >     vanilla ZNetView-bearing prefab and no clone-and-strip anywhere (mirrors the product's
   >     `Assets.TryConstructPieceShell`). Cleanup via the network-aware `ZNetView.Destroy` /
@@ -632,8 +634,9 @@ deferred to M4 but are required before M6.**
   > the engine-free recovery hands the seam a `FixtureWorldScope` (the plan's allowlisted prefabs,
   > max radius, and a hard candidate cap), and the engine-bound seam answers it with a pinned
   > `ZoneSystem.GetZone` + `ZDOMan.FindSectorObjects` sector query around the deterministic fixture
-  > origin, filtered to the allowlisted prefab hashes and the QA marker key, with a hard sector-ring
-  > and candidate cap. Any binding failure, enumeration exception, per-candidate read/handle error,
+  > origin, filtered to the allowlisted prefab hashes, then to the exact maximum radius and the QA
+  > marker key, with a hard sector-ring and allowlisted-candidate cap. Any binding failure,
+  > enumeration exception, per-candidate position/marker/handle error,
   > or cap overflow yields a **refusal with ZERO candidates and ZERO world mutation**; the ledger
   > fails closed (`FixtureRecoveryStatus.DiscoveryRefused`) and never adopts a partial list. There is
   > no parameterless (full-world) discovery path on either the engine-free port or the seam. New

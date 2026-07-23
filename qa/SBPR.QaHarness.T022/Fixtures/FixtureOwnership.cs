@@ -217,7 +217,7 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
     /// The bounded region the engine-free recovery hands <see cref="IFixtureWorld.DiscoverMarked"/> so a
     /// survivor scan is a PINNED spatial lookup around the fixture origin, never a whole-world walk. It
     /// names the allowlisted prefab names the current plan expects, the max fixture radius (meters), and a
-    /// hard cap on marked candidates (overflow ⇒ refuse). Derived purely from the validated plan + bounds.
+    /// hard cap on allowlisted candidates (overflow ⇒ refuse). Derived purely from the validated plan + bounds.
     /// </summary>
     public readonly struct FixtureWorldScope
     {

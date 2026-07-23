@@ -270,6 +270,36 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.Matches(new Regex(@"DestroyInstance\s*\(\s*instance\s*\)\s*;\s*return\s+string\.Empty"), spawn);
         }
 
+        // A station request requires a real CraftingStation on the read-only blueprint. Category is
+        // carried across the seam so a drifted station donor cannot silently degrade into a bare anchor.
+        [Fact]
+        public void AdditiveShellSource_FailsClosed_OnMissingRequiredStationComponent()
+        {
+            var src = SeamSource();
+            Assert.Matches(new Regex(@"SpawnPrefab\s*\(\s*string\s+prefabName\s*,\s*ResourceCategory\s+category"), src);
+
+            var body = BuildStationShellBody(src);
+            Assert.Matches(new Regex(@"category\s*==\s*ResourceCategory\.Station"), body);
+            Assert.Matches(new Regex(@"blueprintStation\s*==\s*null\s*\)\s*return\s+null"), body);
+            Assert.Matches(new Regex(@"existingStation\.m_name[^;]*blueprintStation\.m_name"), body);
+            Assert.Matches(new Regex(@"existingStation\.m_useDistance[^;]*blueprintStation\.m_useDistance"), body);
+        }
+
+        // Sector lookup is only the coarse index. Exact radial filtering is still required so a marked
+        // same-prefab object in a queried edge sector but outside MaxRadiusMeters is never adoptable.
+        [Fact]
+        public void DiscoverySource_FiltersCandidatesByExactRadius()
+        {
+            var src = SeamSource();
+            int idx = src.IndexOf("public SeamDiscoveryResult DiscoverMarked", StringComparison.Ordinal);
+            Assert.True(idx >= 0, "DiscoverMarked not found");
+            int next = src.IndexOf("private const int MaxSectorRing", idx, StringComparison.Ordinal);
+            string discovery = src.Substring(idx, (next < 0 ? src.Length : next) - idx);
+
+            Assert.Contains("zdo.GetPosition()", discovery);
+            Assert.Matches(new Regex(@"Vector3\.Distance\s*\([^;]*origin[^;]*\)\s*>\s*\(\s*float\s*\)\s*scope\.MaxRadiusMeters"), discovery);
+        }
+
         // NO cloned vanilla instance identity: the seam never Instantiates the vanilla blueprint prefab
         // as a mutable base. The ONLY Instantiate call in the file is of OUR OWN registered shell
         // (Instantiate(shell, ...)), never Instantiate(prefab/blueprint, ...).

@@ -5,6 +5,7 @@
 // that let the owned-resource ledger be exercised headlessly.
 using SBPR.QaHarness.T022.Core;
 using SBPR.QaHarness.T022.Core.ControlPlane;
+using SBPR.QaHarness.T022.Core.Fixtures;
 using Xunit;
 
 namespace SBPR.QaHarness.T022.Core.Tests
@@ -145,7 +146,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.True(seam.PrefabExists("piece_workbench"));
             Assert.False(seam.PrefabExists("unknown_prefab"));
 
-            string st = seam.SpawnPrefab("piece_workbench", 2.0, "m1");
+            string st = seam.SpawnPrefab("piece_workbench", ResourceCategory.Station, 2.0, "m1");
             string it = seam.GrantItem("Wood", 5, "m2");
             Assert.Equal(2, seam.Live.Count);
 

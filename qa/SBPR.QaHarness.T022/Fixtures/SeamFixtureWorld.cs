@@ -79,7 +79,7 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                     case ResourceCategory.Station:
                     case ResourceCategory.PlacementAnchor:
                         // Additive server-authoritative construction at a bounded offset (ADR-0006).
-                        handle = _seam.SpawnPrefab(logicalId, radiusMeters, markerPayload);
+                        handle = _seam.SpawnPrefab(logicalId, category, radiusMeters, markerPayload);
                         break;
 
                     default:

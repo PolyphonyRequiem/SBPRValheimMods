@@ -247,7 +247,7 @@ namespace SBPR.QaHarness.T022.Core.Tests
         public IReadOnlyCollection<string> Live => _live.Keys;
         public bool PrefabExists(string prefabName) => _known.Contains(prefabName);
 
-        public string SpawnPrefab(string prefabName, double posRadius, string markerPayload)
+        public string SpawnPrefab(string prefabName, ResourceCategory category, double posRadius, string markerPayload)
         {
             if (FailSpawn) throw new System.InvalidOperationException("injected spawn failure");
             string id = "spawn-" + (++_seq);

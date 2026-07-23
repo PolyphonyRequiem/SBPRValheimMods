@@ -19,11 +19,13 @@
 //       INTENDED components are AddComponent'd — a `ZNetView` (the networked identity, whose
 //       three PUBLIC fields m_persistent/m_type/m_distant we set ourselves; ZNetView.Awake
 //       needs only ZDOMan up + a registered prefab name and builds its OWN ZDO), a root
-//       `BoxCollider` (placement/hit raycasts), and, for a station category, a `CraftingStation`
-//       component named from the blueprint. We read the vanilla prefab ONLY as a blueprint via
+//       `BoxCollider` (placement/hit raycasts), and, for a station category, a REQUIRED
+//       `CraftingStation` component named from the blueprint. We read the vanilla prefab ONLY as a blueprint via
 //       `ZNetScene.GetPrefab` (which fires no Awake) to copy exactly two VALUE fields off its
 //       `CraftingStation` — `m_name` and `m_useDistance` — reading an asset reference is not
-//       cloning (no mesh, renderer, or other component is read or attached). The shell
+//       cloning (no mesh, renderer, or other component is read or attached). A missing station
+//       component, empty station name, or invalid use-distance refuses creation rather than silently
+//       degrading to a bare anchor. The shell
 //       is registered in ZNetScene by name, then instantiated into the world. There is NO
 //       `Instantiate(prefab)` of a ZNetView-bearing donor and no clone-and-strip anywhere.
 //     • Materials: granted by ItemDrop.DropItem of the vanilla item's OWN m_dropPrefab
@@ -45,7 +47,7 @@
 //   survivor. If the marker cannot be durably written, the half-built object is destroyed and
 //   an EMPTY handle is returned (a Create failure) — never a silently untracked leak.
 //   DiscoverMarked runs a BOUNDED spatial query (ZDOMan.FindSectorObjects around the deterministic
-//   fixture origin, limited to the plan's allowlisted prefab hashes, max radius, and a hard candidate
+//   fixture origin, limited to the plan's allowlisted prefab hashes, exact max radius, and a hard candidate
 //   cap — NOT a whole-world walk) and returns a TYPED complete/refused result, so the engine-free
 //   RecoverFromMarkers can scope/validate/adopt exactly this run's survivors and fail closed on a
 //   refused scan or anything foreign/malformed/duplicate. Unmarked / out-of-region objects are never
@@ -86,13 +88,14 @@ namespace SBPR.QaHarness.T022.Runtime
             return _holder;
         }
 
-        // Where owned fixtures are spawned relative to. The engine-free bounds already cap the
-        // radius; the concrete origin is the server's own reference point (world origin here — a
-        // disposable QA world — offset by the bounded radius). Kept deterministic and bounded.
-        private static Vector3 OriginFor(double posRadius)
+        // The disposable QA world's deterministic fixture origin. Spawn positions are bounded offsets
+        // from this point; recovery uses this SAME point for its exact radial filter.
+        private static Vector3 FixtureOrigin() => Vector3.zero;
+
+        private static Vector3 SpawnPositionFor(double posRadius)
         {
             float r = (float)posRadius;
-            return new Vector3(r, 0f, 0f);
+            return FixtureOrigin() + new Vector3(r, 0f, 0f);
         }
 
         /// <summary>True when the named prefab exists in the live ZNetScene or ObjectDB (drift guard §3.5).</summary>
@@ -112,16 +115,19 @@ namespace SBPR.QaHarness.T022.Runtime
         }
 
         /// <summary>
-        /// ADDITIVELY construct an allowlisted vanilla station/anchor shell (new GameObject +
+        /// ADDITIVELY construct an allowlisted vanilla station/anchor shell of the explicit
+        /// <paramref name="category"/> (new GameObject +
         /// intended components, blueprint read-only — ADR-0006, NO Instantiate of a ZNetView donor),
         /// durably stamp the ownership marker onto its ZDO, and return the spawned instance's ZDOID
         /// handle. Returns empty on ANY failure (including a marker-write failure, in which case the
         /// half-built object is destroyed) — a failure the ledger records as a partial failure.
         /// </summary>
-        public string SpawnPrefab(string prefabName, double posRadius, string markerPayload)
+        public string SpawnPrefab(string prefabName, ResourceCategory category, double posRadius, string markerPayload)
         {
             var zns = ZNetScene.instance;
             if (zns == null) return string.Empty;
+            if (category != ResourceCategory.Station && category != ResourceCategory.PlacementAnchor)
+                return string.Empty;
 
             GameObject? blueprint = zns.GetPrefab(prefabName); // blueprint read — fires no Awake
             if (blueprint == null) return string.Empty;
@@ -131,7 +137,7 @@ namespace SBPR.QaHarness.T022.Runtime
             try
             {
                 // 1. Build the INACTIVE additive shell (no clone; components are ours by construction).
-                shell = BuildStationShell(prefabName, blueprint);
+                shell = BuildStationShell(prefabName, blueprint, category);
                 if (shell == null) return string.Empty;
 
                 // 2. Register the shell's name in ZNetScene so ZNetView.Awake can resolve its prefab
@@ -140,7 +146,7 @@ namespace SBPR.QaHarness.T022.Runtime
 
                 // 3. Instantiate OUR OWN registered shell into the world (this is spawning the prefab
                 //    WE built, not cloning a vanilla ZNetView donor). Awake now runs down CreateNewZDO.
-                instance = UnityEngine.Object.Instantiate(shell, OriginFor(posRadius), Quaternion.identity);
+                instance = UnityEngine.Object.Instantiate(shell, SpawnPositionFor(posRadius), Quaternion.identity);
                 var nview = instance.GetComponent<ZNetView>();
                 if (nview == null || !nview.IsValid())
                 {
@@ -186,7 +192,7 @@ namespace SBPR.QaHarness.T022.Runtime
             {
                 // ItemDrop.DropItem clones the item DATA onto a real world drop — the vanilla grant
                 // path (the game's own additive spawn seam, not a prefab-clone-and-strip by us).
-                spawned = ItemDrop.DropItem(itemDrop.m_itemData, amount, OriginFor(0.0), Quaternion.identity);
+                spawned = ItemDrop.DropItem(itemDrop.m_itemData, amount, SpawnPositionFor(0.0), Quaternion.identity);
             }
             catch (Exception)
             {
@@ -313,7 +319,7 @@ namespace SBPR.QaHarness.T022.Runtime
                 // Deterministic fixture origin -> zone/sector. The bounded radius is converted to a
                 // sector-ring "area" (ceil(radius / zoneSize)) so the query covers exactly the sectors a
                 // spawn within MaxRadiusMeters could have landed in — never the whole world.
-                Vector3 origin = OriginFor(scope.MaxRadiusMeters);
+                Vector3 origin = FixtureOrigin();
                 Vector2i sector = ZoneSystem.GetZone(origin);
                 float zoneSize = ZoneSystem_ZoneSize(zoneSys);
                 int area = zoneSize > 0f ? (int)Math.Ceiling(scope.MaxRadiusMeters / zoneSize) : 1;
@@ -328,16 +334,18 @@ namespace SBPR.QaHarness.T022.Runtime
                 zdoMan.FindSectorObjects(sector, area, 0, sectorObjects, distantObjects);
 
                 var found = new List<MarkedInstanceInfo>();
+                int candidateCount = 0;
                 foreach (var zdo in sectorObjects)
                 {
                     if (zdo == null || !zdo.IsValid()) continue;
                     if (!allowedHashes.Contains(zdo.GetPrefab())) continue; // out-of-allowlist → outside bounded region
+                    candidateCount++;
+                    if (scope.MaxCandidates > 0 && candidateCount > scope.MaxCandidates)
+                        return SeamDiscoveryResult.Refused("candidate-cap-overflow: > " + scope.MaxCandidates);
+                    if (Vector3.Distance(zdo.GetPosition(), origin) > (float)scope.MaxRadiusMeters) continue;
                     string payload = zdo.GetString(FixtureOwnershipMarker.ZdoKey, string.Empty);
                     if (string.IsNullOrEmpty(payload)) continue;            // unmarked → never a candidate
                     found.Add(new MarkedInstanceInfo(payload, EncodeHandle(zdo.m_uid)));
-                    // Cap overflow refuses the WHOLE scan (never truncate-and-guess).
-                    if (scope.MaxCandidates > 0 && found.Count > scope.MaxCandidates)
-                        return SeamDiscoveryResult.Refused("candidate-cap-overflow: > " + scope.MaxCandidates);
                 }
                 return SeamDiscoveryResult.Complete(found);
             }
@@ -369,11 +377,26 @@ namespace SBPR.QaHarness.T022.Runtime
 
         // ── Additive shell construction (ADR-0006) ──────────────────────────────
 
-        // Build an INACTIVE additive shell for a station/anchor from a read-only blueprint. Only the
+        // Build an INACTIVE additive shell for a station/anchor from a read-only blueprint. A station
+        // request fails closed unless the blueprint carries valid required CraftingStation data. Only the
         // INTENDED components are added — ZNetView (networked identity), a root BoxCollider, and (for
         // a station blueprint) a CraftingStation named from the blueprint. NO Instantiate of the donor.
-        private static GameObject? BuildStationShell(string prefabName, GameObject blueprint)
+        private static GameObject? BuildStationShell(string prefabName, GameObject blueprint, ResourceCategory category)
         {
+            CraftingStation? blueprintStation = null;
+            if (category == ResourceCategory.Station)
+            {
+                blueprintStation = blueprint.GetComponent<CraftingStation>();
+                if (blueprintStation == null) return null;
+                if (string.IsNullOrEmpty(blueprintStation.m_name)) return null;
+                if (float.IsNaN(blueprintStation.m_useDistance) || float.IsInfinity(blueprintStation.m_useDistance)
+                    || blueprintStation.m_useDistance <= 0f) return null;
+            }
+            else if (category != ResourceCategory.PlacementAnchor)
+            {
+                return null;
+            }
+
             string shellName = "SBPR_QAFixture_" + prefabName;
             var zns = ZNetScene.instance;
             // If we already registered this shell in a prior spawn this run, reuse the registered
@@ -381,7 +404,22 @@ namespace SBPR.QaHarness.T022.Runtime
             if (zns != null)
             {
                 var existing = zns.GetPrefab(shellName);
-                if (existing != null) return existing;
+                if (existing != null)
+                {
+                    var existingView = existing.GetComponent<ZNetView>();
+                    if (existingView == null || !existingView.m_persistent
+                        || existingView.m_type != ZDO.ObjectType.Default || existingView.m_distant
+                        || existing.GetComponent<BoxCollider>() == null)
+                        return null;
+                    var existingStation = existing.GetComponent<CraftingStation>();
+                    if (category == ResourceCategory.Station && existingStation == null) return null;
+                    if (category == ResourceCategory.PlacementAnchor && existingStation != null) return null;
+                    if (existingStation != null && blueprintStation != null
+                        && (!string.Equals(existingStation.m_name, blueprintStation.m_name, StringComparison.Ordinal)
+                            || existingStation.m_useDistance != blueprintStation.m_useDistance))
+                        return null;
+                    return existing;
+                }
             }
 
             var go = new GameObject(shellName);
@@ -401,7 +439,6 @@ namespace SBPR.QaHarness.T022.Runtime
             // If the blueprint is a crafting station, add OUR OWN CraftingStation and copy the VALUE
             // name field off the blueprint (reference-copy, not inheritance) so it reads as that
             // station. A non-station (bare anchor) blueprint gets no station component.
-            var blueprintStation = blueprint.GetComponent<CraftingStation>();
             if (blueprintStation != null)
             {
                 var station = go.AddComponent<CraftingStation>();

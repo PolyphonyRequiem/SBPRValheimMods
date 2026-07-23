@@ -22,6 +22,7 @@
 // The fakes are pure in-memory records for tests; the real adapters are TODO(M2-canonical).
 using System;
 using System.Collections.Generic;
+using SBPR.QaHarness.T022.Core.Fixtures;
 
 namespace SBPR.QaHarness.T022.Core.ControlPlane
 {
@@ -88,13 +89,14 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         bool PrefabExists(string prefabName);
 
         /// <summary>
-        /// Additively construct an allowlisted vanilla station/piece shell at a bounded offset (ADR-0006:
+        /// Additively construct an allowlisted vanilla station/piece shell for the explicit
+        /// <paramref name="category"/> at a bounded offset (ADR-0006:
         /// new GameObject + intended components from a read-only blueprint, never a prefab clone), durably
         /// stamp <paramref name="markerPayload"/> onto its ZDO as part of construction, and return a stable
         /// spawned-instance id recorded in the owned-resource ledger for cleanup. Returns empty on failure
         /// (including a failure to durably stamp the marker — the half-built object is destroyed).
         /// </summary>
-        string SpawnPrefab(string prefabName, double posRadius, string markerPayload);
+        string SpawnPrefab(string prefabName, ResourceCategory category, double posRadius, string markerPayload);
 
         /// <summary>Grant a bounded quantity of an allowlisted vanilla item, durably stamping
         /// <paramref name="markerPayload"/> onto the spawned drop's ZDO; returns a spawned-instance id for
@@ -146,8 +148,8 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
     /// The bounded query the engine-free recovery hands the seam so a survivor scan is a PINNED
     /// spatial/sector lookup, never a whole-world walk. It names the allowlisted prefab names the
     /// current plan expects, the maximum fixture radius (meters) the scan may reach from the
-    /// deterministic fixture origin, and a hard cap on the number of marked candidates the scan may
-    /// return before it refuses (overflow ⇒ refuse, never truncate-and-guess).
+    /// deterministic fixture origin, and a hard cap on the number of allowlisted candidates the scan may
+    /// inspect before it refuses (overflow ⇒ refuse, never truncate-and-guess).
     /// </summary>
     public readonly struct FixtureSeamScope
     {
@@ -164,7 +166,7 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         /// <summary>The maximum radius (meters) from the fixture origin the bounded scan may reach.</summary>
         public double MaxRadiusMeters { get; }
 
-        /// <summary>Hard cap on in-region marked candidates; exceeding it refuses the whole scan (fail-closed).</summary>
+        /// <summary>Hard cap on in-region allowlisted candidates; exceeding it refuses the whole scan (fail-closed).</summary>
         public int MaxCandidates { get; }
     }
 
@@ -273,7 +275,8 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
 
         public bool PrefabExists(string prefabName) => _knownPrefabs.Contains(prefabName);
 
-        public string SpawnPrefab(string prefabName, double posRadius, string markerPayload) => Stamp("spawn", prefabName, markerPayload);
+        public string SpawnPrefab(string prefabName, ResourceCategory category, double posRadius, string markerPayload) =>
+            Stamp("spawn", prefabName, markerPayload);
 
         public string GrantItem(string itemId, long qty, string markerPayload) => Stamp("item", itemId, markerPayload);
 
