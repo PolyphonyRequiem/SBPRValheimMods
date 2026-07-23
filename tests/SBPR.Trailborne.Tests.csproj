@@ -382,6 +382,15 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/OperatorAdminGate.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/OperatorAccountService.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/PilotIdentity/LocalAllowlistBootstrap.cs" />
+    <!-- IAP-015 (t_818742f8): the engine-free LIVE operator command surface brain — the shared operator
+         service bundle (one store/registry/fence/bound-index for admission AND operator ingress), the
+         bounded wire request/response codec, and the command router that turns one authenticated wire
+         request into a shipped lifecycle mutation with output scrub, replay, and fail-closed rejection. The
+         net48 direct-per-peer ZRpc ingress + console + real peer close (Features/PilotIdentity/
+         OperatorCommandIngressObserver.cs) references ZNet/ZRpc/Terminal and is NOT link-compiled. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/OperatorWireContract.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/LiveOperatorCommandRouter.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Accounts/LiveOperatorServices.cs" />
     <!-- RD-T002 (Gate A) — Resource Delivery deterministic-time + recoverable-fan-out slice. Engine-free
          (System-only), so link-compiled here exactly like the Homestead progression Gate-A slice. Closes
          AT-RD-001/003/004/005/007. No gameplay is enabled; these are pure domain/application seams. -->

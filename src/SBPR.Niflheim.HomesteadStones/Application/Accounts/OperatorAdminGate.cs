@@ -49,17 +49,40 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Accounts
     /// here trusts a payload.</summary>
     public sealed class OperatorAdminGate
     {
-        private readonly IReadOnlyCollection<string> _adminList;
+        // Either a fixed snapshot (_adminList) OR a live provider (_adminListProvider) that re-reads the
+        // server-owned adminlist.txt on EVERY authorization. IAP-015: the live operator command surface
+        // constructs the gate with the provider form so an admin REMOVED from adminlist.txt mid-run is
+        // rejected on the very next command (fail-closed on removal), matching real adminlist.txt
+        // semantics rather than a boot-time snapshot.
+        private readonly IReadOnlyCollection<string>? _adminList;
+        private readonly Func<IReadOnlyCollection<string>>? _adminListProvider;
 
         public OperatorAdminGate(IReadOnlyCollection<string> serverAdminList)
         {
             _adminList = serverAdminList ?? Array.Empty<string>();
         }
 
+        /// <summary>Compose over a LIVE adminlist provider that is re-read on every authorization, so the
+        /// gate always reflects the server's current <c>adminlist.txt</c> — not a boot-time snapshot. The
+        /// net48 seam supplies <c>() =&gt; new List&lt;string&gt;(ZNet.instance.GetAdminList())</c>; tests
+        /// supply a mutable list to prove dynamic admin add/remove. A provider that throws or returns null
+        /// authorizes nobody (fail closed).</summary>
+        public OperatorAdminGate(Func<IReadOnlyCollection<string>> liveAdminListProvider)
+        {
+            _adminListProvider = liveAdminListProvider ?? throw new ArgumentNullException(nameof(liveAdminListProvider));
+        }
+
+        private IReadOnlyCollection<string> CurrentAdminList()
+        {
+            if (_adminListProvider == null) return _adminList ?? Array.Empty<string>();
+            try { return _adminListProvider() ?? Array.Empty<string>(); }
+            catch { return Array.Empty<string>(); }
+        }
+
         /// <summary>True iff the server-observed authenticated host is a current server admin. An empty
         /// host, an empty admin list, or a non-admin peer all return false (fail closed).</summary>
         public bool IsAuthorizedOperator(ServerObservedAdminContext context) =>
-            VanillaAdminIdentity.ListContainsId(_adminList, context.AuthenticatedHostId, context.ServerPlatform);
+            VanillaAdminIdentity.ListContainsId(CurrentAdminList(), context.AuthenticatedHostId, context.ServerPlatform);
 
         /// <summary>Authorize or reject with a stable, subject-free reason. On rejection the caller must
         /// perform NO mutation (AT-AIP-NONADMIN-REJECT).</summary>
