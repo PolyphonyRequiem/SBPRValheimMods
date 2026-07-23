@@ -136,7 +136,7 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
         /// would orphan a prior run's owned resources. The caller reconciles Corrupt/Absent against
         /// world truth rather than assuming nothing is owned.
         /// </summary>
-        public SnapshotLoadResult Load()
+        public virtual SnapshotLoadResult Load()
         {
             if (!File.Exists(_path)) return SnapshotLoadResult.Absent();
 
