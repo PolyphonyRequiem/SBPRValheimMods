@@ -254,12 +254,14 @@ public int GetLevel(bool checkExtensions = true);                        // @362
 public bool InUseDistance(Humanoid human);                               // @382
 ```
 
-- **ADR-0006 compliance:** the harness reads a vanilla prefab as a **blueprint**
-  via `ZNetScene.GetPrefab` (fires no `Awake`) and then does a **normal
-  server-authoritative spawn** — it uses vanilla *spawn* seams (`DropItem` for
-  materials; `Instantiate` of a real station/piece prefab the game itself uses),
-  **not** a subtractive clone-and-strip of a mutable base. Materials granted are
-  ordinary allowlisted vanilla items only (§4 firewall).
+- **ADR-0006 compliance:** materials use the vanilla `DropItem` spawn seam. For
+  stations/anchors, the harness reads the vanilla prefab only as a **blueprint**
+  via `ZNetScene.GetPrefab` (fires no `Awake`), constructs an inactive
+  `new GameObject()` shell with only `ZNetView`, `BoxCollider`, and optional
+  `CraftingStation`, copies only `m_name` and `m_useDistance`, registers that
+  shell, and instantiates the shell — never the vanilla donor. No path performs
+  subtractive clone-and-strip. Materials granted are ordinary allowlisted
+  vanilla items only (§4 firewall).
 - **Owned-resource ledger:** every spawn returns a `GameObject`/`ItemDrop` whose
   `ZNetView`/`ZDOID` the ledger records; **cleanup** calls
   `ZNetScene.instance.Destroy(go)` per ledger entry, then verifies no ledger
