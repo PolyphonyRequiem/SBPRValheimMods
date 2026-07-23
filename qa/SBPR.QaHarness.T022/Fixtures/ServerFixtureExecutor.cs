@@ -273,8 +273,11 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
                 ledger = OwnedResourceLedger.ForPlan(plan);
             }
 
-            // Durable exact-marker recovery (world truth) — fail-closed on any integrity violation.
-            var status = ledger.RecoverFromMarkers(_world, _runContext, out int adopted);
+            // Durable exact-marker recovery (world truth) — a BOUNDED spatial scan (pinned region
+            // around the fixture origin, limited to the plan's allowlisted prefabs / max radius / a hard
+            // candidate cap), fail-closed on a refused scan or any integrity violation.
+            var scope = FixtureWorldScope.ForPlan(plan, VanillaFixtureManifest.Bounds);
+            var status = ledger.RecoverFromMarkers(_world, _runContext, scope, out int adopted);
             if (status != FixtureRecoveryStatus.Ok)
             {
                 recoveryDetail = "marker-recovery-refused: " + status;

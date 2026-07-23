@@ -213,6 +213,82 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
         public string SpawnedInstanceId { get; }
     }
 
+    /// <summary>
+    /// The bounded region the engine-free recovery hands <see cref="IFixtureWorld.DiscoverMarked"/> so a
+    /// survivor scan is a PINNED spatial lookup around the fixture origin, never a whole-world walk. It
+    /// names the allowlisted prefab names the current plan expects, the max fixture radius (meters), and a
+    /// hard cap on marked candidates (overflow ⇒ refuse). Derived purely from the validated plan + bounds.
+    /// </summary>
+    public readonly struct FixtureWorldScope
+    {
+        public FixtureWorldScope(IReadOnlyCollection<string> allowedPrefabNames, double maxRadiusMeters, int maxCandidates)
+        {
+            AllowedPrefabNames = allowedPrefabNames ?? Array.Empty<string>();
+            MaxRadiusMeters = maxRadiusMeters;
+            MaxCandidates = maxCandidates;
+        }
+
+        public IReadOnlyCollection<string> AllowedPrefabNames { get; }
+        public double MaxRadiusMeters { get; }
+        public int MaxCandidates { get; }
+
+        /// <summary>
+        /// Build the bounded scope from a validated plan: the DISTINCT allowlisted logical ids the plan
+        /// names, the plan's largest requested radius (capped at the bounds max), and a hard candidate
+        /// cap of the bounds' MaxTotalObjects. The cap bounds the scan against a pathological world (it
+        /// may never return more than a fixture's worth of objects); plan-exactness (a survivor naming an
+        /// unexpected owned id, or two survivors claiming one id) is enforced per-candidate downstream,
+        /// which needs headroom above the plan's own count to observe and refuse those violations. Pure.
+        /// </summary>
+        public static FixtureWorldScope ForPlan(ValidatedFixturePlan plan, FixtureBounds bounds)
+        {
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            var prefabs = new HashSet<string>(StringComparer.Ordinal);
+            double maxRadius = 0.0;
+            foreach (var r in plan.Resources)
+            {
+                prefabs.Add(r.LogicalId);
+                if (r.RadiusMeters > maxRadius) maxRadius = r.RadiusMeters;
+            }
+            if (maxRadius <= 0.0) maxRadius = bounds.MaxRadiusMeters;
+            if (maxRadius > bounds.MaxRadiusMeters) maxRadius = bounds.MaxRadiusMeters;
+            return new FixtureWorldScope(prefabs, maxRadius, bounds.MaxTotalObjects);
+        }
+    }
+
+    /// <summary>Whether the bounded marker scan produced a complete candidate set or refused (fail-closed).</summary>
+    public enum WorldDiscoveryOutcome
+    {
+        /// <summary>The scan completed; <see cref="WorldDiscoveryResult.Marked"/> is the exact in-region set (possibly empty).</summary>
+        Complete = 0,
+
+        /// <summary>The scan could not be completed safely (binding/enumeration/read fault or cap overflow) — refuse, adopt nothing.</summary>
+        Refused = 1,
+    }
+
+    /// <summary>The typed outcome of a bounded marker scan the engine-free recovery consumes fail-closed.</summary>
+    public sealed class WorldDiscoveryResult
+    {
+        private WorldDiscoveryResult(WorldDiscoveryOutcome outcome, IReadOnlyList<MarkedInstance> marked, string detail)
+        {
+            Outcome = outcome;
+            Marked = marked ?? Array.Empty<MarkedInstance>();
+            Detail = detail ?? string.Empty;
+        }
+
+        public WorldDiscoveryOutcome Outcome { get; }
+        public IReadOnlyList<MarkedInstance> Marked { get; }
+        public string Detail { get; }
+
+        public bool Ok => Outcome == WorldDiscoveryOutcome.Complete;
+
+        public static WorldDiscoveryResult Complete(IReadOnlyList<MarkedInstance> marked) =>
+            new WorldDiscoveryResult(WorldDiscoveryOutcome.Complete, marked, string.Empty);
+
+        public static WorldDiscoveryResult Refused(string detail) =>
+            new WorldDiscoveryResult(WorldDiscoveryOutcome.Refused, Array.Empty<MarkedInstance>(), detail);
+    }
+
     /// <summary>Why a bounded marker recovery could not produce a clean adoptable survivor set.</summary>
     public enum FixtureRecoveryStatus
     {
@@ -233,6 +309,9 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
 
         /// <summary>A candidate matches this world/run/fixture but names a resource the current plan does not expect — refuse.</summary>
         UnexpectedResource = 5,
+
+        /// <summary>The bounded world scan could not complete safely (binding/enumeration/read fault or cap overflow) — refuse, adopt nothing.</summary>
+        DiscoveryRefused = 6,
     }
 
     /// <summary>One adoptable survivor: the exact owned-resource id its marker names + the live world handle.</summary>

@@ -112,12 +112,21 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         bool IsLiveInstance(string spawnedInstanceId);
 
         /// <summary>
-        /// Enumerate every live world object carrying a QA ownership marker: (raw marker payload,
-        /// spawned-instance id). Bounded to objects the harness stamped — an unmarked/unrelated vanilla
-        /// object is never returned, so recovery can never adopt or destroy it. The engine-free layer
-        /// decodes/scopes/validates/adopts fail-closed; this only reports raw marked candidates.
+        /// Enumerate live QA-marked world objects INSIDE the bounded fixture region described by
+        /// <paramref name="scope"/> — a pinned spatial/sector query around the deterministic fixture
+        /// origin, limited to <see cref="FixtureSeamScope.MaxRadiusMeters"/>, the allowlisted prefab
+        /// names, and a hard <see cref="FixtureSeamScope.MaxCandidates"/> cap. This is NOT a whole-world
+        /// scan: an object outside the bounded region, of a non-allowlisted prefab, or unmarked is never
+        /// returned, so recovery can never adopt or destroy it.
+        ///
+        /// The result is a TYPED complete/refused outcome. Any binding failure, enumeration exception,
+        /// per-candidate read/handle error, or candidate-cap overflow MUST yield
+        /// <see cref="SeamDiscoveryOutcome.Refused"/> with ZERO candidates and ZERO world mutation — the
+        /// engine-free layer treats a refusal as fail-closed and never adopts a partial list. On success
+        /// the outcome is <see cref="SeamDiscoveryOutcome.Complete"/> with the exact in-region candidate
+        /// set (possibly empty).
         /// </summary>
-        System.Collections.Generic.IReadOnlyList<MarkedInstanceInfo> DiscoverMarked();
+        SeamDiscoveryResult DiscoverMarked(FixtureSeamScope scope);
     }
 
     /// <summary>A live QA-marked world object as reported by the seam: its raw marker payload + handle.</summary>
@@ -131,6 +140,65 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
 
         public string MarkerPayload { get; }
         public string SpawnedInstanceId { get; }
+    }
+
+    /// <summary>
+    /// The bounded query the engine-free recovery hands the seam so a survivor scan is a PINNED
+    /// spatial/sector lookup, never a whole-world walk. It names the allowlisted prefab names the
+    /// current plan expects, the maximum fixture radius (meters) the scan may reach from the
+    /// deterministic fixture origin, and a hard cap on the number of marked candidates the scan may
+    /// return before it refuses (overflow ⇒ refuse, never truncate-and-guess).
+    /// </summary>
+    public readonly struct FixtureSeamScope
+    {
+        public FixtureSeamScope(IReadOnlyCollection<string> allowedPrefabNames, double maxRadiusMeters, int maxCandidates)
+        {
+            AllowedPrefabNames = allowedPrefabNames ?? Array.Empty<string>();
+            MaxRadiusMeters = maxRadiusMeters;
+            MaxCandidates = maxCandidates;
+        }
+
+        /// <summary>The allowlisted logical prefab/item names the current plan expects (the ONLY prefabs the scan matches).</summary>
+        public IReadOnlyCollection<string> AllowedPrefabNames { get; }
+
+        /// <summary>The maximum radius (meters) from the fixture origin the bounded scan may reach.</summary>
+        public double MaxRadiusMeters { get; }
+
+        /// <summary>Hard cap on in-region marked candidates; exceeding it refuses the whole scan (fail-closed).</summary>
+        public int MaxCandidates { get; }
+    }
+
+    /// <summary>Whether the bounded marker scan produced a complete candidate set or refused (fail-closed).</summary>
+    public enum SeamDiscoveryOutcome
+    {
+        /// <summary>The scan completed; <see cref="SeamDiscoveryResult.Marked"/> is the exact in-region set (possibly empty).</summary>
+        Complete = 0,
+
+        /// <summary>The scan could not be completed safely (binding/enumeration/read fault or cap overflow) — refuse, adopt nothing.</summary>
+        Refused = 1,
+    }
+
+    /// <summary>The typed outcome of a bounded marker scan: complete-with-candidates or refused-with-detail.</summary>
+    public sealed class SeamDiscoveryResult
+    {
+        private SeamDiscoveryResult(SeamDiscoveryOutcome outcome, IReadOnlyList<MarkedInstanceInfo> marked, string detail)
+        {
+            Outcome = outcome;
+            Marked = marked ?? Array.Empty<MarkedInstanceInfo>();
+            Detail = detail ?? string.Empty;
+        }
+
+        public SeamDiscoveryOutcome Outcome { get; }
+        public IReadOnlyList<MarkedInstanceInfo> Marked { get; }
+        public string Detail { get; }
+
+        public bool Ok => Outcome == SeamDiscoveryOutcome.Complete;
+
+        public static SeamDiscoveryResult Complete(IReadOnlyList<MarkedInstanceInfo> marked) =>
+            new SeamDiscoveryResult(SeamDiscoveryOutcome.Complete, marked, string.Empty);
+
+        public static SeamDiscoveryResult Refused(string detail) =>
+            new SeamDiscoveryResult(SeamDiscoveryOutcome.Refused, Array.Empty<MarkedInstanceInfo>(), detail);
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -227,12 +295,39 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         public bool IsLiveInstance(string spawnedInstanceId) =>
             spawnedInstanceId != null && _spawned.ContainsKey(spawnedInstanceId);
 
-        public IReadOnlyList<MarkedInstanceInfo> DiscoverMarked()
+        public IReadOnlyList<MarkedInstanceInfo> AllMarkedForTest()
         {
             var list = new List<MarkedInstanceInfo>();
             foreach (var kv in _markers)
                 if (!string.IsNullOrEmpty(kv.Value)) list.Add(new MarkedInstanceInfo(kv.Value, kv.Key));
             return list;
+        }
+
+        /// <summary>Adversarial knob: force the next bounded scan to REFUSE (models a binding/enumeration/
+        /// read fault or cap overflow). A refusal must adopt nothing (fail-closed).</summary>
+        public bool FailDiscovery { get; set; }
+
+        public SeamDiscoveryResult DiscoverMarked(FixtureSeamScope scope)
+        {
+            if (FailDiscovery)
+                return SeamDiscoveryResult.Refused("injected discovery fault");
+
+            var allowed = scope.AllowedPrefabNames as ICollection<string>;
+            var list = new List<MarkedInstanceInfo>();
+            foreach (var kv in _markers)
+            {
+                if (string.IsNullOrEmpty(kv.Value)) continue;
+                // Bounded to the scope's allowlisted prefabs (mirrors the real seam's prefab-hash filter):
+                // a marked object of a prefab the scope does not name is outside the bounded region here.
+                if (allowed != null && allowed.Count > 0 &&
+                    _spawned.TryGetValue(kv.Key, out var logical) && !allowed.Contains(logical))
+                    continue;
+                list.Add(new MarkedInstanceInfo(kv.Value, kv.Key));
+            }
+            // Hard candidate cap: overflow refuses the whole scan (never truncate-and-guess).
+            if (scope.MaxCandidates > 0 && list.Count > scope.MaxCandidates)
+                return SeamDiscoveryResult.Refused("candidate-cap-overflow: " + list.Count + " > " + scope.MaxCandidates);
+            return SeamDiscoveryResult.Complete(list);
         }
 
         // ── Test-only adversarial seeding for crash/recovery scenarios ──

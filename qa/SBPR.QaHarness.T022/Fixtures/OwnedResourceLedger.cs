@@ -302,20 +302,33 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
         /// nonce, this fixture id) and adopt each matching object into the Created state under the
         /// owned id its marker names.
         ///
+        /// The world scan itself is a BOUNDED spatial query (<paramref name="scope"/>): a pinned
+        /// region around the fixture origin, limited to the plan's allowlisted prefabs, max radius, and
+        /// a hard candidate cap — NOT a whole-world walk. If that scan cannot complete safely (any
+        /// binding/enumeration/read fault or cap overflow) it returns a REFUSAL, and this method fails
+        /// closed with <see cref="FixtureRecoveryStatus.DiscoveryRefused"/> — a partial candidate list is
+        /// never adopted, so an unenumerated survivor can never be silently duplicated.
+        ///
         /// FAIL-CLOSED: the whole recovery refuses (no adoption, no world side effect, ledger left
-        /// untouched) if ANY candidate is malformed, two candidates claim the same owned id, a
-        /// candidate carries a foreign world/run, or a candidate for THIS world/run/fixture names an
-        /// owned id the current plan does not expect. Unmarked / unrelated objects are never returned
-        /// by discovery, so they are structurally un-adoptable and preserved. Same-run markers whose
-        /// entry is already Created are treated as idempotent (handle refreshed, not double-created).
-        /// Returns the number of entries adopted (0 when there is nothing to recover).
+        /// untouched) if the scan refuses, or if ANY candidate is malformed, two candidates claim the
+        /// same owned id, a candidate carries a foreign world/run, or a candidate for THIS
+        /// world/run/fixture names an owned id the current plan does not expect. Unmarked / out-of-region
+        /// objects are never returned by the bounded scan, so they are structurally un-adoptable and
+        /// preserved. Same-run markers whose entry is already Created are treated as idempotent (handle
+        /// refreshed, not double-created). Returns the number of entries adopted (0 when nothing to recover).
         /// </summary>
-        public FixtureRecoveryStatus RecoverFromMarkers(IFixtureWorld world, FixtureRunContext runContext, out int adopted)
+        public FixtureRecoveryStatus RecoverFromMarkers(IFixtureWorld world, FixtureRunContext runContext, FixtureWorldScope scope, out int adopted)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
             adopted = 0;
 
-            var candidates = world.DiscoverMarked();
+            var discovery = world.DiscoverMarked(scope);
+            // Fail-closed: a refused scan is NEVER treated as "no survivors". We abort with no mutation
+            // so an unenumerated survivor cannot be duplicated by a subsequent ensure.
+            if (discovery == null || discovery.Outcome != WorldDiscoveryOutcome.Complete)
+                return FixtureRecoveryStatus.DiscoveryRefused;
+
+            var candidates = discovery.Marked;
             if (candidates == null || candidates.Count == 0)
                 return FixtureRecoveryStatus.Ok;
 

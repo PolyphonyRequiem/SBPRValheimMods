@@ -332,6 +332,105 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.Empty(seam.Live);            // cleanup itself succeeded
             Assert.Contains("could not be deleted", c.Detail);
         }
+
+        // ── Bounded / fail-closed discovery (owner second-review blocker B) ─────
+
+        // A bounded scan that cannot complete safely (binding/enumeration/read fault or cap overflow)
+        // REFUSES the whole recovery: NO adoption and NO creation happen (fail-closed), so an
+        // unenumerated survivor can never be silently duplicated.
+        [Fact]
+        public void Recovery_DiscoveryFault_Refuses_CreatesNothing()
+        {
+            var ctx = TestRun.Ctx;
+            var seam = new FakeVanillaFixtureSeam(new[] { "piece_workbench" });
+            // A live marked survivor exists, but the bounded scan will fault before enumerating it.
+            var marker = FixtureOwnershipMarker.For(ctx, "fx", Owned("fx", "piece_workbench"));
+            seam.SeedMarkedSurvivor("piece_workbench", marker.Encode());
+            seam.FailDiscovery = true;
+
+            var auth = new FakeAuthority(); auth.Admins.Add("owner");
+            var peers = new DeliveringPeerState();
+            var bind = peers.Bind("owner");
+            var exec = Exec(seam, auth, peers, ctx);
+            int before = seam.Live.Count;
+
+            var r = exec.Ensure("fx", "SpawnStation", Args(("prefab", "piece_workbench"), ("posRadius", 2.0)), "owner", bind.Generation);
+            Assert.Equal(FixtureExecStatus.RecoveryRefused, r.Status);
+            Assert.Contains("DiscoveryRefused", r.Detail);
+            Assert.Equal(before, seam.Live.Count);  // no world side effect: nothing created, nothing adopted
+        }
+
+        // Cap overflow: a bounded scan that would return more candidates than its hard cap refuses the
+        // whole scan (never truncate-and-guess). Tested at the world layer with a tight scope so the
+        // overflow is exercised directly.
+        [Fact]
+        public void Recovery_CandidateCapOverflow_Refuses()
+        {
+            var ctx = TestRun.Ctx;
+            var seam = new FakeVanillaFixtureSeam(new[] { "piece_workbench" });
+            var m0 = FixtureOwnershipMarker.For(ctx, "fx", Owned("fx", "piece_workbench", 0));
+            var m1 = FixtureOwnershipMarker.For(ctx, "fx", Owned("fx", "piece_workbench", 1));
+            seam.SeedMarkedSurvivor("piece_workbench", m0.Encode());
+            seam.SeedMarkedSurvivor("piece_workbench", m1.Encode());
+
+            var world = new SeamFixtureWorld(seam);
+            // A tight scope: cap of 1, but two in-region marked candidates exist → overflow → refuse.
+            var scope = new FixtureWorldScope(new[] { "piece_workbench" }, 8.0, maxCandidates: 1);
+            var result = world.DiscoverMarked(scope);
+            Assert.Equal(WorldDiscoveryOutcome.Refused, result.Outcome);
+            Assert.Empty(result.Marked);   // zero candidates on refusal (fail-closed)
+        }
+
+        // A marked object of a prefab OUTSIDE the plan's allowlisted region is never returned by the
+        // bounded scan, so it is neither adopted nor destroyed: the fixture creates its own object and
+        // the out-of-region marked object survives untouched.
+        [Fact]
+        public void Recovery_OutOfRegionMarked_NotAdoptedNotDestroyed()
+        {
+            var ctx = TestRun.Ctx;
+            var seam = new FakeVanillaFixtureSeam(new[] { "piece_workbench", "forge" });
+            // A marked survivor of "forge" — a prefab the piece_workbench plan does NOT name, so it is
+            // outside the bounded scan region for this fixture.
+            var foreignPrefabMarker = FixtureOwnershipMarker.For(ctx, "fx", Owned("fx", "forge"));
+            string outOfRegion = seam.SeedMarkedSurvivor("forge", foreignPrefabMarker.Encode());
+
+            var auth = new FakeAuthority(); auth.Admins.Add("owner");
+            var peers = new DeliveringPeerState();
+            var bind = peers.Bind("owner");
+            var exec = Exec(seam, auth, peers, ctx);
+            var args = Args(("prefab", "piece_workbench"), ("posRadius", 2.0));
+
+            var r = exec.Ensure("fx", "SpawnStation", args, "owner", bind.Generation);
+            Assert.Equal(FixtureExecStatus.Executed, r.Status);
+            Assert.Equal(0, r.Reconciled);   // the out-of-region object was NOT adopted
+            Assert.Equal(1, r.Created);      // the plan's own object was created
+
+            // Cleanup removes only the fixture's own object; the out-of-region marked object survives.
+            exec.Cleanup("fx", "SpawnStation", args, "owner", bind.Generation);
+            Assert.True(seam.IsLiveInstance(outOfRegion));
+        }
+
+        // The exact valid survivor still adopts EXACTLY once through the bounded scan (the happy path
+        // is preserved by the bounded/fail-closed change).
+        [Fact]
+        public void Recovery_ValidSurvivor_AdoptsExactlyOnce_Bounded()
+        {
+            var ctx = TestRun.Ctx;
+            var seam = new FakeVanillaFixtureSeam(new[] { "piece_workbench" });
+            var marker = FixtureOwnershipMarker.For(ctx, "fx", Owned("fx", "piece_workbench"));
+            seam.SeedMarkedSurvivor("piece_workbench", marker.Encode());
+
+            var auth = new FakeAuthority(); auth.Admins.Add("owner");
+            var peers = new DeliveringPeerState();
+            var bind = peers.Bind("owner");
+            var exec = Exec(seam, auth, peers, ctx);
+
+            var r = exec.Ensure("fx", "SpawnStation", Args(("prefab", "piece_workbench"), ("posRadius", 2.0)), "owner", bind.Generation);
+            Assert.Equal(FixtureExecStatus.Executed, r.Status);
+            Assert.Equal(1, r.Reconciled);   // adopted once
+            Assert.Equal(0, r.Created);      // not re-created
+            Assert.Single(seam.Live);
+        }
     }
 
     // A snapshot store whose Delete always reports failure (models an undeletable durable file).
@@ -396,6 +495,43 @@ namespace SBPR.QaHarness.T022.Core.Tests
         {
             var createParams = typeof(IFixtureWorld).GetMethod("Create")!.GetParameters();
             Assert.Contains(createParams, p => p.ParameterType == typeof(FixtureOwnershipMarker));
+        }
+
+        // Discovery is BOUNDED by contract: the ONLY DiscoverMarked overload takes a scope and returns
+        // a typed complete/refused result. There is no parameterless (whole-world) discovery path on
+        // either the engine-free port or the engine-bound seam, so a full-world walk is unrepresentable.
+        [Fact]
+        public void Discovery_IsScoped_NoParameterlessWalkPath()
+        {
+            var worldMethods = typeof(IFixtureWorld).GetMethods().Where(m => m.Name == "DiscoverMarked").ToArray();
+            Assert.Single(worldMethods);
+            Assert.Single(worldMethods[0].GetParameters());
+            Assert.Equal(typeof(FixtureWorldScope), worldMethods[0].GetParameters()[0].ParameterType);
+            Assert.Equal(typeof(WorldDiscoveryResult), worldMethods[0].ReturnType);
+
+            var seamMethods = typeof(IVanillaFixtureSeam).GetMethods().Where(m => m.Name == "DiscoverMarked").ToArray();
+            Assert.Single(seamMethods);
+            Assert.Single(seamMethods[0].GetParameters());
+            Assert.Equal(typeof(FixtureSeamScope), seamMethods[0].GetParameters()[0].ParameterType);
+            Assert.Equal(typeof(SeamDiscoveryResult), seamMethods[0].ReturnType);
+        }
+
+        // The bounded scope built from a plan carries the plan's allowlisted prefabs and a candidate cap
+        // no larger than the plan's total object count — so a scan can never return more survivors than
+        // the plan could have spawned, and never matches a prefab outside the plan.
+        [Fact]
+        public void Scope_ForPlan_IsBoundedToPlan()
+        {
+            var allow = VanillaFixtureManifest.BuildAllowlist();
+            var plan = FixturePlanValidator.Validate(
+                new FixturePlan("fx", new[] { new ResourceSpec("Wood", 3, 2.0) }),
+                allow, VanillaFixtureManifest.Bounds).Plan!;
+            var scope = FixtureWorldScope.ForPlan(plan, VanillaFixtureManifest.Bounds);
+            Assert.Contains("Wood", scope.AllowedPrefabNames);
+            Assert.DoesNotContain("forge", scope.AllowedPrefabNames);
+            // The cap bounds the scan against a pathological world; it never exceeds a fixture's worth.
+            Assert.Equal(VanillaFixtureManifest.Bounds.MaxTotalObjects, scope.MaxCandidates);
+            Assert.True(scope.MaxRadiusMeters <= VanillaFixtureManifest.Bounds.MaxRadiusMeters);
         }
     }
 }

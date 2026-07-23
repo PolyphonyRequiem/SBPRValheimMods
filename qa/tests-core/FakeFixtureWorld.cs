@@ -92,12 +92,29 @@ namespace SBPR.QaHarness.T022.Core.Tests
 
         public bool Exists(string handle) => _live.ContainsKey(handle);
 
-        public IReadOnlyList<MarkedInstance> DiscoverMarked()
+        /// <summary>When true, the bounded scan REFUSES (models a binding/enumeration/read fault or cap overflow).</summary>
+        public bool FailDiscovery { get; set; }
+
+        public WorldDiscoveryResult DiscoverMarked(FixtureWorldScope scope)
         {
+            if (FailDiscovery)
+                return WorldDiscoveryResult.Refused("injected discovery fault");
+
+            var allowed = scope.AllowedPrefabNames as ICollection<string>;
             var list = new List<MarkedInstance>();
             foreach (var kv in _markers)
-                if (!string.IsNullOrEmpty(kv.Value)) list.Add(new MarkedInstance(kv.Value, kv.Key));
-            return list;
+            {
+                if (string.IsNullOrEmpty(kv.Value)) continue;
+                // Bounded to the scope's allowlisted prefabs: an out-of-region (non-allowlisted) marked
+                // object is never returned.
+                if (allowed != null && allowed.Count > 0 &&
+                    _live.TryGetValue(kv.Key, out var logical) && !allowed.Contains(logical))
+                    continue;
+                list.Add(new MarkedInstance(kv.Value, kv.Key));
+            }
+            if (scope.MaxCandidates > 0 && list.Count > scope.MaxCandidates)
+                return WorldDiscoveryResult.Refused("candidate-cap-overflow: " + list.Count + " > " + scope.MaxCandidates);
+            return WorldDiscoveryResult.Complete(list);
         }
     }
 }

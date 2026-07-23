@@ -622,6 +622,23 @@ deferred to M4 but are required before M6.**
   > "crash-safe ownership" was false because world creation preceded the durable snapshot and a
   > corrupt/absent snapshot was treated as empty — now closed by the durable ON-OBJECT ownership
   > markers + bounded fail-closed recovery above, with observable snapshot-delete failure.
+  >
+  > **Second-review repair (2026-07-22, same card).** A follow-up owner review found the durable-
+  > marker recovery's world scan was still a WHOLE-WORLD walk of `ZDOMan.m_objectsByID` mislabelled
+  > "bounded", and that on a read/enumeration fault it returned the partial list found so far, which
+  > the ledger treated as complete (an unenumerated survivor could be duplicated). Both are now
+  > corrected: discovery is a typed **complete/refused** result over a **bounded spatial query** —
+  > the engine-free recovery hands the seam a `FixtureWorldScope` (the plan's allowlisted prefabs,
+  > max radius, and a hard candidate cap), and the engine-bound seam answers it with a pinned
+  > `ZoneSystem.GetZone` + `ZDOMan.FindSectorObjects` sector query around the deterministic fixture
+  > origin, filtered to the allowlisted prefab hashes and the QA marker key, with a hard sector-ring
+  > and candidate cap. Any binding failure, enumeration exception, per-candidate read/handle error,
+  > or cap overflow yields a **refusal with ZERO candidates and ZERO world mutation**; the ledger
+  > fails closed (`FixtureRecoveryStatus.DiscoveryRefused`) and never adopts a partial list. There is
+  > no parameterless (full-world) discovery path on either the engine-free port or the seam. New
+  > headless tests: discovery-fault refuses and creates nothing, cap overflow refuses, an
+  > out-of-region (non-allowlisted-prefab) marked object is neither adopted nor destroyed, a valid
+  > survivor still adopts exactly once, and the contract exposes only the scoped overload.
 - **M4 — adversarial + evidence hardening (required before M6).**
   - `AT-QA-BAD-NONCE-REJECT`, `AT-QA-OUT-OF-MANIFEST-REJECT`,
     `AT-QA-REMOTE-FIXTURE-REJECT`, `AT-QA-OUT-OF-BOUNDS-ARG-REJECT`,

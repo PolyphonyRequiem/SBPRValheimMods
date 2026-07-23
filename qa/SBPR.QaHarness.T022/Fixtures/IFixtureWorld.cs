@@ -74,10 +74,13 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
         /// reconcile the ledger's belief with world truth.</summary>
         bool Exists(string handle);
 
-        /// <summary>Enumerate every live world object that carries a QA ownership marker (its raw marker
-        /// payload + world handle). Bounded to QA-marked objects only — an unmarked/unrelated world
-        /// object is never returned, so it can never be adopted or destroyed by recovery. Discovery
-        /// scopes/validates/adopts happen in the engine-free layer, fail-closed.</summary>
-        IReadOnlyList<MarkedInstance> DiscoverMarked();
+        /// <summary>Enumerate live QA-marked world objects inside the BOUNDED region described by
+        /// <paramref name="scope"/> (a pinned spatial query around the fixture origin, limited to the
+        /// scope's allowlisted prefabs, max radius, and a hard candidate cap). Returns a TYPED
+        /// complete/refused result: any binding/enumeration/read fault or cap overflow yields a refusal
+        /// with zero candidates, which the engine-free recovery treats as fail-closed (adopts nothing).
+        /// An unmarked / out-of-region / non-allowlisted object is never returned, so it can never be
+        /// adopted or destroyed by recovery.</summary>
+        WorldDiscoveryResult DiscoverMarked(FixtureWorldScope scope);
     }
 }

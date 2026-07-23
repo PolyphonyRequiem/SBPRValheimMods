@@ -272,12 +272,21 @@ namespace SBPR.QaHarness.T022.Core.Tests
         }
         public bool IsLiveInstance(string spawnedInstanceId) => _live.ContainsKey(spawnedInstanceId);
 
-        public IReadOnlyList<MarkedInstanceInfo> DiscoverMarked()
+        public SeamDiscoveryResult DiscoverMarked(FixtureSeamScope scope)
         {
+            var allowed = scope.AllowedPrefabNames as ICollection<string>;
             var list = new List<MarkedInstanceInfo>();
             foreach (var kv in _markers)
-                if (!string.IsNullOrEmpty(kv.Value)) list.Add(new MarkedInstanceInfo(kv.Value, kv.Key));
-            return list;
+            {
+                if (string.IsNullOrEmpty(kv.Value)) continue;
+                if (allowed != null && allowed.Count > 0 &&
+                    _live.TryGetValue(kv.Key, out var logical) && !allowed.Contains(logical))
+                    continue;
+                list.Add(new MarkedInstanceInfo(kv.Value, kv.Key));
+            }
+            if (scope.MaxCandidates > 0 && list.Count > scope.MaxCandidates)
+                return SeamDiscoveryResult.Refused("candidate-cap-overflow");
+            return SeamDiscoveryResult.Complete(list);
         }
     }
 

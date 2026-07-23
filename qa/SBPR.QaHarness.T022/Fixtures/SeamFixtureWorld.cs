@@ -127,14 +127,29 @@ namespace SBPR.QaHarness.T022.Core.Fixtures
             return _seam.IsLiveInstance(handle);
         }
 
-        public IReadOnlyList<MarkedInstance> DiscoverMarked()
+        public WorldDiscoveryResult DiscoverMarked(FixtureWorldScope scope)
         {
-            var raw = _seam.DiscoverMarked();
-            var list = new List<MarkedInstance>(raw?.Count ?? 0);
-            if (raw != null)
-                foreach (var m in raw)
+            // Translate the engine-free bounded scope into the seam's scope and consume its typed result.
+            var seamScope = new FixtureSeamScope(scope.AllowedPrefabNames, scope.MaxRadiusMeters, scope.MaxCandidates);
+            SeamDiscoveryResult raw;
+            try
+            {
+                raw = _seam.DiscoverMarked(seamScope);
+            }
+            catch (Exception ex)
+            {
+                // A seam fault is a refusal, never an empty complete set (fail-closed).
+                return WorldDiscoveryResult.Refused("seam-discovery-fault: " + ex.Message);
+            }
+
+            if (raw == null || raw.Outcome != SeamDiscoveryOutcome.Complete)
+                return WorldDiscoveryResult.Refused("seam-discovery-refused: " + (raw?.Detail ?? "null-result"));
+
+            var list = new List<MarkedInstance>(raw.Marked?.Count ?? 0);
+            if (raw.Marked != null)
+                foreach (var m in raw.Marked)
                     list.Add(new MarkedInstance(m.MarkerPayload, m.SpawnedInstanceId));
-            return list;
+            return WorldDiscoveryResult.Complete(list);
         }
     }
 }

@@ -43,10 +43,12 @@
 //   on the game-persisted ZDO, a crash at ANY point after spawn leaves a self-describing
 //   survivor. If the marker cannot be durably written, the half-built object is destroyed and
 //   an EMPTY handle is returned (a Create failure) — never a silently untracked leak.
-//   DiscoverMarked walks the live ZDOs, reads the marker key, and returns every marked object
-//   (payload + handle) so the engine-free RecoverFromMarkers can scope/validate/adopt exactly
-//   this run's survivors and fail closed on anything foreign/malformed/duplicate. Unmarked
-//   objects are never returned, so unrelated world objects are structurally un-adoptable.
+//   DiscoverMarked runs a BOUNDED spatial query (ZDOMan.FindSectorObjects around the deterministic
+//   fixture origin, limited to the plan's allowlisted prefab hashes, max radius, and a hard candidate
+//   cap — NOT a whole-world walk) and returns a TYPED complete/refused result, so the engine-free
+//   RecoverFromMarkers can scope/validate/adopt exactly this run's survivors and fail closed on a
+//   refused scan or anything foreign/malformed/duplicate. Unmarked / out-of-region objects are never
+//   returned, so unrelated world objects are structurally un-adoptable.
 //
 // The spawned-instance HANDLE the ledger stores is the object's ZDOID serialized as
 // "UserID:ID" (full stable identity, never a truncated numeric — two ZDOs can share ID
@@ -271,44 +273,97 @@ namespace SBPR.QaHarness.T022.Runtime
         }
 
         /// <summary>
-        /// Walk the live ZDOs and return every object carrying our QA ownership marker (payload +
-        /// ZDOID handle). Bounded to QA-marked objects — an unmarked/unrelated world object is never
-        /// returned, so recovery can never adopt or destroy it. Fail-closed: any read error yields the
-        /// markers found so far (a survivor we cannot enumerate is simply not adopted, never guessed).
+        /// BOUNDED, fail-closed marker scan. Instead of walking every live ZDO, this pins the
+        /// deterministic fixture origin, converts it to its vanilla zone/sector, and asks the game for
+        /// exactly the objects in that sector and the ring of sectors the bounded radius could reach
+        /// (<c>ZDOMan.FindSectorObjects</c> — the game's own spatial index, ADR-0001 permitted). Each
+        /// candidate is filtered to the scope's allowlisted PREFAB HASHES and to those carrying our QA
+        /// marker key. A hard candidate cap bounds the result. There is NO whole-world dictionary walk.
+        ///
+        /// FAIL-CLOSED: a missing binding (ZDOMan/ZoneSystem), an enumeration exception, a per-candidate
+        /// read/handle error, or a candidate count exceeding the scope cap yields a REFUSED result with
+        /// ZERO candidates — the engine-free recovery then adopts nothing, so an unenumerable survivor
+        /// is never silently duplicated. Only a fully-enumerated, in-region, capped set returns Complete.
         /// </summary>
-        public IReadOnlyList<MarkedInstanceInfo> DiscoverMarked()
+        public SeamDiscoveryResult DiscoverMarked(FixtureSeamScope scope)
         {
-            var found = new List<MarkedInstanceInfo>();
             var zdoMan = ZDOMan.instance;
-            if (zdoMan == null) return found;
+            var zoneSys = ZoneSystem.instance;
+            var zns = ZNetScene.instance;
+            if (zdoMan == null || zoneSys == null || zns == null)
+                return SeamDiscoveryResult.Refused("binding-unavailable: ZDOMan/ZoneSystem/ZNetScene not ready");
+
+            // Build the allowlisted prefab-hash set from the scope's logical names (a candidate whose
+            // prefab hash is not in this set is out of the bounded region and never returned).
+            var allowedHashes = new HashSet<int>();
+            foreach (var name in scope.AllowedPrefabNames)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                allowedHashes.Add(name.GetStableHashCode());
+                // The additive shell we spawn for a station registers under a derived name; include it so
+                // a station survivor (spawned as the shell prefab) is matched inside the bounded region.
+                allowedHashes.Add(("SBPR_QAFixture_" + name).GetStableHashCode());
+            }
+            if (allowedHashes.Count == 0)
+                return SeamDiscoveryResult.Complete(Array.Empty<MarkedInstanceInfo>());
 
             try
             {
-                // ZDOMan has no public "get all ZDOs" accessor; the server-side full set lives in the
-                // private m_objectsByID dictionary (ZDOID -> ZDO). Reach it reflectively (base game,
-                // permitted ADR-0001). The disposable QA world is tiny; a full walk is acceptable and
-                // reading the marker key is a cheap string get per ZDO.
-                var byId = HarmonyLib.Traverse.Create(zdoMan).Field("m_objectsByID").GetValue()
-                    as System.Collections.IDictionary;
-                if (byId == null) return found;
+                // Deterministic fixture origin -> zone/sector. The bounded radius is converted to a
+                // sector-ring "area" (ceil(radius / zoneSize)) so the query covers exactly the sectors a
+                // spawn within MaxRadiusMeters could have landed in — never the whole world.
+                Vector3 origin = OriginFor(scope.MaxRadiusMeters);
+                Vector2i sector = ZoneSystem.GetZone(origin);
+                float zoneSize = ZoneSystem_ZoneSize(zoneSys);
+                int area = zoneSize > 0f ? (int)Math.Ceiling(scope.MaxRadiusMeters / zoneSize) : 1;
+                if (area < 1) area = 1;
+                // Hard sector-ring cap: the bounded scan may never fan out past a small ring regardless
+                // of a pathological radius (defence in depth on top of the engine-free radius cap).
+                if (area > MaxSectorRing) return SeamDiscoveryResult.Refused("sector-ring-overflow: area " + area + " > " + MaxSectorRing);
 
-                foreach (var value in byId.Values)
+                var sectorObjects = new List<ZDO>();
+                var distantObjects = new List<ZDO>();
+                // area for near, 0 distant: distant objects are a different persistence class we do not spawn.
+                zdoMan.FindSectorObjects(sector, area, 0, sectorObjects, distantObjects);
+
+                var found = new List<MarkedInstanceInfo>();
+                foreach (var zdo in sectorObjects)
                 {
-                    var zdo = value as ZDO;
                     if (zdo == null || !zdo.IsValid()) continue;
-                    string payload;
-                    try { payload = zdo.GetString(FixtureOwnershipMarker.ZdoKey, string.Empty); }
-                    catch (Exception) { continue; }
-                    if (string.IsNullOrEmpty(payload)) continue; // unmarked → never a candidate
+                    if (!allowedHashes.Contains(zdo.GetPrefab())) continue; // out-of-allowlist → outside bounded region
+                    string payload = zdo.GetString(FixtureOwnershipMarker.ZdoKey, string.Empty);
+                    if (string.IsNullOrEmpty(payload)) continue;            // unmarked → never a candidate
                     found.Add(new MarkedInstanceInfo(payload, EncodeHandle(zdo.m_uid)));
+                    // Cap overflow refuses the WHOLE scan (never truncate-and-guess).
+                    if (scope.MaxCandidates > 0 && found.Count > scope.MaxCandidates)
+                        return SeamDiscoveryResult.Refused("candidate-cap-overflow: > " + scope.MaxCandidates);
                 }
+                return SeamDiscoveryResult.Complete(found);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Fail-closed: return whatever we could enumerate; a survivor we cannot read is not
-                // adopted (it will be re-created / re-marked, never silently destroyed).
+                // Any enumeration/read/handle fault refuses the whole scan with zero candidates.
+                return SeamDiscoveryResult.Refused("scan-fault: " + ex.GetType().Name + ": " + ex.Message);
             }
-            return found;
+        }
+
+        // The maximum sector-ring radius (in zones) the bounded scan may ever fan out to. A QA fixture is
+        // a handful of objects at a bounded meter-radius; this caps the sector query even if the radius
+        // were pathological, so a single scan is always O(a few sectors), never the world.
+        private const int MaxSectorRing = 2;
+
+        // Read ZoneSystem's zone size (public const c_ZoneSize / field m_zoneSize). Reflected defensively
+        // so a build-version field rename degrades to the vanilla 64m default rather than throwing.
+        private static float ZoneSystem_ZoneSize(ZoneSystem zoneSys)
+        {
+            try
+            {
+                var f = HarmonyLib.Traverse.Create(zoneSys).Field("m_zoneSize");
+                object? v = f.GetValue();
+                if (v is float fv && fv > 0f) return fv;
+            }
+            catch (Exception) { }
+            return 64f; // vanilla default zone size
         }
 
         // ── Additive shell construction (ADR-0006) ──────────────────────────────
