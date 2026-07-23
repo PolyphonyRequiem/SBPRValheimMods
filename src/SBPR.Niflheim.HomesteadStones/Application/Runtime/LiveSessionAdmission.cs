@@ -45,6 +45,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         // pre-privacy composition path (and Tracer-1/2 tests) continue to work unchanged.
         private readonly IPrivacyAdmissionGate? _privacyGate;
 
+        // IAP-015: the SAME process-local one-session-per-account registry the operator disable/delete path
+        // closes against. When supplied, admission reserves+activates the account's session here and Close
+        // removes it, so an operator command inspecting/disabling a live account sees the exact session the
+        // live admission published — no duplicate session universe. Optional so the Tracer-1/2 tests and the
+        // pre-IAP-015 composition path keep working unchanged.
+        private readonly PilotSessionRegistry? _operatorSessions;
+
         // Per-transport live session ledger so a disconnect (which carries only the transport handle) can
         // deterministically close the exact (peerKey, account, session) it opened. Serialized so a
         // reconnect racing a stale disconnect resolves cleanly.
@@ -55,7 +62,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             PilotAccountService accounts,
             PilotCharacterAdmissionService characters,
             BoundSessionPrincipalIndex boundSessions)
-            : this(accounts, characters, boundSessions, null)
+            : this(accounts, characters, boundSessions, null, null)
         {
         }
 
@@ -67,12 +74,26 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             PilotCharacterAdmissionService characters,
             BoundSessionPrincipalIndex boundSessions,
             IPrivacyAdmissionGate? privacyGate)
+            : this(accounts, characters, boundSessions, privacyGate, null)
+        {
+        }
+
+        /// <summary>IAP-015 — compose with the privacy gate AND the shared operator session registry, so the
+        /// live admission session is visible to (and closeable by) the operator command surface over the SAME
+        /// PilotSessionRegistry the OperatorAccountService disable/delete path uses.</summary>
+        public LiveSessionAdmission(
+            PilotAccountService accounts,
+            PilotCharacterAdmissionService characters,
+            BoundSessionPrincipalIndex boundSessions,
+            IPrivacyAdmissionGate? privacyGate,
+            PilotSessionRegistry? operatorSessions)
         {
             _accounts = accounts ?? throw new ArgumentNullException(nameof(accounts));
             _characters = characters ?? throw new ArgumentNullException(nameof(characters));
             if (boundSessions == null) throw new ArgumentNullException(nameof(boundSessions));
             _binder = new BoundSessionAdmission(characters, boundSessions);
             _privacyGate = privacyGate;
+            _operatorSessions = operatorSessions;
         }
 
         private readonly struct LiveSession
@@ -150,6 +171,16 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             lock (_gate)
                 _byTransport[transportHandle] = new LiveSession(peerKey, acct.AccountId, begin.SessionId, transportHandle);
 
+            // IAP-015: publish this live session into the SHARED operator registry (same one the operator
+            // disable/delete path closes against), so the operator surface sees the exact live session. The
+            // registry is one-session-per-account; a same-session retry is a no-op, and a genuinely different
+            // concurrent session already rejected upstream at BeginAdmission.
+            if (_operatorSessions != null)
+            {
+                if (_operatorSessions.TryReservePending(acct.AccountId.Value, begin.SessionId.Value, transportHandle))
+                    _operatorSessions.TryActivate(acct.AccountId.Value, begin.SessionId.Value, transportHandle);
+            }
+
             return LiveAdmissionResult.Ok(acct.AccountId, chr.CharacterId, begin.SessionId, peerKey);
         }
 
@@ -164,6 +195,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
                 if (!_byTransport.TryGetValue(transportHandle, out session)) return false;
                 _byTransport.Remove(transportHandle);
             }
+            // IAP-015: stale-safe removal from the shared operator registry — only removes THIS exact
+            // (account, session, handle), so a late disconnect for a superseded session cannot tear down a
+            // newer reconnect the operator surface can already see.
+            _operatorSessions?.CloseMatching(session.Account.Value, session.Session.Value, transportHandle);
             return _binder.CloseAndUnbind(session.PeerKey, session.Account, session.Session, transportHandle);
         }
 
