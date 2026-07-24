@@ -134,15 +134,44 @@ def scoped_commits(base, ref, pathspecs):
     return out
 
 
+def pending_shas(pending):
+    """Commit SHAs (>=7 hex) explicitly named in PENDING, lowercased.
+
+    Ground-truth identity for a commit that carries NEITHER a card id NOR a
+    trailing (#NNN) — e.g. a change pushed straight to main outside the PR flow.
+    A commit's own SHA can't be forged in the ledger, so naming it is an audit
+    trail, not a bypass. Guarded by a 7-hex minimum so a stray 4-digit hunk
+    never masquerades as a SHA.
+    """
+    return {s.lower() for s in re.findall(r"(?<![t_0-9a-fA-F])\b([0-9a-fA-F]{7,40})\b", pending)}
+
+
+def sha_named_in_pending(sha, named):
+    """True iff this commit's short SHA is named in PENDING (prefix-aware).
+
+    git short SHAs vary in width; match either direction so a 7-char ledger
+    entry covers an 8-char commit sha and vice-versa.
+    """
+    s = sha.lower()
+    return any(s.startswith(n) or n.startswith(s) for n in named)
+
+
 def classify_ledgered(changes, pending):
     """Split scoped changes into (ledgered, exempt, unledgered).
 
     A change is covered if: exempt commit type; OR carries a card id present in
-    PENDING; OR (no card id) its own PR number is named in PENDING. Mirrors the
-    established gen-playtest-guide.py cross-check so behaviour is consistent.
+    PENDING; OR (no card id) its own PR number is named in PENDING; OR (no card
+    id AND no trailing (#NNN) — a direct-to-main push) its own commit SHA is
+    named in PENDING. Mirrors the established gen-playtest-guide.py PR-rescue and
+    extends it with a SHA-rescue for commits that expose no PR number at all
+    (direct pushes carry neither a t_ card nor a (#NNN), so only the SHA can
+    honestly represent them). The rescue is STRICT to no-card-id commits — an
+    id-carrying commit whose id is absent from PENDING is still flagged, so a
+    real missed surface that happens to mention a ledgered SHA can't slip through.
     """
     card_ids = set(re.findall(r"t_[a-f0-9]{8}", pending))
     pr_nums = set(re.findall(r"#(\d+)", pending))
+    shas = pending_shas(pending)
     ledgered, exempt, unledgered = [], [], []
     for sha, subject, fulltext in changes:
         if commit_type(subject) in EXEMPT_TYPES:
@@ -157,6 +186,9 @@ def classify_ledgered(changes, pending):
             pr = own_pr_number(subject)
             if pr and pr in pr_nums:
                 ledgered.append((sha, subject, [f"#{pr}"]))
+                continue
+            if sha_named_in_pending(sha, shas):
+                ledgered.append((sha, subject, [sha]))
                 continue
         unledgered.append((sha, subject, sorted(ids)))
     return ledgered, exempt, unledgered
