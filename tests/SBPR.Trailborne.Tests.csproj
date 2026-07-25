@@ -444,6 +444,14 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/AccountStoneParticipationAggregate.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/ApMultiplierPolicy.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/AccountStoneParticipationRegistry.cs" />
+    <!-- RD-T008 (Tracer 3): the donation menu + Stone Stock vertical slice — the authored donation
+         candidate pool / owner-role-selected or default-materialized Donation Menu, the canonical
+         delegated-withdrawal permission record, and the durable coordinator that owns the one virtual
+         Stockpile, atomic idempotent donation, provenance, and the permission grant/revoke lifecycle.
+         Named acceptance AT-RD-013, AT-RD-014, AT-RD-017, AT-RD-018. Engine-free. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/DonationMenu.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/StockWithdrawalPermission.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StoneStockRegistry.cs" />
   </ItemGroup>
 
   <ItemGroup>
