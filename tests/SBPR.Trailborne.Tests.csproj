@@ -452,6 +452,15 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/DonationMenu.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/StockWithdrawalPermission.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StoneStockRegistry.cs" />
+    <!-- Niflheim 0003 (Wayfinder cold-reload harness): the engine-free capture/compare/arming brain of the
+         QA-only live cold-reload harness. HomesteadReloadCapture runs the SHIPPED HomesteadSelector.Select to
+         emit primitive facts; HomesteadReloadComparer is the fail-closed PRE/POST comparator; HomesteadReloadArmingGate
+         is the QA-only enablement + fixture/lease/rollback/production-guard gate. All engine-free (System.* + LINQ),
+         so they compile under net8 here AND net48 in the mod. The net48 capture observer + conformance verifier
+         (Features/ReloadHarness/) reference ZoneSystem/ZDOMan/Harmony and are NOT link-compiled. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadCapture.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadComparer.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadArmingGate.cs" />
   </ItemGroup>
 
   <ItemGroup>

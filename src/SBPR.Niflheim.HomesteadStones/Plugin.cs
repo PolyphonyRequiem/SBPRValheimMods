@@ -281,6 +281,23 @@ namespace SBPR.Niflheim.HomesteadStones
             // next live smoke reads to distinguish an armed surface from the 04efd544 dead-code defect.
             Features.PilotIdentity.OperatorSurfaceConformance.Verify(ModId);
 
+            // Niflheim 0003 — QA-ONLY live cold-reload capture harness. The observer is ALWAYS woven (so its
+            // registration is verifiable at boot and cannot silently rot into dead code), but it is INERT unless
+            // this server-owned config flag is ON *and* a valid OPERATE-supplied QA manifest arms the engine-free
+            // gate. It never saves/terminates/compares — it captures one boot's primitive facts for the external
+            // controller. Default false: on any non-QA boot the harness does nothing. Building/registering this
+            // does NOT prove live reload, persistence, deployment, or playability.
+            harmony.PatchAll(typeof(Features.ReloadHarness.HomesteadReloadCaptureObserver));
+            Features.ReloadHarness.HomesteadReloadCaptureObserver.EnableCaptureHarness = Config.Bind(
+                "ReloadHarness", "EnableColdReloadCaptureHarness", false,
+                "QA ONLY (Wayfinder 0003). When true, the cold-reload capture observer may arm on the authoritative "
+                + "server IF an OPERATE-supplied QA manifest (disposable Astley fixture UID + lease + rollback bytes) "
+                + "passes the engine-free arming gate, capturing one boot's primitive selector/reconciliation facts "
+                + "to the configured evidence dir. It never saves, terminates, or compares — the external controller "
+                + "drives the two boots. Server-owned; not client-settable. Leave false on any non-QA server; it can "
+                + "never target a production Niflheim/Heistan world or port.").Value;
+            Features.ReloadHarness.HomesteadReloadHarnessConformance.Verify(ModId);
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 
