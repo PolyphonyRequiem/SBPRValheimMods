@@ -24,6 +24,25 @@ substrate (`data-model.md` / `spec.md` with the field or FR that backs it) or
 marked **[OPEN → Daniel]** / **[OPEN → RE]**. Where I recommend, the recommendation
 is labelled **[ARCHITECT LEAN]** and is *not* a lock. Nothing here mutates a spec.
 
+> **⚠️ SUPERSESSION NOTICE (2026-07-21) — read before acting on any recommendation below.**
+> This brainstorm's central active recommendation — *"natural party = the shared-Stone
+> cohort as a derived read-model; start with Option 1 (derived view + named grants); do
+> NOT build a Party object/god-object"* (see Decision cluster A, §Option 1, and the
+> §closing "Definition/Start derived" bullets) — has been **SUPERSEDED by explicit owner
+> decision (Daniel, 2026-07-16)**. Daniel settled that **a formal Party object IS required**;
+> the derived shared-Stone cohort (plus Homestead ownership/Attunement and later Friends)
+> is a **discovery/suggestion input**, not Party identity. The settled Party model is
+> ephemeral (logout drops membership; unclean disconnect held for a reconnect-grace
+> timeout), capped at **3 characters (configurable)** and dissolving at one member,
+> **all-peers with no leader**, with **forced removal by majority excluding the target**,
+> and with **Discord integration shelved** to a future horizon. The authoritative statement
+> of the settled model lives in **`party-guild-wayfinder.md` §0.5** — treat that as current.
+> The historical exploration below is **preserved unchanged for evidence and attribution**;
+> where it says "derive, don't build a Party object," read it as the superseded prior lean,
+> not current policy. The still-valid safety constraints it carries (permission-by-intersection
+> never union, no pooled character AP/BP, CharacterId-scoped membership, target-driven Stone
+> authority) remain in force.
+
 ---
 
 ## 0. What the substrate already gives us (grounding)
