@@ -75,6 +75,43 @@ namespace SBPR.Trailborne.Tests
                 "is inert in normal product use.");
         }
 
+        [Fact]
+        public void CaptureObserver_binds_every_input_through_the_configuration_ingress()
+        {
+            // Mutation-sensitive CONFIGURATION guard (the reviewer-proven defect): the observer's four inputs
+            // (Manifest, CaptureOutputDir, Provenance, SaveReceipt) MUST be written from the committed controller
+            // contract via HomesteadReloadConfigurationIngress.Bind before arming. Deleting the Bind call or any
+            // of the four writer assignments turns this RED — the exact "no committed writers" rejection.
+            var src = StripLineComments(ReadObserverSource());
+
+            Assert.Matches(
+                new Regex(@"HomesteadReloadConfigurationIngress\s*\.\s*Bind\s*\(", RegexOptions.Compiled),
+                src);
+
+            foreach (var writer in new[]
+            {
+                @"Manifest\s*=\s*configuration\.Manifest",
+                @"CaptureOutputDir\s*=\s*configuration\.CaptureOutputDir",
+                @"Provenance\s*=\s*configuration\.Provenance",
+                @"SaveReceipt\s*=\s*configuration\.SaveReceipt",
+                @"BoundPhase\s*=\s*configuration\.Phase",
+            })
+                Assert.True(
+                    new Regex(writer, RegexOptions.Compiled).IsMatch(src),
+                    "HomesteadReloadCaptureObserver must bind observer input via the ingress: missing '" + writer +
+                    "'. Without every writer the observer cannot arm — the reviewer-proven reachability defect.");
+        }
+
+        private const string ObserverSource =
+            "src/SBPR.Niflheim.HomesteadStones/Features/ReloadHarness/HomesteadReloadCaptureObserver.cs";
+
+        private static string ReadObserverSource()
+        {
+            var full = Path.Combine(RepoRoot(), ObserverSource);
+            Assert.True(File.Exists(full), "shipped capture observer not found: " + full);
+            return File.ReadAllText(full);
+        }
+
         private static string ReadPluginSource()
         {
             var full = Path.Combine(RepoRoot(), PluginSource);

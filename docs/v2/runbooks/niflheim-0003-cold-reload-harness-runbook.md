@@ -24,11 +24,18 @@ Daniel gate.
 
 - **Logs green ≠ playable, and a built harness ≠ a proven reload.** This harness only *captures* and
   *compares* primitive facts. Compiling it, registering it, and passing its deterministic tests proves
-  the harness *logic* is correct. It does **not** prove that a joined client cold-reloaded a real saved
-  world with a stable assignment set. That proof requires the live `--run` sequence below, executed in a
-  real OPERATE-provisioned window against a disposable Astley `.db/.fwl` fixture that does not yet exist
-  in the repo (an OPERATE environment prerequisite, not a human gate and not permission to fabricate a
-  world).
+  the harness *logic and configuration reachability* are correct — the committed controller can now
+  configure and arm the committed observer fail-closed (previously the observer's manifest/output-dir/
+  provenance/save-receipt inputs had no committed writers, so it always refused). It does **not** prove
+  that a joined client cold-reloaded a real saved world with a stable assignment set. That proof
+  requires the live `--run` sequence below, executed in a real OPERATE-provisioned window.
+- **Residual prerequisites before a live `--run` (BOTH still open, neither a human gate):**
+  1. The disposable Astley `.db/.fwl` fixture at UID `2413287143` does not yet exist in the repo — an
+     OPERATE environment prerequisite, not permission to fabricate a world.
+  2. An OPERATE-provisioned graphical Valheim client window bound to that disposable world (the
+     `VALHEIM_CLIENT_CMD` target), with a real lease, rollback bytes, and the build-provenance hashes
+     the manifest now requires. No such live window is provisioned here; this IMPLEMENT is
+     static/build-harness only and asserts no live verdict.
 - **Forbidden evidence.** An in-process reload, copied state, engine-free selector rerun, warm scene
   transition, or same-process serialization round-trip is NOT reload proof. The PRE and POST captures
   MUST come from two different OS processes / sessions / boot generations, enforced structurally by the
@@ -41,7 +48,8 @@ Daniel gate.
 | Capture core | `src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadCapture.cs` | Runs the SHIPPED `HomesteadSelector.Select`, emits bounded primitive facts, scrubs secrets, fails closed |
 | Fail-closed comparator | `src/…/Domain/ReloadHarness/HomesteadReloadComparer.cs` | PRE/POST identity + count comparison; rejects wrong UID, same process/session, missing save receipt, hash/count/host drift |
 | Arming gate | `src/…/Domain/ReloadHarness/HomesteadReloadArmingGate.cs` | QA-only enablement + lease/rollback/fixture/production-guard/bounded-wait refusals |
-| Live capture observer (net48) | `src/…/Features/ReloadHarness/HomesteadReloadCaptureObserver.cs` | Harmony `ZoneSystem.Start` hook; arms only when enabled + gate-approved; writes one boot's capture |
+| Configuration ingress | `src/…/Domain/ReloadHarness/HomesteadReloadConfigurationIngress.cs` | The ONE default-off writer that binds the controller's `NIFLHEIM_RELOAD_HARNESS_*` env contract into the observer's manifest/output-dir/provenance/save-receipt/phase, fail-closed, armed against the source-fixed fixture UID |
+| Live capture observer (net48) | `src/…/Features/ReloadHarness/HomesteadReloadCaptureObserver.cs` | Harmony `ZoneSystem.Start` hook; binds config via the ingress then arms only when enabled + gate-approved; writes one boot's capture |
 | Registration + conformance | `Plugin.cs` (`PatchAll` + `HomesteadReloadHarnessConformance.Verify`) | Welds the observer into the real client; LOUD boot error if registration is dropped |
 | Controller / runbook | `tools/niflheim-homestead-reload-harness/controller.sh` | Mechanical PRE→save→exit→cold-reload→POST→compare sequence with `--dry-run` refusal |
 | Manifest template | `tools/niflheim-homestead-reload-harness/manifest.example.env` | OPERATE-staged fixture/lease/rollback inputs |
@@ -62,9 +70,14 @@ The controller and the in-client arming gate BOTH refuse unless every item holds
    `WORLD_UID == 2413287143`, a non-production target name/port.
 3. Target world name contains neither `niflheim` nor `heistan`; port is not `2456/2457/2466/2467`.
 4. Bounded, finite, positive waits; at most one readiness retry.
+5. Complete build provenance (`PROV_SOURCE_HASH`/`PROV_PRODUCT_HASH`/`PROV_HARNESS_HASH`) and, on the
+   POST boot only, a real save receipt (`SAVE_PRESENT=true` with a saved-db hash + timestamp).
 
-If the only residual is the missing Astley `.db/.fwl`, that is an OPERATE environment prerequisite —
-report it, do not fabricate a world.
+The controller exports the full `NIFLHEIM_RELOAD_HARNESS_*` environment contract that the in-client
+`HomesteadReloadConfigurationIngress` reads and validates fail-closed. Two residual OPERATE
+prerequisites remain before a live `--run`: the disposable Astley `.db/.fwl` fixture does not yet exist
+in the repo, and no OPERATE-provisioned graphical client window is available. Both are environment
+prerequisites — report them, do not fabricate a world or a window.
 
 ## Dry-run (safe, launches nothing)
 

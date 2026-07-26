@@ -60,6 +60,10 @@ namespace SBPR.Niflheim.HomesteadStones.Features.ReloadHarness
         /// <summary>The save receipt for this boot (present only on a POST boot after a real save).</summary>
         internal static HomesteadReloadSaveReceipt SaveReceipt { get; set; } = HomesteadReloadSaveReceipt.None;
 
+        /// <summary>The intended boot phase, bound from the controller contract by the configuration ingress. Set in
+        /// <see cref="OnZoneSystemStart"/> before capture; defaults PRE until a valid configuration binds.</summary>
+        internal static HomesteadReloadPhase BoundPhase { get; set; } = HomesteadReloadPhase.Pre;
+
         private static ZoneSystem? capturedFor;
 
         [HarmonyPatch(typeof(ZoneSystem), "Start")]
@@ -70,14 +74,24 @@ namespace SBPR.Niflheim.HomesteadStones.Features.ReloadHarness
             if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
             if (ReferenceEquals(capturedFor, __instance)) return;
 
-            var arming = HomesteadReloadArmingGate.Evaluate(Manifest, ResolveExpectedFixtureUid());
-            if (!arming.IsArmed)
+            // CONFIGURATION INGRESS: bind every required observer input (manifest, capture dir, provenance, save
+            // receipt, phase) from the committed controller's out-of-band environment contract, fail-closed. This
+            // is the ONE writer for those four inputs — before it existed the observer always saw Manifest=null and
+            // refused, and the controller→observer handoff was broken.
+            var configuration = HomesteadReloadConfigurationIngress.Bind(Environment.GetEnvironmentVariable);
+            if (!configuration.IsReady)
             {
                 Plugin.Log.LogError(
                     "[Niflheim/ReloadHarness] REFUSED to arm capture: "
-                    + string.Join(" | ", arming.Refusals));
+                    + string.Join(" | ", configuration.Refusals));
                 return;
             }
+
+            Manifest = configuration.Manifest;
+            CaptureOutputDir = configuration.CaptureOutputDir;
+            Provenance = configuration.Provenance;
+            SaveReceipt = configuration.SaveReceipt;
+            BoundPhase = configuration.Phase;
 
             capturedFor = __instance;
             __instance.StartCoroutine(CaptureLoop(__instance));
@@ -89,8 +103,6 @@ namespace SBPR.Niflheim.HomesteadStones.Features.ReloadHarness
         {
             if (ReferenceEquals(capturedFor, __instance)) capturedFor = null;
         }
-
-        private static long ResolveExpectedFixtureUid() => Manifest?.ExpectedWorldUid ?? 0L;
 
         private static System.Collections.IEnumerator CaptureLoop(ZoneSystem zoneSystem)
         {
@@ -138,7 +150,7 @@ namespace SBPR.Niflheim.HomesteadStones.Features.ReloadHarness
             var candidates = BuildCandidates(zoneSystem);
             var reconciliation = BuildReconciliationReceipt(worldUid);
             var phase = Manifest?.ExpectedWorldUid == worldUid
-                ? ResolvePhaseFromSession()
+                ? BoundPhase
                 : throw new HomesteadReloadCaptureException(
                     $"Live world UID {worldUid} != manifest fixture UID {Manifest?.ExpectedWorldUid}; refusing capture.");
 
@@ -160,15 +172,6 @@ namespace SBPR.Niflheim.HomesteadStones.Features.ReloadHarness
                 Provenance,
                 phase == HomesteadReloadPhase.Post ? SaveReceipt : HomesteadReloadSaveReceipt.None,
                 DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
-        }
-
-        private static HomesteadReloadPhase ResolvePhaseFromSession()
-        {
-            // The controller stamps the intended phase via an env/config token on each boot; default PRE.
-            var token = Environment.GetEnvironmentVariable("NIFLHEIM_RELOAD_HARNESS_PHASE");
-            return string.Equals(token, "POST", StringComparison.OrdinalIgnoreCase)
-                ? HomesteadReloadPhase.Post
-                : HomesteadReloadPhase.Pre;
         }
 
         private static List<HomesteadCandidate> BuildCandidates(ZoneSystem zoneSystem) =>

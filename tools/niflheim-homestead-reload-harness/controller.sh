@@ -70,7 +70,8 @@ source "$MANIFEST"
 
 # Required manifest keys. Any missing/empty => refuse.
 for key in LEASE_ID ROLLBACK_BYTES DISPOSABLE_DB DISPOSABLE_FWL TARGET_WORLD_NAME TARGET_PORT \
-           WORLD_UID CAPTURE_DIR VALHEIM_CLIENT_CMD; do
+           WORLD_UID CAPTURE_DIR VALHEIM_CLIENT_CMD \
+           PROV_SOURCE_HASH PROV_PRODUCT_HASH PROV_HARNESS_HASH; do
     if [ -z "${!key:-}" ]; then
         refuse "manifest is missing required key '$key'."
     fi
@@ -144,10 +145,42 @@ wait_for_file() {
 
 launch_boot() {
     # $1 = PRE|POST ; sets launched_pid; the client's HomesteadReloadCaptureObserver
-    # writes homestead-reload-capture-<phase>.txt into $CAPTURE_DIR.
+    # reads the full NIFLHEIM_RELOAD_HARNESS_* configuration contract below, binds it
+    # fail-closed through HomesteadReloadConfigurationIngress, and (only if armed) writes
+    # homestead-reload-capture-<phase>.txt into $CAPTURE_DIR. The variable NAMES here MUST
+    # match HomesteadReloadEnv in the shipped C# ingress byte-for-byte (drift-guarded by test).
     local phase_tag="$1"
+
+    # POST carries a real save receipt (the save landed before the client exit); PRE must not.
+    local save_present="false" save_db_hash="" save_at=""
+    if [ "$phase_tag" = "POST" ]; then
+        save_present="true"
+        if [ -n "${SAVE_RECEIPT_FILE:-}" ] && [ -f "$SAVE_RECEIPT_FILE" ]; then
+            save_db_hash="$(sha256sum "$SAVE_RECEIPT_FILE" | awk '{print $1}')"
+        elif [ -f "$DISPOSABLE_DB" ]; then
+            save_db_hash="$(sha256sum "$DISPOSABLE_DB" | awk '{print $1}')"
+        fi
+        save_at="$(date -u +%Y-%m-%dT%H:%M:%S.0000000Z)"
+    fi
+
     NIFLHEIM_RELOAD_HARNESS_PHASE="$phase_tag" \
     NIFLHEIM_RELOAD_HARNESS_CAPTURE_DIR="$CAPTURE_DIR" \
+    NIFLHEIM_RELOAD_HARNESS_WORLD_UID="$WORLD_UID" \
+    NIFLHEIM_RELOAD_HARNESS_LEASE_ID="$LEASE_ID" \
+    NIFLHEIM_RELOAD_HARNESS_ROLLBACK_HASH="$(sha256sum "$ROLLBACK_BYTES" | awk '{print $1}')" \
+    NIFLHEIM_RELOAD_HARNESS_DISPOSABLE_DB_PRESENT="$([ -f "$DISPOSABLE_DB" ] && echo true || echo false)" \
+    NIFLHEIM_RELOAD_HARNESS_DISPOSABLE_FWL_PRESENT="$([ -f "$DISPOSABLE_FWL" ] && echo true || echo false)" \
+    NIFLHEIM_RELOAD_HARNESS_TARGET_WORLD_NAME="$TARGET_WORLD_NAME" \
+    NIFLHEIM_RELOAD_HARNESS_TARGET_PORT="$TARGET_PORT" \
+    NIFLHEIM_RELOAD_HARNESS_READINESS_WAIT_SECONDS="${READINESS_WAIT_SECONDS:-300}" \
+    NIFLHEIM_RELOAD_HARNESS_PHASE_WAIT_SECONDS="${PHASE_WAIT_SECONDS:-60}" \
+    NIFLHEIM_RELOAD_HARNESS_READINESS_RETRIES="${READINESS_RETRIES:-1}" \
+    NIFLHEIM_RELOAD_HARNESS_PROV_SOURCE_HASH="$PROV_SOURCE_HASH" \
+    NIFLHEIM_RELOAD_HARNESS_PROV_PRODUCT_HASH="$PROV_PRODUCT_HASH" \
+    NIFLHEIM_RELOAD_HARNESS_PROV_HARNESS_HASH="$PROV_HARNESS_HASH" \
+    NIFLHEIM_RELOAD_HARNESS_SAVE_PRESENT="$save_present" \
+    NIFLHEIM_RELOAD_HARNESS_SAVE_DB_HASH="$save_db_hash" \
+    NIFLHEIM_RELOAD_HARNESS_SAVE_AT_UTC="$save_at" \
         $VALHEIM_CLIENT_CMD &
     launched_pid=$!
     log "$phase_tag boot: launched client pid $launched_pid"

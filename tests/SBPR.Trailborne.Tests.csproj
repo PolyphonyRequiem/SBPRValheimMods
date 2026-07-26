@@ -461,6 +461,7 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadCapture.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadComparer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadArmingGate.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ReloadHarness/HomesteadReloadConfigurationIngress.cs" />
   </ItemGroup>
 
   <ItemGroup>
