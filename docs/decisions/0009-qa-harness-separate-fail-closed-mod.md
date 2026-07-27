@@ -849,6 +849,32 @@ acceptance content is folded into Appendices A and B above.
   > hook, Unity/game mutation, craft/tamper execution, deployment, runtime, or runner
   > verdict** — the helper emits primitive facts only (never an AT PASS), and the live
   > qualification is the separate operator-authorized M6 card.
+  >
+  > **Binding note (2026-07-26, card t_706e33be).** The engine-bound **net48
+  > action/observation binding slice** now realizes the M4 seam interfaces against
+  > the live vanilla members the PR #408 map pins (`qa/SBPR.QaHarness.T022/Runtime/
+  > GameActionObservationSupport.cs`, `GameActionAdapter.cs`, `GameObservationAdapter.cs`):
+  > `IActionAdapter` (Craft/UpgradeItem drive the private `InventoryGui.SetRecipe`→
+  > `OnCraftPressed`→`UpdateRecipe`→`DoCrafting` issuance seam via `AccessTools` and
+  > OBSERVE the result — never claiming the harness minted the stamp; DropItem/
+  > PickUpNearest ride `Humanoid.DropItem`/`ItemDrop.DropItem`/`Humanoid.Pickup`;
+  > TamperField mutates `ItemDrop.ItemData.m_customData` in-memory strictly behind the
+  > engine-free `TamperPolicy`), `IObservationAdapter` (`Inventory.GetItem`,
+  > `ItemDrop.ItemData.GetTooltip`, `ZNet.GetWorldUID/GetWorldName`, all main-thread),
+  > and `IPeerBindingAdapter` (binds the ACTUAL delivering peer via the private
+  > `ZNet.GetPeer(ZRpc)`, ignoring any envelope-claimed identity). Every game-touching
+  > call is routed through the EXISTING single-slot, timeout-bounded `ControlDispatcher`
+  > and takes **no** `Terminal`/`ScriptTools`/`ValBridge` lock (threat T6;
+  > `AT-QA-NO-SCRIPTTOOLS-LOCK` stays green). Every emitted receipt is firewalled by the
+  > engine-free `ReceiptFirewall`/`ProductFirewall` (no verdict, no product-state claim,
+  > raw values digested). Every adapter member cites its PR #408 binding in a
+  > `TODO(PR408 §x.y)` reference — **no decompiled body**, no publicized game DLL. The
+  > slice **compiles 0w/0e against the live `assembly_valheim`** (which resolves each
+  > member more strictly than a signature grep). **Maturity is unchanged: still no live
+  > channel, socket, ZRpc, Harmony hook, Unity/game mutation, craft/tamper execution,
+  > deployment, runtime, or runner verdict** — compiling + engine-free unit-passing is
+  > NOT "live", NOT deployed, NOT playtested; in-world qualification remains the separate
+  > operator-authorized M6 card.
 - **QA-M5** engineer: QA bundle manifest + sha256 pin + drift rejection + deploy
   hash pinning.
 
