@@ -712,6 +712,38 @@ deferred to M4 but are required before M6.**
   > a live run POSSIBLE, not PERFORMED. Nothing is launched, deployed, or run in-world on
   > this card; the four T022 ATs remain unobserved. M6 live qualification is still the
   > separate operator authorization below.**
+  >
+  > **Implementation note (M6-COMPOSE, live-execution COMPOSITION — executable, NOT
+  > executed).** A follow-up card supplied the missing **composition entrypoint** the
+  > three prior M6 attempts blocked on: the M6-EXEC slice merged the live transport, the
+  > four operator-driver DI classes, and the fail-closed preflight, but **nothing wired
+  > them into a run** — `--live` verified the preflight and returned. Delivered, engine-
+  > free Python under `qa/runner/runner_core/live_composition.py` + tests: (a)
+  > `run_live_qualification(plan, env)` — the single function that instantiates the live
+  > transport, constructs the four drivers with their concrete callables, and DRIVES lane
+  > → two licensed clients → authorized `sbpr_master` OFFER→BUY seed → the four T022 legs
+  > over the wire → the sole-authority `T022RunOrchestrator` verdict, tearing down every
+  > started resource (clients, lane, transport, adminlist byte-restore, lease) on EVERY
+  > exit path — success, failure, timeout, exception, abort — with nothing orphaned; a
+  > launch/drive failure records the fault and falls through to teardown, never masking
+  > into a PASS. (b) `real_operator_environment()` — the concrete subprocess/socket/file
+  > operator callables (the layer that genuinely spawns `valheim.x86_64` under the two
+  > licensed identities via `subprocess.Popen`, probes lane readiness by an explicit log
+  > marker — no blind sleep, enumerates running clients via `/proc` so a user-owned client
+  > is never co-opted, and relays the product's own OFFER→BUY admin path — the harness
+  > still mints NOTHING, threats T3/T5). Every game-touching action is injected behind a
+  > callable on `LiveOperatorEnvironment`, so the composition is driven end-to-end in the
+  > test suite against STUB operator callables (lane launched, both clients launched,
+  > entitlement seeded via OFFER→BUY, all four legs driven, verdict composed from real
+  > receipts, teardown executed) with NO real game. (c) `--live` now, on preflight UNLOCK
+  > **with** a `--run-descriptor`, invokes the composition and reports the composed verdict
+  > — the "UNLOCKED but not executed here" deferral is REMOVED (a regression test guards
+  > that string can never return). The FSM `Transport` **Protocol is UNCHANGED** and
+  > `qa/runner/fsm/*` is byte-unchanged, so the 32-case invariant suite still binds;
+  > `--dry-run` stays the default and fully working. **Maturity: this makes a live run
+  > EXECUTABLE, not EXECUTED. Nothing is launched, deployed, or run in-world on this card;
+  > the four T022 ATs remain unobserved. M6 live qualification is still the separate
+  > operator authorization below.**
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;

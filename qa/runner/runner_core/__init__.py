@@ -24,6 +24,15 @@ from __future__ import annotations
 
 from .evidence import EvidenceDocument
 from .lease import LaneLease, LaneLeaseError
+from .live_composition import (
+    LiveOperatorEnvironment,
+    LiveQualificationPlan,
+    LiveRunReport,
+    RealOperatorConfig,
+    build_live_run,
+    real_operator_environment,
+    run_live_qualification,
+)
 from .live_preflight import (
     LiveModeRefused,
     LivePreflightResult,
@@ -63,17 +72,24 @@ __all__ = [
     "LaneSpec",
     "LiveLoopbackTransport",
     "LiveModeRefused",
+    "LiveOperatorEnvironment",
     "LivePreflightResult",
+    "LiveQualificationPlan",
     "LiveReceiptAdapter",
     "LiveRunConfig",
+    "LiveRunReport",
     "OperatorSafetyError",
     "PhaseBudget",
     "PhaseTimeoutError",
     "PhaseTimeoutTransport",
     "PinDriftError",
+    "RealOperatorConfig",
     "RunManifestError",
     "RunnerVerdict",
     "SeedResult",
     "T022RunOrchestrator",
+    "build_live_run",
     "evaluate_live_preflight",
+    "real_operator_environment",
+    "run_live_qualification",
 ]
