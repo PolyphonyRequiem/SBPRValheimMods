@@ -89,7 +89,11 @@ namespace SBPR.QaHarness.T022
             }
 
             // 2. Assembly / MVID drift guard (PR #408 binding pins) — fail closed on mismatch.
-            DriftCheck drift = AssemblyDriftGuard.Check(GameAssemblyProbe.Read());
+            //    Route the observer's version-read diagnostics through the logger: a silent
+            //    empty version read here (Invoke arity bug) masqueraded as a real observation and
+            //    cost the entire M6-PIN chain (M6-OBSERVER). Warnings surface it next time.
+            DriftCheck drift = AssemblyDriftGuard.Check(
+                GameAssemblyProbe.Read(msg => Logger.LogWarning(msg)));
             if (!drift.Ok)
             {
                 Logger.LogWarning($"SBPRQA: assembly drift ({drift.Reason}); staying DISARMED.");

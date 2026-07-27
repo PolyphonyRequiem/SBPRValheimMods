@@ -76,13 +76,18 @@ namespace SBPR.QaHarness.T022.Runtime
     /// </summary>
     internal static class GameAssemblyProbe
     {
-        public static ObservedGameAssembly? Read()
+        public static ObservedGameAssembly? Read(Action<string>? warn = null)
         {
             try
             {
                 Assembly asm = typeof(ZNet).Assembly;
                 Guid mvid = asm.ManifestModule.ModuleVersionId;
-                string version = ReadVersionString();
+                // Delegate the version-string read to the engine-free GameVersionReader so the
+                // arity handling + CurrentVersion fallback are exercised by the headless suite.
+                // The reader supplies the mandatory `false` argument to GetVersionString(bool) —
+                // Invoke does NOT apply optional-parameter defaults, which is exactly the bug
+                // that left this observer returning string.Empty on every call (M6-OBSERVER).
+                string version = GameVersionReader.Read(typeof(ZNet).Assembly.GetType("Version"), warn);
                 uint net = ReadNetworkVersion();
                 return new ObservedGameAssembly(mvid, version, net);
             }
@@ -90,27 +95,6 @@ namespace SBPR.QaHarness.T022.Runtime
             {
                 return null; // guard fails closed on a null observation
             }
-        }
-
-        private static string ReadVersionString()
-        {
-            try
-            {
-                // Version.GetVersionString() is the public vanilla accessor; fall back to the
-                // CurrentVersion field if the accessor shape ever changes.
-                var t = typeof(ZNet).Assembly.GetType("Version");
-                if (t != null)
-                {
-                    var m = t.GetMethod("GetVersionString", BindingFlags.Public | BindingFlags.Static);
-                    if (m != null)
-                    {
-                        var s = m.Invoke(null, null) as string;
-                        if (!string.IsNullOrEmpty(s)) return s!;
-                    }
-                }
-            }
-            catch (Exception) { /* fall through */ }
-            return string.Empty;
         }
 
         private static uint ReadNetworkVersion()
