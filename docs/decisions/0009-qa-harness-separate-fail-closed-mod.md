@@ -771,6 +771,40 @@ deferred to M4 but are required before M6.**
   > entitlement seeding POSSIBLE on the real wire, not PERFORMED. Nothing runs in-world; the
   > four T022 ATs remain unobserved. M6 live qualification is still the separate operator
   > authorization below.**
+  >
+  > **Implementation note (M6-LAUNCH, GABS-mediated client boot — launch POSSIBLE, NOT
+  > performed).** The M6-COMPOSE `real_operator_environment().spawn_client` launched a
+  > **bare** `valheim.x86_64` via `subprocess.Popen([binary_path])`: no BepInEx/doorstop
+  > injection, no `SBPR_QA_T022_BOOTSTRAP` env, no `+connect` join. The helper therefore
+  > never armed (`Plugin.cs` `BootstrapEnvVar` gate), never bound its loopback control
+  > port, and `LiveLoopbackTransport` got connection-refused → verdict None → exit 1.
+  > Delivered, engine-free Python: (a) `operator_drivers.py` grows `ClientSpec` **additive**
+  > fields (`gabs_endpoint`, `game_id`, `bootstrap_path`, `connect_host`, `connect_port`,
+  > `loopback_port`), a `BootRetryPolicy` (re-roll envelope: `max_attempts`,
+  > `readiness_timeout_s`, `poll_interval_s`), a `ClientLaunchRequest` (the resolved launch
+  > carrying the bootstrap env var, the identity env, the `+connect host:port` argv, the
+  > GABS endpoint/gameId, and the loopback port), and a `GabsClientBooter` that boots one
+  > client through its GABS/MCP endpoint (`games_start`/`games_kill`), publishes the
+  > bootstrap + identity env, then **polls the helper's loopback control port** for armed
+  > readiness — re-rolling the whole boot up to `max_attempts` to escape the known
+  > intermittent ValBridge startup-scene wedge (`boot-qa-client.sh` practice), failing
+  > closed with a **named diagnostic** (never a blind sleep, never a dead handle). `kill`
+  > tears the client down via `games_kill` + a verified process-gone check and refuses any
+  > handle it did not produce. (b) `real_operator_environment().spawn_client`/`stop_client`
+  > now drive the booter with concrete `urllib`/`socket`/`time` seams (GABS POST, loopback
+  > connect probe, poll sleep); `build_live_run` threads the descriptor's per-client GABS
+  > fields + a `server.boot_policy` into the specs/config. Every game-touching action is an
+  > injected callable, so the acceptance suite proves the CONSTRUCTED launch request/argv/env
+  > actually contains the bootstrap env var, the correct `+connect` target (port 2476), the
+  > GABS endpoint/gameId, and the loopback port — plus that readiness polling RETRIES on a
+  > simulated ValBridge wedge and eventually fails closed with a named diagnostic, closing
+  > the "a Popen was returned" stub defect class. **T6 unchanged: GABS/MCP is used for boot
+  > readiness ONLY; the four AT legs still ride `LiveLoopbackTransport`, never USH, and the
+  > ValBridge/ScriptTools lock is never acquired (`AT-QA-NO-SCRIPTTOOLS-LOCK` holds).** The
+  > FSM `Transport` Protocol is UNCHANGED and `qa/runner/fsm/*` byte-unchanged. **Maturity:
+  > this makes a client launch POSSIBLE, not PERFORMED. Nothing runs in-world; the four T022
+  > ATs remain unobserved. M6 live qualification is still the separate operator
+  > authorization below.**
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;

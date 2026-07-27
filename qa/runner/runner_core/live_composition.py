@@ -61,9 +61,12 @@ from .manifest import ArtifactPinManifest
 from .lease import LaneLease
 from .operator_drivers import (
     AdminlistGuard,
+    BootRetryPolicy,
+    ClientLaunchRequest,
     ClientSpec,
     DualClientLauncher,
     EntitlementSeeder,
+    GabsClientBooter,
     LaneLauncher,
     LaneSpec,
     LICENSED_STEAM_IDENTITIES,
@@ -283,6 +286,14 @@ class RealOperatorConfig:
     # run MUST supply it; without it there is no authorized delivery path and the run
     # fails closed (no minting, ever).
     entitlement_delivery: EntitlementDeliveryConfig
+    # Boot-retry envelope for the intermittent ValBridge startup-scene wedge. A
+    # single-shot launch is unreliable on this box (boot-qa-client.sh re-rolls up to
+    # 6× polling readiness every 10s for up to 150s); the booter honours this policy.
+    boot_policy: BootRetryPolicy = field(default_factory=BootRetryPolicy)
+    # Timeout (seconds) for a single GABS/MCP HTTP request and for the loopback
+    # control-port readiness probe. Small — these are localhost round-trips.
+    gabs_request_timeout_s: float = 10.0
+    control_probe_timeout_s: float = 3.0
 
 
 def _proc_running_valheim_binaries() -> List[str]:
@@ -338,22 +349,90 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
     def stop_lane(handle: object) -> None:
         _terminate(handle)
 
-    def spawn_client(spec: ClientSpec) -> subprocess.Popen:
-        # Launch valheim.x86_64 under the licensed Steam identity the spec names. The
-        # identity is passed through the environment the product/Steam layer reads; we
-        # never mint or spoof it — the client authenticates itself.
-        child_env = dict(os.environ)
-        child_env["SteamAppId"] = child_env.get("SteamAppId", "892970")
-        child_env["SBPR_QA_STEAM_ID"] = spec.steam_id
-        return subprocess.Popen(
-            [spec.binary_path],
-            env=child_env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    # --- GABS-mediated modded client boot (the attempt-7 fix) --------------------- #
+    # A bare `subprocess.Popen([binary_path])` produced a client that never injected
+    # BepInEx, never received SBPR_QA_T022_BOOTSTRAP, never `+connect`ed the lane, and
+    # therefore never armed or bound its loopback control port. We instead drive the
+    # client through its GABS/MCP endpoint (games_start / games_kill) exactly as
+    # boot-qa-client.sh does on this box, publish the bootstrap + identity env, and
+    # poll the helper's loopback control port for armed readiness — re-rolling on the
+    # intermittent ValBridge startup wedge. T6: this touches GABS/MCP for boot only; it
+    # NEVER acquires the ValBridge/ScriptTools lock and the four AT legs still ride the
+    # LiveLoopbackTransport, not USH.
+    import json as _json
+    import socket as _socket
+    import time as _time
+    import urllib.request as _urlreq
+
+    def _mcp_call(request: ClientLaunchRequest, tool: str) -> None:
+        payload = _json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": {"gameId": request.game_id}},
+            }
+        ).encode()
+        req = _urlreq.Request(
+            request.gabs_endpoint,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
+        with _urlreq.urlopen(req, timeout=config.gabs_request_timeout_s):
+            pass
+
+    def _gabs_start(request: ClientLaunchRequest) -> None:
+        _mcp_call(request, "games_start")
+
+    def _gabs_kill(request: ClientLaunchRequest) -> None:
+        _mcp_call(request, "games_kill")
+
+    def _apply_env(request: ClientLaunchRequest) -> None:
+        # The GABS-launched process inherits this process's environment; publish the
+        # bootstrap + identity env before games_start so the helper arms. SteamAppId is
+        # set by the game's own run wrapper (run-trailborne.sh); we set only ours.
+        for key, value in request.launch_env.items():
+            os.environ[key] = value
+
+    def _control_ready(request: ClientLaunchRequest) -> bool:
+        # Armed-readiness signal: the helper binds its loopback control port only AFTER
+        # the full arming AND-gate passes (Plugin.cs:57-62, ControlPlaneComponent). A
+        # successful loopback TCP connect is the explicit proof it armed. NOT a sleep.
+        try:
+            with _socket.create_connection(
+                ("127.0.0.1", request.loopback_port),
+                timeout=config.control_probe_timeout_s,
+            ):
+                return True
+        except OSError:
+            return False
+
+    def _process_gone(request: ClientLaunchRequest) -> bool:
+        # Teardown verification: after games_kill the loopback control port must stop
+        # accepting connections (the armed helper is gone). Fail closed if it lingers.
+        return not _control_ready(request)
+
+    booter = GabsClientBooter(
+        apply_env=_apply_env,
+        gabs_start=_gabs_start,
+        gabs_kill=_gabs_kill,
+        control_ready=_control_ready,
+        process_gone=_process_gone,
+        sleep=_time.sleep,
+        policy=config.boot_policy,
+    )
+
+    def spawn_client(spec: ClientSpec) -> ClientLaunchRequest:
+        # Boot to armed readiness through GABS, re-rolling on the ValBridge wedge, and
+        # return the live request handle. Raises ClientLaunchError (naming the stage)
+        # rather than returning a dead handle if it never arms.
+        return booter.boot(spec)
 
     def stop_client(handle: object) -> None:
-        _terminate(handle)
+        # Deterministic GABS teardown + verified process-gone check. Refuses to touch
+        # anything but a request this booter produced (never a foreign valheim.x86_64).
+        booter.kill(handle)
 
     # The delivering entitlement seam: relay the product OFFER→BUY admin command over
     # the SAME owner-local control transport the four legs ride. Built ONCE here, bound
@@ -429,7 +508,21 @@ def build_live_run(
         port=int(lane_d["port"]),
     )
     clients = tuple(
-        ClientSpec(actor=str(c["actor"]), steam_id=str(c["steam_id"]), binary_path=str(c["binary_path"]))
+        ClientSpec(
+            actor=str(c["actor"]),
+            steam_id=str(c["steam_id"]),
+            binary_path=str(c["binary_path"]),
+            # Additive GABS-launch fields. Present in a real live descriptor so the
+            # client is booted modded+armed+joined; a bare descriptor (older shape)
+            # still parses, and the GABS booter fails closed at build_request time on
+            # any missing field rather than silently launching a bare binary.
+            gabs_endpoint=(str(c["gabs_endpoint"]) if c.get("gabs_endpoint") is not None else None),
+            game_id=str(c.get("game_id", "valheim")),
+            bootstrap_path=(str(c["bootstrap_path"]) if c.get("bootstrap_path") is not None else None),
+            connect_host=(str(c["connect_host"]) if c.get("connect_host") is not None else None),
+            connect_port=(int(c["connect_port"]) if c.get("connect_port") is not None else None),
+            loopback_port=(int(c["loopback_port"]) if c.get("loopback_port") is not None else None),
+        )
         for c in descriptor["clients"]
     )
 
@@ -497,6 +590,14 @@ def build_live_run(
         expiry_unix_ms=int(wire["expiry_unix_ms"]),
         connection_generation=int(ent_d.get("connection_generation", 1)),
     )
+    # Boot-retry policy for the intermittent ValBridge startup wedge (additive; the
+    # descriptor may override the safe defaults). Named per the launch card.
+    boot_d = srv.get("boot_policy", {})
+    boot_policy = BootRetryPolicy(
+        max_attempts=int(boot_d.get("max_attempts", 6)),
+        readiness_timeout_s=float(boot_d.get("readiness_timeout_s", 150.0)),
+        poll_interval_s=float(boot_d.get("poll_interval_s", 10.0)),
+    )
     env = real_operator_environment(
         RealOperatorConfig(
             server_binary=str(srv["server_binary"]),
@@ -506,6 +607,9 @@ def build_live_run(
             client_binary=str(srv["client_binary"]),
             adminlist_path=str(srv["adminlist_path"]),
             entitlement_delivery=entitlement_delivery,
+            boot_policy=boot_policy,
+            gabs_request_timeout_s=float(srv.get("gabs_request_timeout_s", 10.0)),
+            control_probe_timeout_s=float(srv.get("control_probe_timeout_s", 3.0)),
         )
     )
     return plan, env
