@@ -58,6 +58,7 @@ src/**/obj/
 # Transient PR handoff artifacts (format-patch dumps, bundles, full-diffs)
 .pr-c-handoff/
 /dist/
+/qa/dist/
 /.ci/
 
 # Python bytecode cache

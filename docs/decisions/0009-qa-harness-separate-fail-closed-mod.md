@@ -653,6 +653,38 @@ deferred to M4 but are required before M6.**
     product public seams only; no decompiled/other-mod source.
 - **M5 — packaging + drift + deploy pinning.** QA bundle manifest + sha256 pin;
   drift rejection; deployed-DLL hash review + launch-controller fail-closed.
+
+  > **Implementation note (2026-07-26, card t_ded26114).** M5 landed the external
+  > **deterministic T022 runner** + the **QA overlay packer**, DRY-RUN only. The
+  > runner adopts the transport-neutral engine-free FSM core (`qa/runner/fsm/`, 8
+  > phases, 32 no-false-PASS pytest cases) unchanged and wraps it in the ADR
+  > operational envelope under `qa/runner/runner_core/`: an exclusive disposable-lane
+  > lease (§5.3, threaded into the FSM `RunContext` so its own `CompetingLeaseError`
+  > fires when unheld), an immutable **6-part artifact-pin manifest**
+  > (product/helper/game/BepInEx/Harmony/scenario, §5.1/§8) with drift rejection,
+  > **per-phase timeout budgets** layered on the FSM's single global deadline (§3.2),
+  > correlated **evidence-document** composition (§6), and **final verdict authority**
+  > — a runner PASS requires FSM-PASS **and** a held lease **and** verified pins **and**
+  > correlated evidence, any one missing forcing FAIL (the runner is the SOLE PASS
+  > emitter, §6). `qa/runner/sbpr-qa-t022.py --dry-run --scenario <name>` replays every
+  > path through the real orchestrator against the deterministic `FakeTransport`:
+  > success (the only PASS) + each leg fail + missing/duplicate/tampered/stale/reordered
+  > receipt + crash + per-phase timeout + global deadline + cleanup-crash + pin-drift +
+  > competing-lease. `AT-QA-T022-COLD-30MIN` is realized here as a **timing model only**
+  > — NOT a real 30-minute cold run. The **QA overlay packer** (`scripts/pack-qa-overlay.py`)
+  > builds a deterministic bundle (helper DLL + Python runner + disposable-world profile)
+  > with a 6-part SHA-256 manifest folded to one reproducible `overlay_digest`, fail-closed
+  > drift `verify`, a `rollback` snapshot path, short retention, and an explicit
+  > disposable-lane sentinel carrying the hard production deny list. The overlay is
+  > **structurally excluded** from the product modpack two ways: its output lives under
+  > `qa/dist/` (a `qa/` subtree the production-exclusion guard rejects by normalized path)
+  > and a packed helper DLL is caught by the guard's content signature even renamed —
+  > CI proves the latter against the real freshly-built net48 helper DLL. Coverage:
+  > 84 runner pytest + 18 QA isolation/packaging unittest, all green; `qa/tests-core`
+  > (343/343) and the net48 Release builds are unchanged (this card touches no C#).
+  > Spec: `qa/spec/QA-M5-runner-packaging-contract.md`. **Maturity: DRY-RUN /
+  > SIMULATED — nothing launched, deployed, or run in-world; the four T022 ATs are NOT
+  > observed. Live qualification remains the separate operator-authorized M6 card.**
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;
