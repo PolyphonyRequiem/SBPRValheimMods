@@ -824,6 +824,45 @@ deferred to M4 but are required before M6.**
   > this makes a client launch POSSIBLE, not PERFORMED. Nothing runs in-world; the four T022
   > ATs remain unobserved. M6 live qualification is still the separate operator
   > authorization below.**
+  >
+  > **Implementation note (M6-LAUNCHENV, arming env delivery across the GABS daemon fork —
+  > launch POSSIBLE, NOT performed).** M6-LAUNCH published the three arming vars
+  > (`SBPR_QA_T022_BOOTSTRAP`, `SBPR_QA_HARNESS_INSTANCE`, `SBPR_QA_STEAM_ID`) by mutating
+  > the **runner's** `os.environ`, then fired `games_start` at a long-lived GABS daemon over
+  > HTTP. The daemon forks `valheim.x86_64` with the **daemon's** environment — never the
+  > runner's — so the child inherited none of them (proven at runtime by `t_2a954860`: the
+  > launched client's `/proc/<pid>/environ` carried only `GABP_*`). The helper never armed
+  > and the runner could not find its provenance marker to tear down, orphaning the client.
+  > This shipped green because every M6-LAUNCH test **stubbed the boot** — the daemon-fork
+  > seam was never crossed. **Verified mechanism (probed on this host against the deployed
+  > `gabs 1c23db6`, not assumed):** this GABS build accepts **no** per-launch env in the
+  > `games_start` MCP request (schema is `{gameId}` only) and has **no** env field in the
+  > game config; the controller propagates only the daemon's `os.Environ()` + the fixed
+  > `GABP_*`/`GABS_*` bridge vars. The launch target is a **wrapper script** (`DirectPath` →
+  > `run-trailborne.sh`), which is the only seam that can inject per-launch env into the
+  > forked child. **Delivered:** the runner writes the three vars to a per-launch **sidecar
+  > env file** (`runner_core/launch_env.py` `SidecarWriter`) at a path derived from the
+  > launching user's `$HOME` + `$GABS_GAME_ID`; each lane's wrapper (`run-trailborne.sh` for
+  > the poly lane, the valbot Steam-LaunchOptions wrapper for the uid-1001 lane, which reads
+  > a primary-owned cross-user path because valbot cannot read the runner's 0700 home)
+  > `source`s the sidecar just before `exec`ing the game, so the vars cross the fork into the
+  > child. The sidecar carries ONLY the three **non-secret** vars (a bootstrap-doc path, a
+  > public SteamID, a random marker) and is written 0644; the **HMAC secret + operator
+  > token** live solely in the mode-0600 bootstrap doc the sidecar points at. `_apply_env`
+  > now writes the sidecar (not `os.environ`); teardown removes both the sidecar and the
+  > secret-bearing doc on every exit path. **Bootstrap-doc provisioning** is no longer
+  > hand-authored: `runner_core/bootstrap_provision.py` `BootstrapProvisioner` **emits** each
+  > client's arm doc from the descriptor's `wire`/`pins`/`lane` before launch, so a doc can
+  > never drift from the wire block (the stale-doc failure that pinned helper `8436e740`
+  > against deployed `135f6029`). `ClientSpec`/`ClientLaunchRequest` gain an additive
+  > `launch_env_path`; `build_request` fails closed when it is absent AND now applies the B2
+  > production-`+connect` deny FIRST so a production typo can never be masked by another
+  > missing field. **The `/proc/<pid>/environ` acceptance test is REAL, not stubbed**
+  > (`tests/test_launch_env_sidecar_delivery.py`): it stands up an actual `gabs` daemon,
+  > fires a real `games.start`, and asserts the genuinely forked child's environ carries all
+  > three vars — locally-gated (skips where no `gabs` binary, e.g. CI) and proven to FAIL
+  > when the pre-fix `os.environ` path is reinstated. **T6 unchanged; the four AT legs still
+  > ride `LiveLoopbackTransport`. Maturity: still POSSIBLE, not PERFORMED.**
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;

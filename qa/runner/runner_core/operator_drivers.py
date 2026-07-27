@@ -193,6 +193,16 @@ class ClientSpec:
     connect_host: Optional[str] = None    # lane host to `+connect` to
     connect_port: Optional[int] = None    # lane join port (the disposable lane, e.g. 2476)
     loopback_port: Optional[int] = None   # the helper's loopback control port to poll for armed-readiness
+    # Absolute path of the launch-env SIDECAR this client's wrapper reads. The GABS
+    # daemon forks the client with the daemon's env, NOT the runner's — so the arming
+    # vars cannot be delivered by mutating the runner's `os.environ`. Instead the runner
+    # writes them to this sidecar file and the launch wrapper (`run-trailborne.sh` and
+    # the valbot controller chain) sources it just before `exec`ing the game. Each
+    # client's wrapper reads a path derived from ITS launching user's `$HOME` +
+    # `$GABS_GAME_ID`; the descriptor names that exact path here so the runner writes
+    # where the wrapper will read (the two lanes launch as different users). Absent on
+    # legacy/unit specs; the real booter requires it (fail closed at build_request).
+    launch_env_path: Optional[str] = None
 
 
 class DualClientLauncher:
@@ -333,6 +343,7 @@ class ClientLaunchRequest:
     connect_target: str                    # "host:port" the client `+connect`s to
     launch_env: Mapping[str, str]          # env the launched process must inherit
     connect_args: Sequence[str]            # the `+connect host:port` argv fragment
+    launch_env_path: str                   # abs path of the sidecar the wrapper sources
 
     @property
     def bootstrap_env_value(self) -> Optional[str]:
@@ -440,6 +451,12 @@ class GabsClientBooter:
         rejected HERE, before any launch, through the same production deny used by the
         lane launcher / preflight — so a client can never be pointed at production.
         """
+        # B2 hard deny FIRST: if a connect_port is present, a production server port is
+        # rejected before anything else — a production typo must never be masked by some
+        # OTHER field being absent. Only when connect_port itself is missing do we fall
+        # through to the missing-field report.
+        if spec.connect_port is not None:
+            assert_connect_target_not_production(int(spec.connect_port))
         missing = [
             name
             for name, val in (
@@ -448,6 +465,7 @@ class GabsClientBooter:
                 ("connect_host", spec.connect_host),
                 ("connect_port", spec.connect_port),
                 ("loopback_port", spec.loopback_port),
+                ("launch_env_path", spec.launch_env_path),
             )
             if val is None
         ]
@@ -457,8 +475,6 @@ class GabsClientBooter:
                 f"launch fields {missing}; a bare-binary launch would never arm "
                 "(bootstrap/join/loopback all absent)"
             )
-        # B2 hard deny: the client join target may never be a production server port.
-        assert_connect_target_not_production(int(spec.connect_port))  # type: ignore[arg-type]
         # mypy/readers: the None-guard above proves these are set.
         connect_target = f"{spec.connect_host}:{spec.connect_port}"
         # Unique per-boot provenance marker the harness injects and later matches on.
@@ -476,6 +492,7 @@ class GabsClientBooter:
             connect_target=connect_target,
             launch_env=launch_env,
             connect_args=("+connect", connect_target),
+            launch_env_path=str(spec.launch_env_path),
         )
 
     def boot(self, spec: ClientSpec) -> ClientLaunchRequest:

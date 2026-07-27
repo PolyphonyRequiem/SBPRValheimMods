@@ -41,6 +41,7 @@ LANE_PORT = 2476  # the genuine disposable-lane join port (t_c4261da7 world_uid=
 LOOPBACK_PORT = 48610
 GABS_ENDPOINT = "http://localhost:8080/mcp"
 BOOTSTRAP_PATH = "/run/sbpr-qa/arm-bootstrap-client_a.json"
+LAUNCH_ENV_PATH = "/home/qa/.local/share/sbpr-qa/launch-env/valheim.env"
 
 
 def _spec(actor="client_a", **overrides) -> ClientSpec:
@@ -54,6 +55,7 @@ def _spec(actor="client_a", **overrides) -> ClientSpec:
         connect_host=LANE_HOST,
         connect_port=LANE_PORT,
         loopback_port=LOOPBACK_PORT,
+        launch_env_path=LAUNCH_ENV_PATH,
     )
     kwargs.update(overrides)
     return ClientSpec(**kwargs)
@@ -189,7 +191,7 @@ def test_build_request_fails_closed_when_launch_fields_missing() -> None:
     with pytest.raises(ClientLaunchError) as ei:
         GabsClientBooter.build_request(bare)
     msg = str(ei.value)
-    for field in ("gabs_endpoint", "bootstrap_path", "connect_host", "connect_port", "loopback_port"):
+    for field in ("gabs_endpoint", "bootstrap_path", "connect_host", "connect_port", "loopback_port", "launch_env_path"):
         assert field in msg
 
 
@@ -408,6 +410,7 @@ def test_build_live_run_carries_gabs_launch_fields_into_client_specs() -> None:
                 "gabs_endpoint": "http://localhost:8080/mcp", "game_id": "valheim",
                 "bootstrap_path": "/run/sbpr-qa/boot-a.json",
                 "connect_host": "127.0.0.1", "connect_port": 2476, "loopback_port": 48610,
+                "launch_env_path": "/home/qa/.local/share/sbpr-qa/launch-env/valheim.env",
             },
             {
                 "actor": "client_b", "steam_id": LICENSED_STEAM_IDENTITIES[1],
@@ -415,6 +418,7 @@ def test_build_live_run_carries_gabs_launch_fields_into_client_specs() -> None:
                 "gabs_endpoint": "http://localhost:8081/mcp", "game_id": "valheim",
                 "bootstrap_path": "/run/sbpr-qa/boot-b.json",
                 "connect_host": "127.0.0.1", "connect_port": 2476, "loopback_port": 48611,
+                "launch_env_path": "/srv/sbpr-qa/valbot-launch-env/valheim.env",
             },
         ],
         "wire": {

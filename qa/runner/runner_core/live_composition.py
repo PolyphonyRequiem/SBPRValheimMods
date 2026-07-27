@@ -59,6 +59,8 @@ from .live_transport import (
 )
 from .manifest import ArtifactPinManifest
 from .lease import LaneLease
+from .launch_env import SidecarWriter
+from .bootstrap_provision import BootstrapProvisioner
 from .operator_drivers import (
     AdminlistGuard,
     BootRetryPolicy,
@@ -102,6 +104,14 @@ class LiveOperatorEnvironment:
     read_adminlist: Callable[[], bytes]
     write_adminlist: Callable[[bytes], None]
     build_transport: Callable[[LiveRunConfig], Any]
+    # M6-LAUNCHENV provisioning seam: emit the per-client arm-bootstrap docs (derived
+    # from the descriptor) BEFORE any client launches, and remove the secret-bearing
+    # docs on teardown. Defaults are no-ops so a stub env (unit tests) and legacy callers
+    # keep working; `real_operator_environment` wires the concrete descriptor-derived
+    # provisioner. Keeping this a seam means the composition drives the same provision→
+    # launch→teardown order with or without a real game.
+    provision_bootstraps: Callable[[], None] = lambda: None
+    cleanup_bootstraps: Callable[[], None] = lambda: None
     max_ready_polls: int = 120
 
 
@@ -202,6 +212,12 @@ def run_live_qualification(
         lane.start(plan.lane)
         report.lane_started = True
 
+        # 2b. provision the per-client arm-bootstrap docs (M6-LAUNCHENV) BEFORE launch.
+        #     Emitting them from the descriptor here — rather than relying on hand-authored
+        #     files — is what stops a stale doc (wrong helper hash / expired nonce) from
+        #     silently blocking arming. The secret-bearing docs are removed in teardown.
+        env.provision_bootstraps()
+
         # 3. launch exactly the two licensed clients.
         launched = clients.launch(plan.clients)
         report.clients_launched = [p.name for p in launched]
@@ -243,6 +259,9 @@ def run_live_qualification(
         #    finally, and again here defensively if we never reached it.
         _safe(report, "clients.teardown", clients.teardown)
         _safe(report, "lane.stop", lane.stop)
+        # Remove the secret-bearing bootstrap docs (M6-LAUNCHENV) on every exit path, so
+        # a run never leaves an HMAC secret / operator token on disk between runs.
+        _safe(report, "cleanup_bootstraps", env.cleanup_bootstraps)
         if transport is not None:
             _safe(report, "transport.cleanup", transport.cleanup)
         if adminlist_armed:
@@ -321,7 +340,10 @@ def _proc_running_valheim_binaries() -> List[str]:
     return found
 
 
-def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnvironment:
+def real_operator_environment(
+    config: RealOperatorConfig,
+    descriptor: Optional[Mapping[str, Any]] = None,
+) -> LiveOperatorEnvironment:
     """Wire the REAL game-touching callables for an authorized operator run.
 
     Concrete: `subprocess.Popen` for the lane and each `valheim.x86_64` client, an
@@ -330,6 +352,11 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
     channel, and real adminlist file I/O. Constructing this env does NOT start
     anything — only `run_live_qualification` does, and only under an explicit
     operator authorization. This card never invokes it.
+
+    `descriptor` (when supplied by `build_live_run`) is the source the bootstrap-doc
+    provisioner derives each client's arm doc from, so the docs cannot drift from the
+    wire block. Absent it, provisioning is a no-op (the run then depends on pre-placed
+    docs, the legacy behaviour) — but the default live path always supplies it.
     """
 
     def spawn_lane(spec: LaneSpec) -> subprocess.Popen:
@@ -375,6 +402,23 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
     import urllib.request as _urlreq
     import json as _json
 
+    # The launch-env sidecar writer (M6-LAUNCHENV). One per run; each client's sidecar is
+    # written at the path the descriptor pins for it and removed on teardown so the
+    # non-secret arming file never lingers between runs.
+    sidecar_writer = SidecarWriter()
+
+    # The bootstrap-doc provisioner (M6-LAUNCHENV). Derives each client's mode-0600 arm
+    # doc from the descriptor's wire/pins/lane at run time (before launch) and removes the
+    # secret-bearing docs on teardown. When no descriptor is supplied both are no-ops.
+    bootstrap_provisioner = BootstrapProvisioner()
+
+    def provision_bootstraps() -> None:
+        if descriptor is not None:
+            bootstrap_provisioner.provision_from_descriptor(descriptor)
+
+    def cleanup_bootstraps() -> None:
+        bootstrap_provisioner.remove_all()
+
     def _mcp_call(request: ClientLaunchRequest, tool: str) -> None:
         payload = _json.dumps(
             {
@@ -397,12 +441,23 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
         _mcp_call(request, "games_start")
 
     def _apply_env(request: ClientLaunchRequest) -> None:
-        # The GABS-launched process inherits this process's environment; publish the
-        # bootstrap + identity + harness-provenance env before games_start so the helper
-        # arms and so we can later find the exact process WE launched. SteamAppId is set
-        # by the game's own run wrapper (run-trailborne.sh); we set only ours.
-        for key, value in request.launch_env.items():
-            _os.environ[key] = value
+        # THE FORK-BOUNDARY FIX (M6-LAUNCHENV). The GABS-launched client is forked by a
+        # long-lived GABS daemon over HTTP; it inherits the DAEMON's environment, never
+        # this runner process's. So publishing the arming vars into `os.environ` (the old
+        # code) delivered them nowhere — proven by t_2a954860, where the launched child's
+        # /proc/environ carried only GABP_* and none of the three SBPR vars.
+        #
+        # Instead, write the vars to the launch-env SIDECAR the client's wrapper reads.
+        # The wrapper (`run-trailborne.sh` / valbot controller chain) sources this file
+        # just before `exec`ing valheim.x86_64, so the vars land in the CHILD's env across
+        # the daemon fork. The sidecar carries only the three NON-SECRET arming vars
+        # (a bootstrap-doc PATH, a public SteamID, a random provenance marker); the HMAC
+        # secret and operator token live only inside the mode-0600 bootstrap doc, never
+        # here. `SidecarWriter.write` fails closed on any non-allowlisted/secret-shaped
+        # key. The exact path is the one the descriptor pins for this client (the path its
+        # own wrapper resolves from `$HOME`+`$GABS_GAME_ID`), so the two lanes — which
+        # launch as different users — each read the sidecar written for them.
+        sidecar_writer.write(request.launch_env_path, request.launch_env)
 
     def _pid_start_ticks(pid: int) -> Optional[int]:
         # Field 22 of /proc/<pid>/stat is the process start time in clock ticks since
@@ -541,7 +596,13 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
         # launching, after re-verifying its marker+start-time (TOCTOU). Fails closed on
         # missing/ambiguous provenance — never a gameId-wide kill, so Daniel's own Steam
         # Valheim can never be collateral.
-        booter.kill(handle)
+        try:
+            booter.kill(handle)
+        finally:
+            # Remove this client's launch-env sidecar regardless of kill outcome so the
+            # non-secret arming file never lingers between runs. Idempotent + best-effort.
+            if isinstance(handle, ClientLaunchRequest):
+                sidecar_writer.remove(handle.launch_env_path)
 
     # The delivering entitlement seam: relay the product OFFER→BUY admin command over
     # the SAME owner-local control transport the four legs ride. Built ONCE here, bound
@@ -574,6 +635,8 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
         read_adminlist=read_adminlist,
         write_adminlist=write_adminlist,
         build_transport=lambda cfg: LiveLoopbackTransport(cfg),
+        provision_bootstraps=provision_bootstraps,
+        cleanup_bootstraps=cleanup_bootstraps,
     )
 
 
@@ -631,6 +694,12 @@ def build_live_run(
             connect_host=(str(c["connect_host"]) if c.get("connect_host") is not None else None),
             connect_port=(int(c["connect_port"]) if c.get("connect_port") is not None else None),
             loopback_port=(int(c["loopback_port"]) if c.get("loopback_port") is not None else None),
+            # Launch-env sidecar path (M6-LAUNCHENV). The descriptor names the exact path
+            # this client's wrapper reads (its own launching user's
+            # $HOME/.local/share/sbpr-qa/launch-env/<game_id>.env, or the primary-owned
+            # cross-user path for the valbot lane). The runner writes the three non-secret
+            # arming vars there and the wrapper sources them across the daemon fork.
+            launch_env_path=(str(c["launch_env_path"]) if c.get("launch_env_path") is not None else None),
         )
         for c in descriptor["clients"]
     )
@@ -719,6 +788,7 @@ def build_live_run(
             boot_policy=boot_policy,
             gabs_request_timeout_s=float(srv.get("gabs_request_timeout_s", 10.0)),
             control_probe_timeout_s=float(srv.get("control_probe_timeout_s", 3.0)),
-        )
+        ),
+        descriptor=descriptor,
     )
     return plan, env
