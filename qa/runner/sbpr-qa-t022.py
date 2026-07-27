@@ -9,16 +9,21 @@ all four named T022 acceptance tests (ISSUE / UPGRADE / TRANSFER / TAMPER) asser
 AND cleanup confirmed AND the exclusive lane lease held AND the artifact pins
 verified.
 
-MATURITY (M6-EXEC, CAPABILITY NOT PERFORMED): live execution is now *implemented* and
-opt-in behind `--live`. Merging it makes a live in-world run POSSIBLE; it does not
-perform one. The live path is fail-closed: `--live` runs ONLY when an explicit
-`--live` flag AND a disposable-lane sentinel (`--lane-sentinel`) AND verified overlay
-pins (`--overlay-manifest`) are all present and valid — otherwise it refuses and says
-why. `--dry-run` remains the default and fully working: it replays a scripted scenario
-through the real orchestrator against the deterministic in-process `FakeTransport` with
-NO game I/O, NO network I/O, and NO file mutation. Actually driving a two-client cold
-run in-world is a separate operator-authorized action, never triggered by this file's
-import or by the test suite.
+MATURITY (M6-COMPOSE, CAPABILITY NOT PERFORMED): live execution is now *composed and
+invoked* — opt-in behind `--live`. On an UNLOCK the runner constructs the live
+transport + the four operator drivers and DRIVES a qualification run through the sole-
+authority orchestrator (it no longer prints "unlocked" and returns). Merging it makes a
+live in-world run EXECUTABLE; it does not, on this card, run one in-world. The live path
+stays fail-closed: `--live` proceeds ONLY when an explicit `--live` flag AND a
+disposable-lane sentinel (`--lane-sentinel`) AND verified overlay pins
+(`--overlay-manifest`) are all present and valid — otherwise it refuses and says why.
+The default CLI executor wires the REAL subprocess/socket/file operator callables; with
+no game/product present those fail closed (nothing in-world is fabricated). `--dry-run`
+remains the default and fully working: it replays a scripted scenario through the real
+orchestrator against the deterministic in-process `FakeTransport` with NO game I/O, NO
+network I/O, and NO file mutation. Actually driving a two-client cold run in-world is a
+separate operator-authorized action, never triggered by this file's import or by the
+test suite.
 """
 from __future__ import annotations
 
@@ -75,6 +80,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the overlay pin manifest JSON (manifest.json). Required with --live.",
     )
     parser.add_argument(
+        "--run-descriptor",
+        metavar="PATH",
+        help=(
+            "Path to the operator live-run descriptor JSON (lane/clients/wire/pins/server "
+            "binaries). Required with --live to actually EXECUTE: after the fail-closed "
+            "preflight UNLOCKS, the runner builds the live transport + the four operator "
+            "drivers from this descriptor and drives a qualification run. Omit it and --live "
+            "runs the preflight only (capability check), refusing to execute."
+        ),
+    )
+    parser.add_argument(
         "--scenario",
         default="success",
         help=(
@@ -96,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, live_runner=None) -> int:
     args = build_parser().parse_args(argv)
 
     # Import here so the module import graph stays clean and errors are actionable.
@@ -110,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.live:
-        return _run_live_preflight(args)
+        return _run_live(args, live_runner=live_runner)
 
     if not args.dry_run:
         print("sbpr-qa-t022: no execution mode selected.")
@@ -147,14 +163,17 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if result.passed else 1
 
 
-def _run_live_preflight(args: argparse.Namespace) -> int:
-    """Fail-closed live-mode gate (M6-EXEC).
+def _run_live(args: argparse.Namespace, *, live_runner=None) -> int:
+    """Fail-closed live-mode gate + EXECUTION (M6-COMPOSE).
 
-    Runs the explicit-opt-in + disposable-sentinel + verified-overlay-pins checks.
-    On success it reports that the live path is UNLOCKED — it does NOT launch a lane,
-    a client, or a game. Actually driving an in-world run is a separate operator step
-    that composes the merged live transport + operator drivers under authorization;
-    this runner refuses to conflate "capability verified" with "run performed".
+    Runs the explicit-opt-in + disposable-sentinel + verified-overlay-pins preflight
+    EXACTLY as reviewed. On REFUSE it says why and stops (nothing launched). On UNLOCK
+    it no longer prints "unlocked" and returns — it composes the live transport + the
+    four operator drivers from the operator run descriptor and DRIVES a qualification
+    run through the sole-authority orchestrator, then reports the composed verdict and
+    that teardown ran. `live_runner` is an injectable seam `(descriptor_path) -> report`
+    so the acceptance suite drives the whole path against stub operator callables with
+    no real game; the default wires the REAL subprocess/socket/file operator env.
     """
     from runner_core.live_preflight import evaluate_live_preflight
 
@@ -171,9 +190,7 @@ def _run_live_preflight(args: argparse.Namespace) -> int:
     # Observed part hashes: the manifest records the pinned per-part hashes; the gate
     # re-folds them to the recorded overlay_digest and cross-checks the sentinel pin
     # against the sentinel file actually supplied, so a swapped/tampered sentinel or a
-    # digest that does not fold is caught. A production integration can extend
-    # `observed` with freshly recomputed tree hashes; here we verify self-consistency
-    # plus the independently-supplied sentinel.
+    # digest that does not fold is caught.
     recorded_parts = manifest.get("parts") if isinstance(manifest, dict) else None
     observed = dict(recorded_parts) if isinstance(recorded_parts, dict) else {}
     observed["lane_sentinel"] = _sha256_file(args.lane_sentinel)
@@ -191,11 +208,64 @@ def _run_live_preflight(args: argparse.Namespace) -> int:
 
     print("sbpr-qa-t022 [LIVE-PREFLIGHT] all fail-closed preconditions PASSED.")
     print(f"  lane: {result.sentinel_lane}  overlay_digest: {result.overlay_digest}")
-    print("  The live execution path is UNLOCKED but NOT executed here: launching the")
-    print("  disposable lane, the two licensed clients, seeding entitlement, and driving")
-    print("  the four T022 legs in-world is a separate operator-authorized step. This")
-    print("  runner verified the capability; it did not perform a live qualification.")
-    return 0
+
+    # Without an operator run descriptor there is nothing concrete to launch; the
+    # preflight verified the capability. This is a capability check, NOT the reviewed
+    # success path — surface it explicitly and refuse to fabricate an execution.
+    if not args.run_descriptor:
+        print("sbpr-qa-t022: --live preflight UNLOCKED but no --run-descriptor supplied.")
+        print("  Supply --run-descriptor <path> (lane/clients/wire/pins/server binaries)")
+        print("  to EXECUTE the qualification run. Refusing to execute without one.")
+        return 2
+
+    # UNLOCKED with a descriptor: EXECUTE. Compose the live transport + the four
+    # operator drivers and drive the run through the sole-authority orchestrator.
+    runner = live_runner if live_runner is not None else _default_live_runner
+    print("sbpr-qa-t022 [LIVE-EXECUTE] preflight UNLOCKED — composing drivers and driving the run.")
+    report = runner(args.run_descriptor)
+
+    verdict = report.verdict
+    if verdict is None:
+        print("sbpr-qa-t022 [LIVE-EXECUTE] run did not compose a verdict (driving failed before evidence).")
+        if getattr(report, "drive_error", None):
+            print(f"  error: {report.drive_error}")
+        _print_teardown(report)
+        return 1
+
+    ev = verdict.evidence
+    print(f"sbpr-qa-t022 [LIVE-EXECUTE] verdict: {verdict.verdict}")
+    print(f"  legs:    {ev.legs}")
+    print(f"  lease_held={ev.lease_held} pins_verified={ev.pins_verified} "
+          f"cleanup_confirmed={ev.cleanup_confirmed} "
+          f"receipts_correlated={ev.receipts_correlated}")
+    if ev.failure_reason:
+        print(f"  failure: [{ev.failure_kind}] {ev.failure_reason}")
+    _print_teardown(report)
+    return 0 if verdict.passed else 1
+
+
+def _print_teardown(report) -> None:
+    if report.teardown_completed:
+        print("  teardown: complete (clients, lane, transport, adminlist restored, lease released).")
+    else:
+        print(f"  teardown: INCOMPLETE — {report.teardown_errors}")
+
+
+def _default_live_runner(descriptor_path: str):
+    """Default live executor: build the plan + REAL operator env and drive the run.
+
+    Wires the concrete subprocess/socket/file operator callables. With no game/product
+    present those fail closed (nothing in-world is fabricated); a genuine operator run
+    supplies real binaries. This is invoked ONLY from the `--live` execute path with an
+    explicit descriptor — never by import or the test suite.
+    """
+    from runner_core.live_composition import build_live_run, run_live_qualification
+
+    descriptor = _load_json(descriptor_path, "run descriptor")
+    if descriptor is None:
+        raise SystemExit(2)
+    plan, env = build_live_run(descriptor)
+    return run_live_qualification(plan, env)
 
 
 def _load_json(path: str, label: str):
