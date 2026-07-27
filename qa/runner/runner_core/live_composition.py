@@ -67,6 +67,8 @@ from .operator_drivers import (
     DualClientLauncher,
     EntitlementSeeder,
     GabsClientBooter,
+    HARNESS_INSTANCE_ENV_VAR,
+    HarnessInstance,
     LaneLauncher,
     LaneSpec,
     LICENSED_STEAM_IDENTITIES,
@@ -353,16 +355,25 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
     # A bare `subprocess.Popen([binary_path])` produced a client that never injected
     # BepInEx, never received SBPR_QA_T022_BOOTSTRAP, never `+connect`ed the lane, and
     # therefore never armed or bound its loopback control port. We instead drive the
-    # client through its GABS/MCP endpoint (games_start / games_kill) exactly as
-    # boot-qa-client.sh does on this box, publish the bootstrap + identity env, and
+    # client through its GABS/MCP endpoint (games_start) exactly as boot-qa-client.sh
+    # does on this box, publish the bootstrap + identity + harness-provenance env, and
     # poll the helper's loopback control port for armed readiness — re-rolling on the
     # intermittent ValBridge startup wedge. T6: this touches GABS/MCP for boot only; it
     # NEVER acquires the ValBridge/ScriptTools lock and the four AT legs still ride the
     # LiveLoopbackTransport, not USH.
-    import json as _json
+    #
+    # TEARDOWN SAFETY (B1): we do NOT `games_kill` the gameId — that would terminate
+    # Daniel's OWN Steam Valheim (same gameId "valheim", different binary path). Instead
+    # the harness injects a unique per-boot marker (SBPR_QA_HARNESS_INSTANCE) into the
+    # launched process env, then identifies the exact PID carrying that marker via /proc,
+    # pinning it to the process start-time to defeat PID reuse. Teardown terminates ONLY
+    # that recorded PID, re-verifying the marker+start-time immediately before the kill.
+    import os as _os
+    import signal as _signal
     import socket as _socket
     import time as _time
     import urllib.request as _urlreq
+    import json as _json
 
     def _mcp_call(request: ClientLaunchRequest, tool: str) -> None:
         payload = _json.dumps(
@@ -385,15 +396,115 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
     def _gabs_start(request: ClientLaunchRequest) -> None:
         _mcp_call(request, "games_start")
 
-    def _gabs_kill(request: ClientLaunchRequest) -> None:
-        _mcp_call(request, "games_kill")
-
     def _apply_env(request: ClientLaunchRequest) -> None:
         # The GABS-launched process inherits this process's environment; publish the
-        # bootstrap + identity env before games_start so the helper arms. SteamAppId is
-        # set by the game's own run wrapper (run-trailborne.sh); we set only ours.
+        # bootstrap + identity + harness-provenance env before games_start so the helper
+        # arms and so we can later find the exact process WE launched. SteamAppId is set
+        # by the game's own run wrapper (run-trailborne.sh); we set only ours.
         for key, value in request.launch_env.items():
-            os.environ[key] = value
+            _os.environ[key] = value
+
+    def _pid_start_ticks(pid: int) -> Optional[int]:
+        # Field 22 of /proc/<pid>/stat is the process start time in clock ticks since
+        # boot. Reading it and pinning it to the PID defeats PID reuse: a recycled PID
+        # held by a DIFFERENT (possibly Daniel-owned) process has a different start-time.
+        try:
+            with open(f"/proc/{pid}/stat", "r", encoding="utf-8", errors="replace") as fh:
+                data = fh.read()
+        except OSError:
+            return None
+        # The comm field (in parens) can contain spaces/parens; split after the last ')'.
+        rparen = data.rfind(")")
+        if rparen < 0:
+            return None
+        fields = data[rparen + 2:].split()
+        # After comm, field indices: state=0 ... starttime is stat field 22 => index 19.
+        if len(fields) <= 19:
+            return None
+        try:
+            return int(fields[19])
+        except ValueError:
+            return None
+
+    def _pid_marker(pid: int) -> Optional[str]:
+        # Read the launched process's own environment to recover the unique harness
+        # marker it carries. Absent/unreadable => no proof of harness ownership.
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            return None
+        for entry in raw.split(b"\x00"):
+            if entry.startswith(HARNESS_INSTANCE_ENV_VAR.encode() + b"="):
+                return entry.split(b"=", 1)[1].decode("utf-8", errors="replace")
+        return None
+
+    def _probe_pid(pid: int) -> Optional[HarnessInstance]:
+        # Return the harness provenance of the live process at PID, or None if the PID
+        # is gone or carries no harness marker. Used both to resolve the launched client
+        # and, immediately before a kill, to re-verify we are terminating OUR process.
+        marker = _pid_marker(pid)
+        if marker is None:
+            return None
+        start = _pid_start_ticks(pid)
+        if start is None:
+            return None
+        return HarnessInstance(actor="", marker=marker, pid=pid, start_ticks=start)
+
+    def _resolve_launched(request: ClientLaunchRequest) -> Optional[HarnessInstance]:
+        # Find the UNIQUE running valheim.x86_64 whose /proc environ carries THIS boot's
+        # marker. Poll briefly — the GABS-launched process takes a moment to appear.
+        target_marker = request.launch_env[HARNESS_INSTANCE_ENV_VAR]
+        proc_root = "/proc"
+        deadline = _time.monotonic() + config.control_probe_timeout_s
+        while True:
+            matches: List[HarnessInstance] = []
+            try:
+                pids = [d for d in _os.listdir(proc_root) if d.isdigit()]
+            except OSError:
+                pids = []
+            for pid_s in pids:
+                pid = int(pid_s)
+                # Only consider actual valheim.x86_64 processes.
+                try:
+                    exe = _os.readlink(_os.path.join(proc_root, pid_s, "exe"))
+                except OSError:
+                    continue
+                if _os.path.basename(exe) != "valheim.x86_64":
+                    continue
+                if _pid_marker(pid) != target_marker:
+                    continue
+                start = _pid_start_ticks(pid)
+                if start is None:
+                    continue
+                matches.append(
+                    HarnessInstance(actor=request.actor, marker=target_marker, pid=pid, start_ticks=start)
+                )
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                # Ambiguous provenance — refuse rather than guess which is ours.
+                return None
+            if _time.monotonic() >= deadline:
+                return None
+            _time.sleep(0.1)
+
+    def _terminate_instance(instance: HarnessInstance) -> None:
+        # Terminate ONLY the exact recorded PID (SIGTERM → wait → SIGKILL). The booter
+        # has already re-verified marker+start-time immediately before calling this.
+        pid = instance.pid
+        try:
+            _os.kill(pid, _signal.SIGTERM)
+        except OSError:
+            return
+        for _ in range(30):  # up to ~15s
+            if _probe_pid(pid) is None:
+                return
+            _time.sleep(0.5)
+        try:
+            _os.kill(pid, _signal.SIGKILL)
+        except OSError:
+            return
 
     def _control_ready(request: ClientLaunchRequest) -> bool:
         # Armed-readiness signal: the helper binds its loopback control port only AFTER
@@ -408,17 +519,13 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
         except OSError:
             return False
 
-    def _process_gone(request: ClientLaunchRequest) -> bool:
-        # Teardown verification: after games_kill the loopback control port must stop
-        # accepting connections (the armed helper is gone). Fail closed if it lingers.
-        return not _control_ready(request)
-
     booter = GabsClientBooter(
         apply_env=_apply_env,
         gabs_start=_gabs_start,
-        gabs_kill=_gabs_kill,
         control_ready=_control_ready,
-        process_gone=_process_gone,
+        resolve_launched=_resolve_launched,
+        probe_pid=_probe_pid,
+        terminate=_terminate_instance,
         sleep=_time.sleep,
         policy=config.boot_policy,
     )
@@ -430,8 +537,10 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
         return booter.boot(spec)
 
     def stop_client(handle: object) -> None:
-        # Deterministic GABS teardown + verified process-gone check. Refuses to touch
-        # anything but a request this booter produced (never a foreign valheim.x86_64).
+        # Provenance-scoped teardown: terminates ONLY the exact PID the harness recorded
+        # launching, after re-verifying its marker+start-time (TOCTOU). Fails closed on
+        # missing/ambiguous provenance — never a gameId-wide kill, so Daniel's own Steam
+        # Valheim can never be collateral.
         booter.kill(handle)
 
     # The delivering entitlement seam: relay the product OFFER→BUY admin command over
