@@ -317,9 +317,29 @@ jobs:
       - name: 'M0 isolation guard tests (unittest, no pip)'
         run: python3 -m unittest discover -s qa/tests -p 'test_*.py' -v
 
-      # Runner skeleton must be import/execute-clean and side-effect-free.
-      - name: 'Runner skeleton --dry-run (no game/network/file I/O)'
+      # Runner (M5): the external deterministic T022 runner + orchestration
+      # envelope. DRY-RUN only — no game/network/file I/O. The default invocation
+      # replays the success path (PASS); every other scenario FAILs by design.
+      - name: 'Runner --dry-run (M5, no game/network/file I/O)'
         run: python3 qa/runner/sbpr-qa-t022.py --dry-run
+
+      # Runner pytest suite: 32 adopted no-false-PASS FSM cases + the M5 runner
+      # cases (lease / pins / per-phase timeout / evidence / verdict authority).
+      # Engine-free (stdlib + pytest), so it gates fast with no Valheim SDK.
+      - name: 'AT-QA runner deterministic suite (pytest, no SDK)'
+        run: |
+          python3 -m pip install --quiet pytest
+          cd qa/runner && python3 -m pytest tests/ -q
+
+      # QA overlay packer (M5, ADR-0009 §7/§8): build a deterministic overlay
+      # (runner + contracts + disposable-world profile; helper absent in this
+      # pre-build), then VERIFY the 6-part SHA-256 manifest round-trips with no
+      # drift. DRY-RUN — nothing is deployed or run in-world.
+      - name: 'QA overlay build + verify (deterministic manifest, drift fail-closed)'
+        run: |
+          set -euo pipefail
+          python3 scripts/pack-qa-overlay.py build --out "$RUNNER_TEMP/qa-overlay" --version ci-dryrun
+          python3 scripts/pack-qa-overlay.py verify --out "$RUNNER_TEMP/qa-overlay"
 
       # ADR-0009 M1–M4 + M2R + M3R: engine-free contracts + capability parser + fail-closed arming
       # gate, the M2 control-plane core, the M3 vanilla-fixture ledger + seam adapter + execution-
