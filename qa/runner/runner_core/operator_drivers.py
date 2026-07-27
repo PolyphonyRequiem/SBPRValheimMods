@@ -32,7 +32,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 
 class OperatorSafetyError(RuntimeError):
@@ -151,11 +151,30 @@ class LaneLauncher:
 
 @dataclass(frozen=True)
 class ClientSpec:
-    """One Valheim GUI client to launch under a specific licensed identity."""
+    """One Valheim GUI client to launch under a specific licensed identity.
+
+    The first three fields are the original launch identity and are REQUIRED and
+    unchanged (existing callers keep working). The remaining fields are ADDITIVE and
+    describe the GABS-mediated modded-launch path this box actually requires: a bare
+    `subprocess.Popen([binary_path])` produces a client that never injects BepInEx,
+    never receives `SBPR_QA_T022_BOOTSTRAP`, never joins the lane, and therefore never
+    arms or binds its loopback control port (attempt-7 block, `live_composition.py`
+    launch seam). When these are supplied the client is booted through its GABS/MCP
+    endpoint with the bootstrap doc + `+connect` join target + a readiness poll on the
+    helper's loopback control port. When they are absent (unit tests, legacy callers)
+    the spec is still valid — only the REAL GABS booter consults them.
+    """
 
     actor: str            # "client_a" / "client_b"
     steam_id: str         # must be one of LICENSED_STEAM_IDENTITIES
     binary_path: str      # absolute path to the valheim.x86_64 this run OWNS
+    # --- additive GABS-launch fields (optional; only the real booter reads them) ---
+    gabs_endpoint: Optional[str] = None   # e.g. "http://localhost:8080/mcp"
+    game_id: str = "valheim"              # GABS gameId for games_start/games_kill
+    bootstrap_path: Optional[str] = None  # abs path the runner wrote the arm-bootstrap JSON to
+    connect_host: Optional[str] = None    # lane host to `+connect` to
+    connect_port: Optional[int] = None    # lane join port (the disposable lane, e.g. 2476)
+    loopback_port: Optional[int] = None   # the helper's loopback control port to poll for armed-readiness
 
 
 class DualClientLauncher:
@@ -237,6 +256,212 @@ class DualClientLauncher:
     @property
     def launched(self) -> List[LaunchedProcess]:
         return list(self._launched)
+
+
+# --------------------------------------------------------------------------- #
+# GABS-mediated modded-client boot (bootstrap + join + armed-readiness poll)
+# --------------------------------------------------------------------------- #
+
+class ClientLaunchError(OperatorSafetyError):
+    """A GABS-mediated client boot never reached armed readiness. Fail closed.
+
+    Carries which stage did not become ready so the diagnostic names the failure
+    (never a silent hang, never a dead handle passed off as a live client).
+    """
+
+
+@dataclass(frozen=True)
+class BootRetryPolicy:
+    """Retry-with-readiness-poll envelope for the known ValBridge startup wedge.
+
+    A single-shot launch is NOT reliable on this box: the ValBridge/ScriptTools
+    startup-scene activation deadlock is intermittent (`boot-qa-client.sh` escapes it
+    by re-rolling the boot). So a boot is `max_attempts` re-rolls, each polling an
+    explicit readiness signal every `poll_interval_s` up to `readiness_timeout_s`.
+    There is NO blind sleep-and-hope: readiness is an explicit probe.
+    """
+
+    max_attempts: int = 6
+    readiness_timeout_s: float = 150.0
+    poll_interval_s: float = 10.0
+
+    def __post_init__(self) -> None:
+        if self.max_attempts < 1:
+            raise ValueError("max_attempts must be >= 1")
+        if self.readiness_timeout_s <= 0 or self.poll_interval_s <= 0:
+            raise ValueError("readiness_timeout_s and poll_interval_s must be > 0")
+
+    @property
+    def polls_per_attempt(self) -> int:
+        # At least one poll per attempt even for a tiny timeout.
+        return max(1, int(self.readiness_timeout_s // self.poll_interval_s))
+
+
+@dataclass(frozen=True)
+class ClientLaunchRequest:
+    """The fully-resolved launch request for ONE GABS-mediated modded client.
+
+    This is the object the acceptance test inspects: it must actually carry the
+    bootstrap env var, the correct `+connect` join target, the actor's GABS
+    endpoint + gameId, and the helper's loopback control port. A launch that omits
+    any of these produces a client that never arms — precisely the attempt-7 defect.
+    Built by `GabsClientBooter.build_request`; never fabricated in a test.
+    """
+
+    actor: str
+    gabs_endpoint: str
+    game_id: str
+    loopback_port: int
+    connect_target: str                    # "host:port" the client `+connect`s to
+    launch_env: Mapping[str, str]          # env the launched process must inherit
+    connect_args: Sequence[str]            # the `+connect host:port` argv fragment
+
+    @property
+    def bootstrap_env_value(self) -> Optional[str]:
+        return self.launch_env.get(BOOTSTRAP_ENV_VAR)
+
+
+# The env var the QA helper reads for its arm-bootstrap doc path (mirrors the C#
+# `Plugin.BootstrapEnvVar`). Absent from the launched process => the helper stays
+# DISARMED and never binds its loopback control port. This is the single most
+# important field the bare-binary launch was dropping.
+BOOTSTRAP_ENV_VAR = "SBPR_QA_T022_BOOTSTRAP"
+# The identity env the product/Steam layer reads to select the licensed account.
+STEAM_ID_ENV_VAR = "SBPR_QA_STEAM_ID"
+
+
+class GabsClientBooter:
+    """Boot one modded, armed, joined client through its GABS endpoint — then poll.
+
+    Replaces the bare `subprocess.Popen([binary_path])` that could never arm. The
+    booter, per client:
+
+      1. builds a `ClientLaunchRequest` carrying the bootstrap env var, the identity
+         env, the `+connect host:port` join target, the GABS endpoint/gameId, and the
+         loopback control port;
+      2. drives the launch through the injected seams — `apply_env` (make the launch
+         env available to the GABS-launched process), `gabs_kill` (clear any stale
+         instance), `gabs_start` (request `games_start`);
+      3. polls `control_ready` (does the helper's loopback control port accept a
+         connection?) every `poll_interval_s` up to the per-attempt timeout — the
+         armed-readiness signal, NOT a blind sleep;
+      4. re-rolls the whole boot up to `max_attempts` times to escape the intermittent
+         ValBridge startup wedge;
+      5. fails closed with a `ClientLaunchError` naming the stage if it never arms —
+         never hangs, never returns a dead handle.
+
+    Every game-touching action is an injected callable so the booter is fully
+    unit-testable with NO real GABS, NO socket, and NO sleep.
+    """
+
+    def __init__(
+        self,
+        *,
+        apply_env: Callable[[ClientLaunchRequest], None],
+        gabs_start: Callable[[ClientLaunchRequest], None],
+        gabs_kill: Callable[[ClientLaunchRequest], None],
+        control_ready: Callable[[ClientLaunchRequest], bool],
+        process_gone: Callable[[ClientLaunchRequest], bool],
+        sleep: Callable[[float], None],
+        policy: Optional[BootRetryPolicy] = None,
+    ) -> None:
+        self._apply_env = apply_env
+        self._gabs_start = gabs_start
+        self._gabs_kill = gabs_kill
+        self._control_ready = control_ready
+        self._process_gone = process_gone
+        self._sleep = sleep
+        self._policy = policy or BootRetryPolicy()
+
+    @staticmethod
+    def build_request(spec: ClientSpec) -> ClientLaunchRequest:
+        """Resolve a `ClientSpec` into the concrete launch request. Fail closed on a
+        spec missing any field the modded launch requires (that omission is the bug).
+        """
+        missing = [
+            name
+            for name, val in (
+                ("gabs_endpoint", spec.gabs_endpoint),
+                ("bootstrap_path", spec.bootstrap_path),
+                ("connect_host", spec.connect_host),
+                ("connect_port", spec.connect_port),
+                ("loopback_port", spec.loopback_port),
+            )
+            if val is None
+        ]
+        if missing:
+            raise ClientLaunchError(
+                f"client {spec.actor!r} cannot be GABS-launched: missing required "
+                f"launch fields {missing}; a bare-binary launch would never arm "
+                "(bootstrap/join/loopback all absent)"
+            )
+        # mypy/readers: the None-guard above proves these are set.
+        connect_target = f"{spec.connect_host}:{spec.connect_port}"
+        launch_env = {
+            BOOTSTRAP_ENV_VAR: str(spec.bootstrap_path),
+            STEAM_ID_ENV_VAR: spec.steam_id,
+        }
+        return ClientLaunchRequest(
+            actor=spec.actor,
+            gabs_endpoint=str(spec.gabs_endpoint),
+            game_id=spec.game_id,
+            loopback_port=int(spec.loopback_port),  # type: ignore[arg-type]
+            connect_target=connect_target,
+            launch_env=launch_env,
+            connect_args=("+connect", connect_target),
+        )
+
+    def boot(self, spec: ClientSpec) -> ClientLaunchRequest:
+        """Boot the client to armed readiness, re-rolling on the ValBridge wedge.
+
+        Returns the `ClientLaunchRequest` (the live handle) once the helper's loopback
+        control port accepts connections. Raises `ClientLaunchError` — naming the stage
+        — if no attempt arms within the policy. Never returns a dead handle.
+        """
+        request = self.build_request(spec)
+        last_stage = "no attempt ran"
+        for attempt in range(1, self._policy.max_attempts + 1):
+            # Clear any stale instance, publish the launch env, request games_start.
+            try:
+                self._gabs_kill(request)
+                self._apply_env(request)
+                self._gabs_start(request)
+            except Exception as exc:  # noqa: BLE001 — surface, then re-roll
+                last_stage = f"attempt {attempt}: launch request failed ({exc})"
+                continue
+            # Explicit armed-readiness poll — never a blind sleep.
+            for _ in range(self._policy.polls_per_attempt):
+                if self._control_ready(request):
+                    return request
+                self._sleep(self._policy.poll_interval_s)
+            last_stage = (
+                f"attempt {attempt}: loopback control port {request.loopback_port} "
+                f"never accepted a connection within {self._policy.readiness_timeout_s}s "
+                "(helper never armed / ValBridge wedge)"
+            )
+        # Every attempt wedged: tear the last instance down and fail closed loudly.
+        try:
+            self._gabs_kill(request)
+        except Exception:  # noqa: BLE001 — best-effort teardown before we raise
+            pass
+        raise ClientLaunchError(
+            f"client {spec.actor!r} never reached armed readiness after "
+            f"{self._policy.max_attempts} boot attempts; last stage: {last_stage}"
+        )
+
+    def kill(self, request: object) -> None:
+        """Deterministically tear down a GABS-launched client and verify it is gone.
+
+        Refuses to touch anything but a request THIS booter produced. Idempotent.
+        """
+        if not isinstance(request, ClientLaunchRequest):
+            return
+        self._gabs_kill(request)
+        if not self._process_gone(request):
+            raise ClientLaunchError(
+                f"client {request.actor!r} still present after games_kill on "
+                f"{request.gabs_endpoint} (gameId={request.game_id!r}); teardown unverified"
+            )
 
 
 # --------------------------------------------------------------------------- #
