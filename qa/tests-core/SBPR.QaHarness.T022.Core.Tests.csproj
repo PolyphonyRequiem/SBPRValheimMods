@@ -93,4 +93,18 @@
     <Compile Include="../SBPR.QaHarness.T022/Fixtures/FixtureVerbExecutorBridge.cs" />
     </ItemGroup>
 
+  <!-- M4 evidence + adversarial hardening (engine-free): tracked-item fingerprint +
+       continuity/transfer/upgrade, bounded controlled-tamper policy, bounded/redacted
+       receipts + verdict/product firewalls, hash-chained receipts + connection-generation
+       cache, and the action/observation adapter seams + labels. Same link-compile
+       discipline — the tested logic IS the shipped logic. -->
+  <ItemGroup>
+    <Compile Include="../SBPR.QaHarness.T022/Evidence/EvidenceReason.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Evidence/ItemFingerprint.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Evidence/TamperPolicy.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Evidence/RedactedReceipt.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Evidence/ReceiptHashChain.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Evidence/ActionObservationAdapters.cs" />
+  </ItemGroup>
+
 </Project>

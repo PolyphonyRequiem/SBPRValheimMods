@@ -54,5 +54,49 @@ namespace SBPR.QaHarness.T022.Core.Tests
                 $"  only in schema: {string.Join(",", schemaReasons.Except(coreReasons))}\n" +
                 $"  only in enum:   {string.Join(",", coreReasons.Except(schemaReasons))}");
         }
+
+        // Root-cause regression (repair PR#424): a duplicate `connectionGeneration` key
+        // shipped inside `properties` because JsonDocument (and RFC 8259) silently apply
+        // last-wins, so no existing test could see the dead first definition — which also
+        // dropped the `minimum: 0` constraint depending on parser order. Utf8JsonReader,
+        // unlike JsonDocument, surfaces EVERY property token, so we can assert no object in
+        // the schema declares the same member name twice. Engine-free and deterministic.
+        [Fact]
+        public void ReceiptSchema_HasNoDuplicateObjectKeys()
+        {
+            string path = FindRepoFile("qa/contracts/receipt.schema.json");
+            byte[] bytes = File.ReadAllBytes(path);
+            var reader = new Utf8JsonReader(bytes, new JsonReaderOptions
+            {
+                CommentHandling = JsonCommentHandling.Disallow,
+                AllowTrailingCommas = false
+            });
+
+            // One name-set per open object on the stack.
+            var stack = new Stack<HashSet<string>>();
+            var duplicates = new List<string>();
+
+            while (reader.Read())
+            {
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject:
+                        stack.Push(new HashSet<string>(StringComparer.Ordinal));
+                        break;
+                    case JsonTokenType.EndObject:
+                        stack.Pop();
+                        break;
+                    case JsonTokenType.PropertyName:
+                        string? name = reader.GetString();
+                        if (name != null && stack.Count > 0 && !stack.Peek().Add(name))
+                            duplicates.Add(name);
+                        break;
+                }
+            }
+
+            Assert.True(duplicates.Count == 0,
+                $"receipt.schema.json declares duplicate object member(s): {string.Join(", ", duplicates.Distinct())}. " +
+                "Duplicate JSON keys are undefined per RFC 8259 (last-wins in practice) and silently drop constraints.");
+        }
     }
 }
