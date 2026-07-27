@@ -37,6 +37,20 @@ only live in a GUI process — see §3 threading/lifecycle notes.
 | **Client (Trailborne-Modded GUI)** | `~/.local/share/Trailborne/Valheim-Modded/valheim_Data/Managed/assembly_valheim.dll` | `ae98afc3a65ccb2e6c744397bb692287cf2c1527877d002e90307a33f3d917ee` | `23db560f-3f87-4454-8fe1-c434da4f936a` | `0.221.12` (net `36`) | net48 |
 | **Server (dedicated, niflheim dl)** | `~/valheim/niflheim/data/dl/server/valheim_server_Data/Managed/assembly_valheim.dll` | `f26465c6c5b8d1883deac13a1d001054a5f5aedd84fb54644d3fbb36550564ba` | `62393fbd-383b-447c-9ae7-7ae16afa654f` | `0.221.12` (net `36`) | net48 |
 
+- **Marketing/file version vs. runtime string.** The `0.221.12` above is the
+  `GameVersion.CurrentVersion` compile-time constant. At **runtime**, vanilla
+  `Version.GetVersionString()` prepends a *platform prefix* from
+  `Version.GetPlatformPrefix()` (`"l"` SteamLinux, `"dl"` SteamDeckNative,
+  `"dw"` SteamDeckProton, `"ms"` MicrosoftStore; empty otherwise). On **this
+  host both builds run SteamLinux**, so the runtime-reported string is
+  **`l-0.221.12`** for the server *and* the client (verified by decompiling
+  `Version.GetVersionString()`/`GetPlatformPrefix()` from the client DLL via
+  ilspycmd, 2026-07-27; observed live in the server log:
+  `Valheim version: l-0.221.12 (network version 36)`). `AssemblyDriftGuard`
+  pins the platform-prefixed runtime string explicitly (rows
+  `server-dedicated-niflheim-dl-linux`, `client-trailborne-modded-gui-linux`)
+  rather than stripping the prefix inside the fail-closed gate.
+
 - **Version constants** (`Version` type, both builds identical):
   `GameVersion.CurrentVersion = new GameVersion(0, 221, 12)`,
   `m_networkVersion = 36u`, `m_playerVersion = 43`, `m_worldVersion = 37`.
