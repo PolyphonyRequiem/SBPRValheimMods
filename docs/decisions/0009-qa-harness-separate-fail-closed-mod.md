@@ -685,6 +685,33 @@ deferred to M4 but are required before M6.**
   > Spec: `qa/spec/QA-M5-runner-packaging-contract.md`. **Maturity: DRY-RUN /
   > SIMULATED — nothing launched, deployed, or run in-world; the four T022 ATs are NOT
   > observed. Live qualification remains the separate operator-authorized M6 card.**
+  >
+  > **Implementation note (M6-EXEC, live-execution CAPABILITY — capability, NOT
+  > qualification).** A follow-up card built the live-execution *wire and operator
+  > drivers* the M5 runner docstrings explicitly deferred to, so the deterministic
+  > runner CAN drive a real in-world run — without performing one. Delivered, all
+  > engine-free Python under `qa/runner/runner_core/` + tests: (a) `live_transport.py`
+  > — the concrete `fsm.transport.Transport` over the owner-local loopback TCP/JSON
+  > channel the merged C# `LoopbackControlServer` exposes, speaking the exact 4-byte
+  > framing, the `RequestHmac` canonical HMAC envelope, and per-endpoint
+  > `connectionGeneration` (a pre-reconnect envelope is rejected server-side as
+  > StaleGeneration). The FSM `Transport` **Protocol signature is UNCHANGED**, so the
+  > 32-case invariant suite still binds; the transport is proven end-to-end against an
+  > in-process loopback socket **stub**, never a real game. (b) `operator_drivers.py` —
+  > fail-closed `LaneLauncher` (hard production-port deny 2456/2466, explicit readiness,
+  > no blind sleep), `DualClientLauncher` (the two licensed Steam identities, refuses any
+  > `valheim.x86_64` it did not launch, deterministic teardown on every path),
+  > `EntitlementSeeder` (drives the product `sbpr_master` OFFER→BUY admin path with the
+  > product's own `CmdOffer=1`/`CmdBuy=2` discriminators — the harness NEVER mints, signs,
+  > or grants entitlement, threats T3/T5), and `AdminlistGuard` (SHA-256 capture +
+  > byte-identical restore + loud mismatch). The retired `QaT022Driver.cs` (offer=0/buy=1
+  > off-by-one) is NOT resurrected. (c) `live_preflight.py` + the runner's `--live` flag —
+  > replaces the M5 blanket refusal with a fail-closed path that runs ONLY under explicit
+  > `--live` + a valid disposable-lane sentinel (hard production deny list) + verified
+  > overlay pins; `--dry-run` stays the default and fully working. **Maturity: this makes
+  > a live run POSSIBLE, not PERFORMED. Nothing is launched, deployed, or run in-world on
+  > this card; the four T022 ATs remain unobserved. M6 live qualification is still the
+  > separate operator authorization below.**
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;

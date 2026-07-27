@@ -24,20 +24,56 @@ from __future__ import annotations
 
 from .evidence import EvidenceDocument
 from .lease import LaneLease, LaneLeaseError
+from .live_preflight import (
+    LiveModeRefused,
+    LivePreflightResult,
+    evaluate_live_preflight,
+)
+from .live_transport import (
+    ChannelEndpoint,
+    LiveLoopbackTransport,
+    LiveReceiptAdapter,
+    LiveRunConfig,
+)
 from .manifest import ArtifactPinManifest, PinDriftError, RunManifestError
+from .operator_drivers import (
+    AdminlistGuard,
+    ClientSpec,
+    DualClientLauncher,
+    EntitlementSeeder,
+    LaneLauncher,
+    LaneSpec,
+    OperatorSafetyError,
+    SeedResult,
+)
 from .orchestrator import RunnerVerdict, T022RunOrchestrator
 from .timeouts import PhaseBudget, PhaseTimeoutError, PhaseTimeoutTransport
 
 __all__ = [
+    "AdminlistGuard",
     "ArtifactPinManifest",
+    "ChannelEndpoint",
+    "ClientSpec",
+    "DualClientLauncher",
+    "EntitlementSeeder",
     "EvidenceDocument",
+    "LaneLauncher",
     "LaneLease",
     "LaneLeaseError",
+    "LaneSpec",
+    "LiveLoopbackTransport",
+    "LiveModeRefused",
+    "LivePreflightResult",
+    "LiveReceiptAdapter",
+    "LiveRunConfig",
+    "OperatorSafetyError",
     "PhaseBudget",
     "PhaseTimeoutError",
     "PhaseTimeoutTransport",
     "PinDriftError",
     "RunManifestError",
     "RunnerVerdict",
+    "SeedResult",
     "T022RunOrchestrator",
+    "evaluate_live_preflight",
 ]
