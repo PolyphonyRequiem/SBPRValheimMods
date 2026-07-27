@@ -500,6 +500,53 @@ public string GetWorldName(); public long GetWorldUID();   // §3.1
 - **Failure mode:** `GetInventory` on a null `Player.m_localPlayer` (server / not
   spawned) NREs — Client-role, post-spawn only.
 
+### 3.11 Runtime version-string observer (`AssemblyDriftGuard` input) — **the M6-OBSERVER pin**
+
+```
+// Version (internal static class). assembly_valheim decompiled.cs:95278
+internal class Version {
+    public const uint m_networkVersion = 36u;                                   // @95280 (read via reflection, §6/GameAdapters)
+    public static GameVersion CurrentVersion { get; } = new GameVersion(0,221,12); // @95314 — a static auto-PROPERTY (private backing field), NOT a field
+    public static string GetVersionString(bool includeMercurialHash = false);    // @95317 — ONE optional bool param
+}
+// GameVersion.ToString() @95500: "0.221.12" (major.minor.patch; ".rc" for patch<0; "major.minor" when patch==0)
+```
+
+- **Arity + default (the binding we got wrong).** `GetVersionString` takes **one**
+  parameter, `bool includeMercurialHash`, **optional with a compile-time default of
+  `false`**. That default is a **call-site binder feature** baked in by the C#
+  compiler — it is **not** applied by `MethodInfo.Invoke`. Reflecting the method and
+  calling `Invoke(null, null)` (zero args) against the 1-parameter method throws
+  `TargetParameterCountException`. The observer MUST supply the argument explicitly:
+  `Invoke(null, new object[] { false })`.
+- **Why `false`, not `true`.** The live log line the pins were derived from —
+  `Valheim version: l-0.221.12 (network version 36)` (decompiled.cs:81765) — comes
+  from `GetVersionString()` called with the default. `false` reproduces `l-0.221.12`;
+  `true` appends a mercurial hash (`Resources.Load<TextAsset>("clientVersion")`,
+  @95327) and matches **no** pin.
+- **CurrentVersion is a PROPERTY.** The documented fallback reads `CurrentVersion`
+  when the accessor shape changes. It is a static **auto-property**, so reflection
+  must use `GetProperty("CurrentVersion", Public|Static)` — a `GetField` lookup of
+  that name finds only the compiler-generated `<CurrentVersion>k__BackingField`, not
+  a member named `CurrentVersion`. The observer tries the property getter first, then
+  a public static field of the same name as a shape-change hedge. `.ToString()` yields
+  the bare `0.221.12` (no platform prefix — the prefix lives only in
+  `GetVersionString`).
+- **Realized binding (card `t_154dafcd`, M6-OBSERVER).** The engine-free reader
+  `qa/SBPR.QaHarness.T022/ControlPlane/GameVersionReader.cs` implements this: it
+  selects `GetVersionString` (Public|Static, returning `string`), branches on
+  `GetParameters().Length` (0 → `Invoke(null,null)`; 1 → `Invoke(null,{false})`;
+  anything else → fall through), then falls back to the `CurrentVersion`
+  property/field, and returns `string.Empty` only when every path fails — warning at
+  each fall-through so an empty observation is never silent. The engine-bound
+  `GameAssemblyProbe.Read` (GameAdapters.cs) delegates to it, passing
+  `typeof(ZNet).Assembly.GetType("Version")`. Arity/fallback/fail-closed behavior is
+  pinned headlessly in `qa/tests-core/GameVersionReaderTests.cs` (the game cannot be
+  loaded in CI). **Prior defect:** the shipped observer used `Invoke(null, null)` and
+  swallowed the throw, so `AssemblyDriftGuard` only ever saw `""` and every matching
+  MVID resolved to `GameVersionDrift` — the M6-PIN chain fixed a table that could not
+  be reached. Recorded here so the arity/default is not re-gotten-wrong.
+
 ---
 
 ## 4. Firewall re-statement (what these bindings must NOT become)
