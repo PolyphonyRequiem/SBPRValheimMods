@@ -783,21 +783,40 @@ deferred to M4 but are required before M6.**
   > `loopback_port`), a `BootRetryPolicy` (re-roll envelope: `max_attempts`,
   > `readiness_timeout_s`, `poll_interval_s`), a `ClientLaunchRequest` (the resolved launch
   > carrying the bootstrap env var, the identity env, the `+connect host:port` argv, the
-  > GABS endpoint/gameId, and the loopback port), and a `GabsClientBooter` that boots one
-  > client through its GABS/MCP endpoint (`games_start`/`games_kill`), publishes the
-  > bootstrap + identity env, then **polls the helper's loopback control port** for armed
-  > readiness — re-rolling the whole boot up to `max_attempts` to escape the known
-  > intermittent ValBridge startup-scene wedge (`boot-qa-client.sh` practice), failing
-  > closed with a **named diagnostic** (never a blind sleep, never a dead handle). `kill`
-  > tears the client down via `games_kill` + a verified process-gone check and refuses any
-  > handle it did not produce. (b) `real_operator_environment().spawn_client`/`stop_client`
-  > now drive the booter with concrete `urllib`/`socket`/`time` seams (GABS POST, loopback
-  > connect probe, poll sleep); `build_live_run` threads the descriptor's per-client GABS
-  > fields + a `server.boot_policy` into the specs/config. Every game-touching action is an
+  > GABS endpoint/gameId, and a loopback port), and a `GabsClientBooter` that boots one
+  > client through its GABS/MCP endpoint (`games_start`), publishes the bootstrap +
+  > identity + a unique per-boot **harness-provenance marker** env, then **polls the
+  > helper's loopback control port** for armed readiness — re-rolling the whole boot up
+  > to `max_attempts` to escape the known intermittent ValBridge startup-scene wedge
+  > (`boot-qa-client.sh` practice), failing closed with a **named diagnostic** (never a
+  > blind sleep, never a dead handle). **Teardown is harness-owned-instance scoped, NOT
+  > gameId-wide (repair on PR #430, blockers B1/B2).** A gameId-scoped `games_kill` would
+  > terminate Daniel's OWN Steam Valheim — same GABS `gameId "valheim"`, DIFFERENT binary
+  > path — so the booter never issues one. Instead each boot injects a unique
+  > `SBPR_QA_HARNESS_INSTANCE` marker into the launched process env; `spawn_client`
+  > resolves the exact PID carrying THAT marker via `/proc/<pid>/environ`, pinned to the
+  > process start-time (`/proc/<pid>/stat` field 22) to defeat PID reuse. `kill`
+  > terminates ONLY that recorded PID (SIGTERM→wait→SIGKILL), **re-verifying the
+  > marker+start-time immediately before the kill (TOCTOU)** and refusing when a
+  > foreign/reused-PID process now holds it; missing or ambiguous provenance **fails
+  > closed (block, do not kill)**, and process-gone is verified after. (b)
+  > `real_operator_environment().spawn_client`/`stop_client`
+  > now drive the booter with concrete `urllib`/`socket`/`os`/`signal`/`time` seams (GABS
+  > POST, `/proc` marker+start-time provenance scan, loopback connect probe, poll sleep,
+  > direct PID terminate); `build_live_run` threads the descriptor's per-client GABS
+  > fields + a `server.boot_policy` into the specs/config. **The client `+connect` target
+  > is routed through the SAME hard production deny as `LaneLauncher`/preflight
+  > (`assert_connect_target_not_production`, blocker B2):** a descriptor typo naming
+  > production Niflheim `2456` / Heistan `2466` as the join target is rejected at
+  > `build_request` time, before any launch, so a client can never be pointed at a
+  > production server. Every game-touching action is an
   > injected callable, so the acceptance suite proves the CONSTRUCTED launch request/argv/env
   > actually contains the bootstrap env var, the correct `+connect` target (port 2476), the
   > GABS endpoint/gameId, and the loopback port — plus that readiness polling RETRIES on a
-  > simulated ValBridge wedge and eventually fails closed with a named diagnostic, closing
+  > simulated ValBridge wedge and eventually fails closed with a named diagnostic, that
+  > teardown REFUSES a foreign valheim.x86_64 at a different binary path / missing /
+  > ambiguous / TOCTOU-swapped provenance, and that a production `+connect` target is
+  > rejected before launch — closing
   > the "a Popen was returned" stub defect class. **T6 unchanged: GABS/MCP is used for boot
   > readiness ONLY; the four AT legs still ride `LiveLoopbackTransport`, never USH, and the
   > ValBridge/ScriptTools lock is never acquired (`AT-QA-NO-SCRIPTTOOLS-LOCK` holds).** The

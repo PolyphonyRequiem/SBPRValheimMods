@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
@@ -43,6 +44,23 @@ class OperatorSafetyError(RuntimeError):
 # an allowlist is misconfigured. A lane may never bind or target either.
 PRODUCTION_PORTS = frozenset({2456, 2466})
 PRODUCTION_PORT_LABELS = {2456: "Niflheim", 2466: "Heistan"}
+
+
+def assert_connect_target_not_production(port: int) -> None:
+    """Hard deny: a client `+connect` target may NEVER be a production server port.
+
+    The client join target (`+connect host:port`) is a launch surface distinct from
+    the lane bind port `LaneLauncher.assert_disposable` guards. A descriptor typo that
+    named 2456/2466 here would point a licensed client at the live Niflheim/Heistan
+    server — so the SAME hard production deny is applied to the connect target, before
+    any launch, as a tested guard (ADR-0009 §5.1). Fail closed, never a convention.
+    """
+    if port in PRODUCTION_PORTS:
+        label = PRODUCTION_PORT_LABELS.get(port, "production")
+        raise OperatorSafetyError(
+            f"refusing to +connect a client to production {label} port {port}: "
+            "the QA client joins the disposable lane ONLY (ADR-0009 §5.1 hard deny)"
+        )
 
 # The two distinct licensed Steam identities proven simultaneously in t_e3aa60f4.
 # Fixed, non-secret public SteamID64s; a live run must present exactly these two.
@@ -328,6 +346,31 @@ class ClientLaunchRequest:
 BOOTSTRAP_ENV_VAR = "SBPR_QA_T022_BOOTSTRAP"
 # The identity env the product/Steam layer reads to select the licensed account.
 STEAM_ID_ENV_VAR = "SBPR_QA_STEAM_ID"
+# Harness-owned provenance marker (B1). A unique per-boot token the harness injects
+# into the launched process's environment. Teardown identifies an instance the harness
+# ITSELF launched by this marker (plus the captured PID + process start-time), NOT by
+# gameId or binary path. A gameId-wide `games_kill` would terminate Daniel's own Steam
+# Valheim (different binary path, same gameId "valheim"); this marker is provenance the
+# harness alone controls, so teardown can be scoped to a single harness-launched process.
+HARNESS_INSTANCE_ENV_VAR = "SBPR_QA_HARNESS_INSTANCE"
+
+
+@dataclass(frozen=True)
+class HarnessInstance:
+    """Provenance of ONE process the harness itself launched.
+
+    Teardown terminates ONLY a process whose provenance matches a recorded
+    `HarnessInstance` — identified by the unique `marker` the harness injected into the
+    process environment, keyed to the captured `pid`, and pinned to the process
+    `start_ticks` (kernel start time) so a REUSED pid held by a different (possibly
+    Daniel-owned) process is never mistaken for ours. All three must match before a
+    kill; a mismatch or a missing instance fails closed (block, do not kill).
+    """
+
+    actor: str
+    marker: str        # the unique HARNESS_INSTANCE_ENV_VAR value the harness injected
+    pid: int
+    start_ticks: int   # process start time (defeats PID reuse)
 
 
 class GabsClientBooter:
@@ -337,18 +380,27 @@ class GabsClientBooter:
     booter, per client:
 
       1. builds a `ClientLaunchRequest` carrying the bootstrap env var, the identity
-         env, the `+connect host:port` join target, the GABS endpoint/gameId, and the
-         loopback control port;
+         env, a unique HARNESS provenance marker, the `+connect host:port` join target,
+         the GABS endpoint/gameId, and the loopback control port;
       2. drives the launch through the injected seams — `apply_env` (make the launch
-         env available to the GABS-launched process), `gabs_kill` (clear any stale
-         instance), `gabs_start` (request `games_start`);
+         env available to the GABS-launched process), `gabs_start` (request
+         `games_start`) — then `resolve_launched` to capture the PID + start-time of
+         the process carrying THIS boot's unique marker (harness-owned provenance);
       3. polls `control_ready` (does the helper's loopback control port accept a
          connection?) every `poll_interval_s` up to the per-attempt timeout — the
          armed-readiness signal, NOT a blind sleep;
       4. re-rolls the whole boot up to `max_attempts` times to escape the intermittent
-         ValBridge startup wedge;
+         ValBridge startup wedge; between re-rolls it terminates ONLY its OWN prior
+         provenance-recorded instance (never a gameId-wide kill);
       5. fails closed with a `ClientLaunchError` naming the stage if it never arms —
          never hangs, never returns a dead handle.
+
+    TEARDOWN SAFETY (B1): the booter NEVER issues a gameId-wide `games_kill` — that
+    would terminate Daniel's own Steam Valheim (same gameId, different binary path). It
+    terminates ONLY the exact PID it recorded at spawn, and only after re-verifying —
+    immediately before the kill (TOCTOU) — that the live process at that PID still
+    carries our unique marker AND the same start-time. Missing/ambiguous provenance =>
+    fail closed (block, do not kill).
 
     Every game-touching action is an injected callable so the booter is fully
     unit-testable with NO real GABS, NO socket, and NO sleep.
@@ -359,24 +411,34 @@ class GabsClientBooter:
         *,
         apply_env: Callable[[ClientLaunchRequest], None],
         gabs_start: Callable[[ClientLaunchRequest], None],
-        gabs_kill: Callable[[ClientLaunchRequest], None],
         control_ready: Callable[[ClientLaunchRequest], bool],
-        process_gone: Callable[[ClientLaunchRequest], bool],
+        resolve_launched: Callable[[ClientLaunchRequest], Optional[HarnessInstance]],
+        probe_pid: Callable[[int], Optional[HarnessInstance]],
+        terminate: Callable[[HarnessInstance], None],
         sleep: Callable[[float], None],
         policy: Optional[BootRetryPolicy] = None,
     ) -> None:
         self._apply_env = apply_env
         self._gabs_start = gabs_start
-        self._gabs_kill = gabs_kill
         self._control_ready = control_ready
-        self._process_gone = process_gone
+        self._resolve_launched = resolve_launched
+        self._probe_pid = probe_pid
+        self._terminate = terminate
         self._sleep = sleep
         self._policy = policy or BootRetryPolicy()
+        # Provenance registry: maps a returned request handle to the instance the
+        # harness recorded launching it. kill() refuses any handle absent from here.
+        self._instances: Dict[int, HarnessInstance] = {}
 
     @staticmethod
     def build_request(spec: ClientSpec) -> ClientLaunchRequest:
         """Resolve a `ClientSpec` into the concrete launch request. Fail closed on a
         spec missing any field the modded launch requires (that omission is the bug).
+
+        Also hard-denies a `+connect` target on a production server port (B2): a
+        descriptor typo naming Niflheim 2456 / Heistan 2466 as the join target is
+        rejected HERE, before any launch, through the same production deny used by the
+        lane launcher / preflight — so a client can never be pointed at production.
         """
         missing = [
             name
@@ -395,11 +457,16 @@ class GabsClientBooter:
                 f"launch fields {missing}; a bare-binary launch would never arm "
                 "(bootstrap/join/loopback all absent)"
             )
+        # B2 hard deny: the client join target may never be a production server port.
+        assert_connect_target_not_production(int(spec.connect_port))  # type: ignore[arg-type]
         # mypy/readers: the None-guard above proves these are set.
         connect_target = f"{spec.connect_host}:{spec.connect_port}"
+        # Unique per-boot provenance marker the harness injects and later matches on.
+        marker = f"{spec.actor}:{uuid.uuid4().hex}"
         launch_env = {
             BOOTSTRAP_ENV_VAR: str(spec.bootstrap_path),
             STEAM_ID_ENV_VAR: spec.steam_id,
+            HARNESS_INSTANCE_ENV_VAR: marker,
         }
         return ClientLaunchRequest(
             actor=spec.actor,
@@ -415,23 +482,40 @@ class GabsClientBooter:
         """Boot the client to armed readiness, re-rolling on the ValBridge wedge.
 
         Returns the `ClientLaunchRequest` (the live handle) once the helper's loopback
-        control port accepts connections. Raises `ClientLaunchError` — naming the stage
-        — if no attempt arms within the policy. Never returns a dead handle.
+        control port accepts connections AND the harness has captured provenance (PID +
+        start-time) of the process carrying this boot's unique marker. Raises
+        `ClientLaunchError` — naming the stage — if no attempt arms within the policy.
+        Never returns a dead handle, and never a handle it cannot safely tear down.
         """
         request = self.build_request(spec)
         last_stage = "no attempt ran"
+        last_instance: Optional[HarnessInstance] = None
         for attempt in range(1, self._policy.max_attempts + 1):
-            # Clear any stale instance, publish the launch env, request games_start.
+            # Re-roll cleanup: terminate ONLY our own prior recorded instance (never a
+            # gameId-wide kill). First attempt has no prior instance.
+            if last_instance is not None:
+                self._terminate_owned_best_effort(last_instance)
+                last_instance = None
             try:
-                self._gabs_kill(request)
                 self._apply_env(request)
                 self._gabs_start(request)
             except Exception as exc:  # noqa: BLE001 — surface, then re-roll
                 last_stage = f"attempt {attempt}: launch request failed ({exc})"
                 continue
+            # Capture harness-owned provenance: the process carrying THIS boot's marker.
+            instance = self._resolve_launched(request)
+            if instance is None:
+                last_stage = (
+                    f"attempt {attempt}: could not establish harness provenance "
+                    f"(no unique process carrying marker {request.launch_env[HARNESS_INSTANCE_ENV_VAR]!r}) "
+                    "— refusing to proceed without a tear-down-able instance"
+                )
+                continue
+            last_instance = instance
             # Explicit armed-readiness poll — never a blind sleep.
             for _ in range(self._policy.polls_per_attempt):
                 if self._control_ready(request):
+                    self._instances[id(request)] = instance
                     return request
                 self._sleep(self._policy.poll_interval_s)
             last_stage = (
@@ -439,29 +523,74 @@ class GabsClientBooter:
                 f"never accepted a connection within {self._policy.readiness_timeout_s}s "
                 "(helper never armed / ValBridge wedge)"
             )
-        # Every attempt wedged: tear the last instance down and fail closed loudly.
-        try:
-            self._gabs_kill(request)
-        except Exception:  # noqa: BLE001 — best-effort teardown before we raise
-            pass
+        # Every attempt wedged: tear down our LAST recorded instance (provenance-scoped,
+        # never gameId-wide) and fail closed loudly.
+        if last_instance is not None:
+            self._terminate_owned_best_effort(last_instance)
         raise ClientLaunchError(
             f"client {spec.actor!r} never reached armed readiness after "
             f"{self._policy.max_attempts} boot attempts; last stage: {last_stage}"
         )
 
     def kill(self, request: object) -> None:
-        """Deterministically tear down a GABS-launched client and verify it is gone.
+        """Deterministically tear down a harness-launched client and verify it is gone.
 
-        Refuses to touch anything but a request THIS booter produced. Idempotent.
+        Refuses to touch anything but a request THIS booter launched AND recorded
+        provenance for. Fails CLOSED (raises) on ambiguous provenance rather than
+        killing the wrong process; verifies process-gone after terminating. Never
+        issues a gameId-wide kill, so Daniel's own Steam Valheim can never be a target.
+        Idempotent for an already-gone instance.
         """
         if not isinstance(request, ClientLaunchRequest):
+            # A handle this booter did not produce (e.g. a raw Popen). Never touch it.
             return
-        self._gabs_kill(request)
-        if not self._process_gone(request):
+        instance = self._instances.get(id(request))
+        if instance is None:
+            # No recorded provenance for this handle => the harness cannot prove it
+            # launched this process. Fail closed: do NOT kill.
             raise ClientLaunchError(
-                f"client {request.actor!r} still present after games_kill on "
-                f"{request.gabs_endpoint} (gameId={request.game_id!r}); teardown unverified"
+                f"client {request.actor!r} has no recorded harness provenance; refusing "
+                "to terminate a process the harness cannot prove it launched (fail closed)"
             )
+        self._terminate_owned(instance, verify_gone=True)
+        # Instance torn down: drop it so a second kill is a no-op.
+        self._instances.pop(id(request), None)
+
+    def _terminate_owned(self, instance: HarnessInstance, *, verify_gone: bool) -> None:
+        """Terminate ONLY the recorded harness instance, with a TOCTOU re-check.
+
+        Immediately before the kill, re-probe the live process at the recorded PID and
+        confirm it STILL carries our marker AND the same start-time. If the PID is now
+        held by a different process (PID reuse / a foreign client that appeared between
+        the ownership check and the kill), refuse — Daniel's game is never collateral.
+        """
+        current = self._probe_pid(instance.pid)
+        if current is None:
+            # Already gone — nothing to terminate. Teardown is (vacuously) verified.
+            return
+        if current.marker != instance.marker or current.start_ticks != instance.start_ticks:
+            # PID reuse / foreign process now at this PID. Refuse to kill it.
+            raise ClientLaunchError(
+                f"refusing to terminate PID {instance.pid}: the live process no longer "
+                f"matches recorded harness provenance (marker/start-time mismatch) — a "
+                f"foreign or reused-PID process, NOT the client {instance.actor!r} we "
+                "launched (TOCTOU fail-closed)"
+            )
+        self._terminate(instance)
+        if verify_gone:
+            after = self._probe_pid(instance.pid)
+            if after is not None and after.marker == instance.marker and after.start_ticks == instance.start_ticks:
+                raise ClientLaunchError(
+                    f"client {instance.actor!r} (PID {instance.pid}) still present after "
+                    "terminate; teardown unverified"
+                )
+
+    def _terminate_owned_best_effort(self, instance: HarnessInstance) -> None:
+        """Provenance-scoped teardown that never raises (used in boot re-roll cleanup)."""
+        try:
+            self._terminate_owned(instance, verify_gone=False)
+        except Exception:  # noqa: BLE001 — best-effort between re-rolls / before raising
+            pass
 
 
 # --------------------------------------------------------------------------- #
