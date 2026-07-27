@@ -122,6 +122,41 @@ def read_frame(sock: socket.socket, deadline_s: float) -> str:
     return body.decode("utf-8")
 
 
+def send_envelope(
+    endpoint: "ChannelEndpoint",
+    operator_token: str,
+    envelope_json: str,
+    *,
+    connect_timeout_s: float,
+    request_timeout_s: float,
+) -> str:
+    """One owner-local request round-trip: connect, send [token frame][request frame],
+    read exactly one receipt frame. Shared by the four-leg `LiveLoopbackTransport` and
+    the entitlement-delivery channel so BOTH ride the identical wire (4-byte framing +
+    the operator-token bind), never two divergent protocols.
+    """
+    deadline = time.monotonic() + request_timeout_s
+    try:
+        sock = socket.create_connection(
+            (endpoint.host, endpoint.port), timeout=connect_timeout_s
+        )
+    except OSError as exc:
+        raise TransportError(
+            f"cannot connect to helper {endpoint.host}:{endpoint.port}: {exc}"
+        ) from exc
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        # Owner-local bind policy: the token frame FIRST, then the request frame.
+        sock.sendall(encode_frame(operator_token))
+        sock.sendall(encode_frame(envelope_json))
+        return read_frame(sock, deadline)
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
 def _recv_exact(sock: socket.socket, count: int, deadline_s: float) -> bytes:
     chunks: List[bytes] = []
     got = 0
@@ -335,27 +370,14 @@ class LiveLoopbackTransport:
         return json.dumps(envelope, separators=(",", ":"), sort_keys=True)
 
     def _round_trip(self, endpoint: ChannelEndpoint, envelope_json: str) -> str:
-        deadline = time.monotonic() + self._cfg.request_timeout_s
-        try:
-            sock = socket.create_connection(
-                (endpoint.host, endpoint.port), timeout=self._cfg.connect_timeout_s
-            )
-        except OSError as exc:
-            raise TransportError(
-                f"cannot connect to helper {endpoint.host}:{endpoint.port}: {exc}"
-            ) from exc
         self._sockets_opened += 1
-        try:
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            # Owner-local bind policy: the token frame FIRST, then the request frame.
-            sock.sendall(encode_frame(self._cfg.operator_token))
-            sock.sendall(encode_frame(envelope_json))
-            return read_frame(sock, deadline)
-        finally:
-            try:
-                sock.close()
-            except OSError:
-                pass
+        return send_envelope(
+            endpoint,
+            self._cfg.operator_token,
+            envelope_json,
+            connect_timeout_s=self._cfg.connect_timeout_s,
+            request_timeout_s=self._cfg.request_timeout_s,
+        )
 
     # -- introspection (tests/audit) ---------------------------------------
     @property
@@ -364,3 +386,140 @@ class LiveLoopbackTransport:
 
     def generation_for(self, actor: str) -> int:
         return self._generation.get(actor, 0)
+
+
+# --------------------------------------------------------------------------- #
+# Entitlement delivery over the SAME owner-local control transport.
+# --------------------------------------------------------------------------- #
+
+# The product's own admin console command (MasterworkOwnershipProvisioningAdmin.cs:66).
+# The seeder relays THIS verb over the control channel; it mints/signs NOTHING — the
+# product runs its own OFFER→BUY path and reports the operator line back (threats T3/T5).
+SBPR_MASTER_ADMIN_VERB = "sbpr_master"
+
+# Discriminator -> the operator-facing sub-command name the product logs
+# (MasterworkOwnershipProvisioningAdmin.cs:158-163). Pinned so the OFFER/BUY labelling
+# on the wire cannot silently drift back to the retired 0/1 off-by-one.
+_ADMIN_COMMAND_NAMES = {1: "offer", 2: "buy"}
+
+
+@dataclass(frozen=True)
+class EntitlementDeliveryConfig:
+    """Wire parameters for the entitlement admin channel.
+
+    Every field is shared BY CONSTRUCTION with the run's `LiveRunConfig` (same
+    `operator_token`/`hmac_secret`/`nonce`/`world_uid`/`expiry`) so the admin command
+    rides the exact same authenticated owner-local wire as the four T022 legs — not a
+    new socket, not a new protocol. `endpoint` is the admin control endpoint the product
+    exposes for `sbpr_master`; `role` defaults to the Server admin role.
+    """
+
+    endpoint: ChannelEndpoint
+    operator_token: str
+    hmac_secret: str
+    nonce: str
+    world_uid: int
+    expiry_unix_ms: int
+    connection_generation: int = 1
+    connect_timeout_s: float = 3.0
+    request_timeout_s: float = 8.0
+
+    def __post_init__(self) -> None:
+        if self.connection_generation < 1:
+            raise ValueError("connection_generation must be >= 1 (schema minimum: 1)")
+
+
+class EntitlementControlChannel:
+    """Relay the product `sbpr_master` OFFER→BUY admin command over the control wire.
+
+    This is the delivering `deliver_entitlement` seam the composition drives through.
+    `deliver(discriminator)` builds the SAME authenticated HMAC envelope the four-leg
+    transport builds (`send_envelope`, `RequestHmac` canonical order), carrying the
+    product admin verb `sbpr_master` with the OFFER (1) / BUY (2) discriminator in
+    `args`, ships it over the owner-local loopback channel, and returns the product's
+    operator line parsed from the receipt. It holds NO signing key for entitlement and
+    has NO mint/sign/grant path — it only ASKS the product to run its own admin command
+    (threats T3/T5 unchanged).
+    """
+
+    def __init__(self, config: EntitlementDeliveryConfig) -> None:
+        self._cfg = config
+        self._requests = 0
+
+    def deliver(self, discriminator: int) -> str:
+        command = _ADMIN_COMMAND_NAMES.get(discriminator)
+        if command is None:
+            raise TransportError(
+                f"refusing to deliver unknown admin discriminator {discriminator!r}; "
+                f"only OFFER(1)/BUY(2) are permitted"
+            )
+        request_id = f"entitlement-{command}-{discriminator}"
+        seq = discriminator  # 1 (offer) then 2 (buy): monotonic, matches OFFER→BUY order
+        envelope = self._build_envelope(request_id, seq, discriminator, command)
+        self._requests += 1
+        receipt_json = send_envelope(
+            self._cfg.endpoint,
+            self._cfg.operator_token,
+            envelope,
+            connect_timeout_s=self._cfg.connect_timeout_s,
+            request_timeout_s=self._cfg.request_timeout_s,
+        )
+        return self._parse_operator_line(receipt_json, command)
+
+    @property
+    def requests_delivered(self) -> int:
+        return self._requests
+
+    def _build_envelope(
+        self, request_id: str, seq: int, discriminator: int, command: str
+    ) -> str:
+        cfg = self._cfg
+        canonical = _canonical_string(
+            cfg.nonce,
+            seq,
+            cfg.expiry_unix_ms,
+            cfg.endpoint.role,
+            cfg.world_uid,
+            SBPR_MASTER_ADMIN_VERB,
+            request_id,
+            cfg.connection_generation,
+        )
+        envelope = {
+            "nonce": cfg.nonce,
+            "seq": seq,
+            "expiry": cfg.expiry_unix_ms,
+            "hmac": compute_hmac(cfg.hmac_secret, canonical),
+            "role": cfg.endpoint.role,
+            "worldUid": cfg.world_uid,
+            "verb": SBPR_MASTER_ADMIN_VERB,
+            "requestId": request_id,
+            "connectionGeneration": cfg.connection_generation,
+            "args": {"command": command, "commandType": discriminator},
+        }
+        return json.dumps(envelope, separators=(",", ":"), sort_keys=True)
+
+    @staticmethod
+    def _parse_operator_line(receipt_json: str, command: str) -> str:
+        try:
+            obj = json.loads(receipt_json)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise TransportError(f"unparseable admin receipt payload: {exc}") from exc
+        if not isinstance(obj, dict):
+            raise TransportError("admin receipt payload was not a JSON object")
+        outcome = str(obj.get("outcome", ""))
+        if outcome not in _OK_WIRE_OUTCOMES:
+            reason = obj.get("reason", "")
+            raise TransportError(
+                f"sbpr_master {command} admin command was not admitted: "
+                f"outcome={outcome!r} reason={reason!r}"
+            )
+        # The product's operator line is a descriptive fact; read it from `observed`
+        # (preferred key) and fall back to `reason`. The seeder asserts NOTHING on the
+        # content — it merely reports what the product emitted.
+        observed = obj.get("observed")
+        if isinstance(observed, dict) and observed.get("operator_line"):
+            return str(observed["operator_line"])
+        reason = obj.get("reason")
+        if reason:
+            return str(reason)
+        return outcome
