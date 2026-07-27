@@ -60,5 +60,33 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.False(r.Ok);
             Assert.Equal("ObservedAssemblyNull", r.Reason);
         }
+
+        // ── M6-PIN: the Linux dedicated/GUI builds report a platform-prefixed runtime version
+        // string (Version.GetVersionString() → "l-0.221.12" on SteamLinux). The same MVID is
+        // already authorized; the prefix carries its own explicit ordinal-exact pin.
+
+        [Fact]
+        public void LinuxServerBuild_PlatformPrefixedVersion_Passes()
+        {
+            var r = AssemblyDriftGuard.Check(new ObservedGameAssembly(ServerMvid, "l-0.221.12", 36u));
+            Assert.True(r.Ok);
+            Assert.Equal("server-dedicated-niflheim-dl-linux", r.MatchedLabel);
+        }
+
+        [Fact]
+        public void LinuxServerBuild_PrefixWithDriftedVersion_FailsGameVersionDrift()
+        {
+            var r = AssemblyDriftGuard.Check(new ObservedGameAssembly(ServerMvid, "l-0.221.13", 36u));
+            Assert.False(r.Ok);
+            Assert.Equal("GameVersionDrift", r.Reason);
+        }
+
+        [Fact]
+        public void LinuxServerBuild_PrefixWithDriftedNetVersion_FailsNetworkVersionDrift()
+        {
+            var r = AssemblyDriftGuard.Check(new ObservedGameAssembly(ServerMvid, "l-0.221.12", 37u));
+            Assert.False(r.Ok);
+            Assert.Equal("NetworkVersionDrift", r.Reason);
+        }
     }
 }

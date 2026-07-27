@@ -37,6 +37,24 @@ only live in a GUI process — see §3 threading/lifecycle notes.
 | **Client (Trailborne-Modded GUI)** | `~/.local/share/Trailborne/Valheim-Modded/valheim_Data/Managed/assembly_valheim.dll` | `ae98afc3a65ccb2e6c744397bb692287cf2c1527877d002e90307a33f3d917ee` | `23db560f-3f87-4454-8fe1-c434da4f936a` | `0.221.12` (net `36`) | net48 |
 | **Server (dedicated, niflheim dl)** | `~/valheim/niflheim/data/dl/server/valheim_server_Data/Managed/assembly_valheim.dll` | `f26465c6c5b8d1883deac13a1d001054a5f5aedd84fb54644d3fbb36550564ba` | `62393fbd-383b-447c-9ae7-7ae16afa654f` | `0.221.12` (net `36`) | net48 |
 
+- **Marketing/file version vs. runtime string.** The `0.221.12` above is the
+  `GameVersion.CurrentVersion` compile-time constant. At **runtime**, vanilla
+  `Version.GetVersionString()` prepends a *platform prefix* from
+  `Version.GetPlatformPrefix()` (`"l"` SteamLinux, `"dl"` SteamDeckNative,
+  `"dw"` SteamDeckProton, `"ms"` MicrosoftStore; empty otherwise) — the branch
+  is resolved from `IDistributionPlatform.DistributionPlatform` at runtime, so
+  decompiling the method reveals only the *algorithm*, not which prefix a given
+  process emits. The **dedicated server** on this host was **observed live** to
+  report **`l-0.221.12`** in its own log
+  (`Valheim version: l-0.221.12 (network version 36)`), so `AssemblyDriftGuard`
+  pins that platform-prefixed runtime string explicitly (row
+  `server-dedicated-niflheim-dl-linux`) rather than stripping the prefix inside
+  the fail-closed gate. **No equivalent client pin is authorized**: no launched
+  client `Player.log` exists on this host, so the client's runtime prefix has
+  not been observed — inferring it from the decompiled algorithm would be
+  inference minted into a fail-closed gate. The client-linux pin is added later,
+  for free, from the first live M6 run's own client log.
+
 - **Version constants** (`Version` type, both builds identical):
   `GameVersion.CurrentVersion = new GameVersion(0, 221, 12)`,
   `m_networkVersion = 36u`, `m_playerVersion = 43`, `m_worldVersion = 37`.
