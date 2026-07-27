@@ -744,6 +744,33 @@ deferred to M4 but are required before M6.**
   > EXECUTABLE, not EXECUTED. Nothing is launched, deployed, or run in-world on this card;
   > the four T022 ATs remain unobserved. M6 live qualification is still the separate
   > operator authorization below.**
+  >
+  > **Implementation note (M6-SEED, entitlement delivery over the existing control
+  > transport — capability, NOT performed).** The M6-COMPOSE composition wired
+  > `deliver_entitlement` on the REAL operator environment to a raise-only stub
+  > (`_deliver_admin_command`), so `--live --run-descriptor` correctly reached phase 4 and
+  > then died: `seeder.seed()` → `deliver(CMD_OFFER)` → raise → verdict None → exit 1.
+  > Delivered, engine-free Python: (a) `runner_core/live_transport.py` grows
+  > `EntitlementControlChannel` + `EntitlementDeliveryConfig` — the delivering seam relays
+  > the product's OWN `sbpr_master` OFFER(`CmdOffer=1`)→BUY(`CmdBuy=2`) admin command over
+  > the SAME owner-local loopback control wire the four T022 legs ride (the shared
+  > `send_envelope` round-trip + the `RequestHmac` canonical envelope, carrying verb
+  > `sbpr_master` and the discriminator in `args.commandType`), and parses the product's
+  > operator line back from the receipt. It holds NO signing key, has NO mint/sign/grant
+  > path, and refuses any discriminator other than OFFER/BUY before anything hits the wire
+  > (threats T3/T5 unchanged). (b) `RealOperatorConfig` gains a required
+  > `entitlement_delivery` field and the run descriptor a required `wire.entitlement`
+  > endpoint key; `real_operator_environment()` binds the real delivering callable and the
+  > raise-only stub is DELETED (a regression test guards that its error string and function
+  > can never return). (c) The acceptance test drives the callable the REAL environment /
+  > `build_live_run()` construct (never an injected stub) against a loopback control-server
+  > stub that speaks the genuine wire, asserting the OFFER and BUY envelopes are truly
+  > emitted with the correct verb/discriminator and the operator line parsed back — closing
+  > the stub-only defect class that produced the prior attempts. The FSM `Transport`
+  > Protocol is UNCHANGED and `qa/runner/fsm/*` byte-unchanged. **Maturity: this makes
+  > entitlement seeding POSSIBLE on the real wire, not PERFORMED. Nothing runs in-world; the
+  > four T022 ATs remain unobserved. M6 live qualification is still the separate operator
+  > authorization below.**
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;

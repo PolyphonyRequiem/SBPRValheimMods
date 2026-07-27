@@ -40,6 +40,8 @@ from .live_preflight import (
 )
 from .live_transport import (
     ChannelEndpoint,
+    EntitlementControlChannel,
+    EntitlementDeliveryConfig,
     LiveLoopbackTransport,
     LiveReceiptAdapter,
     LiveRunConfig,
@@ -64,6 +66,8 @@ __all__ = [
     "ChannelEndpoint",
     "ClientSpec",
     "DualClientLauncher",
+    "EntitlementControlChannel",
+    "EntitlementDeliveryConfig",
     "EntitlementSeeder",
     "EvidenceDocument",
     "LaneLauncher",

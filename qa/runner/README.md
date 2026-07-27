@@ -42,6 +42,17 @@ of printing "unlocked" and returning — all WITHOUT changing the FSM `Transport
   concrete layer that genuinely spawns `valheim.x86_64` and delivers `sbpr_master`), while
   the test suite wires stubs and asserts the run actually DROVE. Invoked from `--live`
   after the preflight UNLOCK.
+- **M6-SEED: entitlement delivery over the existing control transport.** The prior
+  composition wired `deliver_entitlement` to a raise-only stub, so `--live` died in phase
+  4. `runner_core/live_transport.py` now carries `EntitlementControlChannel` — it relays
+  the product `sbpr_master` OFFER(1)→BUY(2) admin command over the SAME owner-local
+  loopback wire (`send_envelope` + the `RequestHmac` canonical envelope) the four T022
+  legs ride, and parses the product's operator line from the receipt. It mints/signs/
+  grants NOTHING (threats T3/T5). `real_operator_environment()` binds this real seam;
+  the raise-only stub is deleted. Proven in `tests/test_live_entitlement_delivery.py`
+  against a loopback control-server stub that speaks the genuine wire — the OFFER/BUY
+  envelopes are asserted emitted with the correct verb/discriminator and the operator
+  line parsed back (no injected delivery stub).
 
 **Maturity — executable, NOT executed.** Merging this makes a live in-world run
 *executable*; it does not perform one on this card. `--dry-run` remains the **default** and
@@ -71,7 +82,7 @@ correct** outcome for every non-`success` scenario — the no-false-PASS contrac
 | `sbpr-qa-t022.py` | CLI entry point. Dry-run scenario replay; `--list-scenarios`, `--json`. |
 | `fsm/` | **Adopted, unchanged.** Transport-neutral engine-free 8-phase state machine + no-false-PASS verdict core (32 pytest cases). Adapter-driven so the real M1/M4 wire contracts replace the fakes without an FSM rewrite. |
 | `runner_core/` | **M5 orchestration envelope + M6-EXEC live wire + M6-COMPOSE entrypoint.** `lease`, `manifest`, `timeouts`, `evidence`, `orchestrator` (the SOLE PASS authority, §6), `simulation` (deterministic dry-run scenarios), `live_transport` (concrete loopback TCP/JSON `Transport`), `operator_drivers` (lane/dual-client/entitlement-seed/adminlist guards), `live_preflight` (fail-closed `--live` gate), plus **M6-COMPOSE**: `live_composition` (`run_live_qualification` — wires transport + drivers + orchestrator into an executed run, injectable operator env, teardown on every exit path). |
-| `tests/` | pytest suite: 32 adopted FSM cases + 52 M5 runner cases + M6-EXEC live-transport / preflight / operator-driver coverage + M6-COMPOSE composition + `--live`-executes coverage (142 total). |
+| `tests/` | pytest suite: 32 adopted FSM cases + 52 M5 runner cases + M6-EXEC live-transport / preflight / operator-driver coverage + M6-COMPOSE composition + `--live`-executes coverage + M6-SEED real-seam entitlement-delivery coverage (149 total). |
 
 ## Verdict authority (ADR-0009 §6)
 

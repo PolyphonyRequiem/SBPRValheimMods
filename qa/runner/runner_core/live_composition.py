@@ -50,9 +50,13 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Mapping, Optional, Sequence
 
-from fsm.errors import TransportError
-
-from .live_transport import LiveLoopbackTransport, LiveRunConfig
+from .live_transport import (
+    ChannelEndpoint,
+    EntitlementControlChannel,
+    EntitlementDeliveryConfig,
+    LiveLoopbackTransport,
+    LiveRunConfig,
+)
 from .manifest import ArtifactPinManifest
 from .lease import LaneLease
 from .operator_drivers import (
@@ -273,6 +277,12 @@ class RealOperatorConfig:
     server_ready_marker: str    # e.g. "Game server connected" / "DungeonDB Start"
     client_binary: str          # absolute path to valheim.x86_64
     adminlist_path: str         # server adminlist.txt to guard byte-identically
+    # The control channel over which the product `sbpr_master` OFFER→BUY admin command is
+    # relayed. Shares the run's owner-local wire (operator token / HMAC secret / nonce /
+    # world / expiry) by construction — the seeder rides this, never a new socket. A real
+    # run MUST supply it; without it there is no authorized delivery path and the run
+    # fails closed (no minting, ever).
+    entitlement_delivery: EntitlementDeliveryConfig
 
 
 def _proc_running_valheim_binaries() -> List[str]:
@@ -345,13 +355,17 @@ def real_operator_environment(config: RealOperatorConfig) -> LiveOperatorEnviron
     def stop_client(handle: object) -> None:
         _terminate(handle)
 
-    def deliver_entitlement(discriminator: int) -> str:
-        # Invoke the product's OWN authenticated admin path. We do NOT construct or
-        # sign entitlement — we ask the product to run `sbpr_master` with the fixed
-        # discriminator and report back the operator line it emits (threats T3/T5).
-        from .operator_drivers import SBPR_MASTER_CONSOLE_COMMAND
+    # The delivering entitlement seam: relay the product OFFER→BUY admin command over
+    # the SAME owner-local control transport the four legs ride. Built ONCE here, bound
+    # into the environment below. It holds no signing key and mints nothing — it only
+    # asks the product to run its own `sbpr_master` path (threats T3/T5).
+    entitlement_channel = EntitlementControlChannel(config.entitlement_delivery)
 
-        return _deliver_admin_command(SBPR_MASTER_CONSOLE_COMMAND, discriminator)
+    def deliver_entitlement(discriminator: int) -> str:
+        # Invoke the product's OWN authenticated admin path over the control channel. We
+        # do NOT construct or sign entitlement — we ask the product to run `sbpr_master`
+        # with the fixed discriminator and report back the operator line it emits.
+        return entitlement_channel.deliver(discriminator)
 
     def read_adminlist() -> bytes:
         with open(config.adminlist_path, "rb") as fh:
@@ -389,24 +403,6 @@ def _terminate(handle: object) -> None:
         proc.kill()
         proc.wait(timeout=5)
 
-
-def _deliver_admin_command(command: str, discriminator: int) -> str:
-    """Relay a product admin command and return the product's operator line.
-
-    A real operator run overrides this via the control channel to the running product;
-    the seeder only asks — it holds no key and mints nothing. Left unimplemented on the
-    engine-free path (there is no product to talk to) so that importing/unit-testing
-    this module can never accidentally reach a live product.
-    """
-    raise TransportError(
-        "real sbpr_master admin delivery requires a live product control channel; "
-        "wire it in an authorized operator run — the harness never mints entitlement"
-    )
-
-
-# --------------------------------------------------------------------------- #
-# Plan + real-env construction from an operator run descriptor.
-# --------------------------------------------------------------------------- #
 
 def build_live_run(
     descriptor: Mapping[str, Any],
@@ -481,6 +477,26 @@ def build_live_run(
     )
 
     srv = descriptor["server"]
+    # Entitlement delivery rides the SAME owner-local wire (shared token / secret / nonce
+    # / world / expiry from `wire`). The operator names the admin control endpoint the
+    # product exposes for `sbpr_master` under `wire.entitlement`; it is REQUIRED — without
+    # an authorized delivery endpoint there is no relay path and the run fails closed
+    # (the harness never mints entitlement).
+    ent_d = wire["entitlement"]
+    ent_ep = ChannelEndpoint(
+        host=str(ent_d["host"]),
+        port=int(ent_d["port"]),
+        role=str(ent_d.get("role", "Server")),
+    )
+    entitlement_delivery = EntitlementDeliveryConfig(
+        endpoint=ent_ep,
+        operator_token=str(wire["operator_token"]),
+        hmac_secret=str(wire["hmac_secret"]),
+        nonce=str(wire["nonce"]),
+        world_uid=int(wire["world_uid"]),
+        expiry_unix_ms=int(wire["expiry_unix_ms"]),
+        connection_generation=int(ent_d.get("connection_generation", 1)),
+    )
     env = real_operator_environment(
         RealOperatorConfig(
             server_binary=str(srv["server_binary"]),
@@ -489,6 +505,7 @@ def build_live_run(
             server_ready_marker=str(srv["server_ready_marker"]),
             client_binary=str(srv["client_binary"]),
             adminlist_path=str(srv["adminlist_path"]),
+            entitlement_delivery=entitlement_delivery,
         )
     )
     return plan, env
