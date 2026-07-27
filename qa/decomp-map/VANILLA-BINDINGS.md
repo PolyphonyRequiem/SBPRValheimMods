@@ -41,15 +41,19 @@ only live in a GUI process — see §3 threading/lifecycle notes.
   `GameVersion.CurrentVersion` compile-time constant. At **runtime**, vanilla
   `Version.GetVersionString()` prepends a *platform prefix* from
   `Version.GetPlatformPrefix()` (`"l"` SteamLinux, `"dl"` SteamDeckNative,
-  `"dw"` SteamDeckProton, `"ms"` MicrosoftStore; empty otherwise). On **this
-  host both builds run SteamLinux**, so the runtime-reported string is
-  **`l-0.221.12`** for the server *and* the client (verified by decompiling
-  `Version.GetVersionString()`/`GetPlatformPrefix()` from the client DLL via
-  ilspycmd, 2026-07-27; observed live in the server log:
-  `Valheim version: l-0.221.12 (network version 36)`). `AssemblyDriftGuard`
-  pins the platform-prefixed runtime string explicitly (rows
-  `server-dedicated-niflheim-dl-linux`, `client-trailborne-modded-gui-linux`)
-  rather than stripping the prefix inside the fail-closed gate.
+  `"dw"` SteamDeckProton, `"ms"` MicrosoftStore; empty otherwise) — the branch
+  is resolved from `IDistributionPlatform.DistributionPlatform` at runtime, so
+  decompiling the method reveals only the *algorithm*, not which prefix a given
+  process emits. The **dedicated server** on this host was **observed live** to
+  report **`l-0.221.12`** in its own log
+  (`Valheim version: l-0.221.12 (network version 36)`), so `AssemblyDriftGuard`
+  pins that platform-prefixed runtime string explicitly (row
+  `server-dedicated-niflheim-dl-linux`) rather than stripping the prefix inside
+  the fail-closed gate. **No equivalent client pin is authorized**: no launched
+  client `Player.log` exists on this host, so the client's runtime prefix has
+  not been observed — inferring it from the decompiled algorithm would be
+  inference minted into a fail-closed gate. The client-linux pin is added later,
+  for free, from the first live M6 run's own client log.
 
 - **Version constants** (`Version` type, both builds identical):
   `GameVersion.CurrentVersion = new GameVersion(0, 221, 12)`,

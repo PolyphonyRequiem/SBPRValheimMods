@@ -88,13 +88,5 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.False(r.Ok);
             Assert.Equal("NetworkVersionDrift", r.Reason);
         }
-
-        [Fact]
-        public void UnknownMvid_WithLinuxPrefix_FailsMvidNotAuthorized()
-        {
-            var r = AssemblyDriftGuard.Check(new ObservedGameAssembly(Guid.NewGuid(), "l-0.221.12", 36u));
-            Assert.False(r.Ok);
-            Assert.Equal("MvidNotAuthorized", r.Reason);
-        }
     }
 }

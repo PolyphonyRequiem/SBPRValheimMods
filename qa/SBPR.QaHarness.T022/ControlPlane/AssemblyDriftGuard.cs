@@ -97,9 +97,6 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
             new GameAssemblyPin(
                 "server-dedicated-niflheim-dl-linux",
                 "62393fbd-383b-447c-9ae7-7ae16afa654f", "l-0.221.12", 36u),
-            new GameAssemblyPin(
-                "client-trailborne-modded-gui-linux",
-                "23db560f-3f87-4454-8fe1-c434da4f936a", "l-0.221.12", 36u),
         };
 
         /// <summary>Check an observed game assembly against the authorized pins. Fail-closed on any mismatch.</summary>
