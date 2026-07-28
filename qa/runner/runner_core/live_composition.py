@@ -61,6 +61,7 @@ from .manifest import ArtifactPinManifest
 from .lease import LaneLease
 from .launch_env import SidecarWriter
 from .bootstrap_provision import BootstrapProvisioner
+from .lane_password_provision import LanePasswordProvisioner
 from .operator_drivers import (
     AdminlistGuard,
     BootRetryPolicy,
@@ -412,12 +413,28 @@ def real_operator_environment(
     # secret-bearing docs on teardown. When no descriptor is supplied both are no-ops.
     bootstrap_provisioner = BootstrapProvisioner()
 
+    # The lane-password provisioner (M6-JOIN3 / B2). Writes each password-gated client's
+    # mode-0600 lane-password file from the descriptor's `lane_password` (before launch) and
+    # removes the credential-bearing files on teardown. No-op for an open/no-password lane
+    # (no client names a `server_password_file`). Same discipline as BootstrapProvisioner.
+    lane_password_provisioner = LanePasswordProvisioner()
+
     def provision_bootstraps() -> None:
         if descriptor is not None:
             bootstrap_provisioner.provision_from_descriptor(descriptor)
+            # Produce the lane-password file(s) BEFORE launch so the sidecar-advertised
+            # SBPR_QA_SERVER_PASSWORD_FILE path exists when the QA hook reads it. This is the
+            # missing producer for the consumer the branch already shipped.
+            lane_password_provisioner.provision_from_descriptor(descriptor)
 
     def cleanup_bootstraps() -> None:
-        bootstrap_provisioner.remove_all()
+        # Remove BOTH secret-bearing artifact classes on every teardown exit path: the
+        # bootstrap docs (HMAC secret + operator token) AND the lane-password files. A best-
+        # effort double removal — one failing never strands the other.
+        try:
+            bootstrap_provisioner.remove_all()
+        finally:
+            lane_password_provisioner.remove_all()
 
     def _mcp_call(request: ClientLaunchRequest, tool: str) -> None:
         payload = _json.dumps(
@@ -700,6 +717,13 @@ def build_live_run(
             # cross-user path for the valbot lane). The runner writes the three non-secret
             # arming vars there and the wrapper sources them across the daemon fork.
             launch_env_path=(str(c["launch_env_path"]) if c.get("launch_env_path") is not None else None),
+            # M6-JOIN3 / B1: the QA-owned profile the headless join selects by name (allowlist
+            # of one). Absent => the C# hook refuses the join rather than load a human profile.
+            qa_profile=(str(c["qa_profile"]) if c.get("qa_profile") is not None else None),
+            # M6-JOIN3 / B2: the mode-0600 lane-password file's PATH for a password-gated lane.
+            server_password_file=(
+                str(c["server_password_file"]) if c.get("server_password_file") is not None else None
+            ),
         )
         for c in descriptor["clients"]
     )

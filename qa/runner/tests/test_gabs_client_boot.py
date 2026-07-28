@@ -200,6 +200,24 @@ def test_build_request_fails_closed_when_launch_fields_missing() -> None:
         assert field in msg
 
 
+def test_build_request_carries_qa_profile_and_password_file_when_present() -> None:
+    # M6-JOIN3 / B1+B2: when the descriptor names a QA profile and a lane-password FILE
+    # path, both ride the launch-env sidecar as SBPR_QA_PROFILE / SBPR_QA_SERVER_PASSWORD_FILE.
+    req = GabsClientBooter.build_request(
+        _spec(qa_profile="sbpr_qa_join", server_password_file="/run/sbpr-qa/lane-pw.txt")
+    )
+    assert req.launch_env["SBPR_QA_PROFILE"] == "sbpr_qa_join"
+    assert req.launch_env["SBPR_QA_SERVER_PASSWORD_FILE"] == "/run/sbpr-qa/lane-pw.txt"
+
+
+def test_build_request_omits_qa_profile_and_password_when_absent() -> None:
+    # Absent on the spec => the keys are simply not in the launch env. The C# hook then
+    # fails closed (refuses the join) rather than loading a human profile — the SAFE default.
+    req = GabsClientBooter.build_request(_spec())
+    assert "SBPR_QA_PROFILE" not in req.launch_env
+    assert "SBPR_QA_SERVER_PASSWORD_FILE" not in req.launch_env
+
+
 def test_boot_drives_gabs_env_and_returns_live_handle() -> None:
     rec = _Recorder(ready_after_calls=1)
     request = rec.booter().boot(_spec())

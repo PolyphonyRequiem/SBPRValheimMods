@@ -63,15 +63,19 @@ def test_render_refuses_a_non_allowlisted_key() -> None:
         render_sidecar({**_GOOD_ENV, "SBPR_QA_HMAC_SECRET": "deadbeef"})
 
 
-def test_allowlist_is_exactly_the_four_non_secret_launch_vars() -> None:
-    # The three arming env vars PLUS the M6-JOIN connect target — all non-secret, all
-    # ride the same 0644 sidecar. A secret (HMAC/operator token) is still refused.
+def test_allowlist_is_exactly_the_six_non_secret_launch_vars() -> None:
+    # The three arming env vars PLUS the M6-JOIN connect target PLUS the M6-JOIN3
+    # server-password FILE PATH PLUS the M6-JOIN3 QA profile NAME — all non-secret, all
+    # ride the same 0644 sidecar. The password VALUE is NOT here (it lives in the mode-0600
+    # file this path names); a secret (HMAC/operator token) is still refused.
     assert ALLOWED_SIDECAR_KEYS == frozenset(
         {
             "SBPR_QA_T022_BOOTSTRAP",
             "SBPR_QA_HARNESS_INSTANCE",
             "SBPR_QA_STEAM_ID",
             "SBPR_QA_CONNECT",
+            "SBPR_QA_SERVER_PASSWORD_FILE",
+            "SBPR_QA_PROFILE",
         }
     )
 
