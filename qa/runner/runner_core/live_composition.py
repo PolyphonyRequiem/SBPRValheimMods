@@ -428,13 +428,19 @@ def real_operator_environment(
             lane_password_provisioner.provision_from_descriptor(descriptor)
 
     def cleanup_bootstraps() -> None:
-        # Remove BOTH secret-bearing artifact classes on every teardown exit path: the
-        # bootstrap docs (HMAC secret + operator token) AND the lane-password files. A best-
-        # effort double removal — one failing never strands the other.
+        # Remove EVERY tracked run artifact on every teardown exit path: the bootstrap docs
+        # (HMAC secret + operator token), the lane-password files, AND the launch-env
+        # sidecars. All three are swept via remove_all() so a sidecar written for a client
+        # that then FAILED to arm — no ClientLaunchRequest handle ever reached stop_client,
+        # so stop_client's per-handle remove() never fired — is still unlinked here. A best-
+        # effort chained removal: one class failing never strands the others.
         try:
             bootstrap_provisioner.remove_all()
         finally:
-            lane_password_provisioner.remove_all()
+            try:
+                lane_password_provisioner.remove_all()
+            finally:
+                sidecar_writer.remove_all()
 
     def _mcp_call(request: ClientLaunchRequest, tool: str) -> None:
         payload = _json.dumps(
