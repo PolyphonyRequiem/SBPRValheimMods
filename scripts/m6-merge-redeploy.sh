@@ -136,6 +136,28 @@ git worktree add -q --detach "$BUILD_DIR" "$MERGE_SHA"
 trap "git worktree remove --force '$BUILD_DIR' 2>/dev/null || true" EXIT
 
 unset DOTNET_ROOT  # ~/.dotnet breaks this build on Prime-U
+
+# The build resolves the Valheim managed-assembly + BepInEx core paths via
+# Directory.Build.props, which reads (1) the VALHEIM_MANAGED / BEPINEX_CORE env
+# vars, then (2) a repo-root .env sitting next to the props file. This detached
+# build worktree is a FRESH checkout: the .env is gitignored, so it is NOT
+# present here and the props file falls through to its "path not configured"
+# error. Earlier merge runs built inside the main checkout (where .env exists),
+# so this path was never exercised until the script's first live run. Export the
+# main checkout's resolved paths so the worktree build inherits them via env
+# (priority 1), which needs no file copy into the throwaway tree.
+if [[ -f "$REPO/.env" ]]; then
+  while IFS='=' read -r _k _v; do
+    case "$_k" in
+      VALHEIM_MANAGED|VALHEIM_INSTALL|BEPINEX_CORE|BEPINEX_PATH)
+        export "$_k=$_v" ;;
+    esac
+  done < <(grep -E '^\s*(VALHEIM_MANAGED|VALHEIM_INSTALL|BEPINEX_CORE|BEPINEX_PATH)\s*=' "$REPO/.env")
+fi
+if [[ -z "${VALHEIM_MANAGED:-}" && -z "${VALHEIM_INSTALL:-}" ]]; then
+  die 3 "no Valheim managed path available for the build: set VALHEIM_MANAGED or provide $REPO/.env (run scripts/setup.sh)"
+fi
+
 if ! dotnet build "$BUILD_DIR/$HELPER_PROJ" -c Release \
       --nologo -v minimal >"$BUILD_DIR/build.log" 2>&1; then
   tail -30 "$BUILD_DIR/build.log" >&2
