@@ -2,9 +2,14 @@
 //
 // ATTRIBUTION (finding only, no code ported): the choice to key "a local player is now spawned and
 // in-world" off the vanilla Player.OnSpawned method + Player.m_localPlayer — rather than the
-// server-only ZNet.World — is credited to MODSCAN-001 in ~/valheim/refs/jotunn/FINDINGS.md
-// (Jotunn / JotunnLib Team, MIT). Jotunn's ItemManager/PieceManager postfix Player.OnSpawned to
-// reconcile recipe state at exactly that moment. This is a behavioural FINDING; the implementation
+// server-only ZNet.World — is credited to MODSCAN-001, verified in the pinned MIT Jotunn corpus at
+// ~/valheim/sbpr-corpus/jotunn-source (Jotunn / JotunnLib Team, MIT; v2.29.0 @ commit 6a2c37a):
+//   JotunnLib/Managers/ItemManager.cs:88   [HarmonyPatch(typeof(Player), nameof(Player.OnSpawned)), HarmonyPostfix]
+//   JotunnLib/Managers/PieceManager.cs:126  same patch shape
+//   JotunnLib/DebugUtils/DebugHelper.cs:49   same patch shape
+// All three postfix Player.OnSpawned and then treat the `Player self`/`__instance` as a trusted live
+// spawned local player (ItemManager/PieceManager re-run ReloadKnownRecipes at that moment). This is a
+// behavioural FINDING — finding-only attribution, no Jotunn code is ported; the implementation
 // below is our own clean code against vanilla members verified present at the pinned game
 // (assembly_valheim @ 0.221.12): Player.OnSpawned and Player.m_localPlayer exist; the role split is
 // done with !ZNet.IsServer() because IsClientInstance() does NOT exist at this pin (verified absent;
