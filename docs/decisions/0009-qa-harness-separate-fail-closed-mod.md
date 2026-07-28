@@ -863,6 +863,50 @@ deferred to M4 but are required before M6.**
   > three vars — locally-gated (skips where no `gabs` binary, e.g. CI) and proven to FAIL
   > when the pre-fix `os.environ` path is reinstated. **T6 unchanged; the four AT legs still
   > ride `LiveLoopbackTransport`. Maturity: still POSSIBLE, not PERFORMED.**
+  >
+  > **Implementation note (M6-STEAMGATE, fail fast on a dead client — two defects fixed,
+  > run still NOT performed).** The QA client cannot boot without a **running Steam owned
+  > by the user GABS launches it as**: with none, Valheim's Steamworks throws
+  > `InvalidOperationException: Steamworks is not initialized` inside
+  > `SceneLoader.Awake`→`ZInput.Load`→`SteamUtils` and the process exits ~6s in, before the
+  > scene activates. `steam_appid.txt` (already present in both installs) is necessary but
+  > NOT sufficient — it lets a directly-launched binary identify itself to a **running**
+  > Steam, it cannot start one. This was miscategorised for weeks as an "intermittent
+  > ValBridge startup-scene deadlock"; it is a **deterministic crash**, which is why the
+  > `BootRetryPolicy(max_attempts=6, readiness_timeout_s=150.0)` re-roll budget never
+  > helped — 6×150s of polling a corpse. **Two independent fixes, neither of which touches
+  > the retry budget** (more retries against a deterministic crash is the failure mode being
+  > removed). **(A) Preflight requires a running Steam.** `sbpr-qa-t022.py --live` now, after
+  > the sentinel/overlay/descriptor preconditions UNLOCK and before composing any driver,
+  > asserts Steam readiness via `runner_core/steam_preflight.py`, which **shells out to the
+  > committed `scripts/ensure-steam.sh --check`** (exit 0 = ready, 4 = not ready) rather than
+  > reimplementing the predicate — so the readiness rule lives in **one** place. That
+  > predicate is **live `steam` process owned by the target user AND `~/.steam/steam.pipe`
+  > exists AND `~/.steam/steam.pid` points at a live PID**; a **stale pipe with no process
+  > behind it** (a real state on this host) does NOT pass, and a dedicated test covers it.
+  > **Which user:** GABS gameId `valheim` → `~/.gabs/config.json` `DirectPath`
+  > `run-trailborne.sh` under **polyphonyrequiem**'s home, launched by the poly GABS daemon
+  > (uid 1000) — the user the runner itself runs as, confirmed by the crash log's location
+  > and the two running `gabs server` daemons (poly :8080, valbot :8081). The gate targets
+  > the current user by default; a descriptor may set `steam_user` (e.g. `valbot` for the
+  > uid-1001 lane, which **may need a one-time interactive Steam login no script can
+  > perform**). Preflight only **reports**; it does not attempt a headless Steam start (an
+  > agent shell has no X/dbus, so a start there would silently bootstrap-and-exit) — it fails
+  > with the actionable message instead. **(B) The boot loop abandons a dead attempt.**
+  > `GabsClientBooter.boot` previously polled `control_ready` every 10s for the full
+  > `readiness_timeout_s` per attempt without checking the launched process was still alive.
+  > It now, **between readiness polls**, re-probes the recorded instance's PID via the
+  > existing `probe_pid` seam: if the process is **gone** (or the PID is now a foreign/reused
+  > process — marker/start-time mismatch), it **abandons that attempt immediately and
+  > re-rolls** instead of polling a corpse. Measured on the production policy (6×150s, poll
+  > 10s): a client that exits on boot goes from **90 polls (~900s)** to **≤6 polls (~one poll
+  > per attempt, ~6s each in reality)** — asserted on **poll count**, not wall-clock. The
+  > liveness check is a **read only**: it does not weaken `_terminate_owned`'s TOCTOU
+  > provenance re-check, "process gone" stays a clean already-torn-down path (never an
+  > error), and teardown remains provenance-scoped (never a gameId-wide kill that could take
+  > Daniel's own Steam Valheim). **T6 unchanged; the four AT legs still ride
+  > `LiveLoopbackTransport`. Maturity: still POSSIBLE, not PERFORMED** — this makes the
+  > harness fail fast and honestly, it does not run an in-world qualification.
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;
