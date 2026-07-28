@@ -46,12 +46,20 @@ namespace SBPR.QaHarness.T022
         public const string BootstrapEnvVar = "SBPR_QA_T022_BOOTSTRAP";
 
         private Harmony? _harmony;
+        private Harmony? _autoJoinHarmony;
         private ControlPlaneComponent? _component;
         private bool _armAttempted;
 
         private void Awake()
         {
             LogDisarmedBanner();
+
+            // M6-JOIN3: headless auto-join hook. Independent of the world-load arm gate below,
+            // because it must fire at the PRE-JOIN character-select screen (before ZNet.World
+            // exists) to supply the "Start" click vanilla otherwise waits on. Default-disabled:
+            // TryInstall no-ops unless SBPR_QA_CONNECT is present for this launch.
+            _autoJoinHarmony = new Harmony(PluginGuid + ".autojoin");
+            FejdStartupAutoJoin.TryInstall(_autoJoinHarmony, Logger);
 
             // Default-disabled: with no explicit bootstrap signal the helper does nothing further.
             string? bootstrapPath = Environment.GetEnvironmentVariable(BootstrapEnvVar);
@@ -175,7 +183,10 @@ namespace SBPR.QaHarness.T022
         {
             try { QaServerRpcBridge.Disarm(); } catch (Exception) { /* best effort */ }
             try { _harmony?.UnpatchSelf(); } catch (Exception) { /* best effort */ }
+            try { _autoJoinHarmony?.UnpatchSelf(); } catch (Exception) { /* best effort */ }
+            try { FejdStartupAutoJoin.Reset(); } catch (Exception) { /* best effort */ }
             _harmony = null;
+            _autoJoinHarmony = null;
         }
 
         private void LogDisarmedBanner()

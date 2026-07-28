@@ -72,6 +72,12 @@ ALLOWED_SIDECAR_KEYS = frozenset(
         "SBPR_QA_HARNESS_INSTANCE",
         "SBPR_QA_STEAM_ID",
         "SBPR_QA_CONNECT",
+        # M6-JOIN3: absolute PATH of the mode-0600 lane-password file (non-secret, exactly
+        # like SBPR_QA_T022_BOOTSTRAP names the 0600 bootstrap doc). The password VALUE lives
+        # only in that 0600 file, never in this 0644 sidecar. The QA FejdStartup auto-join hook
+        # reads the file and sets vanilla FejdStartup.ServerPassword so a password-gated lane's
+        # handshake auto-submits it instead of parking on the password dialog headless.
+        "SBPR_QA_SERVER_PASSWORD_FILE",
     }
 )
 
