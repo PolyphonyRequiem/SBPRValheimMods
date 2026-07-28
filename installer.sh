@@ -323,8 +323,32 @@ export DOORSTOP_ENABLED=1
 export DOORSTOP_TARGET_ASSEMBLY="\$HERE/BepInEx/core/BepInEx.Preloader.dll"
 export $LIBPATH_VAR="\$HERE/doorstop_libs:\${$LIBPATH_VAR:-}"
 export $PRELOAD_VAR="\$HERE/doorstop_libs/$DOORSTOP_LIB:\${$PRELOAD_VAR:-}"
+
+# --- SBPR QA launch-env sidecar + join target (M6-LAUNCHENV / M6-JOIN) --------------
+# GABS forks this wrapper with the DAEMON's environment and NO per-launch arguments, so
+# the QA runner cannot deliver the arming vars or the +connect join target directly. It
+# writes them to a per-launch sidecar env file at a path derived from this launching
+# user's \$HOME + \$GABS_GAME_ID (mirrored in runner_core/launch_env.py). We source it
+# here, then turn SBPR_QA_CONNECT (host:port) into a +connect argv fragment, just before
+# exec. The sidecar carries only NON-SECRET values (a bootstrap-doc path, a public
+# SteamID, a random marker, a LAN host:port); secrets live only in the mode-0600
+# bootstrap doc. Absent file/var => no-op (a normal, non-QA launch is unaffected).
+SBPR_QA_LAUNCH_ENV_FILE="\${SBPR_QA_LAUNCH_ENV_FILE:-\$HOME/.local/share/sbpr-qa/launch-env/\${GABS_GAME_ID:-valheim}.env}"
+if [[ -f "\$SBPR_QA_LAUNCH_ENV_FILE" && ! -L "\$SBPR_QA_LAUNCH_ENV_FILE" ]]; then
+  echo "Sourcing SBPR QA launch-env sidecar: \$SBPR_QA_LAUNCH_ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  . "\$SBPR_QA_LAUNCH_ENV_FILE"
+  set +a
+fi
+SBPR_QA_CONNECT_ARGS=()
+if [[ -n "\${SBPR_QA_CONNECT:-}" ]]; then
+  echo "SBPR QA joining lane: +connect \$SBPR_QA_CONNECT"
+  SBPR_QA_CONNECT_ARGS=(+connect "\$SBPR_QA_CONNECT")
+fi
+# -----------------------------------------------------------------------------------
 echo "Starting modded Valheim (Trailborne)..."
-exec "\$HERE/$CLIENT_EXE"$CONSOLE_ARG "\$@"
+exec "\$HERE/$CLIENT_EXE"$CONSOLE_ARG "\${SBPR_QA_CONNECT_ARGS[@]}" "\$@"
 EOF
 chmod +x "$LAUNCHER"
 okm "Wrote $LAUNCHER"

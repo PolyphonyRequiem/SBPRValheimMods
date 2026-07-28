@@ -23,6 +23,7 @@ import pytest
 
 from runner_core.operator_drivers import (
     BOOTSTRAP_ENV_VAR,
+    CONNECT_TARGET_ENV_VAR,
     HARNESS_INSTANCE_ENV_VAR,
     STEAM_ID_ENV_VAR,
     BootRetryPolicy,
@@ -177,6 +178,10 @@ def test_build_request_carries_bootstrap_connect_gabs_and_loopback() -> None:
     assert request.connect_target == f"{LANE_HOST}:{LANE_PORT}"
     assert tuple(request.connect_args) == ("+connect", f"{LANE_HOST}:{LANE_PORT}")
     assert str(LANE_PORT) in request.connect_target
+    # M6-JOIN: the join target ALSO rides the launch-env sidecar as SBPR_QA_CONNECT, the
+    # channel that actually crosses the GABS fork (the wrapper turns it into `+connect`).
+    # `connect_args` alone was never delivered — that was the main-menu-idle bug.
+    assert request.launch_env[CONNECT_TARGET_ENV_VAR] == f"{LANE_HOST}:{LANE_PORT}"
     # The actor's GABS endpoint + gameId.
     assert request.gabs_endpoint == GABS_ENDPOINT
     assert request.game_id == "valheim"

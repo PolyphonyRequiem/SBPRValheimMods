@@ -907,6 +907,33 @@ deferred to M4 but are required before M6.**
   > Daniel's own Steam Valheim). **T6 unchanged; the four AT legs still ride
   > `LiveLoopbackTransport`. Maturity: still POSSIBLE, not PERFORMED** — this makes the
   > harness fail fast and honestly, it does not run an in-world qualification.
+  >
+  > **Implementation note (M6-JOIN, deliver the `+connect` join argument across the GABS
+  > launch — run still NOT performed).** The client booted all the way to the **main menu
+  > and idled there forever**: the T022 helper only arms once `ZNet.World` loads, so with no
+  > join it stayed correctly DISARMED and no AT could run. **Verified on this host, not
+  > inferred:** a real launched client's `/proc/<pid>/cmdline` was
+  > `valheim.x86_64 -console` — **no `+connect`**. GABS's `games_start` delivers no
+  > per-launch **arguments** exactly as it delivers no per-launch **env** (probed for
+  > M6-LAUNCHENV); `ClientLaunchRequest` built a `connect_args=("+connect", target)`
+  > fragment but **nothing delivered it** to the game argv. **Delivered:** the join target
+  > rides the SAME non-secret launch-env sidecar the wrapper already sources — a new
+  > allowlisted `SBPR_QA_CONNECT=host:port` key (`launch_env.py`, added to
+  > `ALLOWED_SIDECAR_KEYS`; `build_request` populates it from the validated
+  > `connect_host`/`connect_port`). The wrapper (`run-trailborne.sh`) turns it into a
+  > `+connect <host>:<port>` argv fragment **prepended before any GABS-passed args**, just
+  > after sourcing the sidecar. `render_sidecar`'s existing whitespace/shell-hostile-byte
+  > refusal means the `host:port` value is a single argv token that can never split into an
+  > extra flag. **The B2 production-`+connect` deny is unchanged and still fires FIRST in
+  > `build_request`** — a descriptor naming Niflheim 2456 / Heistan 2466 is rejected before
+  > any launch, before the join target is ever written to a sidecar. **The acceptance test
+  > is REAL, not stubbed** (`tests/test_launch_arg_sidecar_delivery.py`): it stands up an
+  > actual `gabs` daemon, fires a real `games.start`, and asserts the genuinely forked
+  > child's `/proc/<pid>/cmdline` carries `+connect <host>:<port>` — locally-gated (skips
+  > where no `gabs` binary, e.g. CI), in the same style as the `/proc/environ` sidecar test.
+  > **T6 unchanged; the four AT legs still ride `LiveLoopbackTransport`. Maturity: still
+  > POSSIBLE, not PERFORMED** — this closes the argument-delivery seam; it does not itself
+  > run an in-world qualification.
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;

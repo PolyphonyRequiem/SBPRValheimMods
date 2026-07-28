@@ -364,6 +364,12 @@ STEAM_ID_ENV_VAR = "SBPR_QA_STEAM_ID"
 # Valheim (different binary path, same gameId "valheim"); this marker is provenance the
 # harness alone controls, so teardown can be scoped to a single harness-launched process.
 HARNESS_INSTANCE_ENV_VAR = "SBPR_QA_HARNESS_INSTANCE"
+# The join target the wrapper turns into a `+connect host:port` launch ARGUMENT (M6-JOIN).
+# GABS's games_start delivers no per-launch argv (just as it delivers no per-launch env),
+# so this `host:port` rides the same non-secret launch-env sidecar the wrapper already
+# sources; the wrapper prepends `+connect` and passes it to the game binary. Absent this,
+# the client boots to the main menu and never joins the lane world.
+CONNECT_TARGET_ENV_VAR = "SBPR_QA_CONNECT"
 
 
 @dataclass(frozen=True)
@@ -483,6 +489,11 @@ class GabsClientBooter:
             BOOTSTRAP_ENV_VAR: str(spec.bootstrap_path),
             STEAM_ID_ENV_VAR: spec.steam_id,
             HARNESS_INSTANCE_ENV_VAR: marker,
+            # The join target rides the SAME non-secret sidecar the wrapper sources; the
+            # wrapper turns it into `+connect host:port`. This is the argument-half fix
+            # (M6-JOIN) mirroring the env-half fix (M6-LAUNCHENV): GABS delivers neither
+            # per-launch env NOR per-launch argv, so both cross the fork via the sidecar.
+            CONNECT_TARGET_ENV_VAR: connect_target,
         }
         return ClientLaunchRequest(
             actor=spec.actor,
