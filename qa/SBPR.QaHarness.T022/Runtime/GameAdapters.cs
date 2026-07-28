@@ -10,6 +10,7 @@
 // permitted: the wall is around OTHER mods, not the base game we mod (ADR-0001).
 using System;
 using System.Reflection;
+using SBPR.QaHarness.T022.Core;
 using SBPR.QaHarness.T022.Core.ControlPlane;
 using UnityEngine;
 
@@ -20,9 +21,19 @@ namespace SBPR.QaHarness.T022.Runtime
     /// ZNet.World so a pre-world-load read returns WorldLoaded=false rather than NREing.
     /// Observed-only — never mutates world state.
     /// </summary>
-    internal sealed class ZNetWorldIdentitySource : IWorldIdentitySource
+    /// <remarks>
+    /// Also implements <see cref="IServerReadinessSource"/> (spec-role-split-arm-gate.md AC1): its
+    /// <see cref="WorldLoaded"/> predicate — unchanged — IS the server-role arm-time readiness signal
+    /// (ZNet.World != null, assigned on the authoritative host/dedicated path). It already answers
+    /// exactly ONE question (world loaded), so it keeps its predicate and simply also names it as the
+    /// server readiness source. The role split does NOT widen or narrow this predicate.
+    /// </remarks>
+    internal sealed class ZNetWorldIdentitySource : IWorldIdentitySource, IServerReadinessSource
     {
         public bool WorldLoaded => ZNet.instance != null && ZNet.World != null;
+
+        /// <summary>Server-role arm-time readiness == the authoritative world is loaded (spec AC1).</summary>
+        public bool Ready => WorldLoaded;
 
         public long WorldUid => WorldLoaded ? ZNet.World.m_uid : 0L;
 
