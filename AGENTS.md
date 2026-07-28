@@ -76,3 +76,27 @@ anonymous) supplies them — see `.github/workflows/`.
 When filing or closing a bug card, if the fix changes behavior, **explicitly
 note that the spec/docs must be updated too** (per the rule above). A card isn't
 done when the code works — it's done when code and spec agree.
+
+## QA live-harness process discipline (M6)
+
+- **GABS never reaps the game processes it forks.** A client that exits leaves a
+  `<defunct>` `valheim.x86_64` zombie parented to the long-lived GABS daemon. GABS's
+  single-gameId liveness model counts that zombie as "running" (its name-based `ps`
+  finder still matches the zombie's `comm` — `GABS/internal/process/controller.go:296-302`),
+  so `games.status` reports "running" and the next `games.start` is a silent no-op
+  (`GABS/internal/mcp/stdio_server.go:761-764`). This is a GABS-side bug we cannot fix
+  from our repo; the **permanent** runner-side workaround is to force GABS's view to
+  match reality before every launch — `_reset_gabs_state` in
+  `qa/runner/runner_core/live_composition.py` issues `games.stop` (which, as the child's
+  parent, actually `Wait()`s and reaps the zombie) and verifies the state cleared. It is
+  gated on there being **zero live non-zombie** `valheim.x86_64` (a zombie exposes no
+  readable `/proc/<pid>/exe`), so it can never touch Daniel's own Steam Valheim.
+- **Whoever launches a verification/proof client MUST reap it.** Do not leave a launched
+  `valheim.x86_64` un-reaped when your card completes — confirm the process is fully gone
+  (not merely signalled), e.g. `games.stop` the gameId your throwaway daemon owns, or
+  `pkill -9 -f <your-child-binary>` then verify no child remains under your daemon. An
+  un-reaped proof client is the exact zombie that made run 8's re-rolls silent no-ops.
+- **QA workers use isolated `git worktree` checkouts, not the shared clone.** Concurrent
+  workers on the single `~/repos/SBPRValheimMods` checkout is a corruption hazard (a
+  concurrent worker moved HEAD mid-run in run 8). `git worktree add` a per-task tree off
+  the resolved `origin/main` and work there.
