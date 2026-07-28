@@ -319,6 +319,11 @@ cat > "$LAUNCHER" <<EOF
 set -e
 HERE="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 cd "\$HERE"
+export SteamAppId=892970
+export SteamGameId=892970
+# Unity 6000's SceneLoader expects the SoftReference wrapper to remain activation-blocked
+# until its coroutine finishes startup gates. Current Valheim starts the wrapper activated;
+# force the correct initial state before SceneLoader.Start runs.
 export DOORSTOP_ENABLED=1
 export DOORSTOP_TARGET_ASSEMBLY="\$HERE/BepInEx/core/BepInEx.Preloader.dll"
 export $LIBPATH_VAR="\$HERE/doorstop_libs:\${$LIBPATH_VAR:-}"
