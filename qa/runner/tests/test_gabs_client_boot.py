@@ -557,3 +557,124 @@ def test_build_live_run_rejects_production_connect_target_descriptor() -> None:
     with pytest.raises(OperatorSafetyError) as ei:
         GabsClientBooter.build_request(plan.clients[0])
     assert "2456" in str(ei.value)
+
+
+# --------------------------------------------------------------------------- #
+# M6-STEAMGATE (B) — the boot loop abandons a DEAD attempt in seconds instead of
+# polling the full readiness budget. A client that exits ~6s into boot (e.g. the
+# deterministic `Steamworks is not initialized` crash) must fail that attempt on
+# the very next poll, not after readiness_timeout_s of polling a corpse.
+# --------------------------------------------------------------------------- #
+
+def test_boot_abandons_attempt_immediately_when_process_exits() -> None:
+    # A generous per-attempt budget: 300 polls/attempt (3000s / 10s). If the booter
+    # polled a dead process to the budget this would be 300 polls. Instead, the client
+    # is killed right after spawn, so each attempt must abandon on its FIRST liveness
+    # re-probe — a tiny, bounded number of polls, NOT the full budget.
+    policy = BootRetryPolicy(max_attempts=3, readiness_timeout_s=3000.0, poll_interval_s=10.0)
+    rec = _Recorder(ready_after_calls=9999)  # never arms on its own
+
+    # Model the crash-on-boot: control_ready reports not-ready AND the launched process
+    # is gone by the time we look (the client exited ~6s in). Removing it from the
+    # simulated /proc makes the liveness probe see it as gone.
+    real_control_ready = rec.control_ready
+
+    def crashing_control_ready(request):
+        # The helper never arms; simultaneously the client process has exited, so the
+        # very next liveness re-probe finds no live PID for our marker.
+        rec.procs.clear()
+        return real_control_ready(request)
+
+    rec.control_ready = crashing_control_ready  # type: ignore[assignment]
+
+    with pytest.raises(ClientLaunchError) as ei:
+        rec.booter(policy).boot(_spec())
+
+    msg = str(ei.value)
+    # It re-rolled the full attempt budget (each attempt died fast), and the last
+    # stage names the crash-on-boot abandon path, not a readiness-timeout wedge.
+    assert len(rec.started) == 3
+    assert "exited before arming" in msg
+    # THE ASSERTION THAT MATTERS: it did NOT poll the readiness budget. At most one
+    # sleep can occur per attempt before the liveness probe fires (the loop checks
+    # control_ready, then liveness). 3 attempts => at most 3 sleeps, vastly fewer than
+    # the 300 polls/attempt budget. Assert on poll/sleep count, never wall-clock.
+    assert len(rec.slept) <= policy.max_attempts
+    assert policy.polls_per_attempt == 300  # the budget we proved we did not burn
+
+
+def test_boot_liveness_abandon_still_arms_on_a_later_healthy_attempt() -> None:
+    # First attempt's client crashes (proc vanishes); the second attempt's client is
+    # healthy and arms. The booter must survive the dead attempt and succeed — the
+    # liveness check accelerates failure, it does not break the happy path.
+    policy = BootRetryPolicy(max_attempts=4, readiness_timeout_s=3000.0, poll_interval_s=10.0)
+    rec = _Recorder(ready_after_calls=1)  # arms on the first poll of a LIVE attempt
+
+    state = {"attempt": 0}
+    real_control_ready = rec.control_ready
+
+    def flaky_control_ready(request):
+        state["attempt"] += 1
+        if state["attempt"] == 1:
+            # First attempt: the client has crashed — clear the proc so liveness fails.
+            rec.procs.clear()
+            return False
+        return real_control_ready(request)
+
+    rec.control_ready = flaky_control_ready  # type: ignore[assignment]
+
+    request = rec.booter(policy).boot(_spec())
+    assert isinstance(request, ClientLaunchRequest)
+    # Two starts: the dead first attempt, then the healthy second. It did not burn the
+    # readiness budget on the corpse.
+    assert len(rec.started) == 2
+    assert len(rec.slept) <= 2
+
+
+def test_boot_liveness_abandon_does_not_error_on_process_gone() -> None:
+    # "Process gone" during the poll must be a CLEAN abandon-and-re-roll, never an
+    # exception surfaced out of the poll loop. With every attempt's client vanishing,
+    # the only error is the normal fail-closed "never reached armed readiness" after
+    # the budget of re-rolls — not a probe/terminate exception.
+    policy = BootRetryPolicy(max_attempts=2, readiness_timeout_s=1000.0, poll_interval_s=10.0)
+    rec = _Recorder(ready_after_calls=9999)
+
+    def vanishing_control_ready(request):
+        rec.procs.clear()
+        return False
+
+    rec.control_ready = vanishing_control_ready  # type: ignore[assignment]
+
+    with pytest.raises(ClientLaunchError) as ei:
+        rec.booter(policy).boot(_spec())
+    # The terminal error is the clean fail-closed diagnostic, and no instance was
+    # left un-terminated as an error (the vanished procs are a no-op teardown).
+    assert "never reached armed readiness" in str(ei.value)
+
+
+def test_boot_liveness_reprobes_the_recorded_pid_not_a_gameid_kill() -> None:
+    # The liveness check is a READ (probe_pid) of the EXACT recorded PID's provenance;
+    # it must never terminate anything or widen to a gameId scope. A foreign valheim
+    # sharing the gameId but not our marker is irrelevant to liveness and untouched.
+    policy = BootRetryPolicy(max_attempts=2, readiness_timeout_s=1000.0, poll_interval_s=10.0)
+    rec = _Recorder(ready_after_calls=9999)
+
+    daniel_pid = 9999
+    seen = {"first": True}
+    real_control_ready = rec.control_ready
+
+    def control_ready_with_foreign(request):
+        if seen["first"]:
+            seen["first"] = False
+            # Our client crashed; Daniel's own game (no marker) is present the whole time.
+            rec.procs.clear()
+            rec.procs[daniel_pid] = {"marker": None, "start": 42, "exe": "valheim.x86_64"}
+        return real_control_ready(request)
+
+    rec.control_ready = control_ready_with_foreign  # type: ignore[assignment]
+
+    with pytest.raises(ClientLaunchError):
+        rec.booter(policy).boot(_spec())
+    # Daniel's game was never a liveness or teardown target.
+    assert daniel_pid in rec.procs
+    assert all(i.pid != daniel_pid for i in rec.terminated)

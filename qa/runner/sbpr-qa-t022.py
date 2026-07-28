@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import sys
+from typing import Optional
 
 # Make the sibling engine-free packages (fsm, runner_core) importable whether the
 # runner is invoked as `python3 qa/runner/sbpr-qa-t022.py` or from elsewhere.
@@ -112,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, *, live_runner=None) -> int:
+def main(argv: list[str] | None = None, *, live_runner=None, steam_probe=None) -> int:
     args = build_parser().parse_args(argv)
 
     # Import here so the module import graph stays clean and errors are actionable.
@@ -126,7 +127,7 @@ def main(argv: list[str] | None = None, *, live_runner=None) -> int:
         return 0
 
     if args.live:
-        return _run_live(args, live_runner=live_runner)
+        return _run_live(args, live_runner=live_runner, steam_probe=steam_probe)
 
     if not args.dry_run:
         print("sbpr-qa-t022: no execution mode selected.")
@@ -163,7 +164,7 @@ def main(argv: list[str] | None = None, *, live_runner=None) -> int:
     return 0 if result.passed else 1
 
 
-def _run_live(args: argparse.Namespace, *, live_runner=None) -> int:
+def _run_live(args: argparse.Namespace, *, live_runner=None, steam_probe=None) -> int:
     """Fail-closed live-mode gate + EXECUTION (M6-COMPOSE).
 
     Runs the explicit-opt-in + disposable-sentinel + verified-overlay-pins preflight
@@ -176,6 +177,7 @@ def _run_live(args: argparse.Namespace, *, live_runner=None) -> int:
     no real game; the default wires the REAL subprocess/socket/file operator env.
     """
     from runner_core.live_preflight import evaluate_live_preflight
+    from runner_core.steam_preflight import SteamNotReady, require_steam_running
 
     if not args.lane_sentinel or not args.overlay_manifest:
         print("sbpr-qa-t022: --live REFUSED — missing required inputs.")
@@ -220,6 +222,26 @@ def _run_live(args: argparse.Namespace, *, live_runner=None) -> int:
 
     # UNLOCKED with a descriptor: EXECUTE. Compose the live transport + the four
     # operator drivers and drive the run through the sole-authority orchestrator.
+    #
+    # STEAM PRECONDITION (M6-STEAMGATE): the client cannot boot without a RUNNING
+    # Steam owned by the user GABS launches it as — with none, it crashes ~6s in with
+    # "Steamworks is not initialized" before the scene activates. Verify it here,
+    # alongside the other fail-closed preconditions, BEFORE composing drivers or
+    # launching anything. The readiness predicate lives in scripts/ensure-steam.sh
+    # (live process AND steam.pipe AND a live pidfile) and is invoked via `--check`,
+    # so a stale pipe with no process behind it does NOT satisfy it. The target user
+    # comes from the descriptor's optional `steam_user`; absent it, the current user
+    # (whom the poly GABS daemon launches the primary client as) is checked.
+    steam_user = _descriptor_steam_user(args.run_descriptor)
+    steam_check = steam_probe if steam_probe is not None else require_steam_running
+    try:
+        steam = steam_check(steam_user)
+    except SteamNotReady as exc:
+        print("sbpr-qa-t022: --live REFUSED — Steam precondition failed (fail-closed).")
+        print(f"  {exc}")
+        return 2
+    print(f"sbpr-qa-t022 [LIVE-PREFLIGHT] {steam.message}")
+
     runner = live_runner if live_runner is not None else _default_live_runner
     print("sbpr-qa-t022 [LIVE-EXECUTE] preflight UNLOCKED — composing drivers and driving the run.")
     report = runner(args.run_descriptor)
@@ -266,6 +288,22 @@ def _default_live_runner(descriptor_path: str):
         raise SystemExit(2)
     plan, env = build_live_run(descriptor)
     return run_live_qualification(plan, env)
+
+
+def _descriptor_steam_user(descriptor_path: Optional[str]):
+    """Read the optional `steam_user` from the run descriptor (which user's Steam to
+    require). Returns None — meaning "check the current user" — when the descriptor is
+    absent, unreadable, or does not name one. A malformed descriptor is NOT swallowed
+    into a wrong-user check: None yields the current-user default, and the descriptor
+    is re-validated in full by `build_live_run` on the execute path.
+    """
+    if not descriptor_path:
+        return None
+    descriptor = _load_json(descriptor_path, "run descriptor")
+    if not isinstance(descriptor, dict):
+        return None
+    user = descriptor.get("steam_user")
+    return str(user) if user else None
 
 
 def _load_json(path: str, label: str):

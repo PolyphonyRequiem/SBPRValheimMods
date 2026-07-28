@@ -530,11 +530,43 @@ class GabsClientBooter:
                 continue
             last_instance = instance
             # Explicit armed-readiness poll — never a blind sleep.
+            #
+            # LIVENESS (M6-STEAMGATE): a launched client can DIE during this window
+            # rather than merely take its time to arm — the deterministic
+            # `Steamworks is not initialized` crash exits ~6s into boot. Polling a
+            # corpse for the full readiness_timeout_s is pure waste (6 attempts ×
+            # 150s of polling a dead process was exactly the observed failure). So
+            # between readiness polls we re-probe the recorded instance's PID: if the
+            # process is GONE (or the PID is now a foreign/reused process), we abandon
+            # THIS attempt immediately and re-roll, surfacing a crash-on-boot in
+            # seconds instead of minutes. This is a READ of live state only; it does
+            # not touch `_terminate_owned`'s TOCTOU re-check, and "process gone" here
+            # is a clean abandon-and-re-roll path, never an error.
+            wedged = False
             for _ in range(self._policy.polls_per_attempt):
                 if self._control_ready(request):
                     self._instances[id(request)] = instance
                     return request
+                current = self._probe_pid(instance.pid)
+                if (
+                    current is None
+                    or current.marker != instance.marker
+                    or current.start_ticks != instance.start_ticks
+                ):
+                    # The client we launched is gone (crash-on-boot) or the PID is now
+                    # a different process. Do not keep polling a dead attempt — abandon
+                    # it now and re-roll (the top-of-loop cleanup treats an already-gone
+                    # instance as a clean, verified teardown).
+                    last_stage = (
+                        f"attempt {attempt}: launched client (PID {instance.pid}) "
+                        "exited before arming — abandoned immediately (crash-on-boot, "
+                        "e.g. Steam not running) rather than polling the readiness budget"
+                    )
+                    wedged = True
+                    break
                 self._sleep(self._policy.poll_interval_s)
+            if wedged:
+                continue
             last_stage = (
                 f"attempt {attempt}: loopback control port {request.loopback_port} "
                 f"never accepted a connection within {self._policy.readiness_timeout_s}s "

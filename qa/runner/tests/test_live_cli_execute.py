@@ -91,6 +91,28 @@ class _FakeReport:
         self.teardown_errors = []
 
 
+class _SteamResult:
+    """Stand-in for a SteamProbeResult on the ready path."""
+
+    def __init__(self, ready=True, user="polyphonyrequiem"):
+        self.ready = ready
+        self.target_user = user
+        self.message = f"Steam is running and ready for {user!r}."
+
+
+def _steam_ready(user=None):
+    return _SteamResult(ready=True, user=user or "polyphonyrequiem")
+
+
+def _steam_down(user=None):
+    from runner_core.steam_preflight import SteamNotReady
+
+    raise SteamNotReady(
+        f"Steam is NOT running for {user or 'polyphonyrequiem'!r} — the QA client will "
+        "crash ~6s into boot. [ensure-steam.sh --check exit 4]\n  steam.pipe : present"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # The one that matters: --live EXECUTES.
 # --------------------------------------------------------------------------- #
@@ -111,6 +133,7 @@ def test_live_with_all_preconditions_reaches_executor(tmp_path, capsys) -> None:
         ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", manifest,
          "--run-descriptor", str(descriptor)],
         live_runner=stub_runner,
+        steam_probe=_steam_ready,
     )
     out = capsys.readouterr().out
     # The executor WAS invoked with the descriptor — the run actually drove.
@@ -134,11 +157,59 @@ def test_live_executor_failure_reports_fail_not_defer(tmp_path, capsys) -> None:
         ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", manifest,
          "--run-descriptor", str(descriptor)],
         live_runner=lambda p: _FakeReport("FAIL"),
+        steam_probe=_steam_ready,
     )
     out = capsys.readouterr().out
     assert rc == 1
     assert "verdict: FAIL" in out
     assert "UNLOCKED but NOT executed here" not in out
+
+
+def test_live_refuses_when_steam_not_running(tmp_path, capsys) -> None:
+    # M6-STEAMGATE (A): all overlay/sentinel/descriptor preconditions pass, but the
+    # target user's Steam is down. Preflight must fail closed (exit 2) with a clear
+    # "Steam not running" message and NEVER reach the executor — a client launched now
+    # would crash ~6s in with "Steamworks is not initialized".
+    cli = _load_cli()
+    sentinel, manifest = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text("{}")
+
+    rc = cli.main(
+        ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", manifest,
+         "--run-descriptor", str(descriptor)],
+        live_runner=_never,          # executor must not be reached
+        steam_probe=_steam_down,
+    )
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "REFUSED" in out
+    assert "Steam" in out
+    assert "Steam is NOT running" in out
+
+
+def test_live_steam_gate_targets_descriptor_steam_user(tmp_path, capsys) -> None:
+    # The descriptor's optional `steam_user` selects which user's Steam is required
+    # (e.g. "valbot" for the second lane). The gate must probe THAT user, not assume.
+    cli = _load_cli()
+    sentinel, manifest = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text(json.dumps({"steam_user": "valbot"}))
+
+    seen = {}
+
+    def probe(user=None):
+        seen["user"] = user
+        return _SteamResult(ready=True, user=user or "polyphonyrequiem")
+
+    rc = cli.main(
+        ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", manifest,
+         "--run-descriptor", str(descriptor)],
+        live_runner=lambda p: _FakeReport("PASS"),
+        steam_probe=probe,
+    )
+    assert rc == 0
+    assert seen["user"] == "valbot"
 
 
 def test_deferral_string_is_gone_from_runner_source() -> None:
