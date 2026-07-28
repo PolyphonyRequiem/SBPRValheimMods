@@ -88,5 +88,40 @@ namespace SBPR.QaHarness.T022.Core.Tests
             Assert.False(r.Ok);
             Assert.Equal("NetworkVersionDrift", r.Reason);
         }
+
+        // ── M6-ARMGATE (RULING option a): the Linux GUI CLIENT reports the SAME "l-" platform
+        // prefix at runtime as the Linux server. The client MVID (23db560f) was authorized only
+        // for the prefix-free "0.221.12" string, so a joining client observed "l-0.221.12" under
+        // an already-authorized MVID and the fail-closed guard refused it (GameVersionDrift) at
+        // TryArm — the DISARMED-client wall. This is the tightening-by-enumeration fix: one more
+        // OBSERVED platform-flavored row under an MVID already pinned.
+        //
+        // DIFFERENTIAL: this test FAILS against pre-fix main (5f64ab7c) — that tree has no
+        // client-linux row, so Check() returns Ok=false / Reason="GameVersionDrift" and the
+        // Assert.True below fails. It PASSES only once the client-linux pin row exists.
+
+        [Fact]
+        public void LinuxClientBuild_PlatformPrefixedVersion_Passes()
+        {
+            var r = AssemblyDriftGuard.Check(new ObservedGameAssembly(ClientMvid, "l-0.221.12", 36u));
+            Assert.True(r.Ok);
+            Assert.Equal("client-trailborne-modded-gui-linux", r.MatchedLabel);
+        }
+
+        [Fact]
+        public void LinuxClientBuild_PrefixWithDriftedVersion_FailsGameVersionDrift()
+        {
+            var r = AssemblyDriftGuard.Check(new ObservedGameAssembly(ClientMvid, "l-0.221.13", 36u));
+            Assert.False(r.Ok);
+            Assert.Equal("GameVersionDrift", r.Reason);
+        }
+
+        [Fact]
+        public void LinuxClientBuild_PrefixWithDriftedNetVersion_FailsNetworkVersionDrift()
+        {
+            var r = AssemblyDriftGuard.Check(new ObservedGameAssembly(ClientMvid, "l-0.221.12", 37u));
+            Assert.False(r.Ok);
+            Assert.Equal("NetworkVersionDrift", r.Reason);
+        }
     }
 }

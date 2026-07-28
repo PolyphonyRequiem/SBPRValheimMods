@@ -97,6 +97,17 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
             new GameAssemblyPin(
                 "server-dedicated-niflheim-dl-linux",
                 "62393fbd-383b-447c-9ae7-7ae16afa654f", "l-0.221.12", 36u),
+            // The Linux GUI client reports the SAME "l-" platform prefix at runtime, but its own
+            // MVID (23db560f) previously had only the prefix-free "0.221.12" row. A joining client
+            // therefore observed "l-0.221.12" under an already-authorized MVID and the fail-closed
+            // guard refused with GameVersionDrift at TryArm — the DISARMED-client wall. This is the
+            // one authorized fix: tightening-by-enumeration (VANILLA-BINDINGS.md §1 L52-56) of one
+            // OBSERVED platform-flavored string under an MVID already pinned. No pin removed or
+            // relaxed; the accepted set grows by exactly one row. MVID read directly from the live
+            // on-disk client assembly (ECMA-335 #GUID heap), not copied from a summary.
+            new GameAssemblyPin(
+                "client-trailborne-modded-gui-linux",
+                "23db560f-3f87-4454-8fe1-c434da4f936a", "l-0.221.12", 36u),
         };
 
         /// <summary>Check an observed game assembly against the authorized pins. Fail-closed on any mismatch.</summary>
