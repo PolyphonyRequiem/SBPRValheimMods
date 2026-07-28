@@ -47,6 +47,7 @@
     <Compile Include="../SBPR.QaHarness.T022/Contracts/RequestEnvelope.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Contracts/ArmingGate.cs" />
     <Compile Include="../SBPR.QaHarness.T022/Contracts/RequestAdmission.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/Contracts/IReadinessSource.cs" />
   </ItemGroup>
 
   <!-- M2 control-plane core (engine-free): frame parser + bind policy, single-slot

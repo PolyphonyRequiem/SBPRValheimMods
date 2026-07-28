@@ -47,6 +47,7 @@ namespace SBPR.QaHarness.T022
 
         private Harmony? _harmony;
         private Harmony? _autoJoinHarmony;
+        private Harmony? _readinessHarmony;
         private ControlPlaneComponent? _component;
         private bool _armAttempted;
 
@@ -70,7 +71,18 @@ namespace SBPR.QaHarness.T022
             }
 
             // The world is not loaded at Awake; defer the arm attempt to a delayed pump that
-            // re-checks each frame until the world is present (or gives up silently).
+            // re-checks each frame until EITHER readiness source is present (or gives up silently).
+            //
+            // Install the client-role readiness patch NOW (spec §4), gated by the same bootstrap
+            // presence that guards the deferrer: on a joining client ZNet.World never becomes non-null
+            // via the server path, so the arm gate would spin until the frame budget expires and NEVER
+            // reach TryArm. The Player.OnSpawned postfix must already be live to catch the client's
+            // spawn — the event that makes the client readiness source report ready. Registering only
+            // when a bootstrap is present preserves "no bootstrap => zero hooks" (a disarmed default
+            // launch installs no readiness patch). Dedicated Harmony id so OnDestroy can UnpatchSelf it.
+            _readinessHarmony = new Harmony(PluginGuid + ".readiness");
+            _readinessHarmony.PatchAll(typeof(PlayerOnSpawnedReadinessPatch));
+
             var deferrer = gameObject.AddComponent<ArmDeferrer>();
             deferrer.Begin(this, bootstrapPath!);
         }
@@ -108,11 +120,20 @@ namespace SBPR.QaHarness.T022
                 return;
             }
 
-            // 3. Observed world + hashes from the live process.
+            // 3. Observed world + hashes from the live process. Readiness is now role-symmetric
+            //    (spec-role-split-arm-gate.md §4 G2 / AC2): arm may proceed when EITHER the server
+            //    source (ZNet.World loaded) OR the client source (!IsServer && spawned local player)
+            //    reports ready. A joining client never satisfies the server world-load path via the
+            //    host branch, so without this it would false-fail here. The world-identity read below
+            //    still uses ZNetWorldIdentitySource: on a joining client ZNet.World is populated from
+            //    network data, so WorldUid/WorldName are readable on both roles — widening the
+            //    readiness check does not break the subsequent ArmingGate world-identity match.
             var worldSource = new ZNetWorldIdentitySource();
-            if (!worldSource.WorldLoaded)
+            bool serverReady = ((IServerReadinessSource)worldSource).Ready; // ZNet.World != null
+            bool clientReady = new ZNetClientReadinessSource().Ready;       // !IsServer && spawned && m_localPlayer != null
+            if (!serverReady && !clientReady)
             {
-                Logger.LogWarning("SBPRQA: world not loaded at arm; staying DISARMED.");
+                Logger.LogWarning("SBPRQA: neither server nor client readiness holds at arm; staying DISARMED.");
                 return;
             }
             var observedWorld = new WorldIdentity(worldSource.WorldUid, worldSource.WorldName ?? string.Empty);
@@ -184,9 +205,13 @@ namespace SBPR.QaHarness.T022
             try { QaServerRpcBridge.Disarm(); } catch (Exception) { /* best effort */ }
             try { _harmony?.UnpatchSelf(); } catch (Exception) { /* best effort */ }
             try { _autoJoinHarmony?.UnpatchSelf(); } catch (Exception) { /* best effort */ }
+            try { _readinessHarmony?.UnpatchSelf(); } catch (Exception) { /* best effort */ }
             try { FejdStartupAutoJoin.Reset(); } catch (Exception) { /* best effort */ }
+            // Reset the spawned-player flag so a re-entered session starts clean (spec §4).
+            try { PlayerOnSpawnedReadinessPatch.Reset(); } catch (Exception) { /* best effort */ }
             _harmony = null;
             _autoJoinHarmony = null;
+            _readinessHarmony = null;
         }
 
         private void LogDisarmedBanner()
@@ -211,6 +236,14 @@ namespace SBPR.QaHarness.T022
         private string _bootstrapPath = string.Empty;
         private int _framesLeft = 60 * 60 * 20; // ~20 min at 60fps upper bound; harmless if world never loads
 
+        // Constructed once and held (not per-frame new): the two role-named arm-time readiness
+        // sources. G1 proceeds to TryArm when EITHER reports ready (spec-role-split-arm-gate.md §4 G1):
+        // a host/dedicated reaches TryArm via the server world-load source; a joining client reaches it
+        // via the client source once Player.OnSpawned has fired — and never both arm-PATHs, per AC3
+        // (the armed role is decided by the signed manifest at TryArm, not by which source tripped).
+        private readonly IServerReadinessSource _serverReady = new ZNetWorldIdentitySource();
+        private readonly IClientReadinessSource _clientReady = new ZNetClientReadinessSource();
+
         internal void Begin(Plugin plugin, string bootstrapPath)
         {
             _plugin = plugin;
@@ -221,7 +254,7 @@ namespace SBPR.QaHarness.T022
         {
             if (_plugin == null) { Destroy(this); return; }
             if (_framesLeft-- <= 0) { Destroy(this); return; }
-            if (ZNet.instance == null || ZNet.World == null) return;
+            if (!_serverReady.Ready && !_clientReady.Ready) return; // keep waiting for either role's readiness
             _plugin.TryArm(_bootstrapPath);
             Destroy(this);
         }

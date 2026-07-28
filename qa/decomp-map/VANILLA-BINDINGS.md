@@ -49,11 +49,18 @@ only live in a GUI process — see §3 threading/lifecycle notes.
   (`Valheim version: l-0.221.12 (network version 36)`), so `AssemblyDriftGuard`
   pins that platform-prefixed runtime string explicitly (row
   `server-dedicated-niflheim-dl-linux`) rather than stripping the prefix inside
-  the fail-closed gate. **No equivalent client pin is authorized**: no launched
-  client `Player.log` exists on this host, so the client's runtime prefix has
-  not been observed — inferring it from the decompiled algorithm would be
-  inference minted into a fail-closed gate. The client-linux pin is added later,
-  for free, from the first live M6 run's own client log.
+  the fail-closed gate. The **client** likewise emits the `l-` prefix on this
+  SteamLinux host: M6 bootstrap client runs were **observed live** reporting
+  `l-0.221.12` at `Plugin.TryArm`, and the guard was refusing the client MVID
+  (`23db560f`) because that MVID had a pin only for the prefix-free `0.221.12`
+  string — the DISARMED-client wall. Under the M6-ARMGATE ruling (option a) the
+  client-linux pin is now **authorized and added** (row
+  `client-trailborne-modded-gui-linux`, MVID `23db560f` + `l-0.221.12` + net 36),
+  by the same tightening-by-enumeration procedure as the server-linux row: one
+  more OBSERVED platform-flavored string under an already-authorized MVID, no pin
+  removed or relaxed. The MVID was read directly from the on-disk client assembly
+  (`~/.local/share/Trailborne/Valheim-Modded/valheim_Data/Managed/assembly_valheim.dll`,
+  ECMA-335 `#GUID` heap), not copied from a prior summary.
 
 - **Version constants** (`Version` type, both builds identical):
   `GameVersion.CurrentVersion = new GameVersion(0, 221, 12)`,
