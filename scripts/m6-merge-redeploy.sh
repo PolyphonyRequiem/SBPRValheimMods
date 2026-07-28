@@ -21,12 +21,20 @@
 
 set -Eeuo pipefail
 
-readonly REPO="${REPO:-$HOME/repos/SBPRValheimMods}"
-readonly ARTIFACTS="${ARTIFACTS:-$HOME/valheim/qa-artifacts}"
+# $HOME is unreliable here: under a Hermes agent profile session it points at the
+# profile's sandboxed home (…/.hermes/profiles/<p>/home), NOT the operator account.
+# A first live run under such a session deployed the rebuilt helper into bogus
+# profile-home dirs while the real lane/client paths kept the old DLL, leaving the
+# descriptor pin ahead of what was actually deployed. Anchor every default to the
+# real account home from the passwd DB so the paths are session-independent.
+readonly ACCOUNT_HOME="${ACCOUNT_HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}"
+[[ -n "$ACCOUNT_HOME" && -d "$ACCOUNT_HOME" ]] || { printf '[m6] FATAL could not resolve account home for %s\n' "$(id -un)" >&2; exit 1; }
+readonly REPO="${REPO:-$ACCOUNT_HOME/repos/SBPRValheimMods}"
+readonly ARTIFACTS="${ARTIFACTS:-$ACCOUNT_HOME/valheim/qa-artifacts}"
 readonly DESCRIPTOR="$ARTIFACTS/t022-run-descriptor.json"
 readonly LANE_CONTAINER="${LANE_CONTAINER:-homestead-t009l-server}"
-readonly LANE_PLUGINS="${LANE_PLUGINS:-$HOME/valheim/homestead-t009l/data/bepinex/BepInEx/plugins/SBPR.QaHarness.T022}"
-readonly CLIENT_PLUGINS="${CLIENT_PLUGINS:-$HOME/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins/SBPR.QaHarness.T022}"
+readonly LANE_PLUGINS="${LANE_PLUGINS:-$ACCOUNT_HOME/valheim/homestead-t009l/data/bepinex/BepInEx/plugins/SBPR.QaHarness.T022}"
+readonly CLIENT_PLUGINS="${CLIENT_PLUGINS:-$ACCOUNT_HOME/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins/SBPR.QaHarness.T022}"
 readonly HELPER_PROJ="qa/SBPR.QaHarness.T022/SBPR.QaHarness.T022.csproj"
 readonly HELPER_DLL_NAME="SBPR.QaHarness.T022.dll"
 
