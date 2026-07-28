@@ -56,8 +56,23 @@ _KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 # The sidecar carries only these keys; anything else is refused so a caller can never
 # smuggle a secret (HMAC/operator token) into the 0644 file. The bootstrap DOC (0600)
 # is the sole carrier of secrets; the sidecar only names its PATH.
+#
+# SBPR_QA_CONNECT (M6-JOIN) carries the lane join target as `host:port`. GABS's
+# `games_start` accepts no per-launch ARGUMENTS just as it accepts no per-launch env, so
+# the `+connect host:port` join argument was never reaching the game process — the client
+# booted to the main menu and sat there. This value rides the SAME non-secret sidecar the
+# wrapper already sources, and the wrapper turns it into a `+connect <host>:<port>` argv
+# fragment just before `exec`. It is non-secret (a LAN host + a disposable-lane port) and,
+# like the three arming vars, is scoped to one run and removed on teardown. The value's
+# shape is constrained by `render_sidecar` (no whitespace/shell-hostile bytes), so a host
+# string can never split into an extra flag once the wrapper prepends `+connect`.
 ALLOWED_SIDECAR_KEYS = frozenset(
-    {"SBPR_QA_T022_BOOTSTRAP", "SBPR_QA_HARNESS_INSTANCE", "SBPR_QA_STEAM_ID"}
+    {
+        "SBPR_QA_T022_BOOTSTRAP",
+        "SBPR_QA_HARNESS_INSTANCE",
+        "SBPR_QA_STEAM_ID",
+        "SBPR_QA_CONNECT",
+    }
 )
 
 

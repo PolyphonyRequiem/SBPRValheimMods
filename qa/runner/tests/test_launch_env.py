@@ -63,10 +63,31 @@ def test_render_refuses_a_non_allowlisted_key() -> None:
         render_sidecar({**_GOOD_ENV, "SBPR_QA_HMAC_SECRET": "deadbeef"})
 
 
-def test_allowlist_is_exactly_the_three_arming_vars() -> None:
+def test_allowlist_is_exactly_the_four_non_secret_launch_vars() -> None:
+    # The three arming env vars PLUS the M6-JOIN connect target — all non-secret, all
+    # ride the same 0644 sidecar. A secret (HMAC/operator token) is still refused.
     assert ALLOWED_SIDECAR_KEYS == frozenset(
-        {"SBPR_QA_T022_BOOTSTRAP", "SBPR_QA_HARNESS_INSTANCE", "SBPR_QA_STEAM_ID"}
+        {
+            "SBPR_QA_T022_BOOTSTRAP",
+            "SBPR_QA_HARNESS_INSTANCE",
+            "SBPR_QA_STEAM_ID",
+            "SBPR_QA_CONNECT",
+        }
     )
+
+
+def test_render_allows_connect_target_and_refuses_shell_hostile_host() -> None:
+    # The join target (M6-JOIN) is an allowlisted non-secret value; a well-formed
+    # host:port renders as one sourceable line...
+    out = render_sidecar({**_GOOD_ENV, "SBPR_QA_CONNECT": "127.0.0.1:2476"})
+    assert "SBPR_QA_CONNECT=127.0.0.1:2476\n" in out
+    # ...but a value carrying whitespace or shell metacharacters is refused, so it can
+    # never split into an extra launch flag or inject shell state when the wrapper
+    # prepends `+connect` to it.
+    with pytest.raises(LaunchEnvError):
+        render_sidecar({**_GOOD_ENV, "SBPR_QA_CONNECT": "127.0.0.1:2476 -extra"})
+    with pytest.raises(LaunchEnvError):
+        render_sidecar({**_GOOD_ENV, "SBPR_QA_CONNECT": "$(evil):2476"})
 
 
 def test_render_refuses_newline_or_shell_hostile_values() -> None:
