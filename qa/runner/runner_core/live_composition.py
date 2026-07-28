@@ -75,6 +75,7 @@ from .operator_drivers import (
     LaneLauncher,
     LaneSpec,
     LICENSED_STEAM_IDENTITIES,
+    OperatorSafetyError,
     SeedResult,
 )
 from .orchestrator import RunnerVerdict, T022RunOrchestrator
@@ -684,6 +685,13 @@ def build_live_run(
     wire transport and the orchestrator so the in-process receipt-correlation tag holds
     end-to-end. Building this does NOT launch anything — only running the returned pair
     through `run_live_qualification` does.
+
+    Fail-closed contract (M6-JOIN4): a client that names a `+connect` join target
+    (connect_host+connect_port) MUST also name its QA-owned `qa_profile`. A join client
+    that omits it is refused HERE (OperatorSafetyError), before any launch — otherwise
+    the client boots, arms, and correctly refuses the join at the C# hook, wasting a full
+    launch/teardown. There is NO fallback to an existing profile; the guard is an
+    allowlist of one, symmetric with the B2 production-port deny.
     """
     from .live_transport import ChannelEndpoint
 
@@ -727,6 +735,34 @@ def build_live_run(
         )
         for c in descriptor["clients"]
     )
+
+    # M6-JOIN4 — fail closed at COMPOSE if a real join client omits its QA profile.
+    #
+    # The C# auto-join hook already refuses (never loads a human character) when
+    # SBPR_QA_PROFILE is absent, and `build_request` deliberately omits the key rather
+    # than inventing one — that guard is the last line of defence and must stay. But a
+    # descriptor that names a `+connect` join target (connect_host+connect_port: a REAL
+    # live launch, not a legacy/unit spec) yet leaves `qa_profile` unset produces a
+    # client that boots, arms, and then CORRECTLY refuses the join — burning a full
+    # launch/teardown to deliver nothing. That is exactly the silent seam this card was
+    # filed on: the deployed descriptor shipped `qa_profile: null`, the runner wrote a
+    # sidecar with no SBPR_QA_PROFILE, and every join was refused in under a second.
+    #
+    # A join client MUST name its own QA-owned profile. Catch the omission HERE, loudly,
+    # before anything launches — an allowlist of one, no fallback, symmetric with the B2
+    # production-port deny that also fires at spec-build time. A non-join spec (no
+    # connect target: legacy/unit shape) is unaffected.
+    for spec in clients:
+        is_join_client = spec.connect_host is not None and spec.connect_port is not None
+        if is_join_client and not spec.qa_profile:
+            raise OperatorSafetyError(
+                f"client {spec.actor!r} names a +connect join target "
+                f"({spec.connect_host}:{spec.connect_port}) but no `qa_profile`; a QA join "
+                "MUST name its own QA-owned profile (SBPR_QA_PROFILE) so it can never load a "
+                "human character. Refusing at compose rather than launching a client that "
+                "would boot only to refuse the join. Add `qa_profile` to this client in the "
+                "run descriptor (no fallback to an existing profile is permitted)."
+            )
 
     wire = descriptor["wire"]
     endpoints = {

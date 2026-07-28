@@ -434,6 +434,7 @@ def test_build_live_run_carries_gabs_launch_fields_into_client_specs() -> None:
                 "bootstrap_path": "/run/sbpr-qa/boot-a.json",
                 "connect_host": "127.0.0.1", "connect_port": 2476, "loopback_port": 48610,
                 "launch_env_path": "/home/qa/.local/share/sbpr-qa/launch-env/valheim.env",
+                "qa_profile": "sbpr_qa_join",
             },
             {
                 "actor": "client_b", "steam_id": LICENSED_STEAM_IDENTITIES[1],
@@ -442,6 +443,7 @@ def test_build_live_run_carries_gabs_launch_fields_into_client_specs() -> None:
                 "bootstrap_path": "/run/sbpr-qa/boot-b.json",
                 "connect_host": "127.0.0.1", "connect_port": 2476, "loopback_port": 48611,
                 "launch_env_path": "/srv/sbpr-qa/valbot-launch-env/valheim.env",
+                "qa_profile": "sbpr_qa_join",
             },
         ],
         "wire": {
@@ -545,6 +547,7 @@ def test_build_live_run_rejects_production_connect_target_descriptor() -> None:
                 "bootstrap_path": "/run/sbpr-qa/boot-a.json",
                 "connect_host": "127.0.0.1", "connect_port": 2456,  # PRODUCTION Niflheim typo
                 "loopback_port": 48610,
+                "qa_profile": "sbpr_qa_join",
             },
             {
                 "actor": "client_b", "steam_id": LICENSED_STEAM_IDENTITIES[1],
@@ -552,6 +555,7 @@ def test_build_live_run_rejects_production_connect_target_descriptor() -> None:
                 "gabs_endpoint": "http://localhost:8081/mcp", "game_id": "valheim",
                 "bootstrap_path": "/run/sbpr-qa/boot-b.json",
                 "connect_host": "127.0.0.1", "connect_port": 2476, "loopback_port": 48611,
+                "qa_profile": "sbpr_qa_join",
             },
         ],
         "wire": {
@@ -580,6 +584,98 @@ def test_build_live_run_rejects_production_connect_target_descriptor() -> None:
     with pytest.raises(OperatorSafetyError) as ei:
         GabsClientBooter.build_request(plan.clients[0])
     assert "2456" in str(ei.value)
+
+
+# --------------------------------------------------------------------------- #
+# M6-JOIN4 — a real join client (a +connect target) that omits `qa_profile` must be
+# refused at COMPOSE, not launched to boot-then-refuse. This is the seam the deployed
+# descriptor shipped with `qa_profile: null`, so every join was correctly refused by
+# the C# hook after a wasted launch. The guard turns that silent waste into a loud,
+# pre-launch failure. A non-join (legacy/unit) spec with no connect target is exempt.
+# --------------------------------------------------------------------------- #
+
+def _join_descriptor(*, a_qa_profile=None, b_qa_profile=None) -> dict:
+    import hashlib
+
+    from runner_core.manifest import REQUIRED_PARTS
+
+    def _client(actor, sid, port, loopback, qa_profile):
+        c = {
+            "actor": actor, "steam_id": sid,
+            "binary_path": f"/lane/{actor}/valheim.x86_64",
+            "gabs_endpoint": f"http://localhost:{port}/mcp", "game_id": "valheim",
+            "bootstrap_path": f"/run/sbpr-qa/boot-{actor}.json",
+            "connect_host": "127.0.0.1", "connect_port": 2476, "loopback_port": loopback,
+            "launch_env_path": f"/home/qa/.local/share/sbpr-qa/launch-env/{actor}.env",
+        }
+        if qa_profile is not None:
+            c["qa_profile"] = qa_profile
+        return c
+
+    return {
+        "integrity_key": "join-integrity",
+        "world_uid": "-898655635",
+        "world_name": "homestead-join",
+        "expiry": 10_000_000,
+        "lane": {"lane_id": "joinl", "world_name": "homestead-join", "world_uid": 1, "port": 2476},
+        "clients": [
+            _client("client_a", LICENSED_STEAM_IDENTITIES[0], 8080, 48610, a_qa_profile),
+            _client("client_b", LICENSED_STEAM_IDENTITIES[1], 8081, 48611, b_qa_profile),
+        ],
+        "wire": {
+            "nonce": "join-nonce", "world_uid": 424242, "expiry_unix_ms": 32_500_000_000_000,
+            "operator_token": "tok", "hmac_secret": "sec",
+            "endpoints": {
+                "client_a": {"host": "127.0.0.1", "port": 5, "role": "Client"},
+                "client_b": {"host": "127.0.0.1", "port": 6, "role": "Client"},
+            },
+            "entitlement": {"host": "127.0.0.1", "port": 7, "role": "Server"},
+        },
+        "lease": {"lane_id": "joinl", "our_id": "runner-1"},
+        "pins": {p: hashlib.sha256(p.encode()).hexdigest() for p in REQUIRED_PARTS},
+        "expected_conn_gen": {"client_a": 1, "client_b": 1, "server": 1},
+        "actor_identity": {"server": "id-s", "client_a": "id-a", "client_b": "id-b"},
+        "server": {
+            "server_binary": "/lane/valheim_server.x86_64", "server_args": [],
+            "server_ready_log": "/lane/server.log", "server_ready_marker": "Game server connected",
+            "client_binary": "/lane/valheim.x86_64", "adminlist_path": "/lane/adminlist.txt",
+        },
+    }
+
+
+def test_build_live_run_refuses_join_client_missing_qa_profile() -> None:
+    # A join client (has a +connect target) with NO qa_profile must be refused at compose.
+    from runner_core.live_composition import build_live_run
+
+    with pytest.raises(OperatorSafetyError) as ei:
+        build_live_run(_join_descriptor(a_qa_profile="sbpr_qa_join", b_qa_profile=None))
+    msg = str(ei.value)
+    assert "client_b" in msg
+    assert "qa_profile" in msg
+    assert "SBPR_QA_PROFILE" in msg
+
+
+def test_build_live_run_refuses_when_qa_profile_is_empty_string() -> None:
+    # An empty-string qa_profile is not a name; it must be refused exactly like an omission
+    # (no fallback to any existing/human profile).
+    from runner_core.live_composition import build_live_run
+
+    with pytest.raises(OperatorSafetyError):
+        build_live_run(_join_descriptor(a_qa_profile="sbpr_qa_join", b_qa_profile=""))
+
+
+def test_build_live_run_accepts_join_clients_that_name_qa_profile() -> None:
+    # Both join clients name their QA profile => compose succeeds and the specs carry it,
+    # so build_request delivers SBPR_QA_PROFILE into the sidecar env.
+    from runner_core.live_composition import build_live_run
+
+    plan, _env = build_live_run(
+        _join_descriptor(a_qa_profile="sbpr_qa_join", b_qa_profile="sbpr_qa_join")
+    )
+    for spec in plan.clients:
+        assert spec.qa_profile == "sbpr_qa_join"
+        req = GabsClientBooter.build_request(spec)
+        assert req.launch_env["SBPR_QA_PROFILE"] == "sbpr_qa_join"
 
 
 # --------------------------------------------------------------------------- #

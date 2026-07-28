@@ -103,6 +103,24 @@ def test_render_refuses_newline_or_shell_hostile_values() -> None:
         render_sidecar({**_GOOD_ENV, "SBPR_QA_STEAM_ID": "$(evil)"})
 
 
+def test_render_allows_qa_profile_and_refuses_injection(tmp_path=None) -> None:
+    # M6-JOIN4: the QA profile NAME (non-secret) rides the same 0644 sidecar. A plain
+    # character-filename identifier renders as one sourceable line...
+    out = render_sidecar({**_GOOD_ENV, "SBPR_QA_PROFILE": "sbpr_qa_join"})
+    assert "SBPR_QA_PROFILE=sbpr_qa_join\n" in out
+    # ...but a value carrying a newline (the sidecar is `source`d as bash — a newline
+    # would inject an arbitrary extra shell line), a NUL, or shell metacharacters is
+    # refused, so a malicious/typo'd profile name can never inject shell state.
+    with pytest.raises(LaunchEnvError):
+        render_sidecar({**_GOOD_ENV, "SBPR_QA_PROFILE": "sbpr_qa_join\nrm -rf /"})
+    with pytest.raises(LaunchEnvError):
+        render_sidecar({**_GOOD_ENV, "SBPR_QA_PROFILE": "sbpr_qa_join\x00evil"})
+    with pytest.raises(LaunchEnvError):
+        render_sidecar({**_GOOD_ENV, "SBPR_QA_PROFILE": "$(evil)"})
+    with pytest.raises(LaunchEnvError):
+        render_sidecar({**_GOOD_ENV, "SBPR_QA_PROFILE": "name; rm -rf /"})
+
+
 # --------------------------------------------------------------------------- #
 # Writer: atomic 0644 placement + tracked, idempotent removal.
 # --------------------------------------------------------------------------- #
