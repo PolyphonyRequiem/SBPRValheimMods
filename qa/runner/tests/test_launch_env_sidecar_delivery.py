@@ -44,6 +44,7 @@ from runner_core.launch_env import SidecarWriter
 from runner_core.operator_drivers import (
     BOOTSTRAP_ENV_VAR,
     HARNESS_INSTANCE_ENV_VAR,
+    QA_PROFILE_ENV_VAR,
     STEAM_ID_ENV_VAR,
 )
 
@@ -150,6 +151,10 @@ def test_launched_child_environ_carries_all_three_sbpr_vars(tmp_path) -> None:
         BOOTSTRAP_ENV_VAR: str(tmp_path / "t022-bootstrap-client_a.json"),
         HARNESS_INSTANCE_ENV_VAR: "client_a:launchenv_at_marker",
         STEAM_ID_ENV_VAR: "76561197965627562",
+        # M6-JOIN4: the QA-owned profile name MUST cross the fork too — its absence is
+        # exactly what made the deployed run refuse every join. Prove it lands in the
+        # real forked child's environment via the same sidecar channel.
+        QA_PROFILE_ENV_VAR: "sbpr_qa_join",
     }
     sidecar_path = str(home_dir / ".local" / "share" / "sbpr-qa" / "launch-env" / f"{game_id}.env")
     SidecarWriter().write(sidecar_path, launch_env)
@@ -179,6 +184,9 @@ def test_launched_child_environ_carries_all_three_sbpr_vars(tmp_path) -> None:
         assert env.get(BOOTSTRAP_ENV_VAR) == launch_env[BOOTSTRAP_ENV_VAR]
         assert env.get(HARNESS_INSTANCE_ENV_VAR) == launch_env[HARNESS_INSTANCE_ENV_VAR]
         assert env.get(STEAM_ID_ENV_VAR) == launch_env[STEAM_ID_ENV_VAR]
+        # M6-JOIN4: the QA profile name crossed the fork too — the value whose ABSENCE
+        # made every deployed join refuse. This is the regression assertion for this card.
+        assert env.get(QA_PROFILE_ENV_VAR) == launch_env[QA_PROFILE_ENV_VAR]
         # And the GABS bridge vars are still present (we augment, never replace).
         assert env.get("GABS_GAME_ID") == game_id
         assert "GABP_SERVER_PORT" in env
