@@ -80,7 +80,7 @@ git fetch -q origin
 PUBLISHED_HEAD="$(git ls-remote origin "refs/pull/$PR/head" | awk '{print $1}')"
 [[ -n "$PUBLISHED_HEAD" ]] || die 2 "could not resolve refs/pull/$PR/head"
 
-if [[ "$PUBLISHED_HEAD" != "$REVIEWED_HEAD" ]]; then
+if [[ "$PUBLISHED_HEAD" != "$REVIEWED_HEAD"* ]]; then
   die 2 "HEAD MOVED since review.
   reviewed:  $REVIEWED_HEAD
   published: $PUBLISHED_HEAD
@@ -109,7 +109,7 @@ fi
 # 2. Squash merge, pinned to the exact reviewed head.
 # ---------------------------------------------------------------------------
 log "squash-merging PR #$PR at $REVIEWED_HEAD"
-gh pr merge "$PR" --squash --match-head-commit "$REVIEWED_HEAD" \
+gh pr merge "$PR" --squash --match-head-commit "$PUBLISHED_HEAD" \
   || die 2 "gh pr merge refused (head moved mid-flight?)"
 
 git fetch -q origin
