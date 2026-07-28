@@ -78,6 +78,11 @@ ALLOWED_SIDECAR_KEYS = frozenset(
         # reads the file and sets vanilla FejdStartup.ServerPassword so a password-gated lane's
         # handshake auto-submits it instead of parking on the password dialog headless.
         "SBPR_QA_SERVER_PASSWORD_FILE",
+        # M6-JOIN3 / B1: the single QA-owned profile name the headless auto-join may select.
+        # Non-secret (a character filename). The auto-join hook selects THIS profile by name —
+        # an allowlist of one — creating it if absent and REFUSING the join otherwise, so a
+        # human profile (pololol.fch etc.) is structurally unreachable by a QA run.
+        "SBPR_QA_PROFILE",
     }
 )
 

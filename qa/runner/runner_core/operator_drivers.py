@@ -203,6 +203,18 @@ class ClientSpec:
     # where the wrapper will read (the two lanes launch as different users). Absent on
     # legacy/unit specs; the real booter requires it (fail closed at build_request).
     launch_env_path: Optional[str] = None
+    # --- M6-JOIN3 additive fields ------------------------------------------------- #
+    # The single QA-owned profile name the headless auto-join may select (B1). Non-secret.
+    # Delivered to the client as SBPR_QA_PROFILE via the launch-env sidecar. When present the
+    # QA FejdStartup hook selects THIS profile by name (allowlist of one) — creating it if
+    # absent, refusing the join otherwise — so a human character can never be loaded. Absent
+    # on legacy/unit specs; a real live descriptor always names it.
+    qa_profile: Optional[str] = None
+    # Absolute path of the mode-0600 lane-password file this client's wrapper/helper reads
+    # (B2). Non-secret PATH only (the password VALUE lives inside the 0600 file the
+    # LanePasswordProvisioner writes). Delivered as SBPR_QA_SERVER_PASSWORD_FILE via the
+    # sidecar. Absent for an open/no-password lane.
+    server_password_file: Optional[str] = None
 
 
 class DualClientLauncher:
@@ -370,6 +382,15 @@ HARNESS_INSTANCE_ENV_VAR = "SBPR_QA_HARNESS_INSTANCE"
 # sources; the wrapper prepends `+connect` and passes it to the game binary. Absent this,
 # the client boots to the main menu and never joins the lane world.
 CONNECT_TARGET_ENV_VAR = "SBPR_QA_CONNECT"
+# M6-JOIN3 / B1: the single QA-owned profile name the headless auto-join may select. The QA
+# FejdStartup hook selects THIS profile by name (allowlist of one), creating it if absent and
+# refusing the join otherwise — so a human character (pololol.fch etc.) is structurally
+# unreachable by a QA run. Non-secret (a character filename); rides the same sidecar.
+QA_PROFILE_ENV_VAR = "SBPR_QA_PROFILE"
+# M6-JOIN3 / B2: absolute PATH of the mode-0600 lane-password file the QA hook reads to set
+# vanilla FejdStartup.ServerPassword for a password-gated lane. Non-secret PATH only — the
+# password VALUE lives inside the 0600 file (written by LanePasswordProvisioner), never here.
+SERVER_PASSWORD_FILE_ENV_VAR = "SBPR_QA_SERVER_PASSWORD_FILE"
 
 
 @dataclass(frozen=True)
@@ -495,6 +516,15 @@ class GabsClientBooter:
             # per-launch env NOR per-launch argv, so both cross the fork via the sidecar.
             CONNECT_TARGET_ENV_VAR: connect_target,
         }
+        # M6-JOIN3 / B1: name the single QA-owned profile the headless join may select. Only
+        # added when the descriptor supplied it — the C# hook fails closed (refuses the join)
+        # if SBPR_QA_PROFILE is absent, so a run that forgot it never loads a human character.
+        if spec.qa_profile:
+            launch_env[QA_PROFILE_ENV_VAR] = str(spec.qa_profile)
+        # M6-JOIN3 / B2: name the mode-0600 lane-password file's PATH (the value lives in that
+        # file, never here). Only added for a password-gated lane that named the file.
+        if spec.server_password_file:
+            launch_env[SERVER_PASSWORD_FILE_ENV_VAR] = str(spec.server_password_file)
         return ClientLaunchRequest(
             actor=spec.actor,
             gabs_endpoint=str(spec.gabs_endpoint),

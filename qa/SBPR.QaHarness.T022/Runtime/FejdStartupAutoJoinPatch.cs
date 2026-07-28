@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using BepInEx.Logging;
 using HarmonyLib;
+using SBPR.QaHarness.T022.Core.ControlPlane;
 
 namespace SBPR.QaHarness.T022.Runtime
 {
@@ -28,10 +30,27 @@ namespace SBPR.QaHarness.T022.Runtime
     /// a postfix on <c>FejdStartup.ShowCharacterSelection</c> checks whether a valid queued
     /// join target exists (<c>m_queuedJoinServer.IsValid</c>) and, if so, invokes the SAME
     /// vanilla method the Start button drives — <c>OnCharacterStart()</c>. No new join logic
-    /// is written here: profile selection and the connect handoff are 100% vanilla code paths.
-    /// The hook simply supplies the missing headless "Start" click. It fires at most once and
-    /// re-checks the queued target each call, so a non-QA launch (no env var) or a plain
-    /// character-select with no queued join is completely unaffected.
+    /// is written here: the connect handoff is a 100% vanilla code path. The hook simply
+    /// supplies the missing headless "Start" click. It fires at most once and re-checks the
+    /// queued target each call, so a non-QA launch (no env var) or a plain character-select
+    /// with no queued join is completely unaffected.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>B1 — the QA character must be an allowlist of ONE.</b> Vanilla
+    /// <c>OnCharacterStart</c> selects <c>m_profiles[m_profileIndex]</c>, which defaults to the
+    /// FIRST profile on disk. On this host that is Daniel's real character, so the first cut
+    /// loaded and spawned <c>pololol.fch</c> in-world (lane logged <c>Got character ZDOID from
+    /// Pololol</c>). Before driving <c>OnCharacterStart</c> this hook now pins the vanilla
+    /// selection to a single QA-owned profile named by <c>SBPR_QA_PROFILE</c>: it selects that
+    /// profile BY NAME (via vanilla <c>SetSelectedProfile</c>), CREATES it (vanilla
+    /// <c>PlayerProfile</c> + <c>Save</c>) if absent, and REFUSES the join (fail closed, no
+    /// <c>OnCharacterStart</c>) if no QA profile is configured or the resolved selection is not
+    /// exactly that name. There is NO fallback to any existing profile, and the shape is an
+    /// allowlist of one — not a denylist of human names, which would rot the moment Daniel
+    /// makes a new character. Every human profile is therefore structurally unreachable, and a
+    /// final belt-and-braces assertion re-verifies the resolved filename equals the configured
+    /// QA name immediately before the Start click. See <see cref="QaJoinProfilePolicy"/>.
     /// </para>
     ///
     /// <para>
@@ -147,7 +166,10 @@ namespace SBPR.QaHarness.T022.Runtime
             }
             catch (Exception ex)
             {
-                log.LogError("SBPRQA: failed to set FejdStartup.ServerPassword: " + ex);
+                // Log only the exception TYPE, never `ex` in full: a reflective setter failure
+                // could theoretically echo the value it was handed, and the password must never
+                // reach the log. The type name is enough to diagnose a wiring failure.
+                log.LogError("SBPRQA: failed to set FejdStartup.ServerPassword (" + ex.GetType().Name + ").");
             }
         }
 
@@ -168,20 +190,149 @@ namespace SBPR.QaHarness.T022.Runtime
                     return;
                 }
 
+                // B1: pin the vanilla profile selection to the single QA-owned profile named by
+                // SBPR_QA_PROFILE BEFORE driving the Start click. Refuse (fail closed) rather than
+                // let vanilla load m_profiles[m_profileIndex] — which is the first (human) profile.
+                if (!TryPinQaProfile(__instance))
+                {
+                    // Refused: a refused join is a correct outcome; loading a human's character is not.
+                    // Mark driven so we do not retry and accidentally load a human profile on a later call.
+                    _joinDriven = true;
+                    return;
+                }
+
                 _joinDriven = true;
                 _log?.LogWarning(
-                    "SBPRQA: queued +connect join detected on character-select; driving vanilla " +
-                    "OnCharacterStart() to select the current profile and begin the join (headless Start).");
+                    "SBPRQA: queued +connect join detected on character-select; QA profile pinned; " +
+                    "driving vanilla OnCharacterStart() to begin the join (headless Start).");
 
                 // Drive the EXACT vanilla path the Start button drives. OnCharacterStart selects
-                // m_profiles[m_profileIndex] (populated by ShowCharacterSelection), calls
-                // Game.SetProfile, and — because m_queuedJoinServer.IsValid — promotes it to
+                // m_profiles[m_profileIndex] — which we have just pinned to the QA profile — calls
+                // Game.SetProfile, and (because m_queuedJoinServer.IsValid) promotes it to
                 // m_joinServer and calls JoinServer(). No re-implementation of the join.
                 __instance.OnCharacterStart();
             }
             catch (Exception ex)
             {
                 _log?.LogError("SBPRQA: headless auto-join failed to drive OnCharacterStart: " + ex);
+            }
+        }
+
+        /// <summary>
+        /// Resolve the vanilla profile selection to the single QA-owned profile named by
+        /// <c>SBPR_QA_PROFILE</c>, returning true only when the currently-selected profile IS
+        /// that QA profile (belt-and-braces final assertion). Fail closed (return false) if:
+        /// no QA profile is configured, the QA profile is absent and cannot be created, or the
+        /// resolved selection is not exactly the configured name. NEVER falls back to any
+        /// existing profile — the correct outcome of a missing QA profile is a refused join.
+        /// </summary>
+        private static bool TryPinQaProfile(FejdStartup fejd)
+        {
+            string? qaProfile = Environment.GetEnvironmentVariable(QaJoinProfilePolicy.ProfileEnvVar);
+
+            // Enumerate the vanilla profile list (populated by ShowCharacterSelection).
+            var existing = ReadProfileFilenames(fejd);
+
+            var decision = QaJoinProfilePolicy.Resolve(qaProfile, existing);
+            switch (decision)
+            {
+                case QaJoinProfilePolicy.Decision.RefuseNoQaProfileConfigured:
+                    _log?.LogWarning(
+                        $"SBPRQA: refusing headless join — no {QaJoinProfilePolicy.ProfileEnvVar} configured. " +
+                        "A QA run must name its own profile; it will NEVER load an existing (human) character. " +
+                        "Refused join is a correct outcome.");
+                    return false;
+
+                case QaJoinProfilePolicy.Decision.CreateThenSelect:
+                    if (!TryCreateQaProfile(qaProfile!))
+                    {
+                        _log?.LogWarning(
+                            $"SBPRQA: refusing headless join — QA profile '{qaProfile}' is absent and could not be " +
+                            "created; not falling back to any existing profile (fail closed).");
+                        return false;
+                    }
+                    // Force the vanilla list to re-load from disk so the freshly-created profile appears.
+                    Traverse.Create(fejd).Field("m_profiles").SetValue(null);
+                    break;
+
+                case QaJoinProfilePolicy.Decision.SelectExisting:
+                    break;
+            }
+
+            // Select the QA profile BY NAME through the vanilla selector (sets m_profileIndex to
+            // the matching profile; loads the list if null). Never by index.
+            Traverse.Create(fejd).Method("SetSelectedProfile", new[] { typeof(string) }).GetValue(qaProfile);
+
+            // FINAL GUARD (belt-and-braces): re-read what vanilla actually selected and assert it
+            // is exactly the configured QA name. If SetSelectedProfile fell back to index 0 (no
+            // match) this catches it and refuses — a human profile can never match the QA name.
+            string? resolved = ReadSelectedProfileFilename(fejd);
+            if (!QaJoinProfilePolicy.ResolvedNameIsQaProfile(qaProfile, resolved))
+            {
+                _log?.LogWarning(
+                    $"SBPRQA: refusing headless join — resolved profile '{resolved}' is NOT the configured QA " +
+                    $"profile '{qaProfile}'. Refusing rather than load a non-QA (possibly human) character.");
+                return false;
+            }
+
+            _log?.LogWarning($"SBPRQA: QA profile '{resolved}' selected by name for headless join (allowlist of one).");
+            return true;
+        }
+
+        /// <summary>Read the filenames of the vanilla <c>m_profiles</c> list (empty if null).</summary>
+        private static List<string> ReadProfileFilenames(FejdStartup fejd)
+        {
+            var result = new List<string>();
+            var profiles = Traverse.Create(fejd).Field("m_profiles").GetValue<List<PlayerProfile>>();
+            if (profiles != null)
+            {
+                foreach (var p in profiles)
+                {
+                    if (p != null) result.Add(p.GetFilename());
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Read the filename of the currently-selected vanilla profile
+        /// (<c>m_profiles[m_profileIndex]</c>), or null if the index is out of range.</summary>
+        private static string? ReadSelectedProfileFilename(FejdStartup fejd)
+        {
+            var profiles = Traverse.Create(fejd).Field("m_profiles").GetValue<List<PlayerProfile>>();
+            int index = Traverse.Create(fejd).Field("m_profileIndex").GetValue<int>();
+            if (profiles == null || index < 0 || index >= profiles.Count) return null;
+            return profiles[index]?.GetFilename();
+        }
+
+        /// <summary>
+        /// Create the named QA profile through the vanilla creation path (<c>new PlayerProfile</c>
+        /// + <c>Save</c>) so a fresh QA host with no QA character can still join without ever
+        /// touching a human profile. Returns true only if the save succeeded. This is the ONLY
+        /// profile this hook ever writes, and it writes exactly the configured QA name.
+        /// </summary>
+        private static bool TryCreateQaProfile(string qaProfile)
+        {
+            try
+            {
+                // Defence in depth: never create over an existing (possibly human) profile of the
+                // same filename — if vanilla already has it, treat as present.
+                if (PlayerProfile.HaveProfile(qaProfile))
+                {
+                    return true;
+                }
+                var profile = new PlayerProfile(qaProfile, FileHelpers.FileSource.Local);
+                profile.SetName(qaProfile);
+                bool saved = profile.Save();
+                if (saved)
+                {
+                    _log?.LogWarning($"SBPRQA: created QA-owned profile '{qaProfile}' (vanilla PlayerProfile.Save).");
+                }
+                return saved;
+            }
+            catch (Exception ex)
+            {
+                _log?.LogError("SBPRQA: failed to create QA profile '" + qaProfile + "': " + ex);
+                return false;
             }
         }
 
