@@ -5,7 +5,7 @@ Machine-readable manifest of QA harness documentation.
 | file | status | purpose |
 |------|--------|---------|
 | README.md | living | What belongs in docs/qa and the conventions it follows |
-| T022-ARRANGE-STATIC-IMPLEMENTATION.md | current | The shipped STATIC arrange phase: manifest schema, the eight preconditions, and what is deliberately left to VERIFY |
+| T022-ARRANGE-STATIC-IMPLEMENTATION.md | current | The shipped STATIC arrange phase: manifest schema, the eight preconditions (including wrapper-level join-delivery verification), and what is deliberately left to VERIFY |
 
 ## Related, elsewhere
 

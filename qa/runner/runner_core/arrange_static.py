@@ -146,15 +146,23 @@ class StaticEnvironment:
     """The injectable filesystem seam. Reads only; never writes, never spawns.
 
     `path_exists` answers "is there a file here"; `hash_file` returns the sha256 hex
-    of its bytes or None when it cannot be read; `find_named_files` enumerates a plugin
-    tree or returns None when that proof cannot be made. Returning None rather than
-    raising keeps an unreadable path reportable as a specific failure instead of an
-    exception that hides the other nine problems in the same manifest.
+    of its bytes or None when it cannot be read; `read_text` returns a file's text or
+    None when it cannot be read; `find_named_files` enumerates a plugin tree or returns
+    None when that proof cannot be made. Returning None rather than raising keeps an
+    unreadable deployed copy, launch wrapper, or plugin tree reportable as a specific
+    failure instead of an exception that hides the other problems in the manifest.
+
+    The newer seams default to no-op failures so older callers and focused test stubs
+    remain source-compatible; a check that needs an omitted proof reports the resource
+    unreadable rather than crashing.
     """
 
     path_exists: Callable[[str], bool]
     hash_file: Callable[[str], Optional[str]]
-    find_named_files: Callable[[str, str], Optional[Sequence[str]]]
+    read_text: Callable[[str], Optional[str]] = lambda _path: None
+    find_named_files: Callable[[str, str], Optional[Sequence[str]]] = (
+        lambda _root, _name: None
+    )
 
 
 def real_static_environment() -> StaticEnvironment:
@@ -167,6 +175,13 @@ def real_static_environment() -> StaticEnvironment:
                 for chunk in iter(lambda: fh.read(65536), b""):
                     h.update(chunk)
             return h.hexdigest()
+        except OSError:
+            return None
+
+    def _read_text(path: str) -> Optional[str]:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                return fh.read()
         except OSError:
             return None
 
@@ -209,6 +224,7 @@ def real_static_environment() -> StaticEnvironment:
     return StaticEnvironment(
         path_exists=os.path.isfile,
         hash_file=_hash,
+        read_text=_read_text,
         find_named_files=_find_named_files,
     )
 
@@ -845,6 +861,13 @@ def arrange_static(
     failures.extend(_check_artifact_pins(manifest, env))
     failures.extend(_check_lane_password(manifest))
     failures.extend(_check_join_target(manifest))
+    # #453 — the second half of S8. `_check_join_target` asserts the target is DECLARED
+    # and correct; this asserts the client's own launch wrapper can actually carry it
+    # across the daemon fork. Imported here rather than at module scope to keep the
+    # import graph acyclic (join_delivery imports StaticFailure from this module).
+    from .join_delivery import check_join_delivery
+
+    failures.extend(check_join_delivery(manifest, env.read_text))
     failures.extend(_check_disabled_components(manifest, env))
 
     return StaticReport(
