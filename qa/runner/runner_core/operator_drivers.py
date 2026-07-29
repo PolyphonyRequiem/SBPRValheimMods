@@ -319,10 +319,27 @@ class BootRetryPolicy:
     by re-rolling the boot). So a boot is `max_attempts` re-rolls, each polling an
     explicit readiness signal every `poll_interval_s` up to `readiness_timeout_s`.
     There is NO blind sleep-and-hope: readiness is an explicit probe.
+
+    ON `readiness_timeout_s` = 300 (raised from 150). MEASURED, not guessed: on a COLD
+    page cache this client takes ~145s just to reach the main menu — process start
+    10:12:29, main menu 10:14:54 — before it has loaded a world or joined anything. The
+    old 150s budget left ~5s for connect + world load + spawn + arm, so a cold boot
+    could only pass by luck; six consecutive attempts failed on a machine where nothing
+    was actually wrong. Valheim's startup is dominated by Unity asset loading and
+    BepInEx chainloading a large mod stack (I/O + CPU bound), and the harness stack is
+    only getting bigger, so the true figure will not shrink.
+
+    This is a WRONG CONSTANT being corrected against a measurement — not a guard being
+    weakened to force a pass. The distinction that matters: raising a limit is only
+    legitimate when the underlying condition is genuinely slow-but-progressing. It is
+    NEVER legitimate for a structurally unrecoverable condition (an expired token does
+    not un-expire; a version pin does not change mid-run) — re-rolling those is an
+    infinite loop and must fail fast instead. The liveness re-probe below still abandons
+    a DEAD process within seconds, so a longer budget costs nothing on the crash path.
     """
 
     max_attempts: int = 6
-    readiness_timeout_s: float = 150.0
+    readiness_timeout_s: float = 300.0
     poll_interval_s: float = 10.0
 
     def __post_init__(self) -> None:

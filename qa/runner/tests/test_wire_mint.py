@@ -89,9 +89,26 @@ def test_topology_only_wire_passes() -> None:
 # --------------------------------------------------------------------------- #
 
 def test_ttl_defaults_from_boot_budget_and_floor() -> None:
-    # 6 attempts * 150s * 2 clients * 2.0 headroom = 3600 -> equals the floor.
+    # 6 attempts * 300s * 2 clients * 2.0 headroom = 7200. The default readiness
+    # timeout was raised 150 -> 300 against a MEASURED cold boot (~145s just to reach
+    # the main menu), and the TTL must track it: if the TTL stayed sized for the old
+    # budget, a legitimate run could outlive its own credential — the exact
+    # expired-envelope wall this module closes.
     d = {"clients": [1, 2], "server": {}}
-    assert resolve_ttl_seconds(d) == pytest.approx(3600.0)
+    assert resolve_ttl_seconds(d) == pytest.approx(7200.0)
+
+
+def test_ttl_default_covers_the_runners_worst_case_boot_budget() -> None:
+    # The invariant that actually matters, asserted structurally rather than as a
+    # magic number: whatever the boot budget is, the derived TTL must exceed the
+    # runner's worst case (every client burning every attempt).
+    from runner_core.operator_drivers import BootRetryPolicy
+
+    policy = BootRetryPolicy()
+    num_clients = 2
+    worst_case_s = policy.max_attempts * policy.readiness_timeout_s * num_clients
+    d = {"clients": [1, 2], "server": {}}
+    assert resolve_ttl_seconds(d) >= worst_case_s
 
 
 def test_ttl_scales_up_with_larger_boot_budget() -> None:
@@ -127,7 +144,10 @@ def _live_descriptor(tmp_path, *, wire_extra=None):
         "world_uid": "424242",
         "world_name": "homestead-mint",
         "expiry": 10_000_000,
-        "lane": {"lane_id": "mintl", "world_name": "homestead-mint", "world_uid": 424242, "port": 2476},
+        # `requires_password` is REQUIRED by validate_lane_password_consistency
+        # (M6-LANEPW): the lane's password policy is never inferred. This fixture
+        # models an OPEN lane, so no client names a `server_password_file`.
+        "lane": {"lane_id": "mintl", "world_name": "homestead-mint", "world_uid": 424242, "port": 2476, "requires_password": False},
         "clients": [
             {
                 "actor": "client_a", "steam_id": LICENSED_STEAM_IDENTITIES[0],

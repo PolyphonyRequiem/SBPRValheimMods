@@ -45,6 +45,7 @@ the FSM core). No Valheim/BepInEx/Unity import.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -320,12 +321,155 @@ class RealOperatorConfig:
     entitlement_delivery: EntitlementDeliveryConfig
     # Boot-retry envelope for the intermittent ValBridge startup-scene wedge. A
     # single-shot launch is unreliable on this box (boot-qa-client.sh re-rolls up to
-    # 6× polling readiness every 10s for up to 150s); the booter honours this policy.
+    # 6× polling readiness every 10s for up to 300s); the booter honours this policy.
     boot_policy: BootRetryPolicy = field(default_factory=BootRetryPolicy)
     # Timeout (seconds) for a single GABS/MCP HTTP request and for the loopback
     # control-port readiness probe. Small — these are localhost round-trips.
     gabs_request_timeout_s: float = 10.0
     control_probe_timeout_s: float = 3.0
+
+
+# --- Cross-uid harness provenance (M6-PROVENANCE) --------------------------------
+# Directory the valbot controller drops its {marker, pid} provenance receipts into.
+# Primary-owned, mode 0733: valbot (uid 1001) can CREATE a receipt there but cannot
+# enumerate or read the directory back; the runner (uid 1000, the owner) can. This is
+# the same already-trusted cross-user seam the controller writes its launch log to.
+PROVENANCE_RECEIPT_DIR = (
+    "/home/polyphonyrequiem/valheim/mcp-harness/dual-client/runtime-diagnostics"
+)
+
+
+def _pid_start_ticks(pid: int) -> Optional[int]:
+    """Field 22 of /proc/<pid>/stat: process start time in clock ticks since boot.
+
+    Pinning this to the PID defeats PID reuse: a recycled PID held by a DIFFERENT
+    (possibly Daniel-owned) process has a different start time. World-readable, so
+    it works across the uid boundary where `environ` does not.
+    """
+    try:
+        with open(f"/proc/{pid}/stat", "r", encoding="utf-8", errors="replace") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    # The comm field (in parens) can contain spaces/parens; split after the last ')'.
+    rparen = data.rfind(")")
+    if rparen < 0:
+        return None
+    fields = data[rparen + 2:].split()
+    # After comm, field indices: state=0 ... starttime is stat field 22 => index 19.
+    if len(fields) <= 19:
+        return None
+    try:
+        return int(fields[19])
+    except ValueError:
+        return None
+
+
+def _pid_exe_basename(pid: int) -> Optional[str]:
+    """Basename of /proc/<pid>/exe, or None if unreadable/gone.
+
+    The symlink itself resolves across the uid boundary, unlike `environ`.
+    """
+    try:
+        return os.path.basename(os.readlink(f"/proc/{pid}/exe"))
+    except OSError:
+        return None
+
+
+def _receipt_to_instance(doc: object, pid: int, marker: str) -> Optional["HarnessInstance"]:
+    """Turn a validated receipt into a HarnessInstance, or None (fail closed).
+
+    Every safety-relevant fact is re-derived from the KERNEL here; the receipt is
+    only ever a hint about WHICH pid to look at:
+      * the binary at that pid must be valheim.x86_64,
+      * start-ticks come from `_pid_start_ticks`, never from the receipt, so PID
+        reuse stays defeated.
+    """
+    if _pid_exe_basename(pid) != "valheim.x86_64":
+        return None
+    start = _pid_start_ticks(pid)
+    if start is None:
+        return None
+    return HarnessInstance(
+        actor=marker.split(":", 1)[0], marker=marker, pid=pid, start_ticks=start
+    )
+
+
+def resolve_via_receipt(
+    target_marker: str, receipt_dir: str = PROVENANCE_RECEIPT_DIR
+) -> Optional["HarnessInstance"]:
+    """Resolve THIS boot's client from the receipt its launching controller attested.
+
+    Fails closed on a missing, malformed, foreign-binary, or STALE receipt — a
+    receipt left by a previous run names a previous marker and is rejected here.
+    """
+    actor_part = target_marker.split(":", 1)[0]
+    path = os.path.join(receipt_dir, f"harness-provenance-{actor_part}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict) or doc.get("marker") != target_marker:
+        return None
+    try:
+        pid = int(doc["pid"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return _receipt_to_instance(doc, pid, target_marker)
+
+
+def probe_pid_via_receipt(
+    pid: int, receipt_dir: str = PROVENANCE_RECEIPT_DIR
+) -> Optional["HarnessInstance"]:
+    """PID-keyed counterpart of `resolve_via_receipt`.
+
+    Used when `/proc/<pid>/environ` is unreadable (the cross-uid client_b case), both
+    for the liveness re-probe and for the pre-kill ownership re-verification.
+    """
+    try:
+        names = os.listdir(receipt_dir)
+    except OSError:
+        return None
+    for name in names:
+        if not (name.startswith("harness-provenance-") and name.endswith(".json")):
+            continue
+        try:
+            with open(os.path.join(receipt_dir, name), "r", encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(doc, dict):
+            continue
+        try:
+            if int(doc["pid"]) != pid:
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        marker = doc.get("marker")
+        if not isinstance(marker, str) or not marker:
+            continue
+        return _receipt_to_instance(doc, pid, marker)
+    return None
+
+
+def remove_provenance_receipts(receipt_dir: str = PROVENANCE_RECEIPT_DIR) -> None:
+    """Sweep receipts on teardown.
+
+    They carry no secret (marker + pid only), but a receipt outliving its run is
+    stale state. `resolve_via_receipt` already rejects a non-matching marker, so a
+    survivor cannot cause a false positive; this keeps the directory honest.
+    """
+    try:
+        names = os.listdir(receipt_dir)
+    except OSError:
+        return
+    for name in names:
+        if name.startswith("harness-provenance-") and name.endswith(".json"):
+            try:
+                os.unlink(os.path.join(receipt_dir, name))
+            except OSError:
+                pass
 
 
 def _proc_running_valheim_binaries() -> List[str]:
@@ -444,7 +588,10 @@ def real_operator_environment(
         try:
             bootstrap_provisioner.remove_all()
         finally:
-            lane_password_provisioner.remove_all()
+            try:
+                lane_password_provisioner.remove_all()
+            finally:
+                remove_provenance_receipts()
 
     def _mcp_call(request: ClientLaunchRequest, tool: str) -> None:
         payload = _json.dumps(
@@ -574,31 +721,12 @@ def real_operator_environment(
         # launch as different users — each read the sidecar written for them.
         sidecar_writer.write(request.launch_env_path, request.launch_env)
 
-    def _pid_start_ticks(pid: int) -> Optional[int]:
-        # Field 22 of /proc/<pid>/stat is the process start time in clock ticks since
-        # boot. Reading it and pinning it to the PID defeats PID reuse: a recycled PID
-        # held by a DIFFERENT (possibly Daniel-owned) process has a different start-time.
-        try:
-            with open(f"/proc/{pid}/stat", "r", encoding="utf-8", errors="replace") as fh:
-                data = fh.read()
-        except OSError:
-            return None
-        # The comm field (in parens) can contain spaces/parens; split after the last ')'.
-        rparen = data.rfind(")")
-        if rparen < 0:
-            return None
-        fields = data[rparen + 2:].split()
-        # After comm, field indices: state=0 ... starttime is stat field 22 => index 19.
-        if len(fields) <= 19:
-            return None
-        try:
-            return int(fields[19])
-        except ValueError:
-            return None
-
     def _pid_marker(pid: int) -> Optional[str]:
         # Read the launched process's own environment to recover the unique harness
         # marker it carries. Absent/unreadable => no proof of harness ownership.
+        # NOTE: readable ONLY for a same-uid process (client_a). For client_b, which
+        # runs as valbot, this always fails and the caller falls back to the attested
+        # provenance receipt — see `resolve_via_receipt` at module scope.
         try:
             with open(f"/proc/{pid}/environ", "rb") as fh:
                 raw = fh.read()
@@ -609,13 +737,42 @@ def real_operator_environment(
                 return entry.split(b"=", 1)[1].decode("utf-8", errors="replace")
         return None
 
+    # --- Cross-uid harness provenance (M6-PROVENANCE) --------------------------------
+    # `_pid_marker` reads /proc/<pid>/environ, which the kernel exposes ONLY to the
+    # process owner. client_a runs as the runner's own uid, so that works. client_b runs
+    # as valbot (uid 1001) and the read is structurally impossible — the runner burned
+    # six boot attempts on a permission error and refused to proceed without a
+    # tear-down-able instance, so TRANSFER and TAMPER could never execute.
+    #
+    # The marker is what the B1 kill guard uses to prove a valheim.x86_64 process is
+    # harness-owned rather than Daniel's own game, so it cannot simply be skipped. The
+    # valbot controller — which runs AS valbot and knows the PID it just launched —
+    # instead drops a receipt {marker, pid} into the primary-owned mode-0733 diagnostics
+    # directory it already writes its launch log to.
+    #
+    # The receipt is a HINT, never an authority. It names a PID; every safety-relevant
+    # fact about that PID is then re-established here against the kernel:
+    #   * the binary at that PID must be valheim.x86_64 (/proc/<pid>/exe, world-readable),
+    #   * start-ticks are read by `_pid_start_ticks` — the SAME parser used for client_a,
+    #     never taken from the receipt — so PID reuse remains defeated,
+    #   * the recorded marker must equal the marker THIS boot generated.
+    # A missing, malformed, or mismatched receipt yields None and the caller fails closed
+    # exactly as before. Daniel's own game never has a receipt, so it can never be
+    # resolved as harness-owned. The implementations live at MODULE scope
+    # (`resolve_via_receipt` / `probe_pid_via_receipt`) so they are directly testable.
+
     def _probe_pid(pid: int) -> Optional[HarnessInstance]:
         # Return the harness provenance of the live process at PID, or None if the PID
         # is gone or carries no harness marker. Used both to resolve the launched client
         # and, immediately before a kill, to re-verify we are terminating OUR process.
         marker = _pid_marker(pid)
         if marker is None:
-            return None
+            # Cross-uid (client_b/valbot): environ is unreadable, so fall back to the
+            # attested receipt for this PID. Without this the liveness re-probe would
+            # read a healthy valbot client as "gone" and the pre-kill re-verification
+            # could never confirm ownership. Still fails closed when no receipt names
+            # this exact PID — including for Daniel's own game, which never has one.
+            return probe_pid_via_receipt(pid)
         start = _pid_start_ticks(pid)
         if start is None:
             return None
@@ -655,6 +812,13 @@ def real_operator_environment(
             if len(matches) > 1:
                 # Ambiguous provenance — refuse rather than guess which is ours.
                 return None
+            # No environ-readable match. For a cross-uid client (client_b runs as valbot)
+            # that is the EXPECTED path, not a failure: the kernel hides that process's
+            # environ from us entirely. Consult the receipt the launching controller
+            # attested, which re-verifies binary + start-ticks against the kernel.
+            via_receipt = resolve_via_receipt(target_marker)
+            if via_receipt is not None:
+                return via_receipt
             if _time.monotonic() >= deadline:
                 return None
             _time.sleep(0.1)
@@ -959,7 +1123,7 @@ def build_live_run(
     boot_d = srv.get("boot_policy", {})
     boot_policy = BootRetryPolicy(
         max_attempts=int(boot_d.get("max_attempts", 6)),
-        readiness_timeout_s=float(boot_d.get("readiness_timeout_s", 150.0)),
+        readiness_timeout_s=float(boot_d.get("readiness_timeout_s", 300.0)),
         poll_interval_s=float(boot_d.get("poll_interval_s", 10.0)),
     )
     env = real_operator_environment(

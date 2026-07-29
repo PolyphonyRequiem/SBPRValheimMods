@@ -132,8 +132,13 @@ def resolve_ttl_seconds(descriptor: Mapping[str, Any]) -> float:
     server = descriptor.get("server")
     boot = server.get("boot_policy", {}) if isinstance(server, Mapping) else {}
     # Mirror BootRetryPolicy's defaults so the TTL tracks the actual boot budget.
+    # KEEP IN SYNC with BootRetryPolicy (operator_drivers.py). If these drift apart the
+    # TTL is sized for a boot budget the runner no longer uses, and a legitimate run can
+    # outlive its own credential — reintroducing the expired-envelope wall this module
+    # exists to close. Raised to 300 alongside the measured cold-boot time (~145s just
+    # to reach the main menu, before any world load or join).
     max_attempts = int(boot.get("max_attempts", 6))
-    readiness_timeout_s = float(boot.get("readiness_timeout_s", 150.0))
+    readiness_timeout_s = float(boot.get("readiness_timeout_s", 300.0))
 
     clients = descriptor.get("clients")
     num_clients = len(clients) if isinstance(clients, (list, tuple)) and clients else 2
