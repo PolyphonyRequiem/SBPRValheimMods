@@ -79,23 +79,50 @@ done when the code works — it's done when code and spec agree.
 
 ## QA live-harness process discipline (M6)
 
-- **GABS never reaps the game processes it forks.** A client that exits leaves a
-  `<defunct>` `valheim.x86_64` zombie parented to the long-lived GABS daemon. GABS's
-  single-gameId liveness model counts that zombie as "running" (its name-based `ps`
-  finder still matches the zombie's `comm` — `GABS/internal/process/controller.go:296-302`),
-  so `games.status` reports "running" and the next `games.start` is a silent no-op
-  (`GABS/internal/mcp/stdio_server.go:761-764`). This is a GABS-side bug we cannot fix
-  from our repo; the **permanent** runner-side workaround is to force GABS's view to
-  match reality before every launch — `_reset_gabs_state` in
-  `qa/runner/runner_core/live_composition.py` issues `games.stop` (which, as the child's
-  parent, actually `Wait()`s and reaps the zombie) and verifies the state cleared. It is
-  gated on there being **zero live non-zombie** `valheim.x86_64` (a zombie exposes no
-  readable `/proc/<pid>/exe`), so it can never touch Daniel's own Steam Valheim.
+- **GABS zombie liveness: FIXED upstream in our fork (2026-07-29). Do not design around
+  it.** The historical bug: a client that exited left a `<defunct>` `valheim.x86_64`
+  parented to the long-lived GABS daemon, and GABS's name-based `ps` finder matched the
+  zombie's `comm`, so `games.status` reported "running" forever and the next
+  `games.start` was a silent no-op. That is what made run 8's re-rolls silent.
+
+  Two commits in `PolyphonyRequiem/GABS` fix it at the source — it was never actually
+  unfixable, only unfixable *from this repo*:
+  - `b679943` reaps the child on every kill/terminate exit path (the children GABS
+    itself stops).
+  - `79e1779` adds `state=` to the finder's `ps` format and skips any process in state
+    `Z` (whatever zombies remain — a client that crashes, quits in-game, or is killed
+    externally is reaped by no terminate path, so the *lookup* must also tell the truth).
+
+  Verified in production on 2026-07-29: 10 `<defunct>` `valheim.x86_64` parented to the
+  primary daemon, 0 live clients, and `games_status` correctly reported **stopped**.
+  Both daemons (uid 1000 on :8080, uid 1001 on :8081) already run the fixed binary.
+
+  **Consequence for the runner:** `_reset_gabs_state` in
+  `qa/runner/runner_core/live_composition.py` is now **defence in depth, not
+  load-bearing**. Keep it — it is cheap, idempotent, and correctly gated on there being
+  zero live non-zombie `valheim.x86_64` (a zombie exposes no readable
+  `/proc/<pid>/exe`), so it can never touch Daniel's own Steam Valheim. But do NOT build
+  new workarounds on the premise that GABS lies about liveness, and if you observe it
+  lying again, that is a regression in the fork to fix there — not a fact to route
+  around here.
+- **There is one GABS daemon PER UID, and that is the correct topology.** uid 1000 runs
+  `gabs server --http localhost:8080`; uid 1001 (`valbot`) runs its own on `:8081` with
+  its own `~/.gabs/config.json`. A daemon must run as the identity whose game it
+  launches, because the child inherits that uid and its Steam session. Do not try to
+  drive both clients from one daemon.
+
+  Note that valbot's GABS is `launchMode: DirectPath` — a thin shim, not a second
+  launcher. It execs a controller chain ending in `request_valbot_app_launch 892970`,
+  and **Steam** performs the spawn, because Steam is what supplies the second identity's
+  licence and session. The controller's `prespawn_identity_gate` refuses to launch if
+  valbot's Steam resolves to the primary SteamID. "Launch as the other Steam identity"
+  *is* the AppID request, so GABS cannot replace it.
 - **Whoever launches a verification/proof client MUST reap it.** Do not leave a launched
   `valheim.x86_64` un-reaped when your card completes — confirm the process is fully gone
   (not merely signalled), e.g. `games.stop` the gameId your throwaway daemon owns, or
-  `pkill -9 -f <your-child-binary>` then verify no child remains under your daemon. An
-  un-reaped proof client is the exact zombie that made run 8's re-rolls silent no-ops.
+  `pkill -9 -f <your-child-binary>` then verify no child remains under your daemon. This
+  is still required after the fix above: the finder now tells the truth about zombies, but
+  a leaked zombie is still a leaked resource and still confuses a human reading `ps`.
 - **QA workers use isolated `git worktree` checkouts, not the shared clone.** Concurrent
   workers on the single `~/repos/SBPRValheimMods` checkout is a corruption hazard (a
   concurrent worker moved HEAD mid-run in run 8). `git worktree add` a per-task tree off
