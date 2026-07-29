@@ -1,0 +1,126 @@
+{
+  "kind": "sbpr-qa-arrange-manifest",
+  "version": 1,
+
+  "_comment": [
+    "EXAMPLE arrange manifest (T022 ARRANGE spec §3 P2, issue #450).",
+    "",
+    "This is documentation, not a live descriptor: the hashes are placeholders and",
+    "the paths are the real shapes but not guaranteed current. Its job is to show",
+    "that the two clients are described by the SAME schema while sharing nothing —",
+    "different uid, user, Steam account, game root, binary, launcher, ports,",
+    "credential path, and join delivery mechanism. Adding client_c is another entry",
+    "in `clients`; no code changes."
+  ],
+
+  "lane": {
+    "lane_id": "t022-disposable",
+    "world_name": "t022lane",
+    "host": "127.0.0.1",
+    "port": 2476,
+    "_comment": "requires_password is REQUIRED and never inferred (M6-LANEPW): a password-gated lane with an unstated policy connects, then stalls forever on vanilla's password prompt.",
+    "requires_password": true
+  },
+
+  "artifacts": [
+    {
+      "name": "SBPR.QaHarness.T022.dll",
+      "source_path": "/home/polyphonyrequiem/repos/SBPRValheimMods/qa/dist/SBPR.QaHarness.T022.dll",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "SBPR.Trailborne.dll",
+      "source_path": "/home/polyphonyrequiem/repos/SBPRValheimMods/src/SBPR.Trailborne/bin/Release/net48/SBPR.Trailborne.dll",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+
+  "clients": [
+    {
+      "actor": "client_a",
+      "uid": 1000,
+      "user": "polyphonyrequiem",
+      "steam_account": "76561197965627562",
+      "game_root": "/home/polyphonyrequiem/.local/share/Trailborne/Valheim-Modded",
+      "binary_path": "/home/polyphonyrequiem/.local/share/Trailborne/Valheim-Modded/valheim.x86_64",
+      "plugins_dir": "/home/polyphonyrequiem/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins",
+      "launcher": {
+        "kind": "gabs",
+        "endpoint": "http://localhost:8080/mcp",
+        "game_id": "valheim-qa-primary"
+      },
+      "ports": {
+        "loopback_control": 48610,
+        "unity_script_host": 48210
+      },
+      "qa_profile": "sbpr_qa_primary",
+      "join": {
+        "host": "127.0.0.1",
+        "port": 2476,
+        "_comment": "GABS forwards argv, so `+connect host:port` reaches the game and populates m_queuedJoinServer before the harness's character-select hook fires.",
+        "delivery": "connect_argv"
+      },
+      "artifacts": [
+        {
+          "artifact": "SBPR.QaHarness.T022.dll",
+          "dest_path": "/home/polyphonyrequiem/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins/SBPR.QaHarness.T022.dll"
+        },
+        {
+          "artifact": "SBPR.Trailborne.dll",
+          "dest_path": "/home/polyphonyrequiem/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins/SBPR.Trailborne.dll"
+        }
+      ],
+      "credentials": {
+        "server_password": {
+          "path": "/run/sbpr-qa/primary/lane-pw.txt",
+          "consumer_uid": 1000,
+          "mode": "0600"
+        }
+      }
+    },
+    {
+      "actor": "client_b",
+      "uid": 1001,
+      "user": "valbot",
+      "steam_account": "76561198671522196",
+      "game_root": "/home/valbot/.steam/steam/steamapps/common/Valheim",
+      "binary_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/valheim.x86_64",
+      "plugins_dir": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins",
+      "launcher": {
+        "kind": "steam_applaunch",
+        "app_id": "892970",
+        "systemd_unit": "sbpr-qa-valbot-client",
+        "launch_env_path": "/home/valbot/.local/share/sbpr-qa/launch-env/valheim.env"
+      },
+      "ports": {
+        "loopback_control": 48611,
+        "unity_script_host": 48211
+      },
+      "qa_profile": "sbpr_qa_valbot",
+      "join": {
+        "host": "127.0.0.1",
+        "port": 2476,
+        "_comment": "`steam -silent -applaunch` passes no arguments and env -i scrubs the environment, so `+connect` can never reach this client. The join target must ride the sidecar the wrapper sources before exec. Declaring connect_argv here is refused by S8.",
+        "delivery": "launch_env_sidecar"
+      },
+      "artifacts": [
+        {
+          "artifact": "SBPR.QaHarness.T022.dll",
+          "dest_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins/SBPR.QaHarness.T022.dll"
+        },
+        {
+          "artifact": "SBPR.Trailborne.dll",
+          "dest_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins/SBPR.Trailborne.dll"
+        }
+      ],
+      "credentials": {
+        "server_password": {
+          "_comment": "consumer_uid is the load-bearing field: a 0600 file written by uid 1000 and read by uid 1001 is structurally unreadable, and the only symptom is a client sitting at a menu.",
+          "path": "/run/sbpr-qa/valbot/lane-pw.txt",
+          "consumer_uid": 1001,
+          "mode": "0600"
+        }
+      }
+    }
+  ]
+}

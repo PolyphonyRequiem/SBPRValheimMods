@@ -1,0 +1,727 @@
+"""Static-arrange tests (T022 ARRANGE §4 STATIC, issue #450).
+
+Everything here is engine-free and pure: no process is started, no game is contacted,
+no file is written. The filesystem seam is a dict.
+
+The suite is organised around the two structural claims of the card:
+  * `TestNoSymmetryAssumption` — no check assumes same-uid, same-path or
+    same-launcher, and a fully asymmetric pair passes.
+  * `TestThirdClientIsDataOnly` — adding a third client is a data change: the same
+    unmodified code checks it and reports against it by name.
+plus one class per precondition, each asserting the failure NAMES the precondition,
+the client, and expected-vs-actual (the anti-silence contract).
+"""
+from __future__ import annotations
+
+import copy
+
+import pytest
+
+from runner_core.arrange_manifest import (
+    ArrangeManifest,
+    ArrangeManifestError,
+    PRODUCTION_PORTS,
+)
+from runner_core.arrange_static import (
+    P_ARTIFACT_CATALOGUE,
+    P_ARTIFACT_PINS,
+    P_DEST_UNDER_ROOT,
+    P_JOIN_TARGET,
+    P_LANE_PASSWORD,
+    P_PORTS_DISJOINT,
+    P_PRODUCTION_DENY,
+    P_WELL_FORMED,
+    StaticEnvironment,
+    arrange_static,
+)
+
+H_HARNESS = "a" * 64
+H_PRODUCT = "b" * 64
+H_STALE = "c" * 64
+
+
+def fs(paths):
+    """Build a StaticEnvironment from a {path: sha256|None} dict.
+
+    A path mapped to None exists but cannot be read (permission case); a path absent
+    from the dict does not exist.
+    """
+
+    return StaticEnvironment(
+        path_exists=lambda p: p in paths,
+        hash_file=lambda p: paths.get(p),
+    )
+
+
+def golden_manifest():
+    """A manifest describing the REAL asymmetric pair.
+
+    client_a: uid 1000, GABS launcher, `+connect` argv, its own game root.
+    client_b: uid 1001, Steam -applaunch under env -i, sidecar join delivery, a
+              completely different root, binary, ports and credential paths.
+    Nothing about b is derived from a.
+    """
+    return {
+        "kind": "sbpr-qa-arrange-manifest",
+        "version": 1,
+        "lane": {
+            "lane_id": "t022-disposable",
+            "world_name": "t022lane",
+            "host": "127.0.0.1",
+            "port": 2476,
+            "requires_password": True,
+        },
+        "artifacts": [
+            {
+                "name": "SBPR.QaHarness.T022.dll",
+                "source_path": "/build/out/SBPR.QaHarness.T022.dll",
+                "sha256": H_HARNESS,
+            },
+            {
+                "name": "SBPR.Trailborne.dll",
+                "source_path": "/build/out/SBPR.Trailborne.dll",
+                "sha256": H_PRODUCT,
+            },
+        ],
+        "clients": [
+            {
+                "actor": "client_a",
+                "uid": 1000,
+                "user": "polyphonyrequiem",
+                "steam_account": "76561197965627562",
+                "game_root": "/home/poly/.local/share/Trailborne/Valheim-Modded",
+                "binary_path": "/home/poly/.local/share/Trailborne/Valheim-Modded/valheim.x86_64",
+                "plugins_dir": "/home/poly/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins",
+                "launcher": {
+                    "kind": "gabs",
+                    "endpoint": "http://localhost:8080/mcp",
+                    "game_id": "valheim-qa-a",
+                },
+                "ports": {"loopback_control": 48610, "unity_script_host": 48210},
+                "qa_profile": "sbpr_qa_a",
+                "join": {"host": "127.0.0.1", "port": 2476, "delivery": "connect_argv"},
+                "artifacts": [
+                    {
+                        "artifact": "SBPR.QaHarness.T022.dll",
+                        "dest_path": "/home/poly/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins/SBPR.QaHarness.T022.dll",
+                    },
+                    {
+                        "artifact": "SBPR.Trailborne.dll",
+                        "dest_path": "/home/poly/.local/share/Trailborne/Valheim-Modded/BepInEx/plugins/SBPR.Trailborne.dll",
+                    },
+                ],
+                "credentials": {
+                    "server_password": {
+                        "path": "/run/sbpr-qa/a/lane-pw.txt",
+                        "consumer_uid": 1000,
+                    }
+                },
+            },
+            {
+                "actor": "client_b",
+                "uid": 1001,
+                "user": "valbot",
+                "steam_account": "76561198671522196",
+                "game_root": "/home/valbot/.steam/steam/steamapps/common/Valheim",
+                "binary_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/valheim.x86_64",
+                "plugins_dir": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins",
+                "launcher": {
+                    "kind": "steam_applaunch",
+                    "app_id": "892970",
+                    "launch_env_path": "/home/valbot/.local/share/sbpr-qa/launch-env/valheim.env",
+                },
+                "ports": {"loopback_control": 48611, "unity_script_host": 48211},
+                "qa_profile": "sbpr_qa_b",
+                "join": {
+                    "host": "127.0.0.1",
+                    "port": 2476,
+                    "delivery": "launch_env_sidecar",
+                },
+                "artifacts": [
+                    {
+                        "artifact": "SBPR.QaHarness.T022.dll",
+                        "dest_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins/SBPR.QaHarness.T022.dll",
+                    },
+                    {
+                        "artifact": "SBPR.Trailborne.dll",
+                        "dest_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins/SBPR.Trailborne.dll",
+                    },
+                ],
+                "credentials": {
+                    "server_password": {
+                        "path": "/run/sbpr-qa/b/lane-pw.txt",
+                        "consumer_uid": 1001,
+                    }
+                },
+            },
+        ],
+    }
+
+
+def golden_fs(manifest=None):
+    """A filesystem where every source is present and correctly pinned, and nothing
+    is deployed yet (the normal pre-staging state)."""
+    return fs(
+        {
+            "/build/out/SBPR.QaHarness.T022.dll": H_HARNESS,
+            "/build/out/SBPR.Trailborne.dll": H_PRODUCT,
+        }
+    )
+
+
+def failures_for(report, precondition, client=None):
+    return [
+        f
+        for f in report.failures
+        if f.precondition == precondition and (client is None or f.client == client)
+    ]
+
+
+# --------------------------------------------------------------------------- #
+
+class TestGolden:
+    def test_asymmetric_pair_passes(self):
+        report = arrange_static(golden_manifest(), golden_fs())
+        assert report.ok, report.render()
+        assert list(report.checked_clients) == ["client_a", "client_b"]
+
+    def test_pass_report_renders_without_failures(self):
+        report = arrange_static(golden_manifest(), golden_fs())
+        assert "PASS" in report.render()
+        assert report.as_dict()["failures"] == []
+
+    def test_deployed_and_matching_still_passes(self):
+        m = golden_manifest()
+        paths = {
+            "/build/out/SBPR.QaHarness.T022.dll": H_HARNESS,
+            "/build/out/SBPR.Trailborne.dll": H_PRODUCT,
+        }
+        for c in m["clients"]:
+            for a in c["artifacts"]:
+                paths[a["dest_path"]] = (
+                    H_HARNESS if "QaHarness" in a["artifact"] else H_PRODUCT
+                )
+        assert arrange_static(m, fs(paths)).ok
+
+    def test_static_starts_no_process_and_writes_nothing(self):
+        """The ONLY environment contact is the two read seams; assert they are all
+        that is ever called by recording every path touched."""
+        touched = []
+        env = StaticEnvironment(
+            path_exists=lambda p: touched.append(("exists", p)) or (p.startswith("/build/")),
+            hash_file=lambda p: touched.append(("hash", p))
+            or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
+        )
+        arrange_static(golden_manifest(), env)
+        assert touched, "static phase must actually inspect the declared artifacts"
+        assert all(kind in ("exists", "hash") for kind, _ in touched)
+
+
+class TestNoSymmetryAssumption:
+    """Not a single check may assume same-uid, same-path, or same-launcher."""
+
+    def test_different_uids_are_fine(self):
+        m = golden_manifest()
+        assert m["clients"][0]["uid"] != m["clients"][1]["uid"]
+        assert arrange_static(m, golden_fs()).ok
+
+    def test_different_launchers_are_fine(self):
+        m = golden_manifest()
+        assert m["clients"][0]["launcher"]["kind"] != m["clients"][1]["launcher"]["kind"]
+        assert arrange_static(m, golden_fs()).ok
+
+    def test_different_roots_binaries_and_credential_paths_are_fine(self):
+        m = golden_manifest()
+        a, b = m["clients"]
+        assert a["game_root"] != b["game_root"]
+        assert a["binary_path"] != b["binary_path"]
+        assert (
+            a["credentials"]["server_password"]["path"]
+            != b["credentials"]["server_password"]["path"]
+        )
+        assert arrange_static(m, golden_fs()).ok
+
+    def test_different_join_delivery_mechanisms_are_fine(self):
+        m = golden_manifest()
+        assert m["clients"][0]["join"]["delivery"] != m["clients"][1]["join"]["delivery"]
+        assert arrange_static(m, golden_fs()).ok
+
+    def test_client_order_does_not_change_the_verdict(self):
+        m = golden_manifest()
+        swapped = copy.deepcopy(m)
+        swapped["clients"].reverse()
+        assert arrange_static(m, golden_fs()).ok
+        assert arrange_static(swapped, golden_fs()).ok
+
+    def test_a_failure_on_one_client_does_not_implicate_the_other(self):
+        m = golden_manifest()
+        m["clients"][1]["ports"]["loopback_control"] = 2456  # production port
+        report = arrange_static(m, golden_fs())
+        assert not report.ok
+        assert failures_for(report, P_PRODUCTION_DENY, "client_b")
+        assert not failures_for(report, P_PRODUCTION_DENY, "client_a")
+
+
+class TestThirdClientIsDataOnly:
+    """Adding a third client must be a data change, not a code change."""
+
+    @staticmethod
+    def _third():
+        return {
+            "actor": "client_c",
+            "uid": 1002,
+            "user": "valbot2",
+            "steam_account": "76561198000000003",
+            "game_root": "/srv/qa/c/Valheim",
+            "binary_path": "/srv/qa/c/Valheim/valheim.x86_64",
+            "plugins_dir": "/srv/qa/c/Valheim/BepInEx/plugins",
+            "launcher": {"kind": "direct_exec"},
+            "ports": {"loopback_control": 48612, "unity_script_host": 48212},
+            "qa_profile": "sbpr_qa_c",
+            "join": {"host": "127.0.0.1", "port": 2476, "delivery": "connect_argv"},
+            "artifacts": [
+                {
+                    "artifact": "SBPR.QaHarness.T022.dll",
+                    "dest_path": "/srv/qa/c/Valheim/BepInEx/plugins/SBPR.QaHarness.T022.dll",
+                }
+            ],
+            "credentials": {
+                "server_password": {"path": "/run/sbpr-qa/c/lane-pw.txt", "consumer_uid": 1002}
+            },
+        }
+
+    def test_three_clients_pass_with_no_code_change(self):
+        m = golden_manifest()
+        m["clients"].append(self._third())
+        report = arrange_static(m, golden_fs())
+        assert report.ok, report.render()
+        assert list(report.checked_clients) == ["client_a", "client_b", "client_c"]
+
+    def test_third_client_is_checked_by_name(self):
+        m = golden_manifest()
+        third = self._third()
+        third["ports"]["loopback_control"] = 48610  # collides with client_a
+        m["clients"].append(third)
+        report = arrange_static(m, golden_fs())
+        assert not report.ok
+        assert failures_for(report, P_PORTS_DISJOINT, "client_c")
+        assert failures_for(report, P_PORTS_DISJOINT, "client_a")
+
+    def test_third_clients_missing_harness_is_reported(self):
+        """§I1: the mod under test must be present on EVERY client. A third client
+        that references an artifact nobody declared is caught."""
+        m = golden_manifest()
+        third = self._third()
+        third["artifacts"][0]["artifact"] = "SBPR.NotInCatalogue.dll"
+        m["clients"].append(third)
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_ARTIFACT_CATALOGUE, "client_c")
+
+
+class TestFailuresAreSpecific:
+    """§3 P3 — every failure names precondition + client + expected/actual."""
+
+    def test_every_failure_carries_all_four_fields(self):
+        m = golden_manifest()
+        m["clients"][0]["ports"]["loopback_control"] = 2466
+        m["clients"][1]["join"]["port"] = 9999
+        del m["clients"][1]["credentials"]["server_password"]
+        report = arrange_static(m, fs({}))
+        assert report.failures
+        for f in report.failures:
+            assert f.precondition
+            assert f.client
+            assert f.detail
+            assert f.expected
+            assert f.actual
+            assert f.remedy, f"failure {f.precondition} gives no remedy"
+
+    def test_checks_do_not_short_circuit(self):
+        """One invocation reports EVERY problem — the whole point is to avoid
+        discovering them one 10-minute boot cycle at a time."""
+        m = golden_manifest()
+        m["clients"][0]["ports"]["loopback_control"] = 2456
+        m["clients"][1]["join"]["port"] = 1234
+        m["lane"]["requires_password"] = False
+        report = arrange_static(m, fs({}))
+        kinds = {f.precondition for f in report.failures}
+        assert P_PRODUCTION_DENY in kinds
+        assert P_JOIN_TARGET in kinds
+        assert P_LANE_PASSWORD in kinds
+        assert P_ARTIFACT_PINS in kinds
+
+    def test_rendered_report_contains_the_client_and_both_values(self):
+        m = golden_manifest()
+        m["clients"][1]["ports"]["loopback_control"] = 48610
+        text = arrange_static(m, golden_fs()).render()
+        assert "client_b" in text
+        assert "expected:" in text and "actual:" in text
+        assert "48610" in text
+
+    def test_report_is_machine_readable(self):
+        m = golden_manifest()
+        m["clients"][0]["ports"]["x"] = 2456
+        d = arrange_static(m, golden_fs()).as_dict()
+        assert d["phase"] == "static" and d["ok"] is False
+        entry = next(f for f in d["failures"] if f["precondition"] == P_PRODUCTION_DENY)
+        assert entry["client"] == "client_a"
+        assert "2456" in entry["actual"]
+
+
+class TestProductionDeny:
+    """Preserved guard: 2456/2466 hold REAL worlds and may never be a target."""
+
+    @pytest.mark.parametrize("port", sorted(PRODUCTION_PORTS))
+    def test_lane_may_not_target_production(self, port):
+        m = golden_manifest()
+        m["lane"]["port"] = port
+        for c in m["clients"]:
+            c["join"]["port"] = port
+        report = arrange_static(m, golden_fs())
+        assert not report.ok
+        assert failures_for(report, P_PRODUCTION_DENY, "<manifest>")
+
+    @pytest.mark.parametrize("port", sorted(PRODUCTION_PORTS))
+    def test_no_client_port_may_be_production(self, port):
+        m = golden_manifest()
+        m["clients"][1]["ports"]["unity_script_host"] = port
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_PRODUCTION_DENY, "client_b")
+
+    @pytest.mark.parametrize("port", sorted(PRODUCTION_PORTS))
+    def test_no_client_may_join_production(self, port):
+        m = golden_manifest()
+        m["clients"][0]["join"]["port"] = port
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_PRODUCTION_DENY, "client_a")
+
+
+class TestPortsDisjoint:
+    """§I6 — a hardcoded single-instance port silently cost the second client a
+    service (`Failed to bind 127.0.0.1:48210: Address already in use`)."""
+
+    def test_colliding_client_ports_are_refused(self):
+        m = golden_manifest()
+        m["clients"][1]["ports"]["unity_script_host"] = 48210
+        report = arrange_static(m, golden_fs())
+        assert not report.ok
+        assert failures_for(report, P_PORTS_DISJOINT, "client_a")
+        assert failures_for(report, P_PORTS_DISJOINT, "client_b")
+
+    def test_collision_names_both_claimants(self):
+        m = golden_manifest()
+        m["clients"][1]["ports"]["unity_script_host"] = 48210
+        f = failures_for(arrange_static(m, golden_fs()), P_PORTS_DISJOINT)[0]
+        assert "client_a" in f.actual and "client_b" in f.actual
+
+    def test_client_port_may_not_collide_with_the_lane(self):
+        m = golden_manifest()
+        m["clients"][0]["ports"]["loopback_control"] = m["lane"]["port"]
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_PORTS_DISJOINT, "client_a")
+
+    def test_same_port_name_on_different_clients_is_fine_when_values_differ(self):
+        m = golden_manifest()
+        assert (
+            m["clients"][0]["ports"]["loopback_control"]
+            != m["clients"][1]["ports"]["loopback_control"]
+        )
+        assert arrange_static(m, golden_fs()).ok
+
+
+class TestArtifactPins:
+    """§I8 — a stale deployed launcher was correctly refused by byte-equality. Keep it."""
+
+    def test_missing_source_is_named(self):
+        m = golden_manifest()
+        report = arrange_static(m, fs({"/build/out/SBPR.Trailborne.dll": H_PRODUCT}))
+        f = failures_for(report, P_ARTIFACT_PINS)[0]
+        assert "SBPR.QaHarness.T022.dll" in f.detail
+        assert "/build/out/SBPR.QaHarness.T022.dll" in f.expected
+
+    def test_drifted_source_is_named_with_both_hashes(self):
+        m = golden_manifest()
+        report = arrange_static(
+            m,
+            fs(
+                {
+                    "/build/out/SBPR.QaHarness.T022.dll": H_STALE,
+                    "/build/out/SBPR.Trailborne.dll": H_PRODUCT,
+                }
+            ),
+        )
+        f = failures_for(report, P_ARTIFACT_PINS)[0]
+        assert H_HARNESS in f.expected and H_STALE in f.actual
+
+    def test_unreadable_source_is_reported_not_raised(self):
+        m = golden_manifest()
+        report = arrange_static(
+            m,
+            fs(
+                {
+                    "/build/out/SBPR.QaHarness.T022.dll": None,
+                    "/build/out/SBPR.Trailborne.dll": H_PRODUCT,
+                }
+            ),
+        )
+        assert failures_for(report, P_ARTIFACT_PINS)
+
+    def test_stale_deployed_copy_is_refused_per_client(self):
+        m = golden_manifest()
+        dest = m["clients"][1]["artifacts"][0]["dest_path"]
+        report = arrange_static(
+            m,
+            fs(
+                {
+                    "/build/out/SBPR.QaHarness.T022.dll": H_HARNESS,
+                    "/build/out/SBPR.Trailborne.dll": H_PRODUCT,
+                    dest: H_STALE,
+                }
+            ),
+        )
+        f = failures_for(report, P_ARTIFACT_PINS, "client_b")[0]
+        assert "STALE" in f.detail
+        assert H_HARNESS in f.expected and H_STALE in f.actual
+
+    def test_not_yet_deployed_is_not_a_failure(self):
+        """§I3 — the stager must be able to CREATE, not only replace. An absent
+        destination is PROVISION's job, not a static failure."""
+        assert arrange_static(golden_manifest(), golden_fs()).ok
+
+    def test_source_is_hashed_once_per_catalogue_entry(self):
+        hashed = []
+        env = StaticEnvironment(
+            path_exists=lambda p: p.startswith("/build/"),
+            hash_file=lambda p: hashed.append(p)
+            or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
+        )
+        arrange_static(golden_manifest(), env)
+        assert hashed.count("/build/out/SBPR.QaHarness.T022.dll") == 1
+
+
+class TestArtifactDestinations:
+    def test_dest_outside_own_game_root_is_refused(self):
+        m = golden_manifest()
+        m["clients"][0]["artifacts"][0]["dest_path"] = "/tmp/plugins/SBPR.QaHarness.T022.dll"
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_DEST_UNDER_ROOT, "client_a")
+
+    def test_dest_under_a_sibling_root_says_so(self):
+        m = golden_manifest()
+        m["clients"][0]["artifacts"][0]["dest_path"] = m["clients"][1]["artifacts"][0][
+            "dest_path"
+        ]
+        f = failures_for(arrange_static(m, golden_fs()), P_DEST_UNDER_ROOT, "client_a")[0]
+        assert "client_b" in f.remedy
+
+
+class TestLanePasswordPolicy:
+    """M6-LANEPW, preserved: an unstated password policy stalls the handshake forever."""
+
+    def test_gated_lane_requires_every_client_to_declare_a_credential(self):
+        m = golden_manifest()
+        del m["clients"][1]["credentials"]["server_password"]
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_LANE_PASSWORD, "client_b")
+        assert not failures_for(report, P_LANE_PASSWORD, "client_a")
+
+    def test_open_lane_refuses_a_declared_credential(self):
+        m = golden_manifest()
+        m["lane"]["requires_password"] = False
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_LANE_PASSWORD, "client_a")
+        assert failures_for(report, P_LANE_PASSWORD, "client_b")
+
+    def test_open_lane_with_no_credentials_passes(self):
+        m = golden_manifest()
+        m["lane"]["requires_password"] = False
+        for c in m["clients"]:
+            c["credentials"] = {}
+        assert arrange_static(m, golden_fs()).ok
+
+    def test_requires_password_is_never_inferred(self):
+        m = golden_manifest()
+        del m["lane"]["requires_password"]
+        report = arrange_static(m, golden_fs())
+        assert not report.ok
+        assert failures_for(report, P_WELL_FORMED)
+
+
+class TestCredentialConsumerUid:
+    """§I4 — written 0600 by uid 1000, consumed by uid 1001: structurally impossible,
+    and the only symptom was a client sitting at a menu."""
+
+    def test_credential_consumed_by_a_foreign_uid_is_refused(self):
+        m = golden_manifest()
+        m["clients"][1]["credentials"]["server_password"]["consumer_uid"] = 1000
+        f = failures_for(arrange_static(m, golden_fs()), P_LANE_PASSWORD, "client_b")[0]
+        assert "1001" in f.expected and "1000" in f.actual
+
+    def test_shared_credential_path_across_uids_is_refused(self):
+        m = golden_manifest()
+        shared = "/run/sbpr-qa/lane-pw.txt"
+        m["clients"][0]["credentials"]["server_password"]["path"] = shared
+        m["clients"][1]["credentials"]["server_password"]["path"] = shared
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_LANE_PASSWORD, "client_a")
+        assert failures_for(report, P_LANE_PASSWORD, "client_b")
+
+
+class TestJoinTarget:
+    """§I5 — the live blocker: client_b is launched with no arguments under env -i,
+    so `m_queuedJoinServer` is never populated and it stops at the server list."""
+
+    def test_missing_join_target_is_refused(self):
+        m = golden_manifest()
+        del m["clients"][1]["join"]
+        f = failures_for(arrange_static(m, golden_fs()), P_JOIN_TARGET, "client_b")[0]
+        assert "no join target" in f.detail
+
+    def test_join_target_must_be_this_runs_lane(self):
+        m = golden_manifest()
+        m["clients"][0]["join"]["port"] = 2477
+        f = failures_for(arrange_static(m, golden_fs()), P_JOIN_TARGET, "client_a")[0]
+        assert "2476" in f.expected and "2477" in f.actual
+
+    def test_connect_argv_under_a_no_argv_launcher_is_refused(self):
+        """The exact shape of the live gap, caught statically."""
+        m = golden_manifest()
+        m["clients"][1]["join"]["delivery"] = "connect_argv"
+        f = failures_for(arrange_static(m, golden_fs()), P_JOIN_TARGET, "client_b")[0]
+        assert "steam_applaunch" in f.actual
+        assert "m_queuedJoinServer" in f.remedy
+
+    def test_sidecar_delivery_under_steam_launcher_is_accepted(self):
+        assert arrange_static(golden_manifest(), golden_fs()).ok
+
+    def test_joining_client_must_name_a_qa_profile(self):
+        m = golden_manifest()
+        del m["clients"][0]["qa_profile"]
+        assert failures_for(arrange_static(m, golden_fs()), P_JOIN_TARGET, "client_a")
+
+    def test_two_clients_may_not_share_a_qa_profile(self):
+        m = golden_manifest()
+        m["clients"][1]["qa_profile"] = m["clients"][0]["qa_profile"]
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_JOIN_TARGET, "client_a")
+        assert failures_for(report, P_JOIN_TARGET, "client_b")
+
+
+class TestManifestWellFormedness:
+    def test_unparseable_manifest_yields_one_named_failure_not_an_exception(self):
+        report = arrange_static({"kind": "wrong"}, golden_fs())
+        assert not report.ok
+        assert [f.precondition for f in report.failures] == [P_WELL_FORMED]
+
+    def test_garbage_input_is_reported(self):
+        report = arrange_static("not a manifest", golden_fs())
+        assert not report.ok and failures_for(report, P_WELL_FORMED)
+
+    def test_already_parsed_manifest_is_accepted(self):
+        manifest = ArrangeManifest.parse(golden_manifest())
+        assert arrange_static(manifest, golden_fs()).ok
+
+    @pytest.mark.parametrize(
+        "field", ["uid", "user", "steam_account", "game_root", "binary_path", "plugins_dir"]
+    )
+    def test_every_identity_field_is_required(self, field):
+        m = golden_manifest()
+        del m["clients"][1][field]
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_WELL_FORMED)
+        assert field in report.failures[0].actual
+
+    def test_duplicate_actor_is_refused(self):
+        m = golden_manifest()
+        m["clients"][1]["actor"] = "client_a"
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_WELL_FORMED)
+        assert "duplicate actor" in report.failures[0].actual
+
+    def test_unknown_launcher_kind_is_refused_and_lists_the_known_ones(self):
+        m = golden_manifest()
+        m["clients"][0]["launcher"] = {"kind": "telepathy"}
+        report = arrange_static(m, golden_fs())
+        assert "telepathy" in report.failures[0].actual
+
+    def test_launcher_missing_a_required_parameter_is_refused(self):
+        m = golden_manifest()
+        del m["clients"][0]["launcher"]["game_id"]
+        report = arrange_static(m, golden_fs())
+        assert "game_id" in report.failures[0].actual
+
+    def test_unknown_launcher_parameter_is_refused_not_ignored(self):
+        m = golden_manifest()
+        m["clients"][0]["launcher"]["typoed_param"] = "x"
+        report = arrange_static(m, golden_fs())
+        assert "typoed_param" in report.failures[0].actual
+
+    def test_relative_paths_are_refused(self):
+        m = golden_manifest()
+        m["clients"][0]["game_root"] = "relative/root"
+        report = arrange_static(m, golden_fs())
+        assert "ABSOLUTE" in report.failures[0].actual
+
+    def test_unknown_join_delivery_is_refused(self):
+        m = golden_manifest()
+        m["clients"][0]["join"]["delivery"] = "hope"
+        report = arrange_static(m, golden_fs())
+        assert "hope" in report.failures[0].actual
+
+    def test_bad_artifact_pin_is_refused(self):
+        m = golden_manifest()
+        m["artifacts"][0]["sha256"] = "not-a-hash"
+        report = arrange_static(m, golden_fs())
+        assert "sha256" in report.failures[0].actual
+
+    def test_empty_client_list_is_refused(self):
+        m = golden_manifest()
+        m["clients"] = []
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_WELL_FORMED)
+
+    def test_wrong_version_is_refused(self):
+        m = golden_manifest()
+        m["version"] = 99
+        report = arrange_static(m, golden_fs())
+        assert "99" in report.failures[0].actual
+
+    def test_boolean_port_is_refused(self):
+        m = golden_manifest()
+        m["clients"][0]["ports"]["loopback_control"] = True
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_WELL_FORMED)
+
+    def test_out_of_range_port_is_refused(self):
+        m = golden_manifest()
+        m["clients"][0]["ports"]["loopback_control"] = 99999
+        report = arrange_static(m, golden_fs())
+        assert "65535" in report.failures[0].actual
+
+
+class TestManifestModel:
+    def test_client_lookup_by_actor(self):
+        manifest = ArrangeManifest.parse(golden_manifest())
+        assert manifest.client("client_b").uid == 1001
+        with pytest.raises(KeyError):
+            manifest.client("client_z")
+
+    def test_actors_preserve_declaration_order(self):
+        assert ArrangeManifest.parse(golden_manifest()).actors == ["client_a", "client_b"]
+
+    def test_credential_mode_accepts_an_octal_string(self):
+        m = golden_manifest()
+        m["clients"][0]["credentials"]["server_password"]["mode"] = "0640"
+        assert ArrangeManifest.parse(m).client("client_a").credentials[
+            "server_password"
+        ].mode == 0o640
+
+    def test_parse_raises_on_shape_errors(self):
+        with pytest.raises(ArrangeManifestError):
+            ArrangeManifest.parse({"kind": "sbpr-qa-arrange-manifest"})
+
+    def test_duplicate_artifact_name_is_refused(self):
+        m = golden_manifest()
+        m["artifacts"].append(dict(m["artifacts"][0]))
+        with pytest.raises(ArrangeManifestError, match="duplicate artifact"):
+            ArrangeManifest.parse(m)

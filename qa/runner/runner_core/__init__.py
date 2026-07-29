@@ -22,6 +22,24 @@ two-client cold run is the separate operator-authorized **M6** card — never he
 """
 from __future__ import annotations
 
+from .arrange_manifest import (
+    ArrangeManifest,
+    ArrangeManifestError,
+    Artifact,
+    ArtifactRequirement,
+    ClientEntry,
+    Credential,
+    JoinTarget,
+    LaneEntry,
+    Launcher,
+)
+from .arrange_static import (
+    StaticEnvironment,
+    StaticFailure,
+    StaticReport,
+    arrange_static,
+    real_static_environment,
+)
 from .evidence import EvidenceDocument
 from .lease import LaneLease, LaneLeaseError
 from .live_composition import (
@@ -62,18 +80,27 @@ from .timeouts import PhaseBudget, PhaseTimeoutError, PhaseTimeoutTransport
 
 __all__ = [
     "AdminlistGuard",
+    "ArrangeManifest",
+    "ArrangeManifestError",
+    "Artifact",
     "ArtifactPinManifest",
+    "ArtifactRequirement",
     "ChannelEndpoint",
+    "ClientEntry",
     "ClientSpec",
+    "Credential",
     "DualClientLauncher",
     "EntitlementControlChannel",
     "EntitlementDeliveryConfig",
     "EntitlementSeeder",
     "EvidenceDocument",
+    "JoinTarget",
+    "LaneEntry",
     "LaneLauncher",
     "LaneLease",
     "LaneLeaseError",
     "LaneSpec",
+    "Launcher",
     "LiveLoopbackTransport",
     "LiveModeRefused",
     "LiveOperatorEnvironment",
@@ -91,9 +118,14 @@ __all__ = [
     "RunManifestError",
     "RunnerVerdict",
     "SeedResult",
+    "StaticEnvironment",
+    "StaticFailure",
+    "StaticReport",
     "T022RunOrchestrator",
+    "arrange_static",
     "build_live_run",
     "evaluate_live_preflight",
     "real_operator_environment",
+    "real_static_environment",
     "run_live_qualification",
 ]
