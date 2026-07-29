@@ -118,13 +118,17 @@ def manifest_with(*, a_wrapper=None, b_wrapper=None, b_kind="steam_applaunch"):
             "actor": actor, "uid": uid, "user": user, "steam_account": acct,
             "game_root": root, "binary_path": root + "/valheim.x86_64",
             "plugins_dir": root + "/BepInEx/plugins", "launcher": launcher,
-            "ports": {"loopback_control": port}, "qa_profile": prof,
+            "ports": {
+                "loopback_control": port,
+                "valbridge_gabp": port + 3000,
+                "unity_script_host": port + 4000,
+            }, "qa_profile": prof,
             "join": {"host": "127.0.0.1", "port": 2476, "delivery": "connect_argv"},
             "artifacts": [], "credentials": {},
         }
 
     return {
-        "kind": "sbpr-qa-arrange-manifest", "version": 1,
+        "kind": "sbpr-qa-arrange-manifest", "version": 2,
         "lane": {"lane_id": "l", "world_name": "w", "host": "127.0.0.1",
                  "port": 2476, "requires_password": False},
         "artifacts": [],
@@ -271,7 +275,11 @@ exec "$RUNNER" "${ARGS[@]}"
             actor="client_c", uid=1002, user="v2", steam_account="76561198000000003",
             game_root="/srv/c", binary_path="/srv/c/valheim.x86_64",
             plugins_dir="/srv/c/BepInEx/plugins", qa_profile="qa_c",
-            ports={"loopback_control": 48612},
+            ports={
+                "loopback_control": 48612,
+                "valbridge_gabp": 51612,
+                "unity_script_host": 52612,
+            },
             launcher={"kind": "direct_exec", "wrapper_path": "/c.sh"},
         )
         m["clients"].append(third)

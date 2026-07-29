@@ -37,12 +37,21 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 MANIFEST_KIND = "sbpr-qa-arrange-manifest"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
 
 # Hard production deny list (§3 P8 / B2). These hold REAL worlds — Niflheim 2456 and
 # Heistan 2466 — and may never appear as a target anywhere in an arrange manifest.
 # Mirrors live_preflight.PRODUCTION_PORTS and operator_drivers.PRODUCTION_PORTS.
 PRODUCTION_PORTS = frozenset({2456, 2466})
+
+# Every T022 client binds the QA helper and ValBridgeServer listeners. UnityScriptHost
+# is different: the AT legs never use it, so a client may explicitly disable it with
+# JSON null rather than allocating another needless port. Requiring all three names
+# closes the loophole where an undeclared plugin still bound its compiled-in default.
+REQUIRED_PORT_RESOURCES = frozenset(
+    {"loopback_control", "valbridge_gabp", "unity_script_host"}
+)
+DISABLEABLE_PORT_RESOURCES = frozenset({"unity_script_host"})
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -312,11 +321,16 @@ class ClientEntry:
     binary_path: str
     plugins_dir: str
     launcher: Launcher
-    ports: Mapping[str, int]
+    ports: Mapping[str, Optional[int]]
     artifacts: Sequence[ArtifactRequirement]
     credentials: Mapping[str, Credential]
     join: Optional[JoinTarget] = None
     qa_profile: Optional[str] = None
+
+    @property
+    def bound_ports(self) -> Mapping[str, int]:
+        """The listeners this client will actually bind (disabled resources omitted)."""
+        return {name: port for name, port in self.ports.items() if port is not None}
 
     @property
     def server_password_credential(self) -> Optional[Credential]:
@@ -329,10 +343,31 @@ class ClientEntry:
         actor = _require_str(data, "actor", f"clients[{index}]")
         where = f"client {actor!r}"
 
-        ports_raw = data.get("ports", {})
+        if "ports" not in data:
+            raise ArrangeManifestError(
+                f"{where}: missing required field 'ports' (every bound resource must be "
+                "declared per client; UnityScriptHost may be explicitly null/disabled)"
+            )
+        ports_raw = data["ports"]
         ports_map = _require_mapping(ports_raw, f"{where}.ports")
-        ports: Dict[str, int] = {}
+        missing_ports = sorted(REQUIRED_PORT_RESOURCES - set(ports_map))
+        if missing_ports:
+            raise ArrangeManifestError(
+                f"{where}.ports: missing required resource declaration(s) {missing_ports}; "
+                "declare loopback_control and valbridge_gabp as integer ports, and declare "
+                "unity_script_host as an integer or null to disable it"
+            )
+        ports: Dict[str, Optional[int]] = {}
         for pname, pval in ports_map.items():
+            pname = str(pname)
+            if pval is None:
+                if pname not in DISABLEABLE_PORT_RESOURCES:
+                    raise ArrangeManifestError(
+                        f"{where}.ports.{pname}: null/disabled is not allowed; this listener "
+                        "is required for T022 and must declare an integer port"
+                    )
+                ports[pname] = None
+                continue
             if isinstance(pval, bool) or not isinstance(pval, int):
                 raise ArrangeManifestError(
                     f"{where}.ports.{pname}: expected an integer port, got {pval!r}"
@@ -341,7 +376,7 @@ class ClientEntry:
                 raise ArrangeManifestError(
                     f"{where}.ports.{pname}: port {pval} is outside 1-65535"
                 )
-            ports[str(pname)] = pval
+            ports[pname] = pval
 
         artifacts_raw = data.get("artifacts", [])
         if not isinstance(artifacts_raw, (list, tuple)):
