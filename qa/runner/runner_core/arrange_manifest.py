@@ -224,6 +224,11 @@ class Credential:
                 )
         if isinstance(mode, bool) or not isinstance(mode, int):
             raise ArrangeManifestError(f"{where}[{name}].mode: expected an integer, got {mode!r}")
+        if mode != 0o644:
+            raise ArrangeManifestError(
+                f"{where}[{name}].mode: expected exactly '0644' for the approved "
+                f"cross-uid throwaway-credential policy, got {mode:#06o}"
+            )
         return Credential(name=name, path=path, consumer_uid=consumer_uid, mode=mode)
 
 

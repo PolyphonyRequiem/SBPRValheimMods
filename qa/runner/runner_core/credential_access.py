@@ -12,6 +12,7 @@ one fail-closed error: either condition leaves the headless client without crede
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from typing import Callable, Optional
 
@@ -24,8 +25,16 @@ ReadAsUid = Callable[[str, int], None]
 
 
 def prepare_credential_directory(directory: str) -> None:
-    """Create or repair a credential directory to mode 0711."""
+    """Create or repair a runner-owned, non-symlink credential directory to 0711."""
     os.makedirs(directory, mode=0o711, exist_ok=True)
+    info = os.lstat(directory)
+    if stat.S_ISLNK(info.st_mode):
+        raise OSError(f"credential directory must not be a symlink: {directory}")
+    if info.st_uid != os.geteuid():
+        raise OSError(
+            f"credential directory must be owned by arranging uid {os.geteuid()}, "
+            f"got uid {info.st_uid}: {directory}"
+        )
     os.chmod(directory, 0o711)
 
 

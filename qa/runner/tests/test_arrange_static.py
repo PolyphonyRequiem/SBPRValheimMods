@@ -952,12 +952,17 @@ class TestManifestModel:
     def test_actors_preserve_declaration_order(self):
         assert ArrangeManifest.parse(golden_manifest()).actors == ["client_a", "client_b"]
 
-    def test_credential_mode_accepts_an_octal_string(self):
+    def test_credential_mode_is_fixed_to_cross_uid_policy(self):
         m = golden_manifest()
         m["clients"][0]["credentials"]["server_password"]["mode"] = "0640"
+        with pytest.raises(ArrangeManifestError, match="0644"):
+            ArrangeManifest.parse(m)
+
+    def test_credential_mode_defaults_to_0644(self):
+        m = golden_manifest()
         assert ArrangeManifest.parse(m).client("client_a").credentials[
             "server_password"
-        ].mode == 0o640
+        ].mode == 0o644
 
     def test_parse_raises_on_shape_errors(self):
         with pytest.raises(ArrangeManifestError):

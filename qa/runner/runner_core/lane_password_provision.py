@@ -116,7 +116,9 @@ class LanePasswordProvisioner:
                         f"client {actor!r} declares server_password_file={path!r} but no "
                         "consuming uid; readability must be proved as that identity"
                     )
-                written.append(self._write_file(str(path), actor, password))
+                written.append(
+                    self._write_file(str(path), actor, int(consumer_uid), password)
+                )
                 assert_readable_as_consumer(
                     actor=actor,
                     path=str(path),
@@ -131,27 +133,45 @@ class LanePasswordProvisioner:
             raise
         return written
 
-    def _write_file(self, path: str, actor: str, password: str) -> ProvisionedLanePassword:
+    def _write_file(
+        self, path: str, actor: str, consumer_uid: int, password: str
+    ) -> ProvisionedLanePassword:
         if not os.path.isabs(path):
-            raise LanePasswordProvisionError(f"server_password_file must be absolute: {path!r}")
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: server_password_file must be absolute"
+            )
         directory = os.path.dirname(path)
-        prepare_credential_directory(directory)
+        try:
+            prepare_credential_directory(directory)
+        except OSError as exc:
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: cannot prepare mode-0711 directory: {exc}"
+            ) from exc
         if os.path.islink(path):
-            raise LanePasswordProvisionError(f"refusing to write lane password over a symlink: {path}")
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: refusing symlink destination"
+            )
         tmp = f"{path}.tmp.{os.getpid()}"
         # 0644 — the uid-1001 client must read a uid-1000-written per-run credential.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 # Single line, no trailing metadata: the consumer trims surrounding whitespace.
                 fh.write(password)
                 fh.write("\n")
-        except Exception:
+            os.replace(tmp, path)
+            os.chmod(path, 0o644)
+        except Exception as exc:
             _best_effort_unlink(tmp)
+            _best_effort_unlink(path)
             # Do NOT include the password in any error surfaced from here.
-            raise LanePasswordProvisionError(f"failed to write lane password file for {actor!r}")
-        os.replace(tmp, path)
-        os.chmod(path, 0o644)
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
+            ) from exc
         prov = ProvisionedLanePassword(path=path, actor=actor)
         self._written[path] = prov
         return prov

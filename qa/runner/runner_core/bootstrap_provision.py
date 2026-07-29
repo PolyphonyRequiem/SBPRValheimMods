@@ -134,16 +134,17 @@ class BootstrapProvisioner:
         try:
             for c in clients:
                 actor = str(c.get("actor", ""))
-                consumer_uid = c.get("uid")
-                if consumer_uid is None:
-                    raise BootstrapProvisionError(
-                        f"client {actor!r} has no consuming uid; bootstrap readability "
-                        "must be proved as the identity that launches this client"
-                    )
                 path = c.get("bootstrap_path")
                 if not path:
                     raise BootstrapProvisionError(
                         f"client {actor!r} has no bootstrap_path; cannot provision its arm doc"
+                    )
+                consumer_uid = c.get("uid")
+                if consumer_uid is None:
+                    raise BootstrapProvisionError(
+                        f"client {actor!r} has no consuming uid for bootstrap path "
+                        f"{path!r}; readability must be proved as the identity that "
+                        "launches this client"
                     )
                 verbs = str(c.get("verbs", ""))
                 role = str(c.get("role", "Client"))
@@ -159,7 +160,9 @@ class BootstrapProvisioner:
                     verbs=verbs,
                     loopback_port=int(loopback),
                 )
-                written.append(self._write_doc(str(path), actor, doc))
+                written.append(
+                    self._write_doc(str(path), actor, int(consumer_uid), doc)
+                )
                 assert_readable_as_consumer(
                     actor=actor,
                     path=str(path),
@@ -174,26 +177,44 @@ class BootstrapProvisioner:
             raise
         return written
 
-    def _write_doc(self, path: str, actor: str, doc: Mapping[str, Any]) -> ProvisionedBootstrap:
+    def _write_doc(
+        self, path: str, actor: str, consumer_uid: int, doc: Mapping[str, Any]
+    ) -> ProvisionedBootstrap:
         if not os.path.isabs(path):
-            raise BootstrapProvisionError(f"bootstrap_path must be absolute: {path!r}")
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: bootstrap_path must be absolute"
+            )
         directory = os.path.dirname(path)
-        prepare_credential_directory(directory)
+        try:
+            prepare_credential_directory(directory)
+        except OSError as exc:
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: cannot prepare mode-0711 directory: {exc}"
+            ) from exc
         if os.path.islink(path):
-            raise BootstrapProvisionError(f"refusing to write bootstrap over a symlink: {path}")
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: refusing symlink destination"
+            )
         content = json.dumps(doc, indent=2, sort_keys=False)
         tmp = f"{path}.tmp.{os.getpid()}"
         # 0644 — the uid-1001 client must read a uid-1000-written per-run document.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(content)
                 fh.write("\n")
-        except Exception:
+            os.replace(tmp, path)
+            os.chmod(path, 0o644)
+        except Exception as exc:
             _best_effort_unlink(tmp)
-            raise
-        os.replace(tmp, path)
-        os.chmod(path, 0o644)
+            _best_effort_unlink(path)
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
+            ) from exc
         prov = ProvisionedBootstrap(path=path, actor=actor)
         self._written[path] = prov
         return prov

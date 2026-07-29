@@ -848,7 +848,8 @@ deferred to M4 but are required before M6.**
   > `source`s the sidecar just before `exec`ing the game, so the vars cross the fork into the
   > child. The sidecar carries ONLY the three **non-secret** vars (a bootstrap-doc path, a
   > public SteamID, a random marker) and is written 0644; the **HMAC secret + operator
-  > token** live solely in the mode-0600 bootstrap doc the sidecar points at. `_apply_env`
+  > token** lived solely in the mode-0600 bootstrap doc at this milestone (superseded by
+  > the ARRANGE #452 cross-uid policy below). `_apply_env`
   > now writes the sidecar (not `os.environ`); teardown removes both the sidecar and the
   > secret-bearing doc on every exit path. **Bootstrap-doc provisioning** is no longer
   > hand-authored: `runner_core/bootstrap_provision.py` `BootstrapProvisioner` **emits** each

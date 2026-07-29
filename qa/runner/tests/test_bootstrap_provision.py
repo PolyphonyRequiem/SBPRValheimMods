@@ -14,6 +14,7 @@ import stat
 
 import pytest
 
+import runner_core.bootstrap_provision as bootstrap_module
 from runner_core.bootstrap_provision import (
     BootstrapProvisioner,
     BootstrapProvisionError,
@@ -127,6 +128,44 @@ def test_provision_writes_a_0644_doc_per_client(tmp_path) -> None:
         assert doc["hmacSecret"] == _WIRE["hmac_secret"]
         assert doc["operatorToken"] == _WIRE["operator_token"]
         assert doc["hashes"] == {p: _PINS[p] for p in REQUIRED_PARTS}
+
+
+@pytest.mark.parametrize("failure_point", ["replace", "chmod"])
+def test_install_failure_leaves_no_final_or_temp_bootstrap(
+    tmp_path, monkeypatch, failure_point
+) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"] = [descriptor["clients"][0]]
+    client = descriptor["clients"][0]
+    client["uid"] = 1001
+    path = client["bootstrap_path"]
+    real_replace = bootstrap_module.os.replace
+    real_chmod = bootstrap_module.os.chmod
+
+    def replace(src, dst):
+        if failure_point == "replace" and dst == path:
+            raise OSError("replace failed")
+        return real_replace(src, dst)
+
+    def chmod(actual_path, mode):
+        if failure_point == "chmod" and actual_path == path:
+            raise OSError("chmod failed")
+        return real_chmod(actual_path, mode)
+
+    monkeypatch.setattr(bootstrap_module.os, "replace", replace)
+    monkeypatch.setattr(bootstrap_module.os, "chmod", chmod)
+
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(
+            descriptor
+        )
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert path in message
+    assert "uid 1001" in message
+    assert not os.path.exists(path)
+    assert list((tmp_path / "qa-artifacts").glob("*.tmp.*")) == []
 
 
 def test_provision_asserts_each_bootstrap_readable_as_its_consumer(tmp_path) -> None:

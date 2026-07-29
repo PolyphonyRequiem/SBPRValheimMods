@@ -14,6 +14,7 @@ import stat
 
 import pytest
 
+import runner_core.lane_password_provision as lane_password_module
 from runner_core.lane_password_provision import (
     LanePasswordProvisioner,
     LanePasswordProvisionError,
@@ -105,6 +106,38 @@ def test_producer_is_atomic_no_tmp_left_behind(tmp_path):
     directory = os.path.dirname(pwfile)
     leftovers = [f for f in os.listdir(directory) if ".tmp." in f]
     assert leftovers == [], f"atomic write left temp files: {leftovers}"
+
+
+@pytest.mark.parametrize("failure_point", ["replace", "chmod"])
+def test_install_failure_leaves_no_final_or_temp_credential(
+    tmp_path, monkeypatch, failure_point
+):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+    real_replace = lane_password_module.os.replace
+    real_chmod = lane_password_module.os.chmod
+
+    def replace(src, dst):
+        if failure_point == "replace" and dst == pwfile:
+            raise OSError("replace failed")
+        return real_replace(src, dst)
+
+    def chmod(path, mode):
+        if failure_point == "chmod" and path == pwfile:
+            raise OSError("chmod failed")
+        return real_chmod(path, mode)
+
+    monkeypatch.setattr(lane_password_module.os, "replace", replace)
+    monkeypatch.setattr(lane_password_module.os, "chmod", chmod)
+
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
+        LanePasswordProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(d)
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert pwfile in message
+    assert "uid 1001" in message
+    assert not os.path.exists(pwfile)
+    assert list((tmp_path / "lane").glob("*.tmp.*")) == []
 
 
 def test_teardown_unlinks_on_success(tmp_path):

@@ -23,6 +23,21 @@ def test_prepare_directory_is_traversable_but_not_listable(tmp_path) -> None:
     assert mode & 0o044 == 0
 
 
+def test_prepare_directory_refuses_foreign_owned_path(tmp_path, monkeypatch) -> None:
+    directory = tmp_path / "credentials"
+    directory.mkdir()
+    actual = os.lstat(directory)
+
+    class ForeignStat:
+        st_mode = actual.st_mode
+        st_uid = os.geteuid() + 1
+
+    monkeypatch.setattr(os, "lstat", lambda _path: ForeignStat())
+
+    with pytest.raises(OSError, match="must be owned"):
+        prepare_credential_directory(str(directory))
+
+
 def test_readability_assertion_reads_as_declared_uid(tmp_path) -> None:
     path = tmp_path / "lane.secret"
     path.write_text("throwaway\n", encoding="utf-8")
