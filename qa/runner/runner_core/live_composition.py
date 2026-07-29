@@ -62,6 +62,11 @@ from .lease import LaneLease
 from .launch_env import SidecarWriter
 from .bootstrap_provision import BootstrapProvisioner
 from .lane_password_provision import LanePasswordProvisioner
+from .wire_mint import (
+    assert_descriptor_carries_no_wire_secrets,
+    mint_wire_envelope,
+    resolve_ttl_seconds,
+)
 from .operator_drivers import (
     AdminlistGuard,
     BootRetryPolicy,
@@ -122,9 +127,11 @@ class LiveOperatorEnvironment:
 class LiveQualificationPlan:
     """Everything the composition needs to drive ONE live attempt.
 
-    The runner mints the wire parameters (`run_config`) and the operational envelope
-    (`lease`, `pins`, budgets, expected generations, actor identities). `run_config`
-    carries the same `nonce`/`integrity_key` the orchestrator uses so the in-process
+    The runner mints the wire crypto envelope per run (`build_live_run` calls
+    `mint_wire_envelope` once, upstream of both consumers) and assembles the
+    operational envelope (`lease`, `pins`, budgets, expected generations, actor
+    identities). `run_config` carries the same freshly minted
+    `nonce`/`integrity_key` the orchestrator uses so the in-process
     receipt-correlation tag holds end-to-end.
     """
 
@@ -784,6 +791,25 @@ def build_live_run(
     allowlist of one, symmetric with the B2 production-port deny.
     """
     from .live_transport import ChannelEndpoint
+
+    # M6-MINT — mint the crypto envelope ONCE, here, upstream of BOTH consumers
+    # (the bootstrap-doc provisioner wired into `real_operator_environment` and the
+    # in-process `run_config`/entitlement transport). The descriptor carries only
+    # topology; a persisted secret-bearing wire field is refused by name rather
+    # than silently overridden. We rebind `descriptor` to a composed copy whose
+    # `wire` block merges the durable topology with the freshly minted envelope, so
+    # every downstream read below — including `real_operator_environment(
+    # descriptor=descriptor)` → `BootstrapProvisioner` — sees ONE identical
+    # envelope. This is the load-bearing invariant: mint once, pass down; the docs
+    # and the transport authenticate against each other and cannot diverge.
+    _topology_wire = descriptor.get("wire")
+    if not isinstance(_topology_wire, Mapping):
+        raise OperatorSafetyError("descriptor must carry a `wire` topology block")
+    assert_descriptor_carries_no_wire_secrets(_topology_wire)
+    _minted = mint_wire_envelope(resolve_ttl_seconds(descriptor))
+    _composed_wire = {k: v for k, v in _topology_wire.items() if k != "ttl_seconds"}
+    _composed_wire.update(_minted)
+    descriptor = {**descriptor, "wire": _composed_wire}
 
     integrity_key = str(descriptor.get("integrity_key", "sbpr-live-integrity")).encode()
 
