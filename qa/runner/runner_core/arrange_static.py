@@ -558,31 +558,51 @@ def _check_lane_password(manifest: ArrangeManifest) -> List[StaticFailure]:
 def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
     """Every client must be told, by a declared mechanism, which server to join.
 
-    §2 I5 — the live blocker. client_a gets `+connect 127.0.0.1:2476` on its command
-    line. client_b is launched as `steam -silent -applaunch 892970` with NO arguments
-    under an `env -i` scrub, so `m_queuedJoinServer` is never populated. The harness
-    patch hooks `ShowCharacterSelection` and drives `OnCharacterStart` — it automates
-    *character select only* and relies on `+connect` having already queued the server.
-    Without it the client stops at the server-list screen and the trigger never fires.
+    §2 I5 — the original live blocker, now RESOLVED (#449). client_a gets
+    `+connect 127.0.0.1:2476` from its GABS launcher. client_b is launched through
+    Steam's AppID path, and for twelve days received no join target at all, so
+    `m_queuedJoinServer` was never populated: it stopped at the server-list screen and
+    the harness's character-select hook never fired.
+
+    THE FIX WAS NOT A LAUNCHER SWAP, AND THIS CHECK MUST NOT ASSUME IT WAS. Spike #449
+    proved live that a Steam-launched client CAN receive `+connect`, via the Steam
+    `%command%` wrapper seam rather than Steam argument forwarding. The deployed
+    wrapper appends the fragment after `"$@"`:
+
+        exec setsid --wait "$VSI_BEPINEX_RUNNER" "$@" "${SBPR_QA_CONNECT_ARGS[@]}"
+
+    and the resulting real kernel argv was
+    `valheim.x86_64 +connect 127.0.0.1:2476`, with the lane server logging
+    `Got connection SteamID 76561198671522196` — client_b's own account — and an
+    in-world spawn on the QA-owned profile.
+
+    So `connect_argv` is legal under EVERY launcher kind we have. An earlier revision
+    of this check refused it under `steam_applaunch` on the theory that Steam passes no
+    arguments; that theory was disproved by a live run, and the check was refusing the
+    one configuration actually proven to work. A fail-closed guard that blocks the
+    working path is worse than no guard: it costs a debugging cycle AND teaches people
+    to disable the checker.
+
+    THE REAL FRAGILITY, which IS worth encoding: `run_bepinex.sh` detects Steam's
+    `SteamLaunch` marker and ROTATES argv, so appended args survive into the game and
+    PREPENDED args are swallowed by Steam's wrapper chain. That is a property of the
+    wrapper's internals, not of the manifest, so it cannot be checked from here — it
+    belongs to VERIFY (#455), which reads the launched process's actual argv. What
+    STATIC can still do is what it does below: refuse a client with no target, or a
+    target pointing somewhere other than this run's lane.
 
     Statically checkable, and therefore checked here:
       * the client declares a join target at all;
       * that target is the lane it is supposed to be on;
-      * the declared delivery mechanism is compatible with its launcher (a
-        `connect_argv` delivery is impossible under a launcher that passes no
-        arguments — which is precisely how the gap was created);
+      * the delivery mechanism is one we know how to deliver;
       * a joining client names its QA-owned profile, so it can never load a human
         character (the M6-JOIN4 allowlist-of-one).
 
     Whether the target actually ARRIVES is a VERIFY-phase fact (#455) and is out of
-    scope here; declaring an impossible delivery is not.
+    scope here. STATIC deliberately no longer guesses at launcher capability.
     """
     failures: List[StaticFailure] = []
     lane = manifest.lane
-
-    # Which launcher kinds can carry `+connect` on a command line at all. Data, not a
-    # branch: a new launcher declares its capability by appearing (or not) here.
-    ARGV_CAPABLE = {"gabs", "direct_exec"}
 
     for client in manifest.clients:
         if client.join is None:
@@ -613,21 +633,12 @@ def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
                 )
             )
 
-        if client.join.delivery == "connect_argv" and client.launcher.kind not in ARGV_CAPABLE:
-            failures.append(
-                StaticFailure(
-                    precondition=P_JOIN_TARGET,
-                    client=client.actor,
-                    detail="join delivery is impossible under this client's launcher",
-                    expected=f"delivery 'connect_argv' requires a launcher in {sorted(ARGV_CAPABLE)}",
-                    actual=f"launcher.kind={client.launcher.kind!r} with delivery='connect_argv'",
-                    remedy=f"The {client.launcher.kind!r} launcher passes no arguments "
-                    "to the game, so `+connect` never reaches it and "
-                    "`m_queuedJoinServer` is never populated: the client stops at the "
-                    "server-list screen and the character-select hook never fires. Use "
-                    "a launcher that forwards argv, or a different delivery mechanism.",
-                )
-            )
+        # NOTE: there is deliberately NO launcher-capability check here. See the
+        # docstring — #449 proved a Steam-launched client receives `+connect` fine via
+        # the `%command%` wrapper seam, so refusing that combination would block the
+        # only configuration verified in a live run. Argv actually reaching the game is
+        # VERIFY's job (#455), which can read the launched process's real argv; STATIC
+        # cannot see inside a wrapper and must not pretend otherwise.
 
         if not client.qa_profile:
             failures.append(

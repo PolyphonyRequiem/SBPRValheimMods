@@ -99,7 +99,7 @@ def test_build_doc_fails_closed_on_empty_verbs() -> None:
 # The provisioner writes 0600 secret-bearing docs and removes them on teardown.
 # --------------------------------------------------------------------------- #
 
-def test_provision_writes_a_0600_doc_per_client(tmp_path) -> None:
+def test_provision_writes_a_0644_doc_per_client(tmp_path) -> None:
     descriptor = _descriptor(tmp_path)
     prov = BootstrapProvisioner()
     written = prov.provision_from_descriptor(descriptor)
@@ -107,8 +107,15 @@ def test_provision_writes_a_0600_doc_per_client(tmp_path) -> None:
     for client in descriptor["clients"]:
         path = client["bootstrap_path"]
         assert os.path.isfile(path)
-        # 0600 — the doc carries the HMAC secret and operator token.
-        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+        # 0644, not 0600: the QA client that consumes this file runs as a DIFFERENT
+    # uid (valbot, 1001) than the runner that writes it (1000), so owner-only permissions
+    # made it structurally unreadable — the client joined with no password and stalled
+    # forever on vanilla's password prompt. These are per-run throwaway credentials for a
+    # disposable loopback lane (the wire envelope is minted per run with a short TTL and
+    # swept on teardown), so local readability is the right trade against blocking the
+    # test entirely. The containing directory is 0711: traversable to a known path,
+    # not listable.
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o644
         doc = json.load(open(path))
         assert doc["hmacSecret"] == _WIRE["hmac_secret"]
         assert doc["operatorToken"] == _WIRE["operator_token"]

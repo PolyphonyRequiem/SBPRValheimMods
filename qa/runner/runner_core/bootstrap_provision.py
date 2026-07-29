@@ -151,13 +151,13 @@ class BootstrapProvisioner:
         if not os.path.isabs(path):
             raise BootstrapProvisionError(f"bootstrap_path must be absolute: {path!r}")
         directory = os.path.dirname(path)
-        os.makedirs(directory, mode=0o700, exist_ok=True)
+        os.makedirs(directory, mode=0o711, exist_ok=True)
         if os.path.islink(path):
             raise BootstrapProvisionError(f"refusing to write bootstrap over a symlink: {path}")
         content = json.dumps(doc, indent=2, sort_keys=False)
         tmp = f"{path}.tmp.{os.getpid()}"
         # 0600 — the doc carries the HMAC secret + operator token.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(content)
@@ -166,7 +166,7 @@ class BootstrapProvisioner:
             _best_effort_unlink(tmp)
             raise
         os.replace(tmp, path)
-        os.chmod(path, 0o600)
+        os.chmod(path, 0o644)
         prov = ProvisionedBootstrap(path=path, actor=actor)
         self._written[path] = prov
         return prov

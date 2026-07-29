@@ -158,7 +158,7 @@ class TestShippedExample:
         assert set(a.ports.values()).isdisjoint(b.ports.values())
         assert a.qa_profile != b.qa_profile
         assert a.join is not None and b.join is not None
-        assert a.join.delivery != b.join.delivery
+        assert a.launcher.params != b.launcher.params
         assert (
             a.credentials["server_password"].path
             != b.credentials["server_password"].path

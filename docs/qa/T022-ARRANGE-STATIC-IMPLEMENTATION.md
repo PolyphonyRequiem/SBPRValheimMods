@@ -50,7 +50,7 @@ part of the contract.
 | `S5-PORTS-DISJOINT` | no port claimed by two clients, or by a client and the lane | I6 |
 | `S6-ARTIFACT-CATALOGUE` | every required artifact exists in the catalogue | I1 |
 | `S7-DEST-UNDER-CLIENT-ROOT` | a client stages only under its OWN game root | A1 |
-| `S8-JOIN-TARGET` | target declared, is this run's lane, delivery possible under that launcher, QA profile named | I5 |
+| `S8-JOIN-TARGET` | target declared, is this run's lane, QA profile named | I5 |
 
 Preserved guards, unchanged in intent: the B2 production deny (2456 Niflheim / 2466
 Heistan hold real worlds and are never a legal target — here extended to cover client
@@ -66,12 +66,26 @@ join delivery are all per-client fields with no value inherited from a sibling. 
 only cross-client comparisons anywhere in the implementation assert *disjointness*
 (ports, credential paths, QA profiles) — never equality.
 
-`S8` is the sharp end of this: it checks the declared join delivery against the
-client's **own** launcher. `steam_applaunch` passes no arguments to the game and
-`env -i` scrubs the environment, so `+connect` can never reach it and
-`m_queuedJoinServer` is never populated — the client stops at the server-list screen
-and the harness's character-select hook never fires. That is I5, the live blocker,
-and it is now a static failure instead of a ten-minute boot ending in silence.
+`S8` refuses a client with no join target, or one pointing somewhere other than this
+run's lane.
+
+It deliberately does **not** check whether a launcher can carry `+connect`. The first
+revision did, refusing `connect_argv` under `steam_applaunch` on the theory that Steam
+passes no arguments. Spike #449 disproved that with a live run: the Steam `%command%`
+wrapper appends the fragment after `"$@"`, it survives `run_bepinex.sh`'s argv
+rotation, and the resulting kernel argv was
+`valheim.x86_64 +connect 127.0.0.1:2476` — with the lane server logging client_b's own
+SteamID and an in-world spawn. The check was refusing the only configuration proven to
+work, which is worse than no check: it costs a debugging cycle and teaches people to
+disable the checker.
+
+The real fragility is that `run_bepinex.sh` rotates argv, so **appended** args reach
+the game and **prepended** args are swallowed by Steam's wrapper chain. That lives
+inside a wrapper, invisible from a manifest, so it belongs to VERIFY (#455) reading the
+launched process's actual argv.
+
+Both clients therefore use `connect_argv`; the launcher difference is real, the
+delivery difference was not.
 
 **A third client is a data change.** Every check iterates `manifest.clients`; there is
 no positional `client_a` / `client_b` anywhere in the schema or the checks. Launcher

@@ -108,12 +108,12 @@ class LanePasswordProvisioner:
         if not os.path.isabs(path):
             raise LanePasswordProvisionError(f"server_password_file must be absolute: {path!r}")
         directory = os.path.dirname(path)
-        os.makedirs(directory, mode=0o700, exist_ok=True)
+        os.makedirs(directory, mode=0o711, exist_ok=True)
         if os.path.islink(path):
             raise LanePasswordProvisionError(f"refusing to write lane password over a symlink: {path}")
         tmp = f"{path}.tmp.{os.getpid()}"
         # 0600 — the file carries the lane join password.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 # Single line, no trailing metadata: the consumer trims surrounding whitespace.
@@ -124,7 +124,7 @@ class LanePasswordProvisioner:
             # Do NOT include the password in any error surfaced from here.
             raise LanePasswordProvisionError(f"failed to write lane password file for {actor!r}")
         os.replace(tmp, path)
-        os.chmod(path, 0o600)
+        os.chmod(path, 0o644)
         prov = ProvisionedLanePassword(path=path, actor=actor)
         self._written[path] = prov
         return prov
