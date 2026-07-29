@@ -173,18 +173,38 @@ def real_static_environment() -> StaticEnvironment:
     def _find_named_files(root: str, name: str) -> Optional[Sequence[str]]:
         try:
             root_stat = os.stat(root)
-        except FileNotFoundError:
-            return ()
         except OSError:
             return None
         if not stat.S_ISDIR(root_stat.st_mode):
             return None
+
         matches: List[str] = []
         errors: List[OSError] = []
-        for directory, _dirs, files in os.walk(root, onerror=errors.append):
-            if name in files:
-                matches.append(os.path.join(directory, name))
-        return None if errors else tuple(sorted(matches))
+        visited: set[Tuple[int, int]] = set()
+
+        def _visit(directory: str, directory_stat: os.stat_result) -> None:
+            identity = (directory_stat.st_dev, directory_stat.st_ino)
+            if identity in visited:
+                return
+            visited.add(identity)
+            try:
+                with os.scandir(directory) as entries:
+                    ordered = sorted(entries, key=lambda entry: entry.name)
+            except OSError as exc:
+                errors.append(exc)
+                return
+
+            for entry in ordered:
+                try:
+                    if entry.name == name and entry.is_file(follow_symlinks=True):
+                        matches.append(entry.path)
+                    if entry.is_dir(follow_symlinks=True):
+                        _visit(entry.path, entry.stat(follow_symlinks=True))
+                except OSError as exc:
+                    errors.append(exc)
+
+        _visit(root, root_stat)
+        return None if errors else tuple(sorted(set(matches)))
 
     return StaticEnvironment(
         path_exists=os.path.isfile,
@@ -322,10 +342,19 @@ def _check_disabled_components(
                 StaticFailure(
                     precondition=P_DISABLED_COMPONENTS,
                     client=client.actor,
-                    detail="UnityScriptHost is declared disabled but the plugin tree is unreadable",
+                    detail=(
+                        "UnityScriptHost is declared disabled but the plugin tree is "
+                        "missing or unreadable"
+                    ),
                     expected=f"an enumerable plugin tree at {client.plugins_dir}",
-                    actual="plugin-tree enumeration failed (permissions or I/O error)",
-                    remedy="Fix read permissions so STATIC can prove UnityScriptHost.dll is absent.",
+                    actual=(
+                        "plugin-tree enumeration failed (missing/non-directory path, "
+                        "permissions, or I/O error)"
+                    ),
+                    remedy=(
+                        "Provision the declared plugin tree and fix read permissions so "
+                        "STATIC can prove UnityScriptHost.dll is absent."
+                    ),
                 )
             )
         elif deployed:

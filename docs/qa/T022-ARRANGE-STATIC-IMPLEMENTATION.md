@@ -91,9 +91,11 @@ to ride `LiveLoopbackTransport` and `AT-QA-NO-SCRIPTTOOLS-LOCK` forbids re-entry
 the UnityScriptHost/ValBridge ScriptTools surface. client_a retains USH on its declared
 48210 operator port; client_b declares `unity_script_host: null`. Because the deployed
 USH build has no disable switch and falls back to hardcoded 48210 whenever its DLL is
-loaded, S9 enumerates the complete client plugin tree and fails loudly if any
-`UnityScriptHost.dll` remains (or if the tree cannot be read). Disabling means removing
-the plugin, not assigning it 48211 and preserving an unnecessary listener.
+loaded, S9 enumerates the complete client plugin tree (including directory and file
+symlinks) and fails loudly if any `UnityScriptHost.dll` remains. The traversal tracks
+directory identities to break symlink cycles; a missing or unreadable declared plugin
+tree also fails closed. Disabling means removing the plugin, not assigning it 48211 and
+preserving an unnecessary listener.
 
 ## The two structural properties
 

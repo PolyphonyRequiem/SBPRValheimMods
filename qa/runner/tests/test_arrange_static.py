@@ -14,6 +14,7 @@ the client, and expected-vs-actual (the anti-silence contract).
 from __future__ import annotations
 
 import copy
+import os
 
 import pytest
 
@@ -34,6 +35,7 @@ from runner_core.arrange_static import (
     P_WELL_FORMED,
     StaticEnvironment,
     arrange_static,
+    real_static_environment,
 )
 
 H_HARNESS = "a" * 64
@@ -511,6 +513,115 @@ class TestDisabledComponents:
             plugin: H_STALE,
         }
         assert arrange_static(m, fs(paths)).ok
+
+
+class TestRealDisabledComponentEnumeration:
+    @staticmethod
+    def failures_for_root(root):
+        m = golden_manifest()
+        m["clients"][1]["plugins_dir"] = str(root)
+        report = arrange_static(m, real_static_environment())
+        return failures_for(report, P_DISABLED_COMPONENTS, "client_b")
+
+    def test_missing_declared_plugin_tree_fails_closed(self, tmp_path):
+        failures = self.failures_for_root(tmp_path / "missing-plugins")
+        assert len(failures) == 1
+        assert "unreadable" in failures[0].detail
+
+    def test_non_directory_plugin_tree_fails_closed(self, tmp_path):
+        not_a_directory = tmp_path / "plugins"
+        not_a_directory.write_bytes(b"not-a-directory")
+
+        failures = self.failures_for_root(not_a_directory)
+        assert len(failures) == 1
+        assert "missing or unreadable" in failures[0].detail
+
+    def test_nested_unity_script_host_is_found(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        nested = plugins / "nested"
+        nested.mkdir(parents=True)
+        dll = nested / "UnityScriptHost.dll"
+        dll.write_bytes(b"not-a-real-assembly")
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(dll) in failures[0].actual
+
+    def test_unity_script_host_through_directory_symlink_is_found(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        outside = tmp_path / "outside"
+        plugins.mkdir()
+        outside.mkdir()
+        dll = outside / "UnityScriptHost.dll"
+        dll.write_bytes(b"not-a-real-assembly")
+        (plugins / "linked").symlink_to(outside, target_is_directory=True)
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(plugins / "linked" / "UnityScriptHost.dll") in failures[0].actual
+
+    def test_symlinked_unity_script_host_file_is_found(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        outside_dll = tmp_path / "outside.dll"
+        outside_dll.write_bytes(b"not-a-real-assembly")
+        dll = plugins / "UnityScriptHost.dll"
+        dll.symlink_to(outside_dll)
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(dll) in failures[0].actual
+
+    def test_multiple_unity_script_host_files_are_all_reported(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        first = plugins / "first" / "UnityScriptHost.dll"
+        second = plugins / "second" / "UnityScriptHost.dll"
+        first.parent.mkdir(parents=True)
+        second.parent.mkdir(parents=True)
+        first.write_bytes(b"first")
+        second.write_bytes(b"second")
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(first) in failures[0].actual
+        assert str(second) in failures[0].actual
+
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="root can enumerate mode-000 directories",
+    )
+    def test_unreadable_subtree_fails_closed(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        blocked = plugins / "blocked"
+        blocked.mkdir(parents=True)
+        blocked.chmod(0)
+        try:
+            failures = self.failures_for_root(plugins)
+        finally:
+            blocked.chmod(0o700)
+
+        assert len(failures) == 1
+        assert "missing or unreadable" in failures[0].detail
+
+    def test_scandir_error_fails_closed(self, tmp_path, monkeypatch):
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+
+        def fail_scandir(_path):
+            raise OSError("injected traversal failure")
+
+        monkeypatch.setattr(os, "scandir", fail_scandir)
+        failures = self.failures_for_root(plugins)
+
+        assert len(failures) == 1
+        assert "missing or unreadable" in failures[0].detail
+
+    def test_directory_symlink_cycle_terminates(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        (plugins / "cycle").symlink_to(plugins, target_is_directory=True)
+
+        assert self.failures_for_root(plugins) == []
 
 
 class TestArtifactPins:
