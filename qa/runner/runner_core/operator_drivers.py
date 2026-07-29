@@ -636,9 +636,16 @@ class GabsClientBooter:
                     # it now and re-roll (the top-of-loop cleanup treats an already-gone
                     # instance as a clean, verified teardown).
                     last_stage = (
-                        f"attempt {attempt}: launched client (PID {instance.pid}) "
-                        "exited before arming — abandoned immediately (crash-on-boot, "
-                        "e.g. Steam not running) rather than polling the readiness budget"
+                        f"attempt {attempt}: PROCESS DIED — launched client (PID "
+                        f"{instance.pid}) exited before arming; abandoned immediately "
+                        "rather than polling the readiness budget. The process is GONE, "
+                        "so the helper never got the chance to arm. Read the client's "
+                        "Player.log / BepInEx LogOutput.log for the exit cause (a "
+                        "deterministic ~6s exit is typically `Steamworks is not "
+                        "initialized`). NOTE: this is the process-died path ONLY — if "
+                        "the client stayed alive and merely never armed, the run fails "
+                        "on the NEVER-ARMED stage below instead, which is a different "
+                        "defect class with different causes."
                     )
                     wedged = True
                     break
@@ -646,9 +653,19 @@ class GabsClientBooter:
             if wedged:
                 continue
             last_stage = (
-                f"attempt {attempt}: loopback control port {request.loopback_port} "
-                f"never accepted a connection within {self._policy.readiness_timeout_s}s "
-                "(helper never armed / ValBridge wedge)"
+                f"attempt {attempt}: NEVER ARMED — the launched client is STILL ALIVE "
+                f"(PID {instance.pid}) but loopback control port {request.loopback_port} "
+                f"never accepted a connection within {self._policy.readiness_timeout_s}s. "
+                "The process did NOT crash; it ran and failed to reach TryArm. Do not "
+                "read this as a boot/Steam problem. Likely causes, in order: the join "
+                "handshake never completed (e.g. a password-gated lane the client "
+                "supplied no password for — vanilla waits on a prompt no headless client "
+                "answers, so Player.OnSpawned never fires and the arm deferrer spins), a "
+                "gate inside TryArm refused (grep the client's BepInEx LogOutput.log for "
+                "'staying DISARMED' — every refusal names its reason), or a ValBridge "
+                "wedge. NOTE: the banner 'SBPR.QaHarness.T022 — DISARMED' at plugin load "
+                "is an UNCONDITIONAL header logged before the bootstrap is even read; it "
+                "is NOT a verdict and does not mean the bootstrap was missing."
             )
         # Every attempt wedged: tear down our LAST recorded instance (provenance-scoped,
         # never gameId-wide) and fail closed loudly.

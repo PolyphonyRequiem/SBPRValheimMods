@@ -67,6 +67,7 @@ from .wire_mint import (
     mint_wire_envelope,
     resolve_ttl_seconds,
 )
+from .live_preflight import validate_lane_password_consistency
 from .operator_drivers import (
     AdminlistGuard,
     BootRetryPolicy,
@@ -879,6 +880,15 @@ def build_live_run(
                 "would boot only to refuse the join. Add `qa_profile` to this client in the "
                 "run descriptor (no fallback to an existing profile is permitted)."
             )
+
+    # M6-LANEPW — fail closed at COMPOSE if the lane's declared password policy does not
+    # match the client entries. See live_preflight.validate_lane_password_consistency for
+    # the full defect narrative: a password-gated lane whose descriptor names no password
+    # produces a client that connects, stalls on vanilla's password prompt, never spawns a
+    # player, and therefore never reaches TryArm — a full launch/teardown burned to deliver
+    # nothing, misread for a day as a bootstrap-delivery problem. Same shape as the
+    # M6-JOIN4 guard above: cheap, descriptor-only, evaluated before anything launches.
+    validate_lane_password_consistency(descriptor)
 
     wire = descriptor["wire"]
     endpoints = {

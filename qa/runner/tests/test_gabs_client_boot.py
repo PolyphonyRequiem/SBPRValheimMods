@@ -448,7 +448,7 @@ def test_build_live_run_carries_gabs_launch_fields_into_client_specs() -> None:
         "world_uid": "-898655635",
         "world_name": "homestead-launch",
         "expiry": 10_000_000,
-        "lane": {"lane_id": "launchl", "world_name": "homestead-launch", "world_uid": 1, "port": 2476},
+        "lane": {"lane_id": "launchl", "world_name": "homestead-launch", "world_uid": 1, "port": 2476, "requires_password": False},
         "clients": [
             {
                 "actor": "client_a", "steam_id": LICENSED_STEAM_IDENTITIES[0],
@@ -560,7 +560,7 @@ def test_build_live_run_rejects_production_connect_target_descriptor() -> None:
         "world_uid": "-898655635",
         "world_name": "homestead-launch",
         "expiry": 10_000_000,
-        "lane": {"lane_id": "launchl", "world_name": "homestead-launch", "world_uid": 1, "port": 2476},
+        "lane": {"lane_id": "launchl", "world_name": "homestead-launch", "world_uid": 1, "port": 2476, "requires_password": False},
         "clients": [
             {
                 "actor": "client_a", "steam_id": LICENSED_STEAM_IDENTITIES[0],
@@ -638,7 +638,7 @@ def _join_descriptor(*, a_qa_profile=None, b_qa_profile=None) -> dict:
         "world_uid": "-898655635",
         "world_name": "homestead-join",
         "expiry": 10_000_000,
-        "lane": {"lane_id": "joinl", "world_name": "homestead-join", "world_uid": 1, "port": 2476},
+        "lane": {"lane_id": "joinl", "world_name": "homestead-join", "world_uid": 1, "port": 2476, "requires_password": False},
         "clients": [
             _client("client_a", LICENSED_STEAM_IDENTITIES[0], 8080, 48610, a_qa_profile),
             _client("client_b", LICENSED_STEAM_IDENTITIES[1], 8081, 48611, b_qa_profile),

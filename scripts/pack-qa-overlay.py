@@ -107,12 +107,19 @@ def _write(path: str, data: str) -> None:
         fh.write(data)
 
 
+DRY_RUN_MATURITY = (
+    "DRY-RUN / SIMULATED overlay. Contains the QA harness for testing only. "
+    "NOT a product artifact, NOT deployed, NOT a live qualification (M6)."
+)
+
+
 def build(
     *,
     repo: str,
     out: str,
     helper_dll: Optional[str],
     version: str,
+    maturity: Optional[str] = None,
 ) -> int:
     stage = os.path.join(out, "SBPR-QaOverlay")
     if os.path.isdir(stage):
@@ -158,10 +165,12 @@ def build(
         "version": version,
         "retention_days": RETENTION_DAYS,
         "production_deny": PRODUCTION_DENY,
-        "maturity": (
-            "DRY-RUN / SIMULATED overlay. Contains the QA harness for testing only. "
-            "NOT a product artifact, NOT deployed, NOT a live qualification (M6)."
-        ),
+        # The maturity string is part of the sentinel and therefore part of the
+        # lane_sentinel pin. A LIVE overlay must say so; the operator supplies the exact
+        # string via --maturity so the pinned sentinel and the deployed one are the SAME
+        # bytes. Hand-editing the sentinel after packing would break the pin (correctly),
+        # which is how the stale-pin defect kept recurring.
+        "maturity": maturity if maturity else DRY_RUN_MATURITY,
     }
     _write(
         os.path.join(stage, "lane_sentinel.json"),
@@ -321,11 +330,22 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "structurally excluded from the product modpack).")
     ap.add_argument("--helper-dll", default=None, help="Path to the built net48 helper DLL to pack in.")
     ap.add_argument("--version", default="0.0.0-dev", help="Overlay version string.")
+    ap.add_argument(
+        "--maturity",
+        default=None,
+        help=(
+            "Exact maturity string to embed in the lane sentinel + manifest. Defaults to "
+            "the DRY-RUN/SIMULATED wording. Supply the LIVE wording when packing an "
+            "overlay for a real qualification run so the pinned sentinel matches the "
+            "deployed one byte-for-byte."
+        ),
+    )
     args = ap.parse_args(argv)
 
     os.makedirs(args.out, exist_ok=True)
     if args.mode == "build":
-        return build(repo=args.repo, out=args.out, helper_dll=args.helper_dll, version=args.version)
+        return build(repo=args.repo, out=args.out, helper_dll=args.helper_dll,
+                     version=args.version, maturity=args.maturity)
     if args.mode == "verify":
         return verify(out=args.out)
     return rollback(out=args.out)

@@ -166,3 +166,113 @@ def test_gate_refuses_on_bad_sentinel_even_with_good_pins() -> None:
         manifest=m, observed_part_hashes=observed_from(m),
     )
     assert not r.ok
+
+
+# ---------------------------------------------------------------------------
+# M6-LANEPW — lane password-policy consistency.
+#
+# The wall this closes: t009l is password-gated (SERVER_PASS) but the deployed
+# descriptor named no lane_password and no client named a server_password_file.
+# LanePasswordProvisioner correctly no-opped as an "open lane", the client joined
+# with no password, vanilla's needPassword=true branch waited on a prompt no
+# headless client answers, Player.OnSpawned never fired, and TryArm was never
+# reached. Descriptor-only invariant; no Docker coupling.
+# ---------------------------------------------------------------------------
+
+from runner_core.live_preflight import validate_lane_password_consistency  # noqa: E402
+
+
+def _descriptor(*, requires, pw_files, lane_password=None):
+    d = {
+        "lane": {"lane_id": "t009l", "port": 2476},
+        "clients": [
+            {"actor": "client_a"},
+            {"actor": "client_b"},
+        ],
+    }
+    if requires is not ...:
+        d["lane"]["requires_password"] = requires
+    if lane_password is not None:
+        d["lane_password"] = lane_password
+    for actor, path in pw_files.items():
+        for c in d["clients"]:
+            if c["actor"] == actor:
+                c["server_password_file"] = path
+    return d
+
+
+def test_gated_lane_with_password_and_all_files_passes():
+    d = _descriptor(
+        requires=True,
+        pw_files={"client_a": "/tmp/a.secret", "client_b": "/tmp/b.secret"},
+        lane_password="sekrit",
+    )
+    assert validate_lane_password_consistency(d) is True
+
+
+def test_open_lane_with_no_files_passes():
+    assert validate_lane_password_consistency(_descriptor(requires=False, pw_files={})) is False
+
+
+def test_undeclared_policy_is_refused():
+    # Fail closed: the policy is never inferred from the client entries.
+    with pytest.raises(LiveModeRefused) as exc:
+        validate_lane_password_consistency(_descriptor(requires=..., pw_files={}))
+    assert "requires_password" in str(exc.value)
+
+
+def test_gated_lane_missing_a_client_password_file_is_refused():
+    # THE REGRESSION: exactly the deployed-descriptor shape that burned the run.
+    d = _descriptor(requires=True, pw_files={"client_a": "/tmp/a.secret"}, lane_password="sekrit")
+    with pytest.raises(LiveModeRefused) as exc:
+        validate_lane_password_consistency(d)
+    assert "client_b" in str(exc.value)
+
+
+def test_gated_lane_with_no_files_at_all_is_refused():
+    d = _descriptor(requires=True, pw_files={}, lane_password="sekrit")
+    with pytest.raises(LiveModeRefused) as exc:
+        validate_lane_password_consistency(d)
+    assert "client_a" in str(exc.value) and "client_b" in str(exc.value)
+
+
+def test_gated_lane_without_lane_password_is_refused():
+    d = _descriptor(
+        requires=True, pw_files={"client_a": "/tmp/a.secret", "client_b": "/tmp/b.secret"}
+    )
+    with pytest.raises(LiveModeRefused) as exc:
+        validate_lane_password_consistency(d)
+    assert "lane_password" in str(exc.value)
+
+
+def test_gated_lane_with_empty_lane_password_is_refused():
+    d = _descriptor(
+        requires=True,
+        pw_files={"client_a": "/tmp/a.secret", "client_b": "/tmp/b.secret"},
+        lane_password="",
+    )
+    with pytest.raises(LiveModeRefused):
+        validate_lane_password_consistency(d)
+
+
+def test_open_lane_naming_a_password_file_is_refused():
+    # The other direction: an open lane needs no credential.
+    d = _descriptor(requires=False, pw_files={"client_a": "/tmp/a.secret"})
+    with pytest.raises(LiveModeRefused) as exc:
+        validate_lane_password_consistency(d)
+    assert "client_a" in str(exc.value)
+
+
+def test_non_boolean_policy_is_refused():
+    with pytest.raises(LiveModeRefused):
+        validate_lane_password_consistency(_descriptor(requires="yes", pw_files={}))
+
+
+def test_missing_lane_object_is_refused():
+    with pytest.raises(LiveModeRefused):
+        validate_lane_password_consistency({"clients": [{"actor": "a"}]})
+
+
+def test_empty_client_list_is_refused():
+    with pytest.raises(LiveModeRefused):
+        validate_lane_password_consistency({"lane": {"requires_password": False}, "clients": []})

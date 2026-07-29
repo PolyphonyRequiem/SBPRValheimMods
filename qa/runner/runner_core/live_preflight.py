@@ -146,6 +146,92 @@ def verify_overlay_pins(
     return recomputed
 
 
+def validate_lane_password_consistency(descriptor: Mapping[str, Any]) -> bool:
+    """Assert the lane's declared password requirement matches the client entries.
+
+    Returns the declared `lane.requires_password` or raises `LiveModeRefused`.
+
+    WHY THIS EXISTS (M6-LANEPW). The t009l lane is password-gated (`SERVER_PASS`), but
+    the deployed descriptor declared no `lane_password` and no client named a
+    `server_password_file`. `LanePasswordProvisioner` therefore correctly no-opped as an
+    "open lane", the helper logged `no SBPR_QA_SERVER_PASSWORD_FILE; joining with no
+    password`, and vanilla `ZNet.RPC_ClientHandshake` took its `needPassword=true` branch
+    and waited on `OnPasswordEntered` — a prompt no headless client will ever answer. The
+    socket connected, the handshake stalled, `Player.OnSpawned` never fired, the arm
+    deferrer spun until teardown, and `TryArm` was NEVER reached. Every layer behaved as
+    designed; only the descriptor was wrong, and nothing checked it.
+
+    This is a cheap invariant evaluated BEFORE a 90-second client boot, per the standing
+    rule that structurally unrecoverable conditions must be caught at preflight rather
+    than discovered by a burned launch. It reads ONLY the descriptor — no Docker, no
+    container introspection, no coupling to how the lane is hosted. The operator declares
+    `lane.requires_password`; consistency with the client entries is enforced here and
+    fails closed on ANY mismatch in either direction.
+
+    A password-gated lane must ALSO carry a non-empty `lane_password`; the provisioner
+    would otherwise raise at write time, after the run has already begun.
+    """
+    if not isinstance(descriptor, Mapping):
+        raise LiveModeRefused("run descriptor is not a JSON object")
+
+    lane = descriptor.get("lane")
+    if not isinstance(lane, Mapping):
+        raise LiveModeRefused("run descriptor has no 'lane' object")
+
+    if "requires_password" not in lane:
+        raise LiveModeRefused(
+            "run descriptor's lane does not declare `requires_password`; a live join "
+            "cannot be gated on an unstated password policy. Set `lane.requires_password` "
+            "to true or false explicitly (fail closed: it is not inferred)."
+        )
+    requires = lane.get("requires_password")
+    if not isinstance(requires, bool):
+        raise LiveModeRefused(
+            f"lane.requires_password must be a boolean, got {requires!r}"
+        )
+
+    clients = descriptor.get("clients")
+    if not isinstance(clients, (list, tuple)) or not clients:
+        raise LiveModeRefused("run descriptor has no non-empty 'clients' list")
+
+    naming = [
+        str(c.get("actor", "<unnamed>"))
+        for c in clients
+        if isinstance(c, Mapping) and c.get("server_password_file")
+    ]
+    missing = [
+        str(c.get("actor", "<unnamed>"))
+        for c in clients
+        if isinstance(c, Mapping) and not c.get("server_password_file")
+    ]
+
+    if requires:
+        if missing:
+            raise LiveModeRefused(
+                f"lane.requires_password is true but client(s) {sorted(missing)} name no "
+                "`server_password_file`; those clients would join with no password and "
+                "stall forever on vanilla's password prompt (the handshake connects, then "
+                "hangs until teardown, and the helper never arms). Give every client a "
+                "`server_password_file` path."
+            )
+        password = descriptor.get("lane_password")
+        if password is None or str(password) == "":
+            raise LiveModeRefused(
+                "lane.requires_password is true but the descriptor carries no non-empty "
+                "`lane_password`; the provisioner would fail closed mid-run rather than "
+                "write an empty credential. Supply the lane password."
+            )
+    else:
+        if naming:
+            raise LiveModeRefused(
+                f"lane.requires_password is false but client(s) {sorted(naming)} name a "
+                "`server_password_file`; an open lane needs no credential. Either set "
+                "lane.requires_password true or drop the password files."
+            )
+
+    return requires
+
+
 def evaluate_live_preflight(
     *,
     live_requested: bool,

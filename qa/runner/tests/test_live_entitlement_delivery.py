@@ -175,7 +175,7 @@ def _descriptor(stub: AdminControlStub) -> dict:
         "world_uid": "424242",
         "world_name": "homestead-seed",
         "expiry": 10_000_000,
-        "lane": {"lane_id": "seedl", "world_name": "homestead-seed", "world_uid": 1, "port": 3456},
+        "lane": {"lane_id": "seedl", "world_name": "homestead-seed", "world_uid": 1, "port": 3456, "requires_password": False},
         "clients": [
             {"actor": "client_a", "steam_id": "76561197965627562", "binary_path": "/lane/a/valheim.x86_64"},
             {"actor": "client_b", "steam_id": "76561198671522196", "binary_path": "/lane/b/valheim.x86_64"},
