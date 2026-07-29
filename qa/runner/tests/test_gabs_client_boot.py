@@ -85,9 +85,23 @@ class _Recorder:
         self.procs = {}
         self._next_pid = 4100
         self._start_ticks = 500
+        # M6-GABSLIVE: records each reset_gabs_state call (one per attempt) and, when
+        # `start_noop_until` > 0, models GABS's stale-"running" no-op — games.start
+        # returns success but forks NOTHING until that many attempts have reset the
+        # state. `resolve_calls` counts resolve_launched invocations so a test can assert
+        # a no-op is caught on the SHORT provenance probe, not the readiness budget.
+        self.resets = []
+        self.resolve_calls = 0
+        self.start_noop_until = 0       # attempts that fork nothing (the stale no-op)
         # A hook a test can install to run BETWEEN the ownership check and the kill
         # (TOCTOU): called with the recorder so it can mutate the proc table.
         self.on_before_terminate: Optional[Callable[["_Recorder"], None]] = None
+
+    def reset_gabs_state(self, request):
+        # Models the runner forcing GABS's view to agree with reality before a launch.
+        # Records the call; the no-op counter is consumed by gabs_start (one no-op per
+        # start) so a test can drive N no-op attempts then a real fork.
+        self.resets.append(dict(request.launch_env))
 
     def apply_env(self, request):
         self.env_applied.append(dict(request.launch_env))
@@ -97,6 +111,13 @@ class _Recorder:
         if self._start_count <= self._start_raises_times:
             raise RuntimeError(f"games_start wedged (attempt {self._start_count})")
         self.started.append(request.game_id)
+        # M6-GABSLIVE: model the stale-"running" silent no-op. When start_noop_until is
+        # still positive, GABS reports success but forks NOTHING (no proc appears) — the
+        # exact run-8 failure. The per-attempt reset_gabs_state decrements the counter, so
+        # after enough resets the launch actually forks.
+        if self.start_noop_until > 0:
+            self.start_noop_until -= 1
+            return
         # A successful start makes a valheim.x86_64 appear in /proc carrying the marker.
         pid = self._next_pid
         self._next_pid += 1
@@ -108,6 +129,7 @@ class _Recorder:
         }
 
     def resolve_launched(self, request):
+        self.resolve_calls += 1
         marker = request.launch_env[HARNESS_INSTANCE_ENV_VAR]
         matches = [
             HarnessInstance(actor=request.actor, marker=marker, pid=pid, start_ticks=p["start"])
@@ -149,6 +171,7 @@ class _Recorder:
             terminate=_terminate,
             sleep=self.sleep,
             policy=policy or BootRetryPolicy(max_attempts=6, readiness_timeout_s=30.0, poll_interval_s=10.0),
+            reset_gabs_state=self.reset_gabs_state,
         )
 
     def _probe_pid_with_hook(self, pid):
@@ -797,3 +820,69 @@ def test_boot_liveness_reprobes_the_recorded_pid_not_a_gameid_kill() -> None:
     # Daniel's game was never a liveness or teardown target.
     assert daniel_pid in rec.procs
     assert all(i.pid != daniel_pid for i in rec.terminated)
+
+
+# --------------------------------------------------------------------------- #
+# M6-GABSLIVE — the runner forces GABS's stale "running" view to agree with
+# reality before every launch, and a games.start that forks NOTHING fails that
+# attempt FAST (asserted on poll count, not wall clock) with a named diagnostic.
+# --------------------------------------------------------------------------- #
+
+def test_boot_resets_gabs_state_before_every_attempt() -> None:
+    # The reset seam (games.stop → reap the stale zombie) must run BEFORE each launch,
+    # so a stale "running" belief can never silently swallow the launch. On a clean
+    # first-attempt arm it still runs exactly once (before the single start).
+    rec = _Recorder(ready_after_calls=1)
+    request = rec.booter().boot(_spec())
+    assert isinstance(request, ClientLaunchRequest)
+    assert len(rec.resets) == 1
+    # It carried the same unique harness marker the launch used (scoped, not gameId-wide).
+    assert rec.resets[0][HARNESS_INSTANCE_ENV_VAR] == request.launch_env[HARNESS_INSTANCE_ENV_VAR]
+
+
+def test_stale_running_noop_is_cleared_and_a_fresh_client_forks() -> None:
+    # THE RUN-8 REGRESSION: GABS is stuck "running" on a zombie, so the first games.start
+    # forks nothing. The per-attempt reset clears the stale state; the NEXT attempt's
+    # start actually forks a marker-carrying client. Prove the boot recovers rather than
+    # burning all attempts on no-ops.
+    policy = BootRetryPolicy(max_attempts=6, readiness_timeout_s=10.0, poll_interval_s=10.0)
+    rec = _Recorder(ready_after_calls=1)
+    rec.start_noop_until = 1  # attempt 1 forks nothing; reset before attempt 2 fixes it
+    request = rec.booter(policy).boot(_spec())
+    assert isinstance(request, ClientLaunchRequest)
+    # A reset preceded each attempt; two starts issued (the no-op, then the real fork).
+    assert len(rec.resets) == 2
+    assert len(rec.started) == 2
+    # A fresh marker-carrying process exists at the end (the launch actually forked).
+    assert any(p["marker"] == request.launch_env[HARNESS_INSTANCE_ENV_VAR] for p in rec.procs.values())
+
+
+def test_noop_launch_fails_the_attempt_fast_on_poll_count_not_wall_clock() -> None:
+    # A games.start that forks nothing must abandon the attempt in a handful of PROBE
+    # polls (resolve_launched's short provenance window), NOT by burning the full
+    # readiness_timeout_s. We give an ENORMOUS readiness budget so a wall-clock/poll
+    # regression would blow up: the assertion is on invocation COUNT, deterministic and
+    # engine-free. With max_attempts=3 and every start a no-op, resolve_launched is
+    # called exactly once per attempt (it returns None immediately — no fork appeared),
+    # so control_ready is NEVER reached and the readiness budget is never touched.
+    policy = BootRetryPolicy(max_attempts=3, readiness_timeout_s=10_000.0, poll_interval_s=1.0)
+    rec = _Recorder(ready_after_calls=1)
+    rec.start_noop_until = 999  # every attempt forks nothing
+    with pytest.raises(ClientLaunchError) as ei:
+        rec.booter(policy).boot(_spec())
+    msg = str(ei.value)
+    # Named loudly — not a silent re-roll into the same wall.
+    assert "forked nothing" in msg
+    # Fast: exactly one provenance probe per attempt, and the readiness poll (which would
+    # have consumed the 10_000s budget) was never entered because no instance resolved.
+    assert rec.resolve_calls == 3
+    assert rec.slept == []  # never slept on a readiness poll for a no-op attempt
+
+
+def test_reset_runs_even_when_first_attempt_would_arm() -> None:
+    # Defence: the reset is unconditional (before EVERY attempt), so even the happy path
+    # forces state agreement. This is what makes a stale belief structurally unable to
+    # swallow the very first launch of a run.
+    rec = _Recorder(ready_after_calls=1)
+    rec.booter().boot(_spec())
+    assert rec.resets, "reset_gabs_state must run before the launch, not be skipped"

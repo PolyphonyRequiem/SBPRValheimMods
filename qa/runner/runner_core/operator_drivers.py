@@ -455,6 +455,7 @@ class GabsClientBooter:
         terminate: Callable[[HarnessInstance], None],
         sleep: Callable[[float], None],
         policy: Optional[BootRetryPolicy] = None,
+        reset_gabs_state: Optional[Callable[[ClientLaunchRequest], None]] = None,
     ) -> None:
         self._apply_env = apply_env
         self._gabs_start = gabs_start
@@ -464,6 +465,16 @@ class GabsClientBooter:
         self._terminate = terminate
         self._sleep = sleep
         self._policy = policy or BootRetryPolicy()
+        # M6-GABSLIVE: force GABS's single-gameId liveness view to match reality BEFORE
+        # every launch attempt. GABS never reaps the game processes it forks (proven:
+        # `internal/process/controller.go:296-302` counts a `<defunct>` zombie as "running"
+        # because its name-based `ps` finder still matches the zombie's `comm`). A stale
+        # "running" belief then makes `games.start` a silent no-op ("game X is already
+        # running", `internal/mcp/stdio_server.go:761-764`). This seam calls `games.stop`
+        # (which, being the child's PARENT, actually `Wait()`s and reaps the zombie —
+        # empirically verified) so a stale belief can never swallow a launch. Injected so
+        # the booter stays unit-testable with no real GABS; None => no reset (legacy/unit).
+        self._reset_gabs_state = reset_gabs_state
         # Provenance registry: maps a returned request handle to the instance the
         # harness recorded launching it. kill() refuses any handle absent from here.
         self._instances: Dict[int, HarnessInstance] = {}
@@ -554,6 +565,19 @@ class GabsClientBooter:
             if last_instance is not None:
                 self._terminate_owned_best_effort(last_instance)
                 last_instance = None
+            # M6-GABSLIVE: force GABS's view to match reality BEFORE the launch. GABS
+            # never reaps its forked children, so a `<defunct>` zombie from a prior run
+            # leaves its single-gameId liveness model stuck on "running" — and the next
+            # `games.start` is a silent no-op. Clearing the stale state (games.stop, which
+            # reaps the zombie as its parent) before EVERY attempt means a stale belief can
+            # never swallow this launch. Best-effort: a reset failure is surfaced in the
+            # stage string but does not itself abort — the no-op detector below is the hard
+            # gate that catches a launch that forked nothing.
+            if self._reset_gabs_state is not None:
+                try:
+                    self._reset_gabs_state(request)
+                except Exception as exc:  # noqa: BLE001 — surface, continue to launch
+                    last_stage = f"attempt {attempt}: GABS state reset failed ({exc})"
             try:
                 self._apply_env(request)
                 self._gabs_start(request)
@@ -561,12 +585,25 @@ class GabsClientBooter:
                 last_stage = f"attempt {attempt}: launch request failed ({exc})"
                 continue
             # Capture harness-owned provenance: the process carrying THIS boot's marker.
+            #
+            # NO-OP DETECTION (M6-GABSLIVE): `games.start` can return SUCCESS yet fork
+            # nothing — the stale-"running" silent no-op that burned all six re-rolls of
+            # run 8. `resolve_launched` polls only `control_probe_timeout_s` (a few
+            # seconds) for a process carrying our unique marker; when GABS forked nothing,
+            # NO such process ever appears and this returns None FAST (bounded by that
+            # short probe, asserted on poll count in the tests, not the readiness budget).
+            # We surface it by name — "GABS reported success but forked nothing" — instead
+            # of silently re-rolling into the same wall, and re-roll (the reset at the top
+            # of the next attempt clears the stale state that caused it).
             instance = self._resolve_launched(request)
             if instance is None:
                 last_stage = (
-                    f"attempt {attempt}: could not establish harness provenance "
-                    f"(no unique process carrying marker {request.launch_env[HARNESS_INSTANCE_ENV_VAR]!r}) "
-                    "— refusing to proceed without a tear-down-able instance"
+                    f"attempt {attempt}: GABS reported games.start success but forked "
+                    f"nothing — no process carrying marker "
+                    f"{request.launch_env[HARNESS_INSTANCE_ENV_VAR]!r} appeared within the "
+                    "provenance probe window (stale 'running' no-op, or ambiguous "
+                    "provenance) — refusing to proceed without a tear-down-able instance "
+                    "(no harness provenance established)"
                 )
                 continue
             last_instance = instance

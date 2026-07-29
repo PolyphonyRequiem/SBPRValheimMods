@@ -65,6 +65,7 @@ from .lane_password_provision import LanePasswordProvisioner
 from .operator_drivers import (
     AdminlistGuard,
     BootRetryPolicy,
+    ClientLaunchError,
     ClientLaunchRequest,
     ClientSpec,
     DualClientLauncher,
@@ -458,6 +459,94 @@ def real_operator_environment(
     def _gabs_start(request: ClientLaunchRequest) -> None:
         _mcp_call(request, "games_start")
 
+    def _mcp_status_text(request: ClientLaunchRequest) -> str:
+        # Read GABS's own liveness verdict for the gameId. Returns the raw operator text
+        # ("... : running ..." / "... : stopped ..."). Used to VERIFY a reset actually
+        # cleared the stale "running" belief rather than assuming games.stop worked.
+        payload = _json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "games_status", "arguments": {"gameId": request.game_id}},
+            }
+        ).encode()
+        req = _urlreq.Request(
+            request.gabs_endpoint,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=config.gabs_request_timeout_s) as resp:
+            body = _json.loads(resp.read().decode())
+        # tools/call result content is a list of {type,text}; concatenate the text.
+        parts = body.get("result", {}).get("content", []) or []
+        return " ".join(str(p.get("text", "")) for p in parts if isinstance(p, dict))
+
+    def _count_live_nonzombie_valheim() -> int:
+        # B1 SAFETY GATE for the reset path. A `<defunct>` zombie exposes NO readable
+        # /proc/<pid>/exe (readlink fails) — a LIVE client's exe resolves to a real
+        # valheim.x86_64 binary. So counting processes whose exe basename is
+        # valheim.x86_64 counts ONLY live, non-zombie clients and structurally excludes
+        # the zombies we intend to clear. If this is > 0, a real Valheim (possibly
+        # Daniel's own) is up and we must NOT issue any stop — a stale-state clear is
+        # only ever performed against a gameId whose only members are dead zombies.
+        live = 0
+        try:
+            pids = [d for d in _os.listdir("/proc") if d.isdigit()]
+        except OSError:
+            return 0
+        for pid_s in pids:
+            try:
+                exe = _os.readlink(_os.path.join("/proc", pid_s, "exe"))
+            except OSError:
+                # Zombies (and vanished/permission-denied pids) land here — NOT counted.
+                continue
+            if _os.path.basename(exe) == "valheim.x86_64":
+                live += 1
+        return live
+
+    def _reset_gabs_state(request: ClientLaunchRequest) -> None:
+        # M6-GABSLIVE: force GABS's single-gameId liveness view to agree with reality
+        # before a launch, so a stale "running" belief (a `<defunct>` zombie GABS never
+        # reaped) cannot silently swallow the launch. GABS counts a zombie as "running"
+        # because its name-based `ps` finder still matches the zombie's `comm`
+        # (controller.go:296-302); `games.stop`, being the zombie's PARENT, actually
+        # Wait()s and reaps it — empirically verified to clear the state.
+        #
+        # B1 HARD SAFETY: only ever act when there are ZERO live non-zombie
+        # valheim.x86_64 processes. `games.stop` here is scoped by GABS to the tracked
+        # gameId, but out of defence-in-depth we refuse to issue ANY stop while a real
+        # client is up — so a bug in GABS's scoping could never reach Daniel's own Steam
+        # Valheim. If a live client exists we leave GABS untouched and let the normal
+        # foreign-binary refusal / no-op detector handle it.
+        live = _count_live_nonzombie_valheim()
+        if live > 0:
+            # A real client is running — do NOT clear anything (never risk Daniel's game).
+            return
+        # Prefer games.stop (graceful; it reaps the zombie via Wait). If GABS still
+        # reports "running" afterwards, escalate to games.kill, then re-verify.
+        try:
+            _mcp_call(request, "games_stop")
+        except OSError:
+            pass  # not-running / no-tracked-process is a benign "already clear"
+        if "running" in _mcp_status_text(request).lower():
+            try:
+                _mcp_call(request, "games_kill")
+            except OSError:
+                pass
+        # Verify the clear actually took. If GABS STILL believes it is running with zero
+        # live clients, the state is wedged in a way our stop cannot clear — fail loud so
+        # the attempt does not proceed into a guaranteed no-op masquerading as a launch.
+        final = _mcp_status_text(request).lower()
+        if "running" in final and _count_live_nonzombie_valheim() == 0:
+            raise ClientLaunchError(
+                "GABS still reports the gameId 'running' after games.stop/kill with ZERO "
+                f"live non-zombie valheim.x86_64 processes (status: {final!r}) — its stale "
+                "liveness state could not be cleared from the runner side; refusing to "
+                "launch into a guaranteed silent no-op"
+            )
+
     def _apply_env(request: ClientLaunchRequest) -> None:
         # THE FORK-BOUNDARY FIX (M6-LAUNCHENV). The GABS-launched client is forked by a
         # long-lived GABS daemon over HTTP; it inherits the DAEMON's environment, never
@@ -601,6 +690,7 @@ def real_operator_environment(
         terminate=_terminate_instance,
         sleep=_time.sleep,
         policy=config.boot_policy,
+        reset_gabs_state=_reset_gabs_state,
     )
 
     def spawn_client(spec: ClientSpec) -> ClientLaunchRequest:
