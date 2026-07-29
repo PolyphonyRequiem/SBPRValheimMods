@@ -150,7 +150,10 @@ class BootstrapProvisioner:
                 role = str(c.get("role", "Client"))
                 loopback = c.get("loopback_port")
                 if loopback is None:
-                    raise BootstrapProvisionError(f"client {actor!r} has no loopback_port")
+                    raise BootstrapProvisionError(
+                        f"client {actor!r} at bootstrap path {path!r} as consuming uid "
+                        f"{consumer_uid} has no loopback_port"
+                    )
                 doc = build_bootstrap_doc(
                     role=role,
                     actor=actor,
@@ -209,8 +212,13 @@ class BootstrapProvisioner:
             os.replace(tmp, path)
             os.chmod(path, 0o644)
         except Exception as exc:
-            _best_effort_unlink(tmp)
-            _best_effort_unlink(path)
+            cleanup_errors = _cleanup_failed_install(tmp, path)
+            if cleanup_errors:
+                raise BootstrapProvisionError(
+                    f"credential provision failed for client {actor!r} at {path!r} "
+                    f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}; "
+                    f"cleanup FAILED (credential may remain): {'; '.join(cleanup_errors)}"
+                ) from exc
             raise BootstrapProvisionError(
                 f"credential provision failed for client {actor!r} at {path!r} "
                 f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
@@ -240,3 +248,16 @@ def _best_effort_unlink(path: str) -> None:
         return
     except OSError:
         return
+
+
+def _cleanup_failed_install(*paths: str) -> List[str]:
+    """Clean a failed install and report every path that could not be removed."""
+    errors: List[str] = []
+    for path in paths:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            errors.append(f"{path!r}: {type(exc).__name__}: {exc}")
+    return errors

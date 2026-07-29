@@ -102,9 +102,13 @@ class LanePasswordProvisioner:
 
         password = descriptor.get("lane_password")
         if password is None or str(password) == "":
+            rendered = ", ".join(
+                f"client {actor!r} path={path!r} consuming uid {uid!r}"
+                for actor, path, uid in targets
+            )
             raise LanePasswordProvisionError(
-                "a client names a server_password_file but the descriptor carries no "
-                "non-empty 'lane_password'; refusing to write an empty credential (fail closed)"
+                f"{rendered}: descriptor carries no non-empty 'lane_password'; "
+                "refusing to write an empty credential (fail closed)"
             )
         password = str(password)
 
@@ -165,9 +169,14 @@ class LanePasswordProvisioner:
             os.replace(tmp, path)
             os.chmod(path, 0o644)
         except Exception as exc:
-            _best_effort_unlink(tmp)
-            _best_effort_unlink(path)
+            cleanup_errors = _cleanup_failed_install(tmp, path)
             # Do NOT include the password in any error surfaced from here.
+            if cleanup_errors:
+                raise LanePasswordProvisionError(
+                    f"credential provision failed for client {actor!r} at {path!r} "
+                    f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}; "
+                    f"cleanup FAILED (credential may remain): {'; '.join(cleanup_errors)}"
+                ) from exc
             raise LanePasswordProvisionError(
                 f"credential provision failed for client {actor!r} at {path!r} "
                 f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
@@ -197,3 +206,16 @@ def _best_effort_unlink(path: str) -> None:
         return
     except OSError:
         return
+
+
+def _cleanup_failed_install(*paths: str) -> List[str]:
+    """Clean a failed install and report every path that could not be removed."""
+    errors: List[str] = []
+    for path in paths:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            errors.append(f"{path!r}: {type(exc).__name__}: {exc}")
+    return errors

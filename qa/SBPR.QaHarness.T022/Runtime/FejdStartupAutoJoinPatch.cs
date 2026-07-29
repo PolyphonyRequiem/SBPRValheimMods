@@ -112,7 +112,7 @@ namespace SBPR.QaHarness.T022.Runtime
             _log = log;
             _installed = true;
 
-            // Supply the lane join password (if the runner provided its 0600 file) BEFORE the
+            // Supply the lane join password (if the runner provided its per-run file) BEFORE the
             // join is driven, so vanilla's RPC_ClientHandshake finds FejdStartup.ServerPassword
             // set and auto-submits it rather than parking on the password dialog. Never logs the
             // secret — only whether a password was applied.
@@ -162,7 +162,7 @@ namespace SBPR.QaHarness.T022.Runtime
                 Traverse.Create(typeof(FejdStartup)).Property("ServerPassword").SetValue(password);
                 log.LogWarning(
                     "SBPRQA: lane join password applied to FejdStartup.ServerPassword " +
-                    "(value read from the 0600 file; not logged). Handshake will auto-submit it.");
+                    "(value read from the per-run file; not logged). Handshake will auto-submit it.");
             }
             catch (Exception ex)
             {

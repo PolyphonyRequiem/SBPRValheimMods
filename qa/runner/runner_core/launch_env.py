@@ -54,7 +54,7 @@ SIDECAR_SUBDIR = os.path.join(".local", "share", "sbpr-qa", "launch-env")
 _KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 # The sidecar carries only these keys; anything else is refused so a caller can never
-# smuggle a secret (HMAC/operator token) into the 0644 file. The bootstrap DOC (0600)
+# smuggle a secret (HMAC/operator token) into the 0644 file. The per-run bootstrap DOC
 # is the sole carrier of secrets; the sidecar only names its PATH.
 #
 # SBPR_QA_CONNECT (M6-JOIN) carries the lane join target as `host:port`. GABS's

@@ -204,6 +204,51 @@ def test_unreadable_bootstrap_failure_names_client_path_and_uid(tmp_path) -> Non
     assert "missing or unreadable" in message
 
 
+def test_missing_loopback_error_names_client_path_and_uid(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    client = descriptor["clients"][0]
+    client["uid"] = 1001
+    del client["loopback_port"]
+
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(
+            descriptor
+        )
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert client["bootstrap_path"] in message
+    assert "uid 1001" in message
+
+
+def test_cleanup_failure_is_not_silently_suppressed(tmp_path, monkeypatch) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"] = [descriptor["clients"][0]]
+    client = descriptor["clients"][0]
+    client["uid"] = 1001
+    path = client["bootstrap_path"]
+    real_unlink = bootstrap_module.os.unlink
+
+    def unlink(actual_path):
+        if actual_path == path:
+            raise OSError("unlink failed")
+        return real_unlink(actual_path)
+
+    def fail_chmod(*_args):
+        raise OSError("chmod failed")
+
+    monkeypatch.setattr(bootstrap_module.os, "chmod", fail_chmod)
+    monkeypatch.setattr(bootstrap_module.os, "unlink", unlink)
+
+    with pytest.raises(BootstrapProvisionError, match="cleanup") as exc_info:
+        BootstrapProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(
+            descriptor
+        )
+
+    message = str(exc_info.value)
+    assert "client_a" in message and path in message and "uid 1001" in message
+
+
 def test_provisioned_doc_matches_the_wire_block_it_derives_from(tmp_path) -> None:
     # The stale-doc failure mode was a doc whose nonce/hashes no longer matched the
     # descriptor. An emitted doc cannot drift: assert byte-equality of the crypto fields.

@@ -184,8 +184,12 @@ def test_fails_closed_when_file_named_but_no_password(tmp_path):
     # write an empty credential the handshake would silently reject.
     d, _ = _descriptor(tmp_path, password=None, with_file=True)
     prov = LanePasswordProvisioner()
-    with pytest.raises(LanePasswordProvisionError):
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
         prov.provision_from_descriptor(d)
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert d["clients"][0]["server_password_file"] in message
+    assert f"uid {d['clients'][0]['uid']}" in message
 
 
 def test_fails_closed_when_password_consumer_uid_is_undeclared(tmp_path):
@@ -200,8 +204,34 @@ def test_fails_closed_when_password_consumer_uid_is_undeclared(tmp_path):
 def test_fails_closed_on_empty_password(tmp_path):
     d, _ = _descriptor(tmp_path, password="", with_file=True)
     prov = LanePasswordProvisioner()
-    with pytest.raises(LanePasswordProvisionError):
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
         prov.provision_from_descriptor(d)
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert d["clients"][0]["server_password_file"] in message
+    assert f"uid {d['clients'][0]['uid']}" in message
+
+
+def test_cleanup_failure_is_not_silently_suppressed(tmp_path, monkeypatch):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+    real_unlink = lane_password_module.os.unlink
+
+    def unlink(path):
+        if path == pwfile:
+            raise OSError("unlink failed")
+        return real_unlink(path)
+
+    def fail_chmod(*_args):
+        raise OSError("chmod failed")
+
+    monkeypatch.setattr(lane_password_module.os, "chmod", fail_chmod)
+    monkeypatch.setattr(lane_password_module.os, "unlink", unlink)
+
+    with pytest.raises(LanePasswordProvisionError, match="cleanup") as exc_info:
+        LanePasswordProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(d)
+
+    message = str(exc_info.value)
+    assert "client_a" in message and pwfile in message and "uid 1001" in message
 
 
 def test_password_value_never_appears_in_error_message(tmp_path):
