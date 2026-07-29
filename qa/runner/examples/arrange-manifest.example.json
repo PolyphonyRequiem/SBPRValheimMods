@@ -1,6 +1,6 @@
 {
   "kind": "sbpr-qa-arrange-manifest",
-  "version": 1,
+  "version": 2,
 
   "_comment": [
     "EXAMPLE arrange manifest (T022 ARRANGE spec §3 P2, issue #450).",
@@ -10,7 +10,13 @@
     "that the two clients are described by the SAME schema while sharing nothing —",
     "different uid, user, Steam account, game root, binary, launcher, ports,",
     "credential path, and join delivery mechanism. Adding client_c is another entry",
-    "in `clients`; no code changes."
+    "in `clients`; no code changes.",
+    "",
+    "Every known listener is explicit: loopback_control and valbridge_gabp are",
+    "required integers; unity_script_host may be null, which means its DLL must be",
+    "absent. The two per-uid GABS daemons use singleton custom ranges matching the",
+    "declared 49152/49153 ValBridge ports. T022 does not use UnityScriptHost, so",
+    "client_b disables it rather than allocating another port."
   ],
 
   "lane": {
@@ -51,6 +57,7 @@
       },
       "ports": {
         "loopback_control": 48610,
+        "valbridge_gabp": 49152,
         "unity_script_host": 48210
       },
       "qa_profile": "sbpr_qa_primary",
@@ -83,9 +90,9 @@
       "uid": 1001,
       "user": "valbot",
       "steam_account": "76561198671522196",
-      "game_root": "/home/valbot/.steam/steam/steamapps/common/Valheim",
-      "binary_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/valheim.x86_64",
-      "plugins_dir": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins",
+      "game_root": "/home/valbot/.steam/debian-installation/steamapps/common/Valheim",
+      "binary_path": "/home/valbot/.steam/debian-installation/steamapps/common/Valheim/valheim.x86_64",
+      "plugins_dir": "/home/valbot/.steam/debian-installation/steamapps/common/Valheim/BepInEx/plugins",
       "launcher": {
         "kind": "steam_applaunch",
         "app_id": "892970",
@@ -94,7 +101,8 @@
       },
       "ports": {
         "loopback_control": 48611,
-        "unity_script_host": 48211
+        "valbridge_gabp": 49153,
+        "unity_script_host": null
       },
       "qa_profile": "sbpr_qa_valbot",
       "join": {
@@ -106,11 +114,11 @@
       "artifacts": [
         {
           "artifact": "SBPR.QaHarness.T022.dll",
-          "dest_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins/SBPR.QaHarness.T022.dll"
+          "dest_path": "/home/valbot/.steam/debian-installation/steamapps/common/Valheim/BepInEx/plugins/SBPR.QaHarness.T022.dll"
         },
         {
           "artifact": "SBPR.Trailborne.dll",
-          "dest_path": "/home/valbot/.steam/steam/steamapps/common/Valheim/BepInEx/plugins/SBPR.Trailborne.dll"
+          "dest_path": "/home/valbot/.steam/debian-installation/steamapps/common/Valheim/BepInEx/plugins/SBPR.Trailborne.dll"
         }
       ],
       "credentials": {

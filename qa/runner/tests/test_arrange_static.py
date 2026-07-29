@@ -14,6 +14,7 @@ the client, and expected-vs-actual (the anti-silence contract).
 from __future__ import annotations
 
 import copy
+import os
 
 import pytest
 
@@ -26,6 +27,7 @@ from runner_core.arrange_static import (
     P_ARTIFACT_CATALOGUE,
     P_ARTIFACT_PINS,
     P_DEST_UNDER_ROOT,
+    P_DISABLED_COMPONENTS,
     P_JOIN_TARGET,
     P_LANE_PASSWORD,
     P_PORTS_DISJOINT,
@@ -33,6 +35,7 @@ from runner_core.arrange_static import (
     P_WELL_FORMED,
     StaticEnvironment,
     arrange_static,
+    real_static_environment,
 )
 
 H_HARNESS = "a" * 64
@@ -50,6 +53,13 @@ def fs(paths):
     return StaticEnvironment(
         path_exists=lambda p: p in paths,
         hash_file=lambda p: paths.get(p),
+        find_named_files=lambda root, name: tuple(
+            sorted(
+                p
+                for p in paths
+                if p.startswith(root.rstrip("/") + "/") and p.rsplit("/", 1)[-1] == name
+            )
+        ),
     )
 
 
@@ -63,7 +73,7 @@ def golden_manifest():
     """
     return {
         "kind": "sbpr-qa-arrange-manifest",
-        "version": 1,
+        "version": 2,
         "lane": {
             "lane_id": "t022-disposable",
             "world_name": "t022lane",
@@ -97,7 +107,11 @@ def golden_manifest():
                     "endpoint": "http://localhost:8080/mcp",
                     "game_id": "valheim-qa-a",
                 },
-                "ports": {"loopback_control": 48610, "unity_script_host": 48210},
+                "ports": {
+                    "loopback_control": 48610,
+                    "valbridge_gabp": 49152,
+                    "unity_script_host": 48210,
+                },
                 "qa_profile": "sbpr_qa_a",
                 "join": {"host": "127.0.0.1", "port": 2476, "delivery": "connect_argv"},
                 "artifacts": [
@@ -130,7 +144,11 @@ def golden_manifest():
                     "app_id": "892970",
                     "launch_env_path": "/home/valbot/.local/share/sbpr-qa/launch-env/valheim.env",
                 },
-                "ports": {"loopback_control": 48611, "unity_script_host": 48211},
+                "ports": {
+                    "loopback_control": 48611,
+                    "valbridge_gabp": 49153,
+                    "unity_script_host": None,
+                },
                 "qa_profile": "sbpr_qa_b",
                 "join": {
                     "host": "127.0.0.1",
@@ -204,17 +222,19 @@ class TestGolden:
         assert arrange_static(m, fs(paths)).ok
 
     def test_static_starts_no_process_and_writes_nothing(self):
-        """The ONLY environment contact is the two read seams; assert they are all
+        """The ONLY environment contact is the three read seams; assert they are all
         that is ever called by recording every path touched."""
         touched = []
         env = StaticEnvironment(
             path_exists=lambda p: touched.append(("exists", p)) or (p.startswith("/build/")),
             hash_file=lambda p: touched.append(("hash", p))
             or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
+            find_named_files=lambda root, name: touched.append(("find", f"{root}/{name}"))
+            or (),
         )
         arrange_static(golden_manifest(), env)
         assert touched, "static phase must actually inspect the declared artifacts"
-        assert all(kind in ("exists", "hash") for kind, _ in touched)
+        assert all(kind in ("exists", "hash", "find") for kind, _ in touched)
 
 
 class TestNoSymmetryAssumption:
@@ -276,7 +296,11 @@ class TestThirdClientIsDataOnly:
             "binary_path": "/srv/qa/c/Valheim/valheim.x86_64",
             "plugins_dir": "/srv/qa/c/Valheim/BepInEx/plugins",
             "launcher": {"kind": "direct_exec"},
-            "ports": {"loopback_control": 48612, "unity_script_host": 48212},
+            "ports": {
+                "loopback_control": 48612,
+                "valbridge_gabp": 49154,
+                "unity_script_host": None,
+            },
             "qa_profile": "sbpr_qa_c",
             "join": {"host": "127.0.0.1", "port": 2476, "delivery": "connect_argv"},
             "artifacts": [
@@ -402,7 +426,7 @@ class TestPortsDisjoint:
 
     def test_colliding_client_ports_are_refused(self):
         m = golden_manifest()
-        m["clients"][1]["ports"]["unity_script_host"] = 48210
+        m["clients"][1]["ports"]["valbridge_gabp"] = 49152
         report = arrange_static(m, golden_fs())
         assert not report.ok
         assert failures_for(report, P_PORTS_DISJOINT, "client_a")
@@ -410,7 +434,7 @@ class TestPortsDisjoint:
 
     def test_collision_names_both_claimants(self):
         m = golden_manifest()
-        m["clients"][1]["ports"]["unity_script_host"] = 48210
+        m["clients"][1]["ports"]["valbridge_gabp"] = 49152
         f = failures_for(arrange_static(m, golden_fs()), P_PORTS_DISJOINT)[0]
         assert "client_a" in f.actual and "client_b" in f.actual
 
@@ -420,6 +444,16 @@ class TestPortsDisjoint:
         report = arrange_static(m, golden_fs())
         assert failures_for(report, P_PORTS_DISJOINT, "client_a")
 
+    def test_two_listeners_on_one_client_may_not_share_a_port(self):
+        m = golden_manifest()
+        m["clients"][0]["ports"]["unity_script_host"] = 49152
+        failures = failures_for(
+            arrange_static(m, golden_fs()), P_PORTS_DISJOINT, "client_a"
+        )
+        assert len(failures) == 2
+        assert all("more than one listener" in f.detail for f in failures)
+        assert all("client_a." in f.remedy for f in failures)
+
     def test_same_port_name_on_different_clients_is_fine_when_values_differ(self):
         m = golden_manifest()
         assert (
@@ -427,6 +461,167 @@ class TestPortsDisjoint:
             != m["clients"][1]["ports"]["loopback_control"]
         )
         assert arrange_static(m, golden_fs()).ok
+
+    def test_disabled_component_claims_no_port(self):
+        m = golden_manifest()
+        assert m["clients"][1]["ports"]["unity_script_host"] is None
+        assert arrange_static(m, golden_fs()).ok
+
+
+class TestDisabledComponents:
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            "UnityScriptHost/UnityScriptHost.dll",
+            "UnityScriptHost.dll",
+            "renamed-folder/UnityScriptHost.dll",
+        ],
+    )
+    def test_disabled_unity_script_host_must_not_be_deployed(self, relative):
+        m = golden_manifest()
+        plugin = m["clients"][1]["plugins_dir"] + "/" + relative
+        paths = {
+            "/build/out/SBPR.QaHarness.T022.dll": H_HARNESS,
+            "/build/out/SBPR.Trailborne.dll": H_PRODUCT,
+            plugin: H_STALE,
+        }
+        report = arrange_static(m, fs(paths))
+        failure = failures_for(report, P_DISABLED_COMPONENTS, "client_b")[0]
+        assert "declared disabled" in failure.detail
+        assert plugin in failure.actual
+
+    def test_unreadable_plugin_tree_fails_closed(self):
+        m = golden_manifest()
+        env = StaticEnvironment(
+            path_exists=lambda p: p.startswith("/build/out/"),
+            hash_file=lambda p: H_HARNESS if "QaHarness" in p else H_PRODUCT,
+            find_named_files=lambda _root, _name: None,
+        )
+        report = arrange_static(m, env)
+        failure = failures_for(report, P_DISABLED_COMPONENTS, "client_b")[0]
+        assert "unreadable" in failure.detail
+
+    def test_enabled_unity_script_host_may_be_deployed(self):
+        m = golden_manifest()
+        plugin = (
+            m["clients"][0]["plugins_dir"]
+            + "/UnityScriptHost/UnityScriptHost.dll"
+        )
+        paths = {
+            "/build/out/SBPR.QaHarness.T022.dll": H_HARNESS,
+            "/build/out/SBPR.Trailborne.dll": H_PRODUCT,
+            plugin: H_STALE,
+        }
+        assert arrange_static(m, fs(paths)).ok
+
+
+class TestRealDisabledComponentEnumeration:
+    @staticmethod
+    def failures_for_root(root):
+        m = golden_manifest()
+        m["clients"][1]["plugins_dir"] = str(root)
+        report = arrange_static(m, real_static_environment())
+        return failures_for(report, P_DISABLED_COMPONENTS, "client_b")
+
+    def test_missing_declared_plugin_tree_fails_closed(self, tmp_path):
+        failures = self.failures_for_root(tmp_path / "missing-plugins")
+        assert len(failures) == 1
+        assert "unreadable" in failures[0].detail
+
+    def test_non_directory_plugin_tree_fails_closed(self, tmp_path):
+        not_a_directory = tmp_path / "plugins"
+        not_a_directory.write_bytes(b"not-a-directory")
+
+        failures = self.failures_for_root(not_a_directory)
+        assert len(failures) == 1
+        assert "missing or unreadable" in failures[0].detail
+
+    def test_nested_unity_script_host_is_found(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        nested = plugins / "nested"
+        nested.mkdir(parents=True)
+        dll = nested / "UnityScriptHost.dll"
+        dll.write_bytes(b"not-a-real-assembly")
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(dll) in failures[0].actual
+
+    def test_unity_script_host_through_directory_symlink_is_found(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        outside = tmp_path / "outside"
+        plugins.mkdir()
+        outside.mkdir()
+        dll = outside / "UnityScriptHost.dll"
+        dll.write_bytes(b"not-a-real-assembly")
+        (plugins / "linked").symlink_to(outside, target_is_directory=True)
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(plugins / "linked" / "UnityScriptHost.dll") in failures[0].actual
+
+    def test_symlinked_unity_script_host_file_is_found(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        outside_dll = tmp_path / "outside.dll"
+        outside_dll.write_bytes(b"not-a-real-assembly")
+        dll = plugins / "UnityScriptHost.dll"
+        dll.symlink_to(outside_dll)
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(dll) in failures[0].actual
+
+    def test_multiple_unity_script_host_files_are_all_reported(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        first = plugins / "first" / "UnityScriptHost.dll"
+        second = plugins / "second" / "UnityScriptHost.dll"
+        first.parent.mkdir(parents=True)
+        second.parent.mkdir(parents=True)
+        first.write_bytes(b"first")
+        second.write_bytes(b"second")
+
+        failures = self.failures_for_root(plugins)
+        assert len(failures) == 1
+        assert str(first) in failures[0].actual
+        assert str(second) in failures[0].actual
+
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="root can enumerate mode-000 directories",
+    )
+    def test_unreadable_subtree_fails_closed(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        blocked = plugins / "blocked"
+        blocked.mkdir(parents=True)
+        blocked.chmod(0)
+        try:
+            failures = self.failures_for_root(plugins)
+        finally:
+            blocked.chmod(0o700)
+
+        assert len(failures) == 1
+        assert "missing or unreadable" in failures[0].detail
+
+    def test_scandir_error_fails_closed(self, tmp_path, monkeypatch):
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+
+        def fail_scandir(_path):
+            raise OSError("injected traversal failure")
+
+        monkeypatch.setattr(os, "scandir", fail_scandir)
+        failures = self.failures_for_root(plugins)
+
+        assert len(failures) == 1
+        assert "missing or unreadable" in failures[0].detail
+
+    def test_directory_symlink_cycle_terminates(self, tmp_path):
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+        (plugins / "cycle").symlink_to(plugins, target_is_directory=True)
+
+        assert self.failures_for_root(plugins) == []
 
 
 class TestArtifactPins:
@@ -494,6 +689,7 @@ class TestArtifactPins:
             path_exists=lambda p: p.startswith("/build/"),
             hash_file=lambda p: hashed.append(p)
             or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
+            find_named_files=lambda _root, _name: (),
         )
         arrange_static(golden_manifest(), env)
         assert hashed.count("/build/out/SBPR.QaHarness.T022.dll") == 1
@@ -708,17 +904,36 @@ class TestManifestWellFormedness:
         report = arrange_static(m, golden_fs())
         assert failures_for(report, P_WELL_FORMED)
 
-    def test_wrong_version_is_refused(self):
+    @pytest.mark.parametrize("version", [1, 99])
+    def test_wrong_version_is_refused(self, version):
         m = golden_manifest()
-        m["version"] = 99
+        m["version"] = version
         report = arrange_static(m, golden_fs())
-        assert "99" in report.failures[0].actual
+        assert str(version) in report.failures[0].actual
 
     def test_boolean_port_is_refused(self):
         m = golden_manifest()
         m["clients"][0]["ports"]["loopback_control"] = True
         report = arrange_static(m, golden_fs())
         assert failures_for(report, P_WELL_FORMED)
+
+    @pytest.mark.parametrize(
+        "resource", ["loopback_control", "valbridge_gabp", "unity_script_host"]
+    )
+    def test_every_known_port_resource_is_required(self, resource):
+        m = golden_manifest()
+        del m["clients"][1]["ports"][resource]
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_WELL_FORMED)
+        assert resource in report.failures[0].actual
+
+    @pytest.mark.parametrize("resource", ["loopback_control", "valbridge_gabp"])
+    def test_required_t022_listener_cannot_be_disabled(self, resource):
+        m = golden_manifest()
+        m["clients"][1]["ports"][resource] = None
+        report = arrange_static(m, golden_fs())
+        assert failures_for(report, P_WELL_FORMED)
+        assert "null/disabled is not allowed" in report.failures[0].actual
 
     def test_out_of_range_port_is_refused(self):
         m = golden_manifest()
