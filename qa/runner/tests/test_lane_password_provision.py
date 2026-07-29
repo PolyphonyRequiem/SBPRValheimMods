@@ -32,16 +32,24 @@ def _descriptor(tmp_path, *, password="t009lproof", with_file=True):
     return d, pwfile
 
 
-def test_producer_writes_password_file_mode_0600(tmp_path):
+def test_producer_writes_password_file_mode_0644(tmp_path):
     d, pwfile = _descriptor(tmp_path)
     prov = LanePasswordProvisioner()
     written = prov.provision_from_descriptor(d)
 
     assert [w.actor for w in written] == ["client_a"]
     assert os.path.exists(pwfile)
-    # Exactly mode 0600 — same discipline as the bootstrap doc.
+    # Exactly mode 0644 — readable by the cross-uid client that consumes it.
+    # 0644, not 0600: the QA client that consumes this file runs as a DIFFERENT
+    # uid (valbot, 1001) than the runner that writes it (1000), so owner-only permissions
+    # made it structurally unreadable — the client joined with no password and stalled
+    # forever on vanilla's password prompt. These are per-run throwaway credentials for a
+    # disposable loopback lane (the wire envelope is minted per run with a short TTL and
+    # swept on teardown), so local readability is the right trade against blocking the
+    # test entirely. The containing directory is 0711: traversable to a known path,
+    # not listable.
     mode = stat.S_IMODE(os.stat(pwfile).st_mode)
-    assert mode == 0o600, f"expected 0600, got {oct(mode)}"
+    assert mode == 0o644, f"expected 0644, got {oct(mode)}"
     # The value is the descriptor's password, single line (consumer trims whitespace).
     with open(pwfile, encoding="utf-8") as fh:
         assert fh.read().strip() == "t009lproof"
@@ -205,10 +213,12 @@ def test_real_environment_provisions_then_cleans_up_password_file(tmp_path):
     )
     env = real_operator_environment(config, descriptor=descriptor)
 
-    # Producer: before launch the file exists at 0600 with the descriptor's password.
+    # Producer: before launch the file exists at 0644 with the descriptor's password.
+    # 0644 because the consuming client runs as a different uid (valbot) than the
+    # runner that writes it; see test_producer_writes_password_file_mode_0644.
     env.provision_bootstraps()
     assert os.path.exists(pwfile)
-    assert stat.S_IMODE(os.stat(pwfile).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(pwfile).st_mode) == 0o644
     with open(pwfile, encoding="utf-8") as fh:
         assert fh.read().strip() == "t009lproof"
 

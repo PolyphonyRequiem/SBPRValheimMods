@@ -583,13 +583,41 @@ class TestJoinTarget:
         f = failures_for(arrange_static(m, golden_fs()), P_JOIN_TARGET, "client_a")[0]
         assert "2476" in f.expected and "2477" in f.actual
 
-    def test_connect_argv_under_a_no_argv_launcher_is_refused(self):
-        """The exact shape of the live gap, caught statically."""
+    def test_connect_argv_is_legal_under_the_steam_launcher(self):
+        """REGRESSION (#449). An earlier revision refused `connect_argv` under
+        `steam_applaunch`, reasoning that Steam passes no arguments. A live run
+        disproved it: the Steam `%command%` wrapper appends the fragment after `"$@"`,
+        the real kernel argv was `valheim.x86_64 +connect 127.0.0.1:2476`, and the lane
+        server logged client_b's own SteamID connecting and spawning in-world.
+
+        That check was therefore refusing the ONLY configuration proven to work. A
+        fail-closed guard that blocks the working path is worse than no guard. STATIC
+        does not guess at launcher capability; whether argv reaches the game is VERIFY's
+        job (#455), which can read the launched process's actual argv."""
         m = golden_manifest()
         m["clients"][1]["join"]["delivery"] = "connect_argv"
-        f = failures_for(arrange_static(m, golden_fs()), P_JOIN_TARGET, "client_b")[0]
-        assert "steam_applaunch" in f.actual
-        assert "m_queuedJoinServer" in f.remedy
+        assert m["clients"][1]["launcher"]["kind"] == "steam_applaunch"
+        report = arrange_static(m, golden_fs())
+        assert report.ok, report.render()
+
+    def test_no_delivery_mechanism_is_refused_by_launcher_kind(self):
+        """Every known delivery must be legal under every known launcher: STATIC has no
+        visibility into a wrapper's internals and must not invent a constraint."""
+        from runner_core.arrange_manifest import JOIN_DELIVERY_KINDS, LAUNCHER_KINDS
+
+        base = golden_manifest()
+        for kind in sorted(LAUNCHER_KINDS):
+            for delivery in sorted(JOIN_DELIVERY_KINDS):
+                m = copy.deepcopy(base)
+                params = {
+                    "gabs": {"endpoint": "http://x/mcp", "game_id": "g"},
+                    "steam_applaunch": {"app_id": "892970"},
+                    "direct_exec": {},
+                }[kind]
+                m["clients"][1]["launcher"] = dict(kind=kind, **params)
+                m["clients"][1]["join"]["delivery"] = delivery
+                report = arrange_static(m, golden_fs())
+                assert report.ok, f"{kind}/{delivery} wrongly refused: {report.render()}"
 
     def test_sidecar_delivery_under_steam_launcher_is_accepted(self):
         assert arrange_static(golden_manifest(), golden_fs()).ok
