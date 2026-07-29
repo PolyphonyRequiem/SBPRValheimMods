@@ -1,7 +1,7 @@
 ---
 title: T022 ARRANGE — STATIC phase, as implemented
 status: current
-last_updated: 2026-07-29
+last_updated: 2026-07-30
 ---
 
 # T022 ARRANGE — STATIC phase, as implemented
@@ -57,12 +57,43 @@ part of the contract.
 | `S6-ARTIFACT-CATALOGUE` | every required artifact exists in the catalogue | I1 |
 | `S7-DEST-UNDER-CLIENT-ROOT` | a client stages only under its OWN game root | A1 |
 | `S8-JOIN-TARGET` | target declared, is this run's lane, QA profile named | I5 |
+| `S9-DISABLED-COMPONENTS` | a listener declared `null`/disabled has no deployed plugin DLL | I6, Q5 |
 
 Preserved guards, unchanged in intent: the B2 production deny (2456 Niflheim / 2466
 Heistan hold real worlds and are never a legal target — here extended to cover client
 port sets and join targets, not just the lane), the byte-equality artifact pin check
 that correctly refused a stale deployed launcher, and the M6-LANEPW password-policy
 consistency check.
+
+## Per-client listener contract (issue #454)
+
+Manifest schema v2 requires every client to declare all three known listener resources
+under `ports`:
+
+| Resource | Declaration | Runtime owner |
+|---|---|---|
+| `loopback_control` | required integer | `SBPR.QaHarness.T022`; already 48610/48611 |
+| `valbridge_gabp` | required integer | ValBridgeServer/Lib.GAB, supplied by that client's GABS daemon as `GABP_SERVER_PORT` |
+| `unity_script_host` | integer or `null` | UnityScriptHost; `null` means the plugin must be absent |
+
+The real dual-user assignment is `valbridge_gabp=49152` for client_a and `49153`
+for client_b. Each per-uid GABS daemon must use a singleton custom range matching its
+client declaration (`portRanges.customRanges=[{"min":49152,"max":49152}]` for uid
+1000; 49153 for uid 1001) and be restarted after configuration. This is not an
+arbitrary convention: GABS's default allocator is a process-local counter starting at
+49152. Two independent daemons therefore both choose 49152 for their first launch,
+which is exactly the live collision observed on 2026-07-29. ValBridgeServer already
+reads `GABP_SERVER_PORT` and Lib.GAB already binds the supplied value; neither contains
+the single-instance assumption.
+
+UnityScriptHost is intentionally asymmetric. ADR-0009 requires the four T022 AT legs
+to ride `LiveLoopbackTransport` and `AT-QA-NO-SCRIPTTOOLS-LOCK` forbids re-entry through
+the UnityScriptHost/ValBridge ScriptTools surface. client_a retains USH on its declared
+48210 operator port; client_b declares `unity_script_host: null`. Because the deployed
+USH build has no disable switch and falls back to hardcoded 48210 whenever its DLL is
+loaded, S9 enumerates the complete client plugin tree and fails loudly if any
+`UnityScriptHost.dll` remains (or if the tree cannot be read). Disabling means removing
+the plugin, not assigning it 48211 and preserving an unnecessary listener.
 
 ## The two structural properties
 
@@ -127,6 +158,12 @@ found, because the cost being avoided is discovering them one boot cycle at a ti
 
 ## Filesystem seam
 
-The only environment contact is `StaticEnvironment.path_exists` / `hash_file`, both
-read-only and injected. `real_static_environment()` wires the stdlib calls; the test
-suite wires a dict. Importing or unit-testing either module touches nothing at all.
+The only environment contact is `StaticEnvironment.path_exists` / `hash_file` /
+`find_named_files`, all read-only and injected. `real_static_environment()` wires the
+stdlib calls; the test suite wires a dict. Importing or unit-testing either module
+touches nothing at all.
+
+On the dual-user rig, the uid-1001 plugin tree is intentionally not enumerable by uid
+1000. Run the real two-client preflight through the existing privileged operator seam
+(for example `sudo -n python3 qa/runner/sbpr-qa-arrange.py ... --check`); an ordinary
+uid-1000 run fails S9 as unreadable rather than treating `EACCES` as an empty tree.

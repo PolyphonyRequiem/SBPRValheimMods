@@ -50,7 +50,7 @@ def minimal(tmp_path):
     digest = hashlib.sha256(b"harness-bytes").hexdigest()
     return {
         "kind": "sbpr-qa-arrange-manifest",
-        "version": 1,
+        "version": 2,
         "lane": {
             "lane_id": "l",
             "world_name": "w",
@@ -71,7 +71,11 @@ def minimal(tmp_path):
                 "binary_path": str(root / "valheim.x86_64"),
                 "plugins_dir": str(root / "BepInEx" / "plugins"),
                 "launcher": {"kind": "direct_exec"},
-                "ports": {"loopback_control": 48610},
+                "ports": {
+                    "loopback_control": 48610,
+                    "valbridge_gabp": 49152,
+                    "unity_script_host": None,
+                },
                 "qa_profile": "sbpr_qa_solo",
                 "join": {
                     "host": "127.0.0.1",
@@ -166,8 +170,19 @@ class TestShippedExample:
 
     def test_example_only_fails_on_the_placeholder_pins(self):
         """Every check except the artifact pins should pass; the pins are dummies."""
-        from runner_core.arrange_static import P_ARTIFACT_PINS, arrange_static
+        from runner_core.arrange_static import (
+            P_ARTIFACT_PINS,
+            StaticEnvironment,
+            arrange_static,
+        )
 
-        report = arrange_static(json.loads(EXAMPLE.read_text(encoding="utf-8")))
+        env = StaticEnvironment(
+            path_exists=lambda _path: False,
+            hash_file=lambda _path: None,
+            find_named_files=lambda _root, _name: (),
+        )
+        report = arrange_static(
+            json.loads(EXAMPLE.read_text(encoding="utf-8")), env
+        )
         offenders = {f.precondition for f in report.failures}
         assert offenders <= {P_ARTIFACT_PINS}, report.render()

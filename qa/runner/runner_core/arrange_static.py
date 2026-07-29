@@ -11,11 +11,12 @@ WHAT IS CHECKED (§4)
   S2  production ports 2456/2466 absent from EVERY target
   S3  artifact source present; pins match deployed bytes
   S4  lane password policy consistent with client entries
-  S5  per-client port sets disjoint                                        [I6]
+  S5  required per-client listener sets declared and disjoint              [I6]
 plus the guards that belong with them:
   S6  every client's required artifacts exist in the catalogue
   S7  per-client destination paths live under that client's own game root
   S8  join target consistency (declared, reaches the lane, names a QA profile)
+  S9  components declared disabled are genuinely absent                    [I6/Q5]
 
 REPORTING CONTRACT (§3 P3 — the load-bearing part)
 Every failure is a `StaticFailure` naming the **precondition**, the **client** it
@@ -32,9 +33,10 @@ are *disjoint*. Nothing derives a path, uid, port or launcher from a sibling; ev
 check loops over `manifest.clients` and reports per actor. Adding a third client
 changes only the manifest data.
 
-FILESYSTEM SEAM: the only environment contact is `hash_file` / `path_exists`, injected
-via `StaticEnvironment`. `real_static_environment()` wires real stdlib reads; the test
-suite wires dicts. Importing or unit-testing this module touches nothing.
+FILESYSTEM SEAM: the only environment contact is `hash_file` / `path_exists` /
+`find_named_files`, injected via `StaticEnvironment`. `real_static_environment()` wires
+real stdlib reads; the test suite wires dicts. Importing or unit-testing this module
+touches nothing.
 
 Engine-free: stdlib only, no product/game import.
 """
@@ -42,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -62,6 +65,7 @@ P_PORTS_DISJOINT = "S5-PORTS-DISJOINT"
 P_ARTIFACT_CATALOGUE = "S6-ARTIFACT-CATALOGUE"
 P_DEST_UNDER_ROOT = "S7-DEST-UNDER-CLIENT-ROOT"
 P_JOIN_TARGET = "S8-JOIN-TARGET"
+P_DISABLED_COMPONENTS = "S9-DISABLED-COMPONENTS"
 
 _GLOBAL = "<manifest>"  # `client` value for a check that is not per-client
 
@@ -142,13 +146,15 @@ class StaticEnvironment:
     """The injectable filesystem seam. Reads only; never writes, never spawns.
 
     `path_exists` answers "is there a file here"; `hash_file` returns the sha256 hex
-    of its bytes or None when it cannot be read. Returning None rather than raising
-    keeps an unreadable deployed copy reportable as a specific failure instead of an
+    of its bytes or None when it cannot be read; `find_named_files` enumerates a plugin
+    tree or returns None when that proof cannot be made. Returning None rather than
+    raising keeps an unreadable path reportable as a specific failure instead of an
     exception that hides the other nine problems in the same manifest.
     """
 
     path_exists: Callable[[str], bool]
     hash_file: Callable[[str], Optional[str]]
+    find_named_files: Callable[[str, str], Optional[Sequence[str]]]
 
 
 def real_static_environment() -> StaticEnvironment:
@@ -164,7 +170,27 @@ def real_static_environment() -> StaticEnvironment:
         except OSError:
             return None
 
-    return StaticEnvironment(path_exists=os.path.isfile, hash_file=_hash)
+    def _find_named_files(root: str, name: str) -> Optional[Sequence[str]]:
+        try:
+            root_stat = os.stat(root)
+        except FileNotFoundError:
+            return ()
+        except OSError:
+            return None
+        if not stat.S_ISDIR(root_stat.st_mode):
+            return None
+        matches: List[str] = []
+        errors: List[OSError] = []
+        for directory, _dirs, files in os.walk(root, onerror=errors.append):
+            if name in files:
+                matches.append(os.path.join(directory, name))
+        return None if errors else tuple(sorted(matches))
+
+    return StaticEnvironment(
+        path_exists=os.path.isfile,
+        hash_file=_hash,
+        find_named_files=_find_named_files,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -196,7 +222,7 @@ def _check_production_deny(manifest: ArrangeManifest) -> List[StaticFailure]:
         )
 
     for client in manifest.clients:
-        for name, port in sorted(client.ports.items()):
+        for name, port in sorted(client.bound_ports.items()):
             if port in PRODUCTION_PORTS:
                 failures.append(
                     StaticFailure(
@@ -240,7 +266,7 @@ def _check_ports_disjoint(manifest: ArrangeManifest) -> List[StaticFailure]:
     failures: List[StaticFailure] = []
     owners: Dict[int, List[Tuple[str, str]]] = defaultdict(list)
     for client in manifest.clients:
-        for name, port in sorted(client.ports.items()):
+        for name, port in sorted(client.bound_ports.items()):
             owners[port].append((client.actor, name))
 
     for port, claims in sorted(owners.items()):
@@ -248,12 +274,14 @@ def _check_ports_disjoint(manifest: ArrangeManifest) -> List[StaticFailure]:
             # Report against every claimant so no client is implicitly "the right one".
             rendered = ", ".join(f"{actor}.{name}" for actor, name in claims)
             for actor, name in claims:
-                others = ", ".join(f"{a}.{n}" for a, n in claims if a != actor)
+                others = ", ".join(
+                    f"{a}.{n}" for a, n in claims if (a, n) != (actor, name)
+                )
                 failures.append(
                     StaticFailure(
                         precondition=P_PORTS_DISJOINT,
                         client=actor,
-                        detail=f"port {port} is claimed by more than one client",
+                        detail=f"port {port} is claimed by more than one listener",
                         expected=f"{actor}.{name} to own port {port} exclusively",
                         actual=f"port {port} claimed by {rendered}",
                         remedy=f"Give {actor} a distinct {name} port; it currently "
@@ -273,6 +301,52 @@ def _check_ports_disjoint(manifest: ArrangeManifest) -> List[StaticFailure]:
                         remedy=f"Move {actor}.{name} off the lane port.",
                     )
                 )
+    return failures
+
+
+# --------------------------------------------------------------------------- #
+# S9 — explicitly disabled components are genuinely absent
+# --------------------------------------------------------------------------- #
+
+def _check_disabled_components(
+    manifest: ArrangeManifest, env: StaticEnvironment
+) -> List[StaticFailure]:
+    """A null UnityScriptHost declaration means no plugin, not "use its default"."""
+    failures: List[StaticFailure] = []
+    for client in manifest.clients:
+        if client.ports.get("unity_script_host") is not None:
+            continue
+        deployed = env.find_named_files(client.plugins_dir, "UnityScriptHost.dll")
+        if deployed is None:
+            failures.append(
+                StaticFailure(
+                    precondition=P_DISABLED_COMPONENTS,
+                    client=client.actor,
+                    detail="UnityScriptHost is declared disabled but the plugin tree is unreadable",
+                    expected=f"an enumerable plugin tree at {client.plugins_dir}",
+                    actual="plugin-tree enumeration failed (permissions or I/O error)",
+                    remedy="Fix read permissions so STATIC can prove UnityScriptHost.dll is absent.",
+                )
+            )
+        elif deployed:
+            rendered = ", ".join(deployed)
+            failures.append(
+                StaticFailure(
+                    precondition=P_DISABLED_COMPONENTS,
+                    client=client.actor,
+                    detail="UnityScriptHost is declared disabled but its plugin DLL is deployed",
+                    expected=(
+                        f"no UnityScriptHost.dll anywhere under {client.plugins_dir} "
+                        "when ports.unity_script_host=null"
+                    ),
+                    actual=f"deployed plugin(s) present at {rendered}; each will bind a port",
+                    remedy=(
+                        "Remove UnityScriptHost.dll from this client's plugin tree before launch. "
+                        "T022 uses LiveLoopbackTransport, not UnityScriptHost, so allocating a "
+                        "second USH port would preserve an unnecessary component."
+                    ),
+                )
+            )
     return failures
 
 
@@ -690,6 +764,7 @@ ALL_PRECONDITIONS = (
     P_ARTIFACT_CATALOGUE,
     P_DEST_UNDER_ROOT,
     P_JOIN_TARGET,
+    P_DISABLED_COMPONENTS,
 )
 
 
@@ -741,6 +816,7 @@ def arrange_static(
     failures.extend(_check_artifact_pins(manifest, env))
     failures.extend(_check_lane_password(manifest))
     failures.extend(_check_join_target(manifest))
+    failures.extend(_check_disabled_components(manifest, env))
 
     return StaticReport(
         ok=not failures,
