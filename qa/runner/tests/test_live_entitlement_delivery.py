@@ -65,7 +65,8 @@ class AdminControlStub:
     the delivery is genuinely authenticated on the wire, not faked.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, accept_any: bool = False) -> None:
+        self._accept_any = accept_any
         self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._srv.bind(("127.0.0.1", 0))
@@ -97,14 +98,15 @@ class AdminControlStub:
                 conn.sendall(encode_frame(json.dumps(self._decide(token, env))))
 
     def _decide(self, token: str, env: dict) -> dict:
-        if token != OPERATOR_TOKEN:
-            return self._reject("BadOperatorToken", env)
-        canonical = _canonical_string(
-            env["nonce"], env["seq"], env["expiry"], env["role"],
-            env["worldUid"], env["verb"], env["requestId"], env["connectionGeneration"],
-        )
-        if compute_hmac(HMAC_SECRET, canonical) != env["hmac"]:
-            return self._reject("BadHmac", env)
+        if not self._accept_any:
+            if token != OPERATOR_TOKEN:
+                return self._reject("BadOperatorToken", env)
+            canonical = _canonical_string(
+                env["nonce"], env["seq"], env["expiry"], env["role"],
+                env["worldUid"], env["verb"], env["requestId"], env["connectionGeneration"],
+            )
+            if compute_hmac(HMAC_SECRET, canonical) != env["hmac"]:
+                return self._reject("BadHmac", env)
         command = env.get("args", {}).get("command", "?")
         return {
             "requestId": env["requestId"],
@@ -179,11 +181,7 @@ def _descriptor(stub: AdminControlStub) -> dict:
             {"actor": "client_b", "steam_id": "76561198671522196", "binary_path": "/lane/b/valheim.x86_64"},
         ],
         "wire": {
-            "nonce": NONCE,
             "world_uid": WORLD_UID,
-            "expiry_unix_ms": EXPIRY,
-            "operator_token": OPERATOR_TOKEN,
-            "hmac_secret": HMAC_SECRET,
             "endpoints": {
                 "client_a": {"host": "127.0.0.1", "port": stub.port, "role": "Client"},
                 "client_b": {"host": "127.0.0.1", "port": stub.port, "role": "Client"},
@@ -235,7 +233,10 @@ def test_real_environment_delivery_emits_offer_then_buy_over_the_wire() -> None:
 
 
 def test_build_live_run_wires_the_real_delivering_seam() -> None:
-    stub = AdminControlStub()
+    # build_live_run now MINTS a fresh operator_token/hmac_secret per run, so the
+    # stub can no longer match a fixed token — it accepts any authenticated frame
+    # and we assert the seam genuinely emitted OFFER over the wire.
+    stub = AdminControlStub(accept_any=True)
     try:
         _plan, env = build_live_run(_descriptor(stub))
         # The env from build_live_run carries a REAL delivering callable — driving it

@@ -470,8 +470,7 @@ def test_build_live_run_carries_gabs_launch_fields_into_client_specs() -> None:
             },
         ],
         "wire": {
-            "nonce": "launch-nonce", "world_uid": 424242, "expiry_unix_ms": 32_500_000_000_000,
-            "operator_token": "tok", "hmac_secret": "sec",
+            "world_uid": 424242,
             "endpoints": {
                 "client_a": {"host": "127.0.0.1", "port": 5, "role": "Client"},
                 "client_b": {"host": "127.0.0.1", "port": 6, "role": "Client"},
@@ -582,8 +581,7 @@ def test_build_live_run_rejects_production_connect_target_descriptor() -> None:
             },
         ],
         "wire": {
-            "nonce": "launch-nonce", "world_uid": 424242, "expiry_unix_ms": 32_500_000_000_000,
-            "operator_token": "tok", "hmac_secret": "sec",
+            "world_uid": 424242,
             "endpoints": {
                 "client_a": {"host": "127.0.0.1", "port": 5, "role": "Client"},
                 "client_b": {"host": "127.0.0.1", "port": 6, "role": "Client"},
@@ -646,8 +644,7 @@ def _join_descriptor(*, a_qa_profile=None, b_qa_profile=None) -> dict:
             _client("client_b", LICENSED_STEAM_IDENTITIES[1], 8081, 48611, b_qa_profile),
         ],
         "wire": {
-            "nonce": "join-nonce", "world_uid": 424242, "expiry_unix_ms": 32_500_000_000_000,
-            "operator_token": "tok", "hmac_secret": "sec",
+            "world_uid": 424242,
             "endpoints": {
                 "client_a": {"host": "127.0.0.1", "port": 5, "role": "Client"},
                 "client_b": {"host": "127.0.0.1", "port": 6, "role": "Client"},

@@ -934,6 +934,33 @@ deferred to M4 but are required before M6.**
   > **T6 unchanged; the four AT legs still ride `LiveLoopbackTransport`. Maturity: still
   > POSSIBLE, not PERFORMED** — this closes the argument-delivery seam; it does not itself
   > run an in-world qualification.
+  >
+  > **Implementation note (M6-MINT, mint the arm-wire crypto envelope per run — stop
+  > persisting secrets in the descriptor).** `t022-run-descriptor.json` persisted the live
+  > crypto envelope (`wire.{nonce, expiry_unix_ms, hmac_secret, operator_token}`) in a
+  > long-lived hand-provisioned file; nothing minted it, so the credential's lifetime was
+  > pinned to whenever a human last hand-edited the descriptor. `live_composition.py` even
+  > *claimed* "the runner mints the wire parameters" while the code copied them verbatim.
+  > **Observed live (`t_e8777cca`, 2026-07-28):** the persisted `expiry` was 106 minutes in
+  > the past, the T022 helper correctly refused to arm, and zero of ISSUE/UPGRADE/TRANSFER/
+  > TAMPER were reachable. **Delivered, engine-free Python:** `runner_core/wire_mint.py`
+  > mints ONE envelope per run from a CSPRNG (`secrets.token_urlsafe(32)`, matching the
+  > existing 43-char base64url encoding) with `expiry_unix_ms = now + TTL`; `build_live_run`
+  > calls it ONCE, upstream of BOTH consumers (the `BootstrapProvisioner` bootstrap docs and
+  > the `LiveRunConfig`/entitlement transport), rebinding the descriptor's `wire` to the
+  > minted envelope so the docs and the transport authenticate against ONE identical envelope
+  > and cannot diverge. **TTL default** is derived from the runner's OWN worst-case boot
+  > budget (`max_attempts × readiness_timeout_s × num_clients × 2.0` headroom, floored at
+  > 3600s) so a legitimate full four-AT run cannot outlive its own credential while a leftover
+  > doc goes useless quickly; an operator may override via `wire.ttl_seconds`. The descriptor
+  > now carries only topology (`wire.endpoints`/`world_uid`/`start_generation`/`entitlement`);
+  > a descriptor that still persists a secret-bearing wire field is **refused by name at
+  > compose** (`WireSecretPersistedError`) rather than silently preferring the minted value,
+  > so a stale token can never re-arm a hook. **The expiry gate itself is UNCHANGED** — the
+  > `ArmManifest` hard-expiry check stays exactly as-is; this fixes only what feeds it. The B1
+  > kill guard, B2 production-port deny, drift guard, and provenance are untouched. Nine stale
+  > `t022-run-descriptor.json.bak-*` backups (several 0600 with live secrets) were deleted.
+  > **T6 unchanged; still POSSIBLE, not PERFORMED** — no client launched, no live matrix run.
 - **M6 — live qualification (SEPARATE operator authorization, NOT this ADR).**
   On a disposable lane with two genuine licensed clients and entitlement seeded via
   the authorized admin path, the four ATs are observed in-world via helper receipts;
