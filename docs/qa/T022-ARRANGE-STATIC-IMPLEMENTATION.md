@@ -1,3 +1,9 @@
+---
+title: T022 ARRANGE — STATIC phase, as implemented
+status: current
+last_updated: 2026-07-29
+---
+
 # T022 ARRANGE — STATIC phase, as implemented
 
 Implementation notes for the STATIC phase of the T022 arrange spec (issue #450).
