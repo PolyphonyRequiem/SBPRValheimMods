@@ -56,7 +56,7 @@ part of the contract.
 | `S5-PORTS-DISJOINT` | no port claimed by two clients, or by a client and the lane | I6 |
 | `S6-ARTIFACT-CATALOGUE` | every required artifact exists in the catalogue | I1 |
 | `S7-DEST-UNDER-CLIENT-ROOT` | a client stages only under its OWN game root | A1 |
-| `S8-JOIN-TARGET` | target declared, is this run's lane, QA profile named | I5 |
+| `S8-JOIN-TARGET` | target declared, is this run's lane, QA profile named, and this client's own wrapper can actually carry it | I5 |
 
 Preserved guards, unchanged in intent: the B2 production deny (2456 Niflheim / 2466
 Heistan hold real worlds and are never a legal target — here extended to cover client
@@ -92,6 +92,34 @@ launched process's actual argv.
 
 Both clients therefore use `connect_argv`; the launcher difference is real, the
 delivery difference was not.
+
+### Join delivery is checked at the wrapper, too (#453)
+
+Declaring a join target is only half of delivery. GABS delivers neither per-launch env
+nor per-launch argv to the forked child, so the target crosses the fork in two hops:
+the runner writes `SBPR_QA_CONNECT=host:port` into a per-launch sidecar at the path
+*that* client's wrapper reads, and the wrapper sources it and turns it into a
+`+connect host:port` argv fragment just before `exec`.
+
+Hop one is manifest data. Hop two is a shell script a human edits, and it is the half
+that silently rots. So a client may name `launcher.wrapper_path`, and when it does the
+preflight reads that script and asserts the seam is present: it sources the sidecar, it
+builds the fragment, and — for a launcher that passes through Steam's `%command%` chain
+— the fragment is **appended after `"$@"`**.
+
+That last one is the argv-rotation trap above, and it is the specific regression #449
+warned about. `run_bepinex.sh` rotates argv on the SteamLaunch marker; appended args
+survive into the game, prepended args are swallowed by Steam's wrapper command. Moving
+that fragment reintroduces the original symptom exactly — a client parked at the server
+list with nothing logged. The rule is applied per launcher kind, because client_a's
+GABS wrapper execs the game binary directly and has no rotation, so its fragment sits
+before `"$@"` and that is correct.
+
+`tests/test_join_delivery.py::TestRealWrappers` runs the checker against the two
+**actually deployed** wrappers on the host, so this is re-asserted on every suite run
+rather than being a claim in a spike comment. It is verified discriminating: moving the
+real wrapper's fragment makes it fail with the remedy quoted above, both in the test and
+through `arrange --check`.
 
 **A third client is a data change.** Every check iterates `manifest.clients`; there is
 no positional `client_a` / `client_b` anywhere in the schema or the checks. Launcher

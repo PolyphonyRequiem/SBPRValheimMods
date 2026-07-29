@@ -142,13 +142,19 @@ class StaticEnvironment:
     """The injectable filesystem seam. Reads only; never writes, never spawns.
 
     `path_exists` answers "is there a file here"; `hash_file` returns the sha256 hex
-    of its bytes or None when it cannot be read. Returning None rather than raising
-    keeps an unreadable deployed copy reportable as a specific failure instead of an
-    exception that hides the other nine problems in the same manifest.
+    of its bytes or None when it cannot be read; `read_text` returns a file's text or
+    None when it cannot be read. Returning None rather than raising keeps an unreadable
+    deployed copy — or an unreadable launch wrapper — reportable as a specific failure
+    instead of an exception that hides the other nine problems in the same manifest.
+
+    `read_text` defaults to a no-op returning None so existing callers and test stubs
+    that construct a two-field environment keep working; a check that needs file text
+    reports "unreadable" rather than crashing on an environment that cannot supply it.
     """
 
     path_exists: Callable[[str], bool]
     hash_file: Callable[[str], Optional[str]]
+    read_text: Callable[[str], Optional[str]] = lambda _path: None
 
 
 def real_static_environment() -> StaticEnvironment:
@@ -164,7 +170,16 @@ def real_static_environment() -> StaticEnvironment:
         except OSError:
             return None
 
-    return StaticEnvironment(path_exists=os.path.isfile, hash_file=_hash)
+    def _read_text(path: str) -> Optional[str]:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    return StaticEnvironment(
+        path_exists=os.path.isfile, hash_file=_hash, read_text=_read_text
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -741,6 +756,13 @@ def arrange_static(
     failures.extend(_check_artifact_pins(manifest, env))
     failures.extend(_check_lane_password(manifest))
     failures.extend(_check_join_target(manifest))
+    # #453 — the second half of S8. `_check_join_target` asserts the target is DECLARED
+    # and correct; this asserts the client's own launch wrapper can actually carry it
+    # across the daemon fork. Imported here rather than at module scope to keep the
+    # import graph acyclic (join_delivery imports StaticFailure from this module).
+    from .join_delivery import check_join_delivery
+
+    failures.extend(check_join_delivery(manifest, env.read_text))
 
     return StaticReport(
         ok=not failures,
