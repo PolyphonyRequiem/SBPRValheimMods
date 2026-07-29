@@ -52,6 +52,11 @@ def _descriptor(tmp_path, **client_overrides):
     return {"wire": _WIRE, "pins": _PINS, "lane": _LANE, "clients": [a, b]}
 
 
+def _same_process_reader(path, _uid):
+    with open(path, "rb") as fh:
+        fh.read(1)
+
+
 # --------------------------------------------------------------------------- #
 # build_bootstrap_doc copies descriptor values verbatim — nothing invented.
 # --------------------------------------------------------------------------- #
@@ -103,7 +108,7 @@ def test_build_doc_fails_closed_on_empty_verbs() -> None:
 
 def test_provision_writes_a_0644_doc_per_client(tmp_path) -> None:
     descriptor = _descriptor(tmp_path)
-    prov = BootstrapProvisioner()
+    prov = BootstrapProvisioner(read_as_uid=_same_process_reader)
     written = prov.provision_from_descriptor(descriptor)
     assert sorted(p.actor for p in written) == ["client_a", "client_b"]
     for client in descriptor["clients"]:
@@ -164,7 +169,7 @@ def test_provisioned_doc_matches_the_wire_block_it_derives_from(tmp_path) -> Non
     # The stale-doc failure mode was a doc whose nonce/hashes no longer matched the
     # descriptor. An emitted doc cannot drift: assert byte-equality of the crypto fields.
     descriptor = _descriptor(tmp_path)
-    BootstrapProvisioner().provision_from_descriptor(descriptor)
+    BootstrapProvisioner(read_as_uid=_same_process_reader).provision_from_descriptor(descriptor)
     doc = json.load(open(descriptor["clients"][0]["bootstrap_path"]))
     assert doc["nonce"] == descriptor["wire"]["nonce"]
     assert doc["expiry"] == descriptor["wire"]["expiry_unix_ms"]
@@ -172,7 +177,7 @@ def test_provisioned_doc_matches_the_wire_block_it_derives_from(tmp_path) -> Non
 
 def test_remove_all_clears_secret_bearing_docs(tmp_path) -> None:
     descriptor = _descriptor(tmp_path)
-    prov = BootstrapProvisioner()
+    prov = BootstrapProvisioner(read_as_uid=_same_process_reader)
     prov.provision_from_descriptor(descriptor)
     prov.remove_all()
     for client in descriptor["clients"]:
