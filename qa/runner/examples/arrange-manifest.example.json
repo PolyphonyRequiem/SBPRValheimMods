@@ -81,7 +81,7 @@
         "server_password": {
           "path": "/run/sbpr-qa/primary/lane-pw.txt",
           "consumer_uid": 1000,
-          "mode": "0600"
+          "mode": "0644"
         }
       }
     },
@@ -123,10 +123,10 @@
       ],
       "credentials": {
         "server_password": {
-          "_comment": "consumer_uid is the load-bearing field: a 0600 file written by uid 1000 and read by uid 1001 is structurally unreadable, and the only symptom is a client sitting at a menu.",
+          "_comment": "consumer_uid is load-bearing: PROVISION opens this per-run 0644 file as uid 1001 after writing it; the containing directory is 0711 (traversable by known path, not listable).",
           "path": "/run/sbpr-qa/valbot/lane-pw.txt",
           "consumer_uid": 1001,
-          "mode": "0600"
+          "mode": "0644"
         }
       }
     }

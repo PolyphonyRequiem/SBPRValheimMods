@@ -1,8 +1,8 @@
 """M6-JOIN3 / B2 — the lane-password file has a real PRODUCER and a TEARDOWN unlink.
 
-The branch shipped a consumer (the QA FejdStartup hook reads a mode-0600 file named by
+The branch shipped a consumer (the QA FejdStartup hook reads a credential file named by
 SBPR_QA_SERVER_PASSWORD_FILE) with no producer and no teardown. These tests prove the
-producer now exists with the same discipline as BootstrapProvisioner — 0600, atomic,
+producer now exists with the same discipline as BootstrapProvisioner — atomic,
 descriptor-derived — and that the credential is unlinked on EVERY teardown path, proven
 by command output (the file is gone), not merely asserted. They also prove the value is
 never surfaced in an error message.
@@ -21,9 +21,13 @@ from runner_core.lane_password_provision import (
 )
 
 
-def _descriptor(tmp_path, *, password="t009lproof", with_file=True):
+def _descriptor(tmp_path, *, password="t009lproof", with_file=True, uid=None):
     pwfile = str(tmp_path / "lane" / "lane-password.txt")
-    client = {"actor": "client_a", "steam_id": "76561197965627562"}
+    client = {
+        "actor": "client_a",
+        "uid": os.geteuid() if uid is None else uid,
+        "steam_id": "76561197965627562",
+    }
     if with_file:
         client["server_password_file"] = pwfile
     d = {"clients": [client]}
@@ -53,6 +57,45 @@ def test_producer_writes_password_file_mode_0644(tmp_path):
     # The value is the descriptor's password, single line (consumer trims whitespace).
     with open(pwfile, encoding="utf-8") as fh:
         assert fh.read().strip() == "t009lproof"
+
+
+def test_provision_asserts_readability_as_each_consuming_uid(tmp_path):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+    reads = []
+    prov = LanePasswordProvisioner(
+        read_as_uid=lambda path, uid: reads.append((path, uid))
+    )
+
+    prov.provision_from_descriptor(d)
+
+    assert reads == [(pwfile, 1001)]
+
+
+def test_unreadable_failure_names_client_path_and_consuming_uid(tmp_path):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+
+    def unreadable(_path, _uid):
+        raise PermissionError("denied")
+
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
+        LanePasswordProvisioner(read_as_uid=unreadable).provision_from_descriptor(d)
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert pwfile in message
+    assert "uid 1001" in message
+    assert "missing or unreadable" in message
+
+
+def test_provision_repairs_existing_directory_to_0711(tmp_path):
+    d, pwfile = _descriptor(tmp_path)
+    directory = os.path.dirname(pwfile)
+    os.makedirs(directory, mode=0o700)
+    os.chmod(directory, 0o700)
+
+    LanePasswordProvisioner().provision_from_descriptor(d)
+
+    assert stat.S_IMODE(os.stat(directory).st_mode) == 0o711
 
 
 def test_producer_is_atomic_no_tmp_left_behind(tmp_path):
@@ -110,6 +153,15 @@ def test_fails_closed_when_file_named_but_no_password(tmp_path):
     prov = LanePasswordProvisioner()
     with pytest.raises(LanePasswordProvisionError):
         prov.provision_from_descriptor(d)
+
+
+def test_fails_closed_when_password_consumer_uid_is_undeclared(tmp_path):
+    d, _ = _descriptor(tmp_path)
+    del d["clients"][0]["uid"]
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
+        LanePasswordProvisioner().provision_from_descriptor(d)
+    assert "client_a" in str(exc_info.value)
+    assert "uid" in str(exc_info.value)
 
 
 def test_fails_closed_on_empty_password(tmp_path):
@@ -187,6 +239,7 @@ def test_real_environment_provisions_then_cleans_up_password_file(tmp_path):
         "clients": [
             {
                 "actor": "client_a",
+                "uid": os.geteuid(),
                 "steam_id": "76561197965627562",
                 "verbs": "Ping",
                 "loopback_port": 48610,

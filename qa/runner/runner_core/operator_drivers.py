@@ -210,8 +210,8 @@ class ClientSpec:
     # absent, refusing the join otherwise — so a human character can never be loaded. Absent
     # on legacy/unit specs; a real live descriptor always names it.
     qa_profile: Optional[str] = None
-    # Absolute path of the mode-0600 lane-password file this client's wrapper/helper reads
-    # (B2). Non-secret PATH only (the password VALUE lives inside the 0600 file the
+    # Absolute path of the lane-password file this client's wrapper/helper reads (B2).
+    # Non-secret PATH only (the password VALUE lives inside the per-run file the
     # LanePasswordProvisioner writes). Delivered as SBPR_QA_SERVER_PASSWORD_FILE via the
     # sidecar. Absent for an open/no-password lane.
     server_password_file: Optional[str] = None
@@ -387,9 +387,9 @@ CONNECT_TARGET_ENV_VAR = "SBPR_QA_CONNECT"
 # refusing the join otherwise — so a human character (pololol.fch etc.) is structurally
 # unreachable by a QA run. Non-secret (a character filename); rides the same sidecar.
 QA_PROFILE_ENV_VAR = "SBPR_QA_PROFILE"
-# M6-JOIN3 / B2: absolute PATH of the mode-0600 lane-password file the QA hook reads to set
+# M6-JOIN3 / B2: absolute PATH of the per-run lane-password file the QA hook reads to set
 # vanilla FejdStartup.ServerPassword for a password-gated lane. Non-secret PATH only — the
-# password VALUE lives inside the 0600 file (written by LanePasswordProvisioner), never here.
+# password VALUE lives inside that file (written by LanePasswordProvisioner), never here.
 SERVER_PASSWORD_FILE_ENV_VAR = "SBPR_QA_SERVER_PASSWORD_FILE"
 
 
@@ -532,7 +532,7 @@ class GabsClientBooter:
         # if SBPR_QA_PROFILE is absent, so a run that forgot it never loads a human character.
         if spec.qa_profile:
             launch_env[QA_PROFILE_ENV_VAR] = str(spec.qa_profile)
-        # M6-JOIN3 / B2: name the mode-0600 lane-password file's PATH (the value lives in that
+        # M6-JOIN3 / B2: name the lane-password file's PATH (the value lives in that
         # file, never here). Only added for a password-gated lane that named the file.
         if spec.server_password_file:
             launch_env[SERVER_PASSWORD_FILE_ENV_VAR] = str(spec.server_password_file)

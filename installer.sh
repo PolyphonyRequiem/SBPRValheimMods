@@ -331,7 +331,7 @@ export $PRELOAD_VAR="\$HERE/doorstop_libs/$DOORSTOP_LIB:\${$PRELOAD_VAR:-}"
 # user's \$HOME + \$GABS_GAME_ID (mirrored in runner_core/launch_env.py). We source it
 # here, then turn SBPR_QA_CONNECT (host:port) into a +connect argv fragment, just before
 # exec. The sidecar carries only NON-SECRET values (a bootstrap-doc path, a public
-# SteamID, a random marker, a LAN host:port); secrets live only in the mode-0600
+# SteamID, a random marker, a LAN host:port); secrets live only in the per-run
 # bootstrap doc. Absent file/var => no-op (a normal, non-QA launch is unaffected).
 SBPR_QA_LAUNCH_ENV_FILE="\${SBPR_QA_LAUNCH_ENV_FILE:-\$HOME/.local/share/sbpr-qa/launch-env/\${GABS_GAME_ID:-valheim}.env}"
 if [[ -f "\$SBPR_QA_LAUNCH_ENV_FILE" && ! -L "\$SBPR_QA_LAUNCH_ENV_FILE" ]]; then

@@ -3,7 +3,7 @@
 `t_2a954860` found the bootstrap docs were hand-authored operator inputs the runner
 never wrote — so they went stale silently (helper hash `8436e740` pinned against a
 deployed `135f6029`). These tests assert the provisioner now EMITS each doc from the
-descriptor (nothing fabricated), writes it mode 0600 (it carries the HMAC secret +
+descriptor (nothing fabricated), writes it mode 0644 (it carries the HMAC secret +
 operator token), and removes it on teardown.
 """
 from __future__ import annotations
@@ -34,6 +34,7 @@ _PINS = {p: (str(i) * 64)[:64] for i, p in enumerate(REQUIRED_PARTS, start=1)}
 def _descriptor(tmp_path, **client_overrides):
     a = {
         "actor": "client_a",
+        "uid": 1000,
         "role": "Client",
         "verbs": "Craft,UpgradeItem,ReadInventory,Ping,Cleanup,Disarm",
         "loopback_port": 48610,
@@ -42,6 +43,7 @@ def _descriptor(tmp_path, **client_overrides):
     a.update(client_overrides)
     b = {
         "actor": "client_b",
+        "uid": os.geteuid(),
         "role": "Client",
         "verbs": "Craft,UpgradeItem,ReadInventory,Ping,Cleanup,Disarm",
         "loopback_port": 48611,
@@ -96,7 +98,7 @@ def test_build_doc_fails_closed_on_empty_verbs() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The provisioner writes 0600 secret-bearing docs and removes them on teardown.
+# The provisioner writes 0644 short-TTL docs and removes them on teardown.
 # --------------------------------------------------------------------------- #
 
 def test_provision_writes_a_0644_doc_per_client(tmp_path) -> None:
@@ -120,6 +122,42 @@ def test_provision_writes_a_0644_doc_per_client(tmp_path) -> None:
         assert doc["hmacSecret"] == _WIRE["hmac_secret"]
         assert doc["operatorToken"] == _WIRE["operator_token"]
         assert doc["hashes"] == {p: _PINS[p] for p in REQUIRED_PARTS}
+
+
+def test_provision_asserts_each_bootstrap_readable_as_its_consumer(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"][0]["uid"] = 1000
+    descriptor["clients"][1]["uid"] = 1001
+    reads = []
+    provisioner = BootstrapProvisioner(
+        read_as_uid=lambda path, uid: reads.append((path, uid))
+    )
+
+    provisioner.provision_from_descriptor(descriptor)
+
+    assert reads == [
+        (descriptor["clients"][0]["bootstrap_path"], 1000),
+        (descriptor["clients"][1]["bootstrap_path"], 1001),
+    ]
+
+
+def test_unreadable_bootstrap_failure_names_client_path_and_uid(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"][1]["uid"] = 1001
+    path = descriptor["clients"][1]["bootstrap_path"]
+
+    def unreadable(actual_path, _uid):
+        if actual_path == path:
+            raise PermissionError("denied")
+
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner(read_as_uid=unreadable).provision_from_descriptor(descriptor)
+
+    message = str(exc_info.value)
+    assert "client_b" in message
+    assert path in message
+    assert "uid 1001" in message
+    assert "missing or unreadable" in message
 
 
 def test_provisioned_doc_matches_the_wire_block_it_derives_from(tmp_path) -> None:
@@ -147,6 +185,15 @@ def test_provision_fails_closed_when_a_client_lacks_bootstrap_path(tmp_path) -> 
     del descriptor["clients"][0]["bootstrap_path"]
     with pytest.raises(BootstrapProvisionError):
         BootstrapProvisioner().provision_from_descriptor(descriptor)
+
+
+def test_provision_fails_closed_when_consumer_uid_is_undeclared(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    del descriptor["clients"][0]["uid"]
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner().provision_from_descriptor(descriptor)
+    assert "client_a" in str(exc_info.value)
+    assert "uid" in str(exc_info.value)
 
 
 def test_provision_refuses_relative_bootstrap_path(tmp_path) -> None:

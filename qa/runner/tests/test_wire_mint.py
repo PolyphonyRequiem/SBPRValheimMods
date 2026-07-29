@@ -131,6 +131,7 @@ def _live_descriptor(tmp_path, *, wire_extra=None):
         "clients": [
             {
                 "actor": "client_a", "steam_id": LICENSED_STEAM_IDENTITIES[0],
+                "uid": os.geteuid(),
                 "binary_path": "/lane/a/valheim.x86_64",
                 "gabs_endpoint": "http://localhost:8080/mcp", "game_id": "valheim",
                 "bootstrap_path": boot_a,
@@ -141,6 +142,7 @@ def _live_descriptor(tmp_path, *, wire_extra=None):
             },
             {
                 "actor": "client_b", "steam_id": LICENSED_STEAM_IDENTITIES[1],
+                "uid": os.geteuid(),
                 "binary_path": "/lane/b/valheim.x86_64",
                 "gabs_endpoint": "http://localhost:8081/mcp", "game_id": "valheim",
                 "bootstrap_path": boot_b,
@@ -220,3 +222,52 @@ def test_build_live_run_refuses_persisted_secret_descriptor(tmp_path) -> None:
         with pytest.raises(WireSecretPersistedError) as ei:
             build_live_run(d)
         assert field in str(ei.value)
+
+
+def test_build_live_run_refuses_persisted_lane_password(tmp_path) -> None:
+    descriptor = _live_descriptor(tmp_path)
+    descriptor["lane_password"] = "persisted-secret"
+
+    with pytest.raises(Exception) as exc_info:
+        build_live_run(descriptor)
+
+    assert "lane_password" in str(exc_info.value)
+
+
+def test_build_live_run_mints_one_lane_password_for_server_and_clients(
+    tmp_path, monkeypatch
+) -> None:
+    from runner_core import live_composition
+
+    descriptor = _live_descriptor(tmp_path)
+    password_paths = []
+    for index, client in enumerate(descriptor["clients"]):
+        client["uid"] = os.geteuid()
+        client["server_password_file"] = str(tmp_path / f"lane-{index}.secret")
+        password_paths.append(client["server_password_file"])
+
+    monkeypatch.setattr(live_composition, "mint_lane_password", lambda: "fresh-per-run")
+    descriptor["server"]["server_binary"] = "/bin/true"
+
+    plan, env = build_live_run(descriptor)
+    process = env.spawn_lane(plan.lane)
+    env.provision_bootstraps()
+    try:
+        assert process.args[-2:] == ["-password", "fresh-per-run"]
+        for path in password_paths:
+            assert open(path, encoding="utf-8").read().strip() == "fresh-per-run"
+    finally:
+        env.cleanup_bootstraps()
+
+
+def test_build_live_run_does_not_mint_for_open_lane(tmp_path, monkeypatch) -> None:
+    from runner_core import live_composition
+
+    descriptor = _live_descriptor(tmp_path)
+
+    def unexpected_mint():
+        raise AssertionError("open lane must not mint a password")
+
+    monkeypatch.setattr(live_composition, "mint_lane_password", unexpected_mint)
+
+    build_live_run(descriptor)

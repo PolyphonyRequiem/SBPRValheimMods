@@ -623,8 +623,8 @@ def _check_lane_password(manifest: ArrangeManifest) -> List[StaticFailure]:
                     )
                 )
 
-    # Two clients must not share a credential path: a 0600 file can be readable by
-    # exactly one uid, so a shared path is unsatisfiable by construction.
+    # Credentials remain per-client even under the approved 0644 throwaway-file policy:
+    # sharing one mutable path lets one client's lifecycle overwrite/remove another's.
     by_path: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
     for client in manifest.clients:
         for name, cred in client.credentials.items():
@@ -646,9 +646,9 @@ def _check_lane_password(manifest: ArrangeManifest) -> List[StaticFailure]:
                         detail=f"credential {name!r} shares a path with a different-uid client",
                         expected=f"a credential path private to {actor}",
                         actual=f"{path} is shared by {rendered} across uids {sorted(uids)}",
-                        remedy="A mode-0600 credential is readable by exactly one uid. "
-                        "Give each client its own credential path under a directory it "
-                        "owns.",
+                        remedy="Give each client its own credential path. Per-run "
+                        "provisioning and teardown must never overwrite or remove a "
+                        "sibling client's credential.",
                     )
                 )
     return failures

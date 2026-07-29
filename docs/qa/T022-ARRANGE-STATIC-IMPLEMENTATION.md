@@ -154,7 +154,9 @@ found, because the cost being avoided is discovering them one boot cycle at a ti
 * **Whether a credential is readable in fact.** That is a VERIFY-phase test performed
   *as the consuming uid* (#455). STATIC checks only that the DECLARED consumer is the
   client's own uid — which is what catches the I4 shape (written 0600 by uid 1000,
-  consumed by uid 1001) before anything is written.
+  consumed by uid 1001) before anything is written. PROVISION now performs an immediate
+  read-back under that uid after writing (#452); see
+  `T022-ARRANGE-CREDENTIAL-PROVISIONING.md`. This does not move the fact into STATIC.
 * **Whether the join target actually arrives in the running client.** Also VERIFY.
   STATIC refuses only a delivery that is impossible by construction.
 
