@@ -30,6 +30,7 @@ Engine-free: stdlib only. No Valheim/BepInEx/Unity import, no product reference.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -310,6 +311,78 @@ class ClientLaunchError(OperatorSafetyError):
     """
 
 
+class PermanentBootPreconditionError(OperatorSafetyError):
+    """A boot precondition can NEVER be satisfied by retrying — abort, do not re-roll.
+
+    Distinct from `ClientLaunchError` (which names a per-attempt readiness failure the
+    boot loop re-rolls). A `PermanentBootPreconditionError` is a STRUCTURAL failure: a
+    fixed input that is identical on every attempt, so attempt N+1 cannot differ from
+    attempt N. The canonical case (M6-NORETRY) is a bootstrap credential whose `expiry`
+    is already in the past — the C# arming gate refuses it (`RejectReason.Expired`,
+    ArmingGate.cs:111) and never binds the loopback control port, which at the Python
+    layer is indistinguishable from a transient ValBridge wedge. So the ONLY safe place
+    to catch it is a pre-flight check BEFORE the first client is booted: booting a
+    ~90-second game client only to rediscover a past timestamp is pure waste. Raising
+    this aborts the whole boot immediately with a named, actionable diagnostic and
+    consumes ZERO launch attempts. Reserved for failures proven fixed-per-run; anything
+    that could conceivably differ on a later attempt stays RECOVERABLE (re-rolled).
+    """
+
+
+# The bootstrap-doc field carrying the hard arm expiry (unix MILLISECONDS), mirroring the
+# C# `ArmBootstrapParser` ("expiry") and `ArmingGate.ExpiryUnixMs` the helper enforces.
+# A doc whose expiry is at/before now is refused by the gate on EVERY attempt.
+BOOTSTRAP_EXPIRY_FIELD = "expiry"
+
+
+def assert_bootstrap_credential_not_expired(
+    bootstrap_path: str,
+    *,
+    read_text: Callable[[str], str],
+    now_unix_ms: Callable[[], int],
+) -> None:
+    """Pre-flight: refuse to launch when the bootstrap doc's `expiry` is not in the future.
+
+    This is the M6-NORETRY backstop's cheap half: the arm gate requires `expiry` strictly
+    in the future (ArmingGate.cs:110-112). A past `expiry` is a PERMANENT precondition —
+    no retry can make a fixed past timestamp become future — so it is checked here, before
+    any client boots, and raises `PermanentBootPreconditionError` (aborting with zero
+    launch attempts) rather than letting the boot loop burn its full budget arming against
+    a dead credential (the observed 2026-07-28 waste).
+
+    Fail-SAFE on uncertainty (card's explicit rule): if the doc cannot be read, is not JSON,
+    or carries no usable integer `expiry`, this does NOT raise — the credential's validity is
+    then genuinely unknown, so we preserve current behaviour and let the normal boot path run
+    (the C# gate remains the authoritative check). ONLY a doc that unambiguously proves a past
+    expiry is treated as permanent.
+    """
+    try:
+        raw = read_text(bootstrap_path)
+    except Exception:  # noqa: BLE001 — unreadable => unknown => fail-safe (do not abort)
+        return
+    try:
+        doc = json.loads(raw)
+    except (ValueError, TypeError):
+        return  # not JSON => unknown => fail-safe
+    if not isinstance(doc, Mapping) or BOOTSTRAP_EXPIRY_FIELD not in doc:
+        return  # no expiry field => unknown => fail-safe
+    try:
+        expiry_ms = int(doc[BOOTSTRAP_EXPIRY_FIELD])
+    except (ValueError, TypeError):
+        return  # non-integer expiry => unknown => fail-safe
+    now_ms = int(now_unix_ms())
+    if expiry_ms <= now_ms:
+        stale_ms = now_ms - expiry_ms
+        raise PermanentBootPreconditionError(
+            f"bootstrap credential at {bootstrap_path!r} is EXPIRED: expiry={expiry_ms} "
+            f"unix-ms is {stale_ms} ms ({stale_ms / 60000.0:.1f} min) in the past "
+            f"(now={now_ms}). The arming gate refuses an at/past expiry on EVERY attempt "
+            "(RejectReason.Expired), so no retry can succeed — aborting the boot with zero "
+            "launch attempts. Re-mint a fresh bootstrap envelope (M6-MINT) and re-run."
+        )
+
+
+
 @dataclass(frozen=True)
 class BootRetryPolicy:
     """Retry-with-readiness-poll envelope for the known ValBridge startup wedge.
@@ -455,6 +528,8 @@ class GabsClientBooter:
         terminate: Callable[[HarnessInstance], None],
         sleep: Callable[[float], None],
         policy: Optional[BootRetryPolicy] = None,
+        read_bootstrap_text: Optional[Callable[[str], str]] = None,
+        now_unix_ms: Optional[Callable[[], int]] = None,
     ) -> None:
         self._apply_env = apply_env
         self._gabs_start = gabs_start
@@ -464,6 +539,13 @@ class GabsClientBooter:
         self._terminate = terminate
         self._sleep = sleep
         self._policy = policy or BootRetryPolicy()
+        # M6-NORETRY pre-flight seams: read the bootstrap doc's text and read "now" in
+        # unix-ms, injected so the credential-expiry pre-flight is unit-testable with NO
+        # real file/clock. Defaults keep the check a no-op for legacy/unit callers that
+        # do not wire them (fail-safe: absent a reader, the boot path is unchanged); the
+        # REAL operator env wires both, so a live run always pre-flights the credential.
+        self._read_bootstrap_text = read_bootstrap_text
+        self._now_unix_ms = now_unix_ms
         # Provenance registry: maps a returned request handle to the instance the
         # harness recorded launching it. kill() refuses any handle absent from here.
         self._instances: Dict[int, HarnessInstance] = {}
@@ -536,6 +618,26 @@ class GabsClientBooter:
             launch_env_path=str(spec.launch_env_path),
         )
 
+    def _preflight_permanent_preconditions(self, spec: ClientSpec) -> None:
+        """Verify PERMANENT (retry-invariant) preconditions before the first boot.
+
+        Currently: the bootstrap credential's `expiry` must be in the future. Runs only
+        when BOTH pre-flight seams are wired AND the spec names a bootstrap doc path;
+        otherwise it is a fail-safe no-op (legacy/unit callers, or a spec whose
+        bootstrap_path is absent). Raises `PermanentBootPreconditionError` on a proven
+        past expiry — the ONE structurally-unrecoverable case — aborting `boot` before
+        any launch attempt is consumed.
+        """
+        if self._read_bootstrap_text is None or self._now_unix_ms is None:
+            return
+        if not spec.bootstrap_path:
+            return
+        assert_bootstrap_credential_not_expired(
+            str(spec.bootstrap_path),
+            read_text=self._read_bootstrap_text,
+            now_unix_ms=self._now_unix_ms,
+        )
+
     def boot(self, spec: ClientSpec) -> ClientLaunchRequest:
         """Boot the client to armed readiness, re-rolling on the ValBridge wedge.
 
@@ -546,6 +648,18 @@ class GabsClientBooter:
         Never returns a dead handle, and never a handle it cannot safely tear down.
         """
         request = self.build_request(spec)
+        # M6-NORETRY PRE-FLIGHT: a PERMANENT precondition is verified BEFORE the first
+        # client boots, so a structurally-unrecoverable failure consumes ZERO launch
+        # attempts instead of burning the whole re-roll budget arming against it. The
+        # observed case (2026-07-28, run t_e8777cca) is an already-expired bootstrap
+        # credential: the C# arm gate refuses an at/past expiry on every attempt
+        # (RejectReason.Expired), which the Python layer sees only as the loopback port
+        # never accepting — indistinguishable from a transient ValBridge wedge — so it
+        # can ONLY be caught here, cheaply, from the doc itself. This raises
+        # PermanentBootPreconditionError (aborting the boot) and never enters the loop.
+        # It is fail-SAFE: an unreadable / unparseable / expiry-less doc does NOT abort
+        # (the credential's validity is then unknown → preserve current retry behaviour).
+        self._preflight_permanent_preconditions(spec)
         last_stage = "no attempt ran"
         last_instance: Optional[HarnessInstance] = None
         for attempt in range(1, self._policy.max_attempts + 1):

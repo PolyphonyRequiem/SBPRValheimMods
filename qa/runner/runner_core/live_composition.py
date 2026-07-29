@@ -592,6 +592,16 @@ def real_operator_environment(
         except OSError:
             return False
 
+    def _read_bootstrap_text(path: str) -> str:
+        # Read the bootstrap doc so the M6-NORETRY pre-flight can inspect its `expiry`
+        # BEFORE any client boots. Real file I/O; the pre-flight itself is fail-safe on
+        # any read/parse error (unreadable => unknown => do not abort).
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def _now_unix_ms() -> int:
+        return int(_time.time() * 1000)
+
     booter = GabsClientBooter(
         apply_env=_apply_env,
         gabs_start=_gabs_start,
@@ -601,6 +611,8 @@ def real_operator_environment(
         terminate=_terminate_instance,
         sleep=_time.sleep,
         policy=config.boot_policy,
+        read_bootstrap_text=_read_bootstrap_text,
+        now_unix_ms=_now_unix_ms,
     )
 
     def spawn_client(spec: ClientSpec) -> ClientLaunchRequest:

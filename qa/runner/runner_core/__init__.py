@@ -55,7 +55,9 @@ from .operator_drivers import (
     LaneLauncher,
     LaneSpec,
     OperatorSafetyError,
+    PermanentBootPreconditionError,
     SeedResult,
+    assert_bootstrap_credential_not_expired,
 )
 from .orchestrator import RunnerVerdict, T022RunOrchestrator
 from .timeouts import PhaseBudget, PhaseTimeoutError, PhaseTimeoutTransport
@@ -83,6 +85,7 @@ __all__ = [
     "LiveRunConfig",
     "LiveRunReport",
     "OperatorSafetyError",
+    "PermanentBootPreconditionError",
     "PhaseBudget",
     "PhaseTimeoutError",
     "PhaseTimeoutTransport",
@@ -92,6 +95,7 @@ __all__ = [
     "RunnerVerdict",
     "SeedResult",
     "T022RunOrchestrator",
+    "assert_bootstrap_credential_not_expired",
     "build_live_run",
     "evaluate_live_preflight",
     "real_operator_environment",
