@@ -165,9 +165,40 @@ class TestShippedExample:
         )
 
     def test_example_only_fails_on_the_placeholder_pins(self):
-        """Every check except the artifact pins should pass; the pins are dummies."""
-        from runner_core.arrange_static import P_ARTIFACT_PINS, arrange_static
+        """Every check except the artifact pins should pass; the pins are dummies.
 
-        report = arrange_static(json.loads(EXAMPLE.read_text(encoding="utf-8")))
+        The example names REAL host paths (artifact sources, launch wrappers) because
+        it documents the actual rig. Those files exist only on the QA host, so this
+        test must not depend on them: it supplies a stub environment where every named
+        file is present and correct. Otherwise the test asserts "this machine is the QA
+        box" rather than "the example is well-formed", which is how it broke in CI.
+
+        The wrapper text is the real deployed shape — sources the sidecar, builds the
+        fragment, appends it after "$@" for the Steam path — so the join-delivery seam
+        (#453) is still genuinely exercised against the example's declared launchers.
+        """
+        from runner_core.arrange_static import (
+            P_ARTIFACT_PINS,
+            StaticEnvironment,
+            arrange_static,
+        )
+
+        wrapper = (
+            'SBPR_QA_LAUNCH_ENV_FILE="$HOME/.local/share/sbpr-qa/launch-env/x.env"\n'
+            '. "$SBPR_QA_LAUNCH_ENV_FILE"\n'
+            "SBPR_QA_CONNECT_ARGS=()\n"
+            'if [[ -n "${SBPR_QA_CONNECT:-}" ]]; then\n'
+            '  SBPR_QA_CONNECT_ARGS=(+connect "$SBPR_QA_CONNECT")\n'
+            "fi\n"
+            'exec "$RUNNER" "$@" "${SBPR_QA_CONNECT_ARGS[@]}"\n'
+        )
+        env = StaticEnvironment(
+            path_exists=lambda p: True,
+            # Any hash: the pins are deliberate placeholders, so S3 is the one
+            # precondition this example is expected to fail.
+            hash_file=lambda p: "0" * 64,
+            read_text=lambda p: wrapper,
+        )
+        report = arrange_static(json.loads(EXAMPLE.read_text(encoding="utf-8")), env)
         offenders = {f.precondition for f in report.failures}
         assert offenders <= {P_ARTIFACT_PINS}, report.render()
