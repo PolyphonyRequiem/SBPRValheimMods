@@ -206,8 +206,36 @@ def test_build_live_run_mints_expiry_in_the_future_and_shares_one_envelope(tmp_p
     assert doc["hmacSecret"] == rc.hmac_secret, "hmac_secret must not diverge"
     assert doc["operatorToken"] == rc.operator_token, "operator_token must not diverge"
     assert doc["expiry"] == rc.expiry_unix_ms, "expiry must not diverge"
+    # THE PLAN'S expiry must ALSO come from the minted envelope, not from a persisted
+    # top-level `descriptor["expiry"]`. This assertion was missing, and its absence let
+    # a stale read survive M6-MINT: build_live_run still did `expiry=descriptor["expiry"]`
+    # while every other consumer used the fresh envelope. A descriptor-resident timestamp
+    # nothing refreshes is precisely the wall-3 defect (observed 106 minutes stale).
+    assert plan.expiry == rc.expiry_unix_ms, (
+        "plan.expiry must come from the MINTED envelope, not a persisted descriptor field"
+    )
+    assert plan.expiry > before_ms, "plan.expiry must be in the future at compose time"
     # And the minted values are genuinely fresh (43-char CSPRNG tokens), not "tok"/"sec".
     assert len(rc.operator_token) == 43 and len(rc.hmac_secret) == 43 and len(rc.nonce) == 43
+
+
+def test_plan_expiry_ignores_a_stale_persisted_top_level_expiry(tmp_path) -> None:
+    """A descriptor carrying a LONG-PAST top-level `expiry` must not poison the plan.
+
+    Top-level `expiry` is not on the SECRET_WIRE_FIELDS deny-list (that guards the
+    `wire` block), so a stale value here is NOT refused at the door — it would simply
+    be read and used. That is exactly how the stale read hid. The minted envelope is
+    the sole authority, so a rotten persisted value must be ignored entirely.
+    """
+    descriptor = _live_descriptor(tmp_path)
+    descriptor["expiry"] = int(time.time() * 1000) - 106 * 60 * 1000  # 106 min stale
+
+    plan, _env = build_live_run(descriptor)
+
+    assert plan.expiry > int(time.time() * 1000), (
+        "a stale persisted top-level `expiry` must never reach the plan"
+    )
+    assert plan.expiry == plan.run_config.expiry_unix_ms
 
 
 def test_build_live_run_reproduces_the_live_defect_now_fixed(tmp_path) -> None:

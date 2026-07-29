@@ -1088,7 +1088,13 @@ def build_live_run(
         world_uid=str(descriptor["world_uid"]),
         world_name=str(descriptor["world_name"]),
         run_nonce=str(wire["nonce"]),
-        expiry=int(descriptor["expiry"]),
+        # Post-M6-MINT the MINTED envelope is the sole authority on expiry. Reading a
+        # persisted top-level `expiry` here would reintroduce exactly the wall MINT
+        # closed: a descriptor-resident timestamp that nothing refreshes, which went
+        # 106 minutes stale and made the helper correctly refuse to arm. `wire` at this
+        # point is the composed (minted) envelope, so this is always fresh and always
+        # agrees with the bootstrap docs + live transport, which share that one envelope.
+        expiry=int(wire["expiry_unix_ms"]),
         phase_budget=phase_budget,
         expected_conn_gen={k: int(v) for k, v in descriptor["expected_conn_gen"].items()},
         actor_identity={k: str(v) for k, v in descriptor["actor_identity"].items()},
