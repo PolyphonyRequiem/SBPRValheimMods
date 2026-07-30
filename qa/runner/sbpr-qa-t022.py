@@ -24,6 +24,17 @@ orchestrator against the deterministic in-process `FakeTransport` with NO game I
 network I/O, and NO file mutation. Actually driving a two-client cold run in-world is a
 separate operator-authorized action, never triggered by this file's import or by the
 test suite.
+
+ARRANGE (M6-CUTOVER / #457 migrate): with `--arrange-manifest`, `--live` arranges the
+run through the SINGLE arrange authority before anything launches — the whole chain
+(SWEEP -> STATIC -> STAGE -> VERIFY, `runner_core/arrange_cutover.py`) must reach READY
+or the run is REFUSED. Previously the runner arranged itself from the run DESCRIPTOR
+while the arrange MANIFEST described the same run independently: two descriptions of
+one run, either of which can be right while the other is wrong, with a client at a menu
+as the only symptom. The gate is fail-closed and is NOT a retry — arranging is a
+precondition, and re-launching to paper over a missing one is forbidden. READY is
+pre-launch evidence, never proof a client joined: V3 holds by `staged-delivery` here,
+because no process yet exists whose real kernel argv could be read.
 """
 from __future__ import annotations
 
@@ -89,6 +100,18 @@ def build_parser() -> argparse.ArgumentParser:
             "preflight UNLOCKS, the runner builds the live transport + the four operator "
             "drivers from this descriptor and drives a qualification run. Omit it and --live "
             "runs the preflight only (capability check), refusing to execute."
+        ),
+    )
+    parser.add_argument(
+        "--arrange-manifest",
+        metavar="PATH",
+        help=(
+            "Path to the arrange manifest JSON (kind sbpr-qa-arrange-manifest). With "
+            "--live the runner ARRANGES THROUGH IT (#457 migrate): the whole arrange "
+            "chain — SWEEP, STATIC, STAGE, VERIFY — runs to READY before any client "
+            "launches, and a run that is not READY is refused. This is the single "
+            "arrange authority of T022-ARRANGE-SPEC §3 P1; the descriptor describes "
+            "the RUN, the manifest describes the ARRANGEMENT."
         ),
     )
     parser.add_argument(
@@ -242,6 +265,30 @@ def _run_live(args: argparse.Namespace, *, live_runner=None, steam_probe=None) -
         return 2
     print(f"sbpr-qa-t022 [LIVE-PREFLIGHT] {steam.message}")
 
+    # ARRANGE (#457 migrate). The run is arranged by the SINGLE arrange authority
+    # (§3 P1) before anything launches: SWEEP -> STATIC -> STAGE -> VERIFY, to READY.
+    #
+    # Why this gate exists at all. The runner previously arranged itself from the run
+    # DESCRIPTOR — deriving credentials, sidecars and launch env inside
+    # `build_live_run` — while the arrange MANIFEST and its four phases described the
+    # same run independently. Two descriptions of one run is the "four mechanisms that
+    # do not know about each other" defect (§0) reproduced inside the runner: either
+    # can be right while the other is wrong, and the only symptom is a client sitting
+    # at a menu, ~10 minutes per diagnosis cycle.
+    #
+    # It is fail-closed and it is NOT a retry. A run that does not reach READY is
+    # refused, naming the phase and the precondition — arranging is a precondition, and
+    # re-running a launch to paper over a missing one is exactly what §6 forbids.
+    #
+    # Opt-in during the migrate step: with no --arrange-manifest the descriptor-derived
+    # path still runs, so this commit does not require every caller to move at once.
+    # That is the expand-contract discipline, not a permanent second path — the
+    # contract step removes the alternative.
+    if args.arrange_manifest:
+        code = _arrange_before_launch(args.arrange_manifest)
+        if code != 0:
+            return code
+
     runner = live_runner if live_runner is not None else _default_live_runner
     print("sbpr-qa-t022 [LIVE-EXECUTE] preflight UNLOCKED — composing drivers and driving the run.")
     report = runner(args.run_descriptor)
@@ -264,6 +311,49 @@ def _run_live(args: argparse.Namespace, *, live_runner=None, steam_probe=None) -
         print(f"  failure: [{ev.failure_kind}] {ev.failure_reason}")
     _print_teardown(report)
     return 0 if verdict.passed else 1
+
+
+def _arrange_before_launch(manifest_path: str) -> int:
+    """Arrange the run through the single authority. 0 = READY, non-zero = refused.
+
+    Runs the whole chain (SWEEP -> STATIC -> STAGE -> VERIFY) and returns 0 only when
+    every phase passed. On anything else it prints the phase-by-phase report — which
+    names the failing precondition, the client, and expected-vs-actual — and refuses,
+    so a launch never proceeds on an arrangement nobody stands behind.
+
+    READY IS NOT PROOF OF A JOIN. Because arrange precedes launch, VERIFY's V3
+    criterion is satisfied by the `staged-delivery` rung, never `live-argv`: no process
+    exists yet whose real kernel argv could be read. The report carries that
+    distinction and this function does not collapse it.
+    """
+    import os as _os
+
+    from runner_core.arrange_cutover import arrange_cutover, real_cutover_environment
+    from runner_core.arrange_manifest import ArrangeManifest, ArrangeManifestError
+
+    raw = _load_json(manifest_path, "arrange manifest")
+    if raw is None:
+        return 2
+    try:
+        manifest = ArrangeManifest.parse(raw)
+    except ArrangeManifestError as exc:
+        print(f"sbpr-qa-t022: --live REFUSED — arrange manifest is not well-formed: {exc}")
+        return 2
+
+    print("sbpr-qa-t022 [LIVE-ARRANGE] arranging through the single authority (#457).")
+    # Explicit, not defaulted (§3 P9): the chain sweeps files, signals processes,
+    # writes a filesystem and reads another identity's credentials. Deciding to do that
+    # on THIS machine as THIS identity belongs at the construction site.
+    report = arrange_cutover(
+        manifest, real_cutover_environment(arranging_uid=_os.geteuid())
+    )
+    print(report.render())
+    if not report.ready:
+        print("sbpr-qa-t022: --live REFUSED — the run did not reach READY (fail-closed).")
+        print("  Arranging is a PRECONDITION. Fix what the report names above; a retry")
+        print("  would only re-discover the same missing precondition ten minutes later.")
+        return 2
+    return 0
 
 
 def _print_teardown(report) -> None:
