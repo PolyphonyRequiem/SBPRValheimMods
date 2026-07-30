@@ -53,6 +53,10 @@ def fs(paths):
     return StaticEnvironment(
         path_exists=lambda p: p in paths,
         hash_file=lambda p: paths.get(p),
+        # This module's cases are about hashes and plugin trees, not wrapper text.
+        # The seam is mandatory (#467), so the stub is explicit: no wrapper is
+        # readable here, and the join-delivery check reports that by name.
+        read_text=lambda _p: None,
         find_named_files=lambda root, name: tuple(
             sorted(
                 p
@@ -229,6 +233,7 @@ class TestGolden:
             path_exists=lambda p: touched.append(("exists", p)) or (p.startswith("/build/")),
             hash_file=lambda p: touched.append(("hash", p))
             or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
+            read_text=lambda _p: None,
             find_named_files=lambda root, name: touched.append(("find", f"{root}/{name}"))
             or (),
         )
@@ -495,6 +500,7 @@ class TestDisabledComponents:
         env = StaticEnvironment(
             path_exists=lambda p: p.startswith("/build/out/"),
             hash_file=lambda p: H_HARNESS if "QaHarness" in p else H_PRODUCT,
+            read_text=lambda _p: None,
             find_named_files=lambda _root, _name: None,
         )
         report = arrange_static(m, env)
@@ -689,6 +695,7 @@ class TestArtifactPins:
             path_exists=lambda p: p.startswith("/build/"),
             hash_file=lambda p: hashed.append(p)
             or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
+            read_text=lambda _p: None,
             find_named_files=lambda _root, _name: (),
         )
         arrange_static(golden_manifest(), env)
@@ -973,3 +980,66 @@ class TestManifestModel:
         m["artifacts"].append(dict(m["artifacts"][0]))
         with pytest.raises(ArrangeManifestError, match="duplicate artifact"):
             ArrangeManifest.parse(m)
+
+
+class TestProofSeamsAreMandatory:
+    """#467 — every StaticEnvironment seam is a mandatory constructor dependency.
+
+    PR #465's independent review required `find_named_files` to be non-defaulting so a
+    caller cannot accidentally omit full-tree disabled-component verification. Later
+    overlapping merges (#452/PR #466, #453/PR #464) restored source-compatible defaults
+    and silently undid that. The defaults failed closed (`None` == unverifiable), so
+    this was never a fail-open bypass — but an omitted seam then looked exactly like an
+    attempted-and-failed proof, which is the diagnostic ambiguity the arrange
+    preconditions exist to eliminate. These cases pin the contract so a third merge
+    cannot quietly re-default it.
+    """
+
+    def test_find_named_files_is_mandatory(self):
+        with pytest.raises(TypeError):
+            StaticEnvironment(  # type: ignore[call-arg]
+                path_exists=lambda _p: False,
+                hash_file=lambda _p: None,
+                read_text=lambda _p: None,
+            )
+
+    def test_read_text_is_mandatory(self):
+        with pytest.raises(TypeError):
+            StaticEnvironment(  # type: ignore[call-arg]
+                path_exists=lambda _p: False,
+                hash_file=lambda _p: None,
+                find_named_files=lambda _root, _name: None,
+            )
+
+    def test_two_field_environment_is_refused(self):
+        with pytest.raises(TypeError):
+            StaticEnvironment(  # type: ignore[call-arg]
+                path_exists=lambda _p: False,
+                hash_file=lambda _p: None,
+            )
+
+    def test_no_static_environment_field_carries_a_default(self):
+        """Structural guard: assert on the dataclass fields, not on one call shape.
+
+        A future merge could re-add a default to a seam this suite happens not to
+        omit in any explicit case. Reading the field metadata catches that directly.
+        """
+        import dataclasses
+
+        for field in dataclasses.fields(StaticEnvironment):
+            assert field.default is dataclasses.MISSING, (
+                f"StaticEnvironment.{field.name} has a default; every proof seam must "
+                "be mandatory so omitted wiring is impossible to construct (#467)"
+            )
+            assert field.default_factory is dataclasses.MISSING, (
+                f"StaticEnvironment.{field.name} has a default_factory; see #467"
+            )
+
+    def test_real_static_environment_supplies_every_seam(self):
+        env = real_static_environment()
+        import dataclasses
+
+        for field in dataclasses.fields(StaticEnvironment):
+            assert callable(getattr(env, field.name)), (
+                f"real_static_environment() left {field.name} unwired"
+            )

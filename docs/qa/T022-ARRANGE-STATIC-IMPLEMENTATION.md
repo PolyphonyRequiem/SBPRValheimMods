@@ -1,7 +1,7 @@
 ---
 title: T022 ARRANGE — STATIC phase, as implemented
 status: current
-last_updated: 2026-07-30
+last_updated: 2026-07-29
 ---
 
 # T022 ARRANGE — STATIC phase, as implemented
@@ -197,6 +197,34 @@ The only environment contact is `StaticEnvironment.path_exists` / `hash_file` /
 `read_text` / `find_named_files`, all read-only and injected.
 `real_static_environment()` wires the stdlib calls; the test suite wires stubs.
 Importing or unit-testing either module touches nothing at all.
+
+### Every seam is mandatory (#467)
+
+None of the four fields carries a default. A caller that omits one cannot be
+constructed — `StaticEnvironment(...)` raises `TypeError`.
+
+This was accepted in PR #465's independent review for `find_named_files` and then
+silently undone: overlapping merges (#452 / PR #466 and #453 / PR #464) restored
+source-compatible defaults so older callers and focused test stubs kept working.
+#467 restores the contract and extends it to `read_text`, which carries the #453
+wrapper-delivery proof and has the identical failure mode.
+
+The defaults failed *closed* — an omitted seam returned `None`, which every check
+reads as "unverifiable" — so this was never a fail-open security bypass. The defect
+was diagnostic. An omitted seam and a genuinely unreadable resource produced the
+same report line, so "nobody wired the full-tree proof" was indistinguishable from
+"the proof ran and the tree could not be read." Since the entire point of the STATIC
+phase is to name each failure precisely enough to act on, an ambiguity of that shape
+is a defect in its own right.
+
+A caller that legitimately cannot supply a seam passes an explicit stub
+(`read_text=lambda _p: None`) and thereby records that choice in its own source,
+where a reviewer can see it.
+
+`TestProofSeamsAreMandatory` in `qa/runner/tests/test_arrange_static.py` pins this
+both by call shape and by reading `dataclasses.fields(StaticEnvironment)` directly,
+so a fourth overlapping merge cannot re-default a seam that no explicit case happens
+to omit.
 
 On the dual-user rig, the uid-1001 plugin tree is intentionally not enumerable by uid
 1000. Run the real two-client preflight through the existing privileged operator seam

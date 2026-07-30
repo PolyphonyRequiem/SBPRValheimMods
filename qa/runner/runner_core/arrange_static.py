@@ -152,17 +152,22 @@ class StaticEnvironment:
     unreadable deployed copy, launch wrapper, or plugin tree reportable as a specific
     failure instead of an exception that hides the other problems in the manifest.
 
-    The newer seams default to no-op failures so older callers and focused test stubs
-    remain source-compatible; a check that needs an omitted proof reports the resource
-    unreadable rather than crashing.
+    EVERY seam is a MANDATORY constructor dependency — none of them defaults (#467).
+    PR #465's review required this for `find_named_files` specifically: a defaulted
+    proof seam lets a caller omit full-tree verification by accident, and the omission
+    is then indistinguishable from a genuine "tree unverifiable" result at report time.
+    The default failed closed, so this was never a fail-open bypass — but a diagnostic
+    that cannot tell "nobody wired the proof" from "the proof was attempted and failed"
+    is the precise ambiguity these preconditions exist to remove. `read_text` carries
+    the #453 wrapper-delivery proof and has the identical failure mode, so it is
+    mandatory on the same grounds. A caller that cannot supply a seam must pass an
+    explicit stub and thereby say so in its own source.
     """
 
     path_exists: Callable[[str], bool]
     hash_file: Callable[[str], Optional[str]]
-    read_text: Callable[[str], Optional[str]] = lambda _path: None
-    find_named_files: Callable[[str, str], Optional[Sequence[str]]] = (
-        lambda _root, _name: None
-    )
+    read_text: Callable[[str], Optional[str]]
+    find_named_files: Callable[[str, str], Optional[Sequence[str]]]
 
 
 def real_static_environment() -> StaticEnvironment:

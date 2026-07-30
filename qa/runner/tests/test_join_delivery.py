@@ -297,14 +297,29 @@ class TestWiredIntoStaticPhase:
             path_exists=lambda p: False,
             hash_file=lambda p: None,
             read_text=lambda p: ROTATION_BROKEN_STEAM_WRAPPER,
+            # This case is about the wrapper text only; the plugin-tree proof is
+            # deliberately stubbed as unverifiable and is not what is asserted here.
+            find_named_files=lambda _root, _name: None,
         )
         report = arrange_static(manifest_with(b_wrapper="/b.sh"), env)
         assert not report.ok
         assert any("PREPENDED" in f.detail for f in report.failures)
 
-    def test_static_environment_without_read_text_still_works(self):
-        """Back-compat: a two-field environment reports 'unreadable', never crashes."""
-        env = StaticEnvironment(path_exists=lambda p: False, hash_file=lambda p: None)
+    def test_unreadable_wrapper_reports_rather_than_crashes(self):
+        """A read_text seam that returns None reports 'unreadable', never raises.
+
+        Renamed from a back-compat case (#467): the environment no longer has an
+        optional field to omit, so what this actually pins is the None-not-raise
+        contract — an unreadable wrapper is a named failure, not an exception that
+        would hide every other problem in the same manifest.
+        """
+        env = StaticEnvironment(
+            path_exists=lambda p: False,
+            hash_file=lambda p: None,
+            # No wrapper text is readable — that unreadability IS the assertion here.
+            read_text=lambda _p: None,
+            find_named_files=lambda _root, _name: None,
+        )
         report = arrange_static(manifest_with(b_wrapper="/b.sh"), env)
         assert any("missing or unreadable" in f.detail for f in report.failures)
 
