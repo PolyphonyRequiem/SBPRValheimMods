@@ -251,6 +251,71 @@ def test_composition_refuses_foreign_running_client() -> None:
     assert rec.adminlist_written == [b"admin1\n"]
 
 
+def test_cleanup_bootstraps_removes_sidecar_when_client_never_arms() -> None:
+    # REGRESSION (t_96e0d1e1): a client whose boot FAILS to arm never yields a
+    # ClientLaunchRequest handle, so stop_client's per-handle sidecar remove() never
+    # fires. The sidecar (0644, written by _apply_env BEFORE the boot loop returns a
+    # handle) must therefore be swept by the composition's top-level cleanup_bootstraps()
+    # via sidecar_writer.remove_all() — not left on disk between runs.
+    import os as _os
+    import tempfile
+
+    from runner_core.launch_env import SIDECAR_SUBDIR
+    from runner_core.live_composition import RealOperatorConfig, real_operator_environment
+    from runner_core.live_transport import ChannelEndpoint, EntitlementDeliveryConfig
+    from runner_core.operator_drivers import (
+        BootRetryPolicy,
+        ClientLaunchError,
+        ClientSpec,
+        LICENSED_STEAM_IDENTITIES,
+    )
+
+    with tempfile.TemporaryDirectory() as home:
+        game_id = "valheim"
+        sidecar = _os.path.join(home, SIDECAR_SUBDIR, f"{game_id}.env")
+        delivery = EntitlementDeliveryConfig(
+            endpoint=ChannelEndpoint(host="127.0.0.1", port=5, role="Server"),
+            operator_token="tok", hmac_secret="sec", nonce=NONCE,
+            world_uid=1, expiry_unix_ms=32_000_000_000_000,
+        )
+        config = RealOperatorConfig(
+            server_binary="/nonexistent/server", server_args=(),
+            server_ready_log="/nonexistent/log", server_ready_marker="ready",
+            client_binary="/nonexistent/valheim.x86_64",
+            adminlist_path="/nonexistent/adminlist.txt",
+            entitlement_delivery=delivery,
+            # Single boot attempt, tiny timeouts: the GABS HTTP call to an unbound port
+            # fails fast, so boot() raises ClientLaunchError in well under a second.
+            boot_policy=BootRetryPolicy(max_attempts=1, readiness_timeout_s=0.01,
+                                        poll_interval_s=0.01),
+            gabs_request_timeout_s=0.1, control_probe_timeout_s=0.1,
+        )
+        env = real_operator_environment(config)
+        spec = ClientSpec(
+            actor="client_a", steam_id=LICENSED_STEAM_IDENTITIES[0],
+            binary_path="/lane/a/valheim.x86_64",
+            # A GABS endpoint on a port nothing is listening on: games_start fails,
+            # boot re-rolls out of attempts and raises — no handle ever returned. The
+            # sidecar was already written by _apply_env before that failure.
+            gabs_endpoint="http://127.0.0.1:1/mcp", game_id=game_id,
+            bootstrap_path=_os.path.join(home, "boot.json"),
+            connect_host="127.0.0.1", connect_port=2476, loopback_port=48610,
+            launch_env_path=sidecar,
+        )
+
+        with pytest.raises(ClientLaunchError):
+            env.spawn_client(spec)
+        # The failed boot left the sidecar on disk (the leak this card is about)...
+        assert os.path.isfile(sidecar), "precondition: failed boot writes the sidecar"
+
+        # ...and the composition's top-level teardown sweeps it via remove_all().
+        env.cleanup_bootstraps()
+        assert not os.path.exists(sidecar), (
+            "cleanup_bootstraps must unlink a sidecar even when no client handle "
+            "reached stop_client (t_96e0d1e1 regression)"
+        )
+
+
 def test_plan_rejects_production_port() -> None:
     with pytest.raises(OperatorSafetyError):
         _plan(lane=LaneSpec("prod", "Niflheim", 1, 2456))
