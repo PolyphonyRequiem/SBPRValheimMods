@@ -634,6 +634,50 @@ dual-user rig by decision, because that topology is the only one that can observ
 account-scoped concurrent admission and ZDO ownership contention. Not required ≠ not
 valuable; the two answers are compatible and both stand.
 
+**Q2 addendum (2026-07-30) — the answer splits by phase, and the SETUP half forces two
+accounts on a mechanism the spike did not examine.**
+
+The "not required" finding is exact and confirmed by code for what it covers — the
+TRANSFER *assertion*:
+
+- The leg is `ActionRequest("req-transfer", "client_b", "ReadItem", ...)` asserting
+  `observed.verdict == "valid"` (`qa/runner/fsm/fsm.py:117-121`) — a keyless READ.
+- `MasterworkDedicatedDeliveryObserver` is asymmetric by design: the ISSUANCE handler
+  calls `ResolveRequesterActivation(...)` and fails closed without a bound principal
+  holding active Masterwork; the VALIDATION handler calls `Service.Validate(request, key)`
+  with **no identity resolution at all**. A reader needs no entitlement, no relationship,
+  and no key — it relays fields it already holds.
+
+So TRANSFER itself would be satisfied by a second character on ONE account.
+
+**But the fixture the leg reads cannot be produced on one account.** Establishing a
+stamped item requires a Masterwork purchase, and that purchase is gated by two
+independent account-scoped checks in `Relationships.cs`:
+
+- `HasSiblingBondOtherThan` (`:254`) — if any OTHER character on the same account holds a
+  reservation at that Stone, reject `SiblingCharacterActive`. The comment is explicit:
+  a character "cannot evade the invariant by holding Bond and Attunement via separate rows."
+- `HasActive` (`:258`) — the SAME character holding a relationship there is rejected
+  `RelationshipConflict`, unconditionally.
+
+Together these forbid both single-account shapes: one character cannot hold Bond and
+Attunement at one Stone, and two characters on one account cannot split them. Offer needs
+a Bond; buy needs an Attunement. The buyer must therefore be a genuinely different
+account. `RelationshipPolicy.For` (`:126-133`) relaxes only *Attunement* exclusivity, and
+only for a **Community** Stone — Homestead is `bondSiblingExclusive: true,
+attunementSiblingExclusive: true`, so the relaxation never applies here.
+
+**Proven live 2026-07-30** on the disposable lane, every step server-logged: bond+offer as
+uid 1000 (`corr-9b72bd69…`), attune+earn+buy as uid 1001 (`corr-3c07227d…`), both at Stone
+`uid:-898655635|1|5`, ending `[masterwork-ownership] buy outcome=Purchased`, then
+`Masterwork delivered Workmanship grant for 'Club' … (joined client)`.
+
+**Consequence for scope:** the second account is load-bearing for SETUP, not for the
+assertion. Issues predicated on "TRANSFER doesn't need two accounts, so the dual-user rig
+can go" should be re-read with this distinction — the rig stays, for a different and more
+concrete reason than #461's. A single-account topology (#459) can still run the four legs
+against a PRE-BUILT fixture world, but cannot BUILD one.
+
 **Q3 — Should arrange own launching, or stop at "ready to launch"?** Open. #457 decides
 it in practice: arrange owns LAUNCH, because the readiness probe and the provenance
 capture are both arrange concerns and splitting them across a boundary re-creates the
@@ -644,11 +688,19 @@ implementation detail**. The runner requires 4 receipts and the FSM is strictly
 sequential, so a client_a-only run (ISSUE+UPGRADE) emits FAIL/IncompleteEvidence even if
 both legs genuinely pass. **Not to be solved by lowering the threshold.**
 
-**Q5 — Does UnityScriptHost need to run at all?** Effectively answered: no, it is unused
-by T022 (the legs ride `LiveLoopbackTransport`), and its hardcoded port collides under
-concurrency. Disable it on the second client rather than allocate it a port; S9 makes
-"disabled" a provable claim. ValBridgeServer, by contrast, IS needed and must become
-per-client.
+**Q5 — Does UnityScriptHost need to run at all?** **REVISED 2026-07-30.** For the four AT
+legs: no — they ride `LiveLoopbackTransport`, exactly as previously recorded. But the
+**setup phase** that makes those legs runnable at all needs it on BOTH clients. Establishing
+Masterwork entitlement requires driving `sbpr_provision attune` and `sbpr_master buy` as
+client_b's OWN identity (see Q2 — the reservation model forces the buyer onto a second
+account), and those are `Terminal.ConsoleCommand`s. UnityScriptHost is the only way to
+invoke one without a keyboard, so disabling it on client_b makes that setup permanently
+manual. The port is not hardcoded: `UnityScriptHost.Plugin.Awake` reads `USH_PORT` from the
+environment (default 48210), delivered per client through the launch-env sidecars both
+wrappers already source with `set -a`. Allocation is now client_a 48210 / client_b 48211,
+declared in the manifest and enforced by S5. S9 still makes "disabled" a provable claim for
+any client that declares `null`. ValBridgeServer likewise IS needed and is per-client
+(49152/49153).
 
 ---
 
