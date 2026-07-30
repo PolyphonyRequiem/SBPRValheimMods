@@ -8,18 +8,19 @@ last_updated: 2026-07-29
 
 Implementation notes for the STATIC phase of the T022 arrange spec (issue #450).
 
-> The parent specification, `docs/qa/T022-ARRANGE-SPEC.md`, is authored on the
-> `m6-lanepw-solo` branch and is not yet on `main`. This document is deliberately a
-> sibling rather than a section inside it, so the two can land independently without
-> a merge conflict. When the spec lands, fold this in as its §4a. Section references
-> below (§3 P1-P8, §4 STATIC, §2 I1-I11) are to that spec.
+> The parent specification is `docs/qa/T022-ARRANGE-SPEC.md`, now canonical on `main`
+> (#468). This document remains a sibling rather than a section inside it: the spec
+> states the contract and its evidence, while this states how the shipped STATIC phase
+> implements it, and the two change on different cadences. Section references below
+> (§3 P1-P9, §4 STATIC, §2 I1-I12) are to that spec.
 
 ## Scope
 
 STATIC only: the checks that can be made before anything expensive happens. No
 process is started, no game is contacted, no file is written. The remaining phases —
-SWEEP (#451), PROVISION (#452-#454), VERIFY (#455), LAUNCH (#456), and the runner
-cutover (#457) — are separately owned and are NOT implemented here.
+STAGE (#451), SWEEP (#455), VERIFY (#456), and the runner cutover (#457) — are
+separately owned and are NOT implemented here. The credential and join-delivery
+provisioning contracts STATIC enforces declaratively landed with #452, #453 and #454.
 
 | Piece | Where |
 |---|---|
@@ -122,7 +123,7 @@ The real fragility is that `run_bepinex.sh` rotates argv, so **appended** args r
 the game and **prepended** args are swallowed by Steam's wrapper chain. A manifest
 cannot prove that merely from `launcher.kind`; when `launcher.wrapper_path` declares
 the controlled seam, however, STATIC can inspect the wrapper text and reject the
-known broken ordering. VERIFY (#455) remains responsible for proving the launched
+known broken ordering. VERIFY (#456) remains responsible for proving the launched
 process's actual argv.
 
 Both clients therefore use `connect_argv`; the launcher difference is real, the
@@ -182,7 +183,7 @@ found, because the cost being avoided is discovering them one boot cycle at a ti
   only replace and never create was itself the I3 defect. An absent destination is
   normal pre-staging state, not a failure.
 * **Whether a credential is readable in fact.** That is a VERIFY-phase test performed
-  *as the consuming uid* (#455). STATIC checks only that the DECLARED consumer is the
+  *as the consuming uid* (#456). STATIC checks only that the DECLARED consumer is the
   client's own uid — which catches identity drift before anything is written. The old
   0600/0700 policy was structurally unreadable cross-uid; PROVISION now uses the approved
   0644/0711 throwaway-credential policy and performs an immediate read-back under that

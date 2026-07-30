@@ -13,6 +13,7 @@ the client, and expected-vs-actual (the anti-silence contract).
 """
 from __future__ import annotations
 
+import ast
 import copy
 import os
 
@@ -521,6 +522,150 @@ class TestDisabledComponents:
         assert arrange_static(m, fs(paths)).ok
 
 
+class TestEnumerationSeamIsMandatory:
+    """`find_named_files` has no default, so an incomplete caller cannot be built.
+
+    The regression this locks (#467): overlapping merges restored a
+    `lambda _root, _name: None` default that #454's review had deliberately removed.
+    The default failed CLOSED, so it was never a security bypass — it was worse in a
+    subtler way. An omitted seam produced an ordinary S9 "plugin tree missing or
+    unreadable" failure against the CLIENT, pointing an operator at filesystem
+    permissions on a machine whose filesystem was fine, when the actual fault was a
+    caller that never wired the proof. Making it mandatory converts a misleading
+    runtime diagnosis into an impossible construction.
+    """
+
+    def test_constructing_without_find_named_files_raises_type_error(self):
+        with pytest.raises(TypeError) as excinfo:
+            StaticEnvironment(  # type: ignore[call-arg]  # arrange-seam-contract-negative
+                path_exists=lambda p: False,
+                hash_file=lambda p: None,
+            )
+        assert "find_named_files" in str(excinfo.value)
+
+    def test_read_text_is_mandatory_on_the_same_grounds(self):
+        """`read_text` is mandatory too (#467) — the asymmetry was removed.
+
+        `3cba781` originally kept `read_text` optional, reasoning that "unreadable
+        wrapper" is a self-describing S8 result. That reasoning does not survive
+        contact with the actual failure mode: an omitted `read_text` is
+        indistinguishable from a wrapper that genuinely could not be read, which is
+        the same misleading-diagnosis defect that made `find_named_files` mandatory.
+        `read_text` also carries the #453 join-delivery proof, so an unwired seam
+        silently skips a check that exists to prevent a burned ten-minute boot.
+        """
+        with pytest.raises(TypeError) as excinfo:
+            StaticEnvironment(  # type: ignore[call-arg]  # arrange-seam-contract-negative
+                path_exists=lambda p: False,
+                hash_file=lambda p: None,
+                find_named_files=lambda _root, _name: (),
+            )
+        assert "read_text" in str(excinfo.value)
+
+    def test_every_repository_caller_supplies_the_seam(self):
+        """No construction of the environment dataclass may omit the seam.
+
+        A type error only fires on a code path that actually runs. This asserts the
+        contract over every construction site in the repository, including ones a
+        given test session never reaches, so a future merge that reintroduces a
+        two-field caller fails here rather than ten minutes into a GPU boot.
+
+        The scan is an AST walk, deliberately not a text/paren scan. A naive brace
+        counter cannot tell a paren inside a string or comment from a real one, so an
+        unbalanced paren in a docstring makes it swallow an arbitrary trailing region
+        of the file — which can then contain the keyword being looked for and turn the
+        check into a silent PASS. A guard whose whole job is catching silent
+        regressions must not itself be able to fail silently, so the parser decides
+        what a call is.
+        """
+        # Anchor on the repository root by walking up to its marker, NOT by counting
+        # `dirname` levels: this file sits at qa/runner/tests/, so three dirnames
+        # lands on `qa/` and would silently skip every caller outside it — a scanner
+        # that cannot see the thing it guards is worse than no scanner.
+        repo = os.path.dirname(os.path.abspath(__file__))
+        while not os.path.isfile(os.path.join(repo, "AGENTS.md")):
+            parent = os.path.dirname(repo)
+            assert parent != repo, "could not locate the repository root (AGENTS.md)"
+            repo = parent
+        assert os.path.isdir(os.path.join(repo, "qa", "runner")), repo
+
+        target = StaticEnvironment.__name__
+        # Both proof seams are mandatory (#467), so the scan guards both. Keeping the
+        # list derived from one place means adding a fifth seam later cannot leave the
+        # scanner silently guarding a subset.
+        seams = ("read_text", "find_named_files")
+        # Positional index of each seam in the dataclass field order. A construction
+        # supplies a seam either by keyword or by having enough positional args to
+        # reach its index. Hardcoding "3 or more args" was correct when the dataclass
+        # had three fields and became silently wrong at four.
+        seam_positions = {"read_text": 3, "find_named_files": 4}
+        offenders = []
+        scanned = 0
+        constructions = 0
+        for dirpath, dirnames, filenames in os.walk(repo):
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if d not in {".git", "__pycache__", "obj", "bin", "node_modules"}
+                and not d.startswith(".venv")
+            ]
+            for filename in filenames:
+                if not filename.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, filename)
+                text = open(path, encoding="utf-8", errors="replace").read()
+                try:
+                    tree = ast.parse(text)
+                except SyntaxError:
+                    continue
+                scanned += 1
+                lines = text.splitlines()
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    func = node.func
+                    name = (
+                        func.id
+                        if isinstance(func, ast.Name)
+                        else func.attr
+                        if isinstance(func, ast.Attribute)
+                        else None
+                    )
+                    if name != target:
+                        continue
+                    line = lines[node.lineno - 1]
+                    if "arrange-seam-contract-negative" in line:
+                        # The one deliberate omission: the negative test above, which
+                        # asserts the incomplete construction raises. Marked inline so
+                        # the exemption is visible at the site rather than encoded as a
+                        # path in this scanner.
+                        continue
+                    constructions += 1
+                    supplied_kwargs = {kw.arg for kw in node.keywords}
+                    for seam in seams:
+                        # Keyword, or enough positional args to reach the seam's index.
+                        supplied = seam in supplied_kwargs or (
+                            len(node.args) >= seam_positions[seam]
+                        )
+                        if not supplied:
+                            offenders.append(
+                                f"{os.path.relpath(path, repo)}:{node.lineno} "
+                                f"(missing {seam})"
+                            )
+        # A scanner that silently matched nothing would pass forever. Assert it walked
+        # a real tree AND found real constructions, so a broken root, a filter, or a
+        # parser change cannot look like a clean result.
+        assert scanned > 10, f"scanner walked only {scanned} python files from {repo}"
+        assert constructions >= 8, (
+            f"scanner found only {constructions} construction site(s); it is no longer "
+            "seeing the callers it exists to guard"
+        )
+        assert not offenders, (
+            f"{target}(...) constructed without a mandatory proof seam "
+            f"(guarding {list(seams)}) at: {offenders}"
+        )
+
+
 class TestRealDisabledComponentEnumeration:
     @staticmethod
     def failures_for_root(root):
@@ -796,7 +941,7 @@ class TestJoinTarget:
         That check was therefore refusing the ONLY configuration proven to work. A
         fail-closed guard that blocks the working path is worse than no guard. STATIC
         does not guess at launcher capability; whether argv reaches the game is VERIFY's
-        job (#455), which can read the launched process's actual argv."""
+        job (#456), which can read the launched process's actual argv."""
         m = golden_manifest()
         m["clients"][1]["join"]["delivery"] = "connect_argv"
         assert m["clients"][1]["launcher"]["kind"] == "steam_applaunch"
@@ -982,47 +1127,21 @@ class TestManifestModel:
             ArrangeManifest.parse(m)
 
 
-class TestProofSeamsAreMandatory:
-    """#467 — every StaticEnvironment seam is a mandatory constructor dependency.
+class TestStaticEnvironmentStructuralContract:
+    """Structural guards that no single call shape can provide (#467).
 
-    PR #465's independent review required `find_named_files` to be non-defaulting so a
-    caller cannot accidentally omit full-tree disabled-component verification. Later
-    overlapping merges (#452/PR #466, #453/PR #464) restored source-compatible defaults
-    and silently undid that. The defaults failed closed (`None` == unverifiable), so
-    this was never a fail-open bypass — but an omitted seam then looked exactly like an
-    attempted-and-failed proof, which is the diagnostic ambiguity the arrange
-    preconditions exist to eliminate. These cases pin the contract so a third merge
-    cannot quietly re-default it.
+    The call-shape negatives live in `TestEnumerationSeamIsMandatory` above; these
+    two assert properties of the dataclass itself, so a seam re-defaulted in future
+    is caught even if no explicit test happens to omit it.
     """
 
-    def test_find_named_files_is_mandatory(self):
-        with pytest.raises(TypeError):
-            StaticEnvironment(  # type: ignore[call-arg]
-                path_exists=lambda _p: False,
-                hash_file=lambda _p: None,
-                read_text=lambda _p: None,
-            )
-
-    def test_read_text_is_mandatory(self):
-        with pytest.raises(TypeError):
-            StaticEnvironment(  # type: ignore[call-arg]
-                path_exists=lambda _p: False,
-                hash_file=lambda _p: None,
-                find_named_files=lambda _root, _name: None,
-            )
-
-    def test_two_field_environment_is_refused(self):
-        with pytest.raises(TypeError):
-            StaticEnvironment(  # type: ignore[call-arg]
-                path_exists=lambda _p: False,
-                hash_file=lambda _p: None,
-            )
-
     def test_no_static_environment_field_carries_a_default(self):
-        """Structural guard: assert on the dataclass fields, not on one call shape.
+        """Assert on the dataclass fields, not on one call shape.
 
         A future merge could re-add a default to a seam this suite happens not to
         omit in any explicit case. Reading the field metadata catches that directly.
+        This is the guard that would have caught the #452/#453 re-defaulting
+        regression at the moment it landed rather than three merges later.
         """
         import dataclasses
 

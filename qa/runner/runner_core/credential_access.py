@@ -1,4 +1,4 @@
-"""Shared credential filesystem policy for T022 PROVISION (#452).
+"""Shared credential filesystem policy for T022 credential provisioning (#452).
 
 Credential paths are public topology; credential values are per-run throwaways. The
 containing directory is mode 0711 so a consumer that already knows its path can traverse

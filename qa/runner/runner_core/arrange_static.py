@@ -152,16 +152,27 @@ class StaticEnvironment:
     unreadable deployed copy, launch wrapper, or plugin tree reportable as a specific
     failure instead of an exception that hides the other problems in the manifest.
 
-    EVERY seam is a MANDATORY constructor dependency — none of them defaults (#467).
-    PR #465's review required this for `find_named_files` specifically: a defaulted
-    proof seam lets a caller omit full-tree verification by accident, and the omission
-    is then indistinguishable from a genuine "tree unverifiable" result at report time.
-    The default failed closed, so this was never a fail-open bypass — but a diagnostic
-    that cannot tell "nobody wired the proof" from "the proof was attempted and failed"
-    is the precise ambiguity these preconditions exist to remove. `read_text` carries
-    the #453 wrapper-delivery proof and has the identical failure mode, so it is
-    mandatory on the same grounds. A caller that cannot supply a seam must pass an
-    explicit stub and thereby say so in its own source.
+    EVERY seam is a MANDATORY constructor dependency — none of them defaults
+    (#454/#467). Wiring a proof seam is a decision, so it is made at the construction
+    site rather than inherited silently from a default.
+
+    `find_named_files` is the case that forced the rule. S9 is the only check that can
+    prove a component declared disabled is genuinely ABSENT, and absence can only be
+    established by enumerating the whole tree. A default lets a caller omit that seam
+    and still construct a valid-looking environment; the omission then surfaces as an
+    ordinary "tree unverifiable" S9 failure attributed to the client's filesystem, when
+    the real fault is incomplete wiring in the caller.
+
+    `read_text` is mandatory on the same grounds (#467): it backs S8's wrapper-content
+    check, which carries the #453 join-delivery proof, and it has the identical failure
+    mode. A caller with no wrapper to offer says so explicitly by passing a function
+    that returns None — not by staying silent.
+
+    Note what this is NOT: the old defaults failed CLOSED (`None` == unverifiable), so
+    no default was ever a fail-open security bypass. The defect was diagnostic. A
+    report that cannot distinguish "nobody wired the proof" from "the proof ran and
+    failed" defeats the purpose of a phase whose whole job is naming each failure
+    precisely enough to act on.
     """
 
     path_exists: Callable[[str], bool]
@@ -483,8 +494,8 @@ def _check_artifact_pins(
     byte-equality guard. That invariant is working as intended and is preserved here,
     generalised over every artifact and every client.
 
-    A destination that does not exist yet is NOT a failure — staging (#452) is what
-    creates it, and §2 I3 records that a stager unable to CREATE a new artifact was
+    A destination that does not exist yet is NOT a failure — unified staging (#451) is
+    what creates it, and §2 I3 records that a stager unable to CREATE a new artifact was
     itself a defect. What IS a failure is a destination that exists with the WRONG
     bytes, because that is the stale-deploy case that silently runs old code.
 
@@ -541,7 +552,7 @@ def _check_artifact_pins(
             if artifact is None:
                 continue  # already reported by S6
             if not env.path_exists(req.dest_path):
-                # Not yet staged. PROVISION (#452) creates it; a stager that could
+                # Not yet staged. STAGE (#451) creates it; a stager that could
                 # only replace and never create was itself a defect (I3).
                 continue
             deployed = env.hash_file(req.dest_path)
@@ -711,7 +722,7 @@ def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
     `SteamLaunch` marker and ROTATES argv, so appended args survive into the game and
     PREPENDED args are swallowed by Steam's wrapper chain. That is a property of the
     wrapper's internals, not of the manifest, so it cannot be checked from here — it
-    belongs to VERIFY (#455), which reads the launched process's actual argv. What
+    belongs to VERIFY (#456), which reads the launched process's actual argv. What
     STATIC can still do is what it does below: refuse a client with no target, or a
     target pointing somewhere other than this run's lane.
 
@@ -722,7 +733,7 @@ def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
       * a joining client names its QA-owned profile, so it can never load a human
         character (the M6-JOIN4 allowlist-of-one).
 
-    Whether the target actually ARRIVES is a VERIFY-phase fact (#455) and is out of
+    Whether the target actually ARRIVES is a VERIFY-phase fact (#456) and is out of
     scope here. STATIC deliberately no longer guesses at launcher capability.
     """
     failures: List[StaticFailure] = []
@@ -761,7 +772,7 @@ def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
         # docstring — #449 proved a Steam-launched client receives `+connect` fine via
         # the `%command%` wrapper seam, so refusing that combination would block the
         # only configuration verified in a live run. Argv actually reaching the game is
-        # VERIFY's job (#455), which can read the launched process's real argv; STATIC
+        # VERIFY's job (#456), which can read the launched process's real argv; STATIC
         # cannot see inside a wrapper and must not pretend otherwise.
 
         if not client.qa_profile:
