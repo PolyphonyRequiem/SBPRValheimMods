@@ -237,7 +237,197 @@ class TestStageCli:
     def test_no_mode_message_names_both_phases(self, cli, tmp_path, capsys):
         cli.main(["--manifest", write(tmp_path, minimal(tmp_path))])
         out = capsys.readouterr().out
-        assert "--check" in out and "--stage" in out
+        assert "--check" in out and "--stage" in out and "--verify" in out
+
+
+class TestVerifyCli:
+    """`--verify` CLI surface (issue #456).
+
+    These exercise the REAL verify environment against a tmp_path tree and this
+    machine's own free ports — no stub, no host rig path, and nothing that can skip.
+    The manifest declares the current uid so the credential read is a same-uid read
+    that genuinely succeeds; the cross-uid case is #452's seam and is covered there.
+    """
+
+    def verify_manifest(self, tmp_path):
+        import os
+        import socket
+
+        data = minimal(tmp_path)
+        data["clients"][0]["uid"] = os.getuid()
+        data["clients"][0]["artifacts"][0]["dest_path"] = str(
+            tmp_path / "game" / "BepInEx" / "plugins" / "harness.dll"
+        )
+
+        # A pair of ports the OS just told us are free, rather than two constants that
+        # collide with whatever this machine happens to be running.
+        free = []
+        holders = [socket.socket(socket.AF_INET, socket.SOCK_STREAM) for _ in range(2)]
+        for holder in holders:
+            holder.bind(("127.0.0.1", 0))
+            free.append(holder.getsockname()[1])
+        for holder in holders:
+            holder.close()
+        data["clients"][0]["ports"]["loopback_control"] = free[0]
+        data["clients"][0]["ports"]["valbridge_gabp"] = free[1]
+
+        # The join-delivery chain PROVISION would have left behind.
+        sidecar = tmp_path / "launch-env" / "solo.env"
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        sidecar.write_text("SBPR_QA_CONNECT=127.0.0.1:2476\n", encoding="utf-8")
+        wrapper = tmp_path / "run-solo.sh"
+        wrapper.write_text(
+            '. "$SBPR_QA_LAUNCH_ENV_FILE"\n'
+            "SBPR_QA_CONNECT_ARGS=(+connect \"$SBPR_QA_CONNECT\")\n"
+            'exec "$RUNNER" "$@" "${SBPR_QA_CONNECT_ARGS[@]}"\n',
+            encoding="utf-8",
+        )
+        data["clients"][0]["launcher"] = {
+            "kind": "direct_exec",
+            "launch_env_path": str(sidecar),
+            "wrapper_path": str(wrapper),
+        }
+        return data
+
+    def test_verify_after_stage_reports_ready(self, cli, tmp_path, capsys):
+        data = self.verify_manifest(tmp_path)
+        path = write(tmp_path, data)
+        assert cli.main(["--manifest", path, "--stage"]) == 0
+        capsys.readouterr()
+
+        rc = cli.main(["--manifest", path, "--verify"])
+        out = capsys.readouterr().out
+        assert rc == 0, out
+        assert "READY" in out and "solo" in out
+
+    def test_unstaged_artifact_makes_verify_exit_one_and_name_the_client(
+        self, cli, tmp_path, capsys
+    ):
+        """The twelve-day failure, caught by a file read instead of a ten-minute boot."""
+        data = self.verify_manifest(tmp_path)
+        rc = cli.main(["--manifest", write(tmp_path, data), "--verify"])
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "NOT READY" in out
+        assert "solo" in out
+        assert "ABSENT" in out
+
+    def test_verify_json_is_machine_readable(self, cli, tmp_path, capsys):
+        data = self.verify_manifest(tmp_path)
+        path = write(tmp_path, data)
+        cli.main(["--manifest", path, "--stage"])
+        capsys.readouterr()
+
+        cli.main(["--manifest", path, "--verify", "--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["phase"] == "verify"
+        assert payload["ok"] is True
+        assert payload["clients"][0]["client"] == "solo"
+        assert payload["not_ready"] == []
+        criteria = {c["criterion"] for c in payload["clients"][0]["criteria"]}
+        assert criteria == {
+            "V1-ARTIFACTS-VERIFIED",
+            "V2-CREDENTIAL-READABLE-BY-CONSUMER",
+            "V3-JOIN-IN-LAUNCH-PATH",
+            "V4-PORTS-DISJOINT-AND-FREE",
+        }
+
+    def test_verify_reports_the_join_rung_it_actually_used(self, cli, tmp_path, capsys):
+        """Honesty contract at the CLI boundary: no process ran, so not proven live."""
+        data = self.verify_manifest(tmp_path)
+        path = write(tmp_path, data)
+        cli.main(["--manifest", path, "--stage"])
+        capsys.readouterr()
+
+        cli.main(["--manifest", path, "--verify", "--json"])
+        payload = json.loads(capsys.readouterr().out)
+        join = next(
+            c
+            for c in payload["clients"][0]["criteria"]
+            if c["criterion"] == "V3-JOIN-IN-LAUNCH-PATH"
+        )
+        assert join["ok"] is True
+        assert join["method"] == "staged-delivery"
+        assert join["proven_live"] is False
+
+    def test_check_gates_verify(self, cli, tmp_path, capsys):
+        data = self.verify_manifest(tmp_path)
+        data["clients"][0]["ports"]["loopback_control"] = 2456  # production deny
+        rc = cli.main(["--manifest", write(tmp_path, data), "--check", "--verify"])
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert "S2-PRODUCTION-PORT-DENY" in out
+        assert "VERIFY" not in out, "STATIC failure must gate VERIFY"
+
+    def test_stage_gates_verify(self, cli, tmp_path, capsys):
+        """Verifying a tree staging refused to finish reports against untrusted bytes."""
+        data = self.verify_manifest(tmp_path)
+        Path(data["artifacts"][0]["source_path"]).unlink()
+        rc = cli.main(["--manifest", write(tmp_path, data), "--stage", "--verify"])
+        out = capsys.readouterr().out
+        assert rc == 3
+        assert "VERIFY" not in out
+
+    def test_stage_then_verify_in_one_invocation(self, cli, tmp_path, capsys):
+        rc = cli.main(
+            ["--manifest", write(tmp_path, self.verify_manifest(tmp_path)), "--stage", "--verify"]
+        )
+        out = capsys.readouterr().out
+        assert rc == 0, out
+        assert "postconditions: PASS" in out
+        assert "VERIFY: READY" in out
+
+    def test_dry_run_stage_does_not_proceed_to_verify(self, cli, tmp_path, capsys):
+        """A dry run stages nothing, so there is nothing yet to read back."""
+        rc = cli.main(
+            [
+                "--manifest",
+                write(tmp_path, self.verify_manifest(tmp_path)),
+                "--stage",
+                "--dry-run",
+                "--verify",
+            ]
+        )
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "dry run" in out
+        assert "VERIFY" not in out
+
+    def test_busy_port_makes_verify_fail(self, cli, tmp_path, capsys):
+        """The half no static check can reach: disjoint in data, held on the machine."""
+        import socket
+
+        data = self.verify_manifest(tmp_path)
+        path = write(tmp_path, data)
+        cli.main(["--manifest", path, "--stage"])
+        capsys.readouterr()
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+            holder.bind(("127.0.0.1", data["clients"][0]["ports"]["valbridge_gabp"]))
+            holder.listen(1)
+            rc = cli.main(["--manifest", path, "--verify"])
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "V4-PORTS-DISJOINT-AND-FREE" in out
+        assert "already in use" in out
+
+    def test_missing_sidecar_makes_verify_fail(self, cli, tmp_path, capsys):
+        data = self.verify_manifest(tmp_path)
+        path = write(tmp_path, data)
+        cli.main(["--manifest", path, "--stage"])
+        capsys.readouterr()
+        Path(data["clients"][0]["launcher"]["launch_env_path"]).unlink()
+
+        rc = cli.main(["--manifest", path, "--verify"])
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert "V3-JOIN-IN-LAUNCH-PATH" in out
+
+    def test_unreadable_manifest_exits_two(self, cli, tmp_path, capsys):
+        rc = cli.main(["--manifest", str(tmp_path / "nope.json"), "--verify"])
+        assert rc == 2
 
 
 class TestShippedExample:

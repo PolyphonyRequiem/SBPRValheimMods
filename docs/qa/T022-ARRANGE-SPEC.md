@@ -335,8 +335,8 @@ PROVISION (credentials + launch env)                     [MERGED #452, #453]
   ├── write them readable by each CONSUMING uid (0711/0644)  ...... [I4]
   └── write per-client launch env INCLUDING the join target  ...... [I5]
 
-VERIFY   (read back everything just arranged)                       [#456]
-  ├── every client has every required artifact, hashes asserted
+VERIFY   (read back everything just arranged)                    [MERGED #456]
+  ├── every client has every required artifact, hashes asserted  .. [I1][I8]
   ├── every credential readable BY ITS CONSUMER, tested as that uid  [I4]
   ├── join target present in each client's ACTUAL launch path  .... [I5]
   ├── per-client port sets verified disjoint AND free  ............ [I6]
@@ -359,6 +359,70 @@ SWEEP runs before STAGE: clearing prior-run residue first means STAGE never writ
 alongside state it is about to invalidate, and never hashes bytes that are about to be
 replaced. Both are idempotent, so the pair is safe to re-run; the ordering is about
 avoiding wasted proof, not about correctness of either step alone.
+
+### 4.1 VERIFY as shipped (#456)
+
+`runner_core/arrange_verify.py`, reached by `sbpr-qa-arrange --verify`. It reads and
+probes only: it writes nothing, launches nothing, and mutates no arranged state. Four
+criteria, run per client, none short-circuiting.
+
+| id | criterion | how it is established |
+|---|---|---|
+| `V1-ARTIFACTS-VERIFIED` | every required artifact present with the pinned bytes | delegates to STAGE's `assert_postconditions` (#451), which re-reads every artifact from disk |
+| `V2-CREDENTIAL-READABLE-BY-CONSUMER` | every credential readable by its consuming uid | delegates to `credential_access.assert_readable_as_consumer` (#452), which opens the file **while acting as that uid** |
+| `V3-JOIN-IN-LAUNCH-PATH` | the join target is in this client's actual launch path | live `/proc/<pid>/cmdline`, or the staged sidecar + wrapper chain — see below |
+| `V4-PORTS-DISJOINT-AND-FREE` | this client's ports are disjoint from every sibling's and actually free | manifest disjointness re-asserted, then a bind probe per declared listener |
+
+**Reuse, not a second opinion.** V1 and V2 delegate rather than reimplement. There must
+be exactly one mechanism in the tree that knows how to read as another identity — a
+credential readable by the uid that WROTE it proves nothing, and that trap is easy to
+re-introduce by writing a fresh `os.access` check that looks equivalent and is not.
+
+**V3 has two rungs of evidence and they are not the same claim.** This is the honesty
+rule (`AGENTS.md`, "logs green ≠ playable") made structural rather than editorial:
+
+- `live-argv` — a running process's real kernel argv carries `+connect host:port`, with
+  `+connect` and the target **adjacent** (vanilla parses the flag and takes the next
+  argument; a separated pair populates nothing while passing a substring test). This is
+  proof, and it is the only thing that can confirm the argv-rotation property I5 records
+  as checkable-by-reading but provable-only-by-running. It requires a launched client,
+  so it is available to VERIFY only when one is already up.
+- `staged-delivery` — the launch-env sidecar on disk carries `SBPR_QA_CONNECT=host:port`
+  for **this run's lane** at the exact path this client's wrapper resolves, AND that
+  wrapper demonstrably turns it into a `+connect` fragment (reusing #453's
+  `inspect_wrapper`). Both halves are required: a sidecar no wrapper reads is discarded
+  silently, and a wrapper with nothing to read delivers an empty fragment just as
+  silently. This is the rung available in the normal ordering, where VERIFY precedes
+  LAUNCH.
+
+The report records `method` and `proven_live` per criterion rather than flattening them
+into a boolean, so a consumer can tell live proof from pre-launch evidence without
+re-deriving it. A readiness report that cannot state which kind of evidence it holds is
+the "arranged, probably" this phase exists to abolish.
+
+**Undeterminable is a failure, never a pass, and never a silent downgrade.** An
+unenumerable process table fails V3 outright rather than falling back to the staged
+rung — falling back would assert delivery for a process that may already be running
+*without* it, which is not weaker evidence but wrong evidence. An undeterminable port
+fails V4 rather than being read as free. "I could not look" and "I looked and it was
+fine" must never render as the same line.
+
+**A partial arrangement is a hard, named failure (P3).** A client is READY only when
+every criterion **passed** — not merely when none failed, so an unestablished criterion
+blocks readiness — and the run is READY only when every client is. Every failure names
+the criterion, the client, and expected-vs-actual in the same `StaticFailure` shape
+STATIC and STAGE emit, so one invocation reports every problem and the operator never
+has to guess which client is missing which thing.
+
+**Proof seams are mandatory here too (P9).** No field on `VerifyEnvironment` carries a
+default, and `arrange_verify` itself takes no default environment — probing ports and
+reading another identity's credentials is a decision that belongs at the construction
+site. Enforcement is structural, matching #473: a `dataclasses.fields` assertion plus an
+AST scan of every construction site in the repository.
+
+The CLI chains `--check` → `--stage` → `--verify`, each gating the next: verifying a
+tree staging refused to finish would report against bytes nobody stands behind.
+
 
 ---
 

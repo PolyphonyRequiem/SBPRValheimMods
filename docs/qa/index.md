@@ -17,6 +17,5 @@ Machine-readable manifest of QA harness documentation.
   the sole PASS/FAIL composer.
 - `AGENTS.md` §"QA live-harness process discipline" — the operational rules for
   running the live rig (GABS daemon topology, process reaping, worktree isolation).
-- Remaining arrange work: #455 (sweep + idempotency), #456 (post-arrange verification +
-  readiness report), #457 (runner cutover). Each maps to a phase in
-  `T022-ARRANGE-SPEC.md` §4.
+- Remaining arrange work: #455 (sweep + idempotency), #457 (runner cutover). Each maps
+  to a phase in `T022-ARRANGE-SPEC.md` §4; VERIFY (#456) has shipped — see §4.1.

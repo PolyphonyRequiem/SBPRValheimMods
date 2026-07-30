@@ -14,15 +14,22 @@ THIS ENTRYPOINT implements two phases:
              mode that mutates the filesystem. It starts no process and contacts no
              game. `--dry-run` reports exactly what it would do and writes nothing.
 
+  `--verify` VERIFY — reads back EVERYTHING the arrange phases established and asserts
+             it, then emits a machine-readable per-client readiness report. Artifacts
+             re-read from disk, credentials opened AS THEIR CONSUMING UID, the join
+             target found in each client's actual launch path, and each client's ports
+             proven disjoint and free. Reads and probes only; writes nothing, launches
+             nothing. A partial arrangement is a hard failure naming the client and the
+             missing thing — never a silent proceed.
+
 STATIC arrived with #450 (manifest + phase), and its guards were hardened by the
 merged provisioning issues: #452 (credentials readable by their consuming uid),
 #453 (join-target delivery verified at the wrapper), #454 (per-client ports and the
-disabled-component proof seam). STAGE is #451.
+disabled-component proof seam). STAGE is #451. VERIFY is #456.
 
 The remaining phases are separately owned and are NOT implemented here:
 
     SWEEP     #455  sweep + idempotency
-    VERIFY    #456  post-arrange verification + readiness report
     CUTOVER   #457  runner cutover to the new arrange phase (expand-contract)
 
 SWEEP runs BEFORE STAGE in the phase model: clearing prior-run residue first means
@@ -90,6 +97,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Run the STAGE phase: stage every manifest artifact to every client, then "
             "read them back and assert hashes. Mutates the filesystem; starts no "
             "process. Combine with --dry-run to report without writing."
+        ),
+    )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "Run the VERIFY phase: read back every arranged fact and emit a "
+            "per-client readiness report. Reads and probes only; writes nothing and "
+            "launches nothing."
         ),
     )
     parser.add_argument(
@@ -236,14 +252,36 @@ def _run_stage(raw, *, dry_run: bool, as_json: bool) -> int:
     return EXIT_OK if not failures else EXIT_FAILED
 
 
+def _run_verify(raw, *, as_json: bool) -> int:
+    from runner_core.arrange_manifest import ArrangeManifest, ArrangeManifestError
+    from runner_core.arrange_verify import arrange_verify, real_verify_environment
+
+    try:
+        manifest = ArrangeManifest.parse(raw)
+    except ArrangeManifestError as exc:
+        print(f"sbpr-qa-arrange: manifest is not well-formed: {exc}")
+        return EXIT_UNREADABLE
+
+    # The environment is passed explicitly rather than defaulted inside the phase: the
+    # decision to probe ports and read another identity's credentials on THIS machine
+    # belongs at the construction site, not inherited silently (§3 P9).
+    report = arrange_verify(manifest, real_verify_environment())
+    if as_json:
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    else:
+        print(report.render())
+    return EXIT_OK if report.ok else EXIT_FAILED
+
+
 def main(argv: "list[str] | None" = None) -> int:
     args = build_parser().parse_args(argv)
 
-    if not args.check and not args.stage:
+    if not args.check and not args.stage and not args.verify:
         print("sbpr-qa-arrange: no mode selected.")
         print("  --check  run the STATIC phase (reads only; starts no process).")
         print("  --stage  run the STAGE phase (stages artifacts to every client).")
-        print("  The sweep/verify/cutover phases are not implemented here.")
+        print("  --verify run the VERIFY phase (reads arranged state back; writes nothing).")
+        print("  The sweep/cutover phases are not implemented here.")
         return EXIT_UNREADABLE
 
     if args.dry_run and not args.stage:
@@ -259,10 +297,18 @@ def main(argv: "list[str] | None" = None) -> int:
         code = _run_check(raw, args.json)
         # STATIC gates STAGE: staging on top of a manifest that failed its
         # preconditions would write bytes the run has already refused to trust.
-        if code != EXIT_OK or not args.stage:
+        if code != EXIT_OK or not (args.stage or args.verify):
             return code
 
-    return _run_stage(raw, dry_run=args.dry_run, as_json=args.json)
+    if args.stage:
+        code = _run_stage(raw, dry_run=args.dry_run, as_json=args.json)
+        # STAGE gates VERIFY for the same reason: verifying a tree staging just
+        # refused to finish would report against bytes nobody stands behind. A
+        # dry run stages nothing, so there is nothing yet to verify.
+        if code != EXIT_OK or args.dry_run or not args.verify:
+            return code
+
+    return _run_verify(raw, as_json=args.json)
 
 
 if __name__ == "__main__":
