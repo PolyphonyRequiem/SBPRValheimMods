@@ -5,7 +5,7 @@ Machine-readable manifest of QA harness documentation.
 | file | status | purpose |
 |------|--------|---------|
 | README.md | living | What belongs in docs/qa and the conventions it follows |
-| T022-ARRANGE-STATIC-IMPLEMENTATION.md | current | The shipped STATIC arrange phase: manifest schema, the eight preconditions, and what is deliberately left to VERIFY |
+| T022-ARRANGE-STATIC-IMPLEMENTATION.md | current | The shipped STATIC arrange phase: manifest schema, nine preconditions including wrapper-level join delivery, and what is deliberately left to VERIFY |
 | T022-ARRANGE-CREDENTIAL-PROVISIONING.md | current | Per-run lane-password minting, 0711/0644 cross-uid policy, and readability assertions performed as each consuming uid |
 
 ## Related, elsewhere

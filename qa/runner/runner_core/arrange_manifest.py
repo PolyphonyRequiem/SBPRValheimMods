@@ -60,24 +60,31 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # (a third client launched some other way) is an entry in THIS TABLE plus manifest
 # data — not a new branch in any consumer. Nothing here executes a launch; these are
 # the fields the later LAUNCH phase (#456) will read.
+#
+# `wrapper_path` (optional on every kind) names the launch wrapper script that actually
+# execs the game. GABS delivers neither per-launch env nor per-launch argv to the forked
+# child, so the wrapper is the ONLY seam that can carry the join target across the fork.
+# Naming it here lets the join-delivery preflight (#453) read the script and assert the
+# seam is present BEFORE a ten-minute boot discovers it isn't. Optional because a
+# launcher that execs the binary directly has no wrapper to check.
 LAUNCHER_KINDS: Mapping[str, Mapping[str, Tuple[str, ...]]] = {
     # GABS/MCP mediated start (client_a today): games_start against a gameId.
     "gabs": {
         "required": ("endpoint", "game_id"),
-        "optional": ("launch_env_path",),
+        "optional": ("launch_env_path", "wrapper_path"),
     },
     # Steam `-applaunch <app_id>` under a scrubbed env (client_b today). The join
     # target CANNOT ride the command line here, which is exactly why `join` is a
     # first-class per-client field with its own declared delivery mechanism.
     "steam_applaunch": {
         "required": ("app_id",),
-        "optional": ("systemd_unit", "steam_binary", "launch_env_path"),
+        "optional": ("systemd_unit", "steam_binary", "launch_env_path", "wrapper_path"),
     },
     # Plain exec of the binary (no Steam shim, no daemon). Useful for a third
     # client and for tests.
     "direct_exec": {
         "required": (),
-        "optional": ("launch_env_path",),
+        "optional": ("launch_env_path", "wrapper_path"),
     },
 }
 

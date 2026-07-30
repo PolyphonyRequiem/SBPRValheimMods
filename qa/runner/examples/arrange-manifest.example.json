@@ -12,6 +12,16 @@
     "credential path, and join delivery mechanism. Adding client_c is another entry",
     "in `clients`; no code changes.",
     "",
+    "`launcher.wrapper_path` names the script that actually execs the game. GABS",
+    "delivers neither per-launch env nor per-launch argv to the forked child, so the",
+    "wrapper is the ONLY seam that can carry the join target across the fork. Naming it",
+    "lets the join-delivery preflight (#453) read the script and assert the seam is",
+    "intact BEFORE a ten-minute boot discovers it isn't. For a Steam-launched client",
+    "the wrapper is Steam's %command% target and passes through run_bepinex.sh's",
+    "SteamLaunch argv ROTATION, so the +connect fragment must be APPENDED after \"$@\";",
+    "a prepended fragment is swallowed by Steam's wrapper chain and the client parks at",
+    "the server list with nothing logged. The preflight enforces that position.",
+    "",
     "Every known listener is explicit: loopback_control and valbridge_gabp are",
     "required integers; unity_script_host may be null, which means its DLL must be",
     "absent. The two per-uid GABS daemons use singleton custom ranges matching the",
@@ -53,7 +63,8 @@
       "launcher": {
         "kind": "gabs",
         "endpoint": "http://localhost:8080/mcp",
-        "game_id": "valheim-qa-primary"
+        "game_id": "valheim-qa-primary",
+        "wrapper_path": "/home/polyphonyrequiem/.local/share/Trailborne/Valheim-Modded/run-trailborne.sh"
       },
       "ports": {
         "loopback_control": 48610,
@@ -97,7 +108,8 @@
         "kind": "steam_applaunch",
         "app_id": "892970",
         "systemd_unit": "sbpr-qa-valbot-client",
-        "launch_env_path": "/home/valbot/.local/share/sbpr-qa/launch-env/valheim.env"
+        "launch_env_path": "/home/valbot/.local/share/sbpr-qa/launch-env/valheim.env",
+        "wrapper_path": "/home/polyphonyrequiem/valheim/mcp-harness/dual-client/templates/run-valbot-bepinex.sh"
       },
       "ports": {
         "loopback_control": 48611,
