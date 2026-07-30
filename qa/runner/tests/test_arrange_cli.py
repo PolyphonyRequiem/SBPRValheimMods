@@ -495,6 +495,194 @@ class TestVerifyCli:
         assert rc == 2
 
 
+class TestArrangeCutoverCli:
+    """`--arrange` CLI surface — the single arrange authority (issue #457, §3 P1).
+
+    These run the REAL four phases end to end against a tmp_path tree and this
+    machine's own free ports. No phase is stubbed here: the chain genuinely sweeps,
+    statically checks, stages bytes to disk, re-reads them, and probes ports. That is
+    deliberate — the composition's whole claim is that ONE invocation arranges a run,
+    and a stubbed chain would prove only that four mocks were called in order.
+
+    Nothing here launches a client. Arrange ends at READY.
+    """
+
+    def cutover_manifest(self, tmp_path):
+        # Reuse VERIFY's real-filesystem fixture: it already builds the artifact
+        # source, the sidecar, and the wrapper chain that a real PROVISION would have
+        # left behind, and it declares the CURRENT uid so credential reads are genuine
+        # rather than skipped.
+        return TestVerifyCli().verify_manifest(tmp_path)
+
+    def test_one_invocation_arranges_the_run_and_reports_ready(
+        self, cli, tmp_path, capsys
+    ):
+        """The §3 P1 claim, executed: one command, one manifest, one entry condition."""
+        rc = cli.main(
+            ["--manifest", write(tmp_path, self.cutover_manifest(tmp_path)), "--arrange"]
+        )
+        out = capsys.readouterr().out
+        assert rc == 0, out
+        assert "arrange CUTOVER: READY" in out
+        # Every phase named, in the spec's order.
+        for phase in ("SWEEP", "STATIC", "STAGE", "VERIFY"):
+            assert phase in out
+        assert out.index("SWEEP") < out.index("STATIC") < out.index("STAGE")
+
+    def test_arrange_actually_stages_the_artifact_to_disk(self, cli, tmp_path):
+        """Not merely a green report: the bytes must genuinely be there afterwards.
+
+        A chain that reported READY while staging nothing is exactly the silent
+        partial arrangement this phase exists to abolish, and only reading the real
+        filesystem back can tell the difference.
+        """
+        data = self.cutover_manifest(tmp_path)
+        dest = tmp_path / "game" / "BepInEx" / "plugins" / "harness.dll"
+        assert not dest.exists()
+
+        assert cli.main(["--manifest", write(tmp_path, data), "--arrange"]) == 0
+        assert dest.read_bytes() == b"harness-bytes"
+
+    def test_a_failing_precondition_stops_the_chain_and_names_it(
+        self, cli, tmp_path, capsys
+    ):
+        """The production deny (B2) must survive the cutover intact.
+
+        2456/2466 hold REAL worlds. A composition that routed around the guard, or
+        that reported the later phases as passes after it fired, would be a weakened
+        guard — explicitly forbidden (§6, and #457's acceptance criteria).
+        """
+        data = self.cutover_manifest(tmp_path)
+        data["clients"][0]["ports"]["loopback_control"] = 2456
+        rc = cli.main(["--manifest", write(tmp_path, data), "--arrange"])
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "NOT READY" in out
+        assert "S2-PRODUCTION-PORT-DENY" in out
+        # STAGE and VERIFY must be reported as NOT REACHED — never omitted, and never
+        # rendered as passes.
+        assert "not-reached" in out
+
+    def test_a_stopped_chain_does_not_stage_anything(self, cli, tmp_path):
+        """STATIC gates STAGE: bytes are never written on a manifest already refused."""
+        data = self.cutover_manifest(tmp_path)
+        data["clients"][0]["ports"]["loopback_control"] = 2456
+        dest = tmp_path / "game" / "BepInEx" / "plugins" / "harness.dll"
+
+        assert cli.main(["--manifest", write(tmp_path, data), "--arrange"]) == 1
+        assert not dest.exists(), "STAGE ran despite STATIC refusing the manifest"
+
+    def test_arrange_json_is_machine_readable(self, cli, tmp_path, capsys):
+        """§3 P7: readiness is answered by reading a file, not by inferring."""
+        rc = cli.main(
+            [
+                "--manifest",
+                write(tmp_path, self.cutover_manifest(tmp_path)),
+                "--arrange",
+                "--json",
+            ]
+        )
+        payload = json.loads(capsys.readouterr().out)
+
+        assert rc == 0
+        assert payload["phase"] == "cutover"
+        assert payload["ready"] is True
+        assert [p["phase"] for p in payload["phases"]] == [
+            "SWEEP",
+            "STATIC",
+            "STAGE",
+            "VERIFY",
+        ]
+        assert payload["failed_phases"] == []
+        assert payload["not_reached"] == []
+
+    def test_arrange_does_not_claim_a_live_join(self, cli, tmp_path, capsys):
+        """The honesty rule, at the CLI boundary.
+
+        VERIFY precedes LAUNCH, so the join is evidenced by `staged-delivery` — the
+        sidecar plus the wrapper that reads it. `live-argv` requires a running
+        process's real kernel argv and no client has launched here. A READY line that
+        implied otherwise would be the "arranged, probably" this ticket exists to end.
+        """
+        cli.main(
+            [
+                "--manifest",
+                write(tmp_path, self.cutover_manifest(tmp_path)),
+                "--arrange",
+                "--json",
+            ]
+        )
+        payload = json.loads(capsys.readouterr().out)
+        verify = next(p for p in payload["phases"] if p["phase"] == "VERIFY")
+        join = [
+            c
+            for client in verify["report"]["clients"]
+            for c in client["criteria"]
+            if c["criterion"] == "V3-JOIN-IN-LAUNCH-PATH"
+        ]
+        assert join, verify
+        for criterion in join:
+            assert criterion["method"] == "staged-delivery"
+            assert criterion["proven_live"] is False
+
+    def test_arrange_refuses_to_be_combined_with_the_phase_flags(
+        self, cli, tmp_path, capsys
+    ):
+        """--arrange IS the composition, in the spec's order.
+
+        Accepting both would let a caller express an ordering the spec forbids while
+        believing the chain honoured it.
+        """
+        rc = cli.main(
+            [
+                "--manifest",
+                write(tmp_path, self.cutover_manifest(tmp_path)),
+                "--arrange",
+                "--check",
+            ]
+        )
+        assert rc == 2
+        assert "do not combine" in capsys.readouterr().out
+
+    def test_unreadable_manifest_exits_two_without_touching_anything(
+        self, cli, tmp_path, capsys
+    ):
+        rc = cli.main(["--manifest", str(tmp_path / "nope.json"), "--arrange"])
+        assert rc == 2
+        assert "cannot read manifest" in capsys.readouterr().out
+
+    def test_malformed_manifest_exits_two_before_any_phase_runs(
+        self, cli, tmp_path, capsys
+    ):
+        """Parsed BEFORE any environment is wired, so it cannot delete or signal."""
+        data = self.cutover_manifest(tmp_path)
+        del data["clients"][0]["ports"]
+        rc = cli.main(["--manifest", write(tmp_path, data), "--arrange"])
+        assert rc == 2
+        assert "not well-formed" in capsys.readouterr().out
+
+    def test_no_mode_message_offers_the_whole_chain(self, cli, tmp_path, capsys):
+        rc = cli.main(["--manifest", write(tmp_path, self.cutover_manifest(tmp_path))])
+        out = capsys.readouterr().out
+        assert rc == 2
+        assert "--arrange" in out
+        # The old text advertised the cutover as unimplemented; it must not survive.
+        assert "not implemented here" not in out
+
+    def test_arrange_is_idempotent(self, cli, tmp_path, capsys):
+        """§3 P6: safe to run repeatedly.
+
+        The second run sweeps the first run's residue and re-arranges from scratch,
+        so a re-entry must reach READY again rather than tripping over what it left.
+        """
+        path = write(tmp_path, self.cutover_manifest(tmp_path))
+        assert cli.main(["--manifest", path, "--arrange"]) == 0
+        capsys.readouterr()
+        assert cli.main(["--manifest", path, "--arrange"]) == 0
+        assert "READY" in capsys.readouterr().out
+
+
 class TestShippedExample:
     """The documented example must actually parse under the real schema — a stale
     example is a silent trap for whoever writes the next manifest."""

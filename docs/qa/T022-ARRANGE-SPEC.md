@@ -45,7 +45,15 @@ checked*, and must fail loudly and specifically. A silent partial arrangement is
 single most expensive thing this system can do.
 
 Collapsing those four mechanisms into one is the job of #451 (staging) and #457
-(cutover). Until #457 contracts, they still coexist.
+(cutover). #457's expand step ships the single entry point — `sbpr-qa-arrange
+--arrange`, §4.3 — and its contract step deletes what is then unreferenced. Until that
+step lands they still coexist, deliberately.
+
+**Two of the four live outside this repository.** The QA overlay packer
+(`scripts/pack-qa-overlay.py`) and the Python runner are tracked here; the valbot
+artifact manifest and the isolation library are deployment assets under the operator's
+untracked `dual-client/` tree. A commit in this repository can retire the first two and
+must not claim to have retired the other two.
 
 ---
 
@@ -275,8 +283,14 @@ character.
 ## 3. Required properties of the arrange script
 
 **P1 — Single authority.** One script owns arrangement end to end. No other mechanism
-provisions, writes credentials, or stages artifacts. (Reached at #457's contract step;
-until then the old mechanisms coexist by design.)
+provisions, writes credentials, or stages artifacts.
+
+**Status: the single entry point exists (#457 expand).** `sbpr-qa-arrange --arrange`
+composes SWEEP → STATIC → STAGE → VERIFY over one manifest and reports the run's entry
+condition (`runner_core/arrange_cutover.py`, §4.3). Until #457's contract step, the
+descriptor-derived provisioning path still coexists **by design** — that coexistence is
+the point of expand-contract, not an oversight. P1 is fully reached when the contract
+step lands and nothing but this chain arranges a run.
 
 **P2 — Declarative, per-client.** One manifest describes each client: identity, roots,
 launcher, ports, artifacts, credentials, QA profile. Adding a third client is a data
@@ -383,6 +397,15 @@ READY    → per-client readiness report is the run's entry condition  [P7]
 expand-contract (new arrange runs alongside the old path, then the runner is migrated,
 then the unreferenced old mechanisms are deleted). The CLI calls that work CUTOVER;
 this table names the phase it delivers.
+
+**#457 is split into two phases, and only the first is headless.** Phase A is the
+expand → migrate → contract refactor above: it needs no display, no GPU and no client,
+and every claim it makes is establishable from a terminal. Phase B is the live T022
+acceptance run — both clients in-world on the disposable lane, arranged by one script,
+**evidenced from the SERVER log**. They are separated because bundling them makes a
+refactor bug indistinguishable from a launch failure at a cost of ten minutes per
+diagnosis cycle. **Nothing in Phase A may claim a Phase B result**; in particular V3's
+`live-argv` rung remains unexercised until Phase B (§4.1).
 
 SWEEP runs before STAGE: clearing prior-run residue first means STAGE never writes
 alongside state it is about to invalidate, and never hashes bytes that are about to be
@@ -522,6 +545,44 @@ written where a human reviews it. Enforcement is structural, matching #456/#473.
 declared path *is* a present file, so a static check can pass on bytes the run is about to
 delete.
 
+
+### 4.3 CUTOVER as shipped (#457, expand step)
+
+`runner_core/arrange_cutover.py`, reached by `sbpr-qa-arrange --arrange`. It composes
+the four phases into the single authority §3 P1 requires and returns ONE report whose
+`ready` is the run's entry condition. It adds no check of its own: every verdict is the
+phase's, kept intact rather than recomputed, for the same reason V1/V2 delegate instead
+of offering a second opinion (§4.1).
+
+| step | phase | why it sits here |
+|---|---|---|
+| 1 | SWEEP | a stale credential at a declared path IS a present file, so a static check can otherwise pass on bytes the run is about to delete |
+| 2 | STATIC | cheap checks before anything writes (§3 P5); staging on a refused manifest writes bytes the run has already declined to trust |
+| 3 | STAGE | the only step that mutates a filesystem |
+| 4 | VERIFY | reads back what the previous steps established |
+
+**A failing phase stops the chain, and the phases after it are reported
+`not-reached`.** Not omitted, and emphatically not rendered as passes: "I did not look"
+and "I looked and it was fine" must never render as the same line, which is §4.1's
+undeterminable-is-never-a-pass rule applied to the chain itself. `ready` is the
+conjunction of every phase — there is no partial arrangement (§3 P3).
+
+**A raising phase becomes a named failure, not an exception.** The composition has
+exactly one outcome shape, so a caller never has to handle both a report and a
+traceback to learn the same fact.
+
+**It launches nothing, and it never upgrades VERIFY's evidence.** Arrange ends at
+READY. Because VERIFY precedes LAUNCH here, V3 is satisfied by the `staged-delivery`
+rung; the report carries `method`/`proven_live` through unchanged so a READY line can
+never be read as proof that a client reached the game. That is asserted by test, not
+merely by convention.
+
+**Proof seams are mandatory here too (§3 P9), and more load-bearing than in any single
+phase:** this composition sweeps files, signals processes, writes a filesystem and
+reads another identity's credentials. No field on `CutoverEnvironment` carries a
+default and `arrange_cutover` defaults neither the environment nor the arranging uid.
+Enforcement is structural, matching #456/#473: a `dataclasses.fields` assertion plus an
+AST scan of every construction site in the repository.
 
 ---
 
