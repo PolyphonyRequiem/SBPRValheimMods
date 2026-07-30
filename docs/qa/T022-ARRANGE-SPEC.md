@@ -285,12 +285,18 @@ character.
 **P1 — Single authority.** One script owns arrangement end to end. No other mechanism
 provisions, writes credentials, or stages artifacts.
 
-**Status: the single entry point exists (#457 expand).** `sbpr-qa-arrange --arrange`
-composes SWEEP → STATIC → STAGE → VERIFY over one manifest and reports the run's entry
-condition (`runner_core/arrange_cutover.py`, §4.3). Until #457's contract step, the
-descriptor-derived provisioning path still coexists **by design** — that coexistence is
-the point of expand-contract, not an oversight. P1 is fully reached when the contract
-step lands and nothing but this chain arranges a run.
+**Status: the single entry point exists (#457 expand + migrate).** `sbpr-qa-arrange
+--arrange` composes SWEEP → STATIC → STAGE → VERIFY over one manifest and reports the
+run's entry condition (`runner_core/arrange_cutover.py`, §4.3), and `--live
+--arrange-manifest` refuses to launch a run that does not reach READY.
+
+**P1 is NOT yet fully reached, and the exception is named rather than assumed away:
+credential PRODUCTION is still descriptor-driven.** The manifest declares credential
+paths and consuming uids but no values; those are minted per run from the descriptor
+by `BootstrapProvisioner` / `LanePasswordProvisioner`, which the chain therefore cannot
+replace — it verifies credentials it cannot itself create. P1 is fully reached when a
+manifest-driven PROVISION phase exists and the descriptor-derived writers are deleted.
+See §4.3.
 
 **P2 — Declarative, per-client.** One manifest describes each client: identity, roots,
 launcher, ports, artifacts, credentials, QA profile. Adding a third client is a data
@@ -583,6 +589,33 @@ reads another identity's credentials. No field on `CutoverEnvironment` carries a
 default and `arrange_cutover` defaults neither the environment nor the arranging uid.
 Enforcement is structural, matching #456/#473: a `dataclasses.fields` assertion plus an
 AST scan of every construction site in the repository.
+
+#### Why the contract step did not delete the credential provisioners
+
+#457's third step was to delete the old mechanisms once nothing referenced them.
+Two facts found by search — not by assertion — bound what that step could honestly
+remove, and both are recorded here so the next reader does not re-derive them.
+
+**1. Two of the four mechanisms are not in this repository.** The valbot artifact
+manifest and the isolation library are deployment assets in the operator's untracked
+`dual-client/` tree (§0). No commit here can retire them, and none claims to.
+
+**2. The descriptor provisioners are NOT redundant, and deleting them would break the
+run.** The manifest's `Credential` carries `path`, `consumer_uid` and `mode` — it does
+**not** carry a credential VALUE. Values are minted per run (`mint_lane_password`,
+`mint_wire_envelope`) from the descriptor, and no arrange phase writes a credential:
+there is no PROVISION step in the chain, and grepping the phases for any credential
+write path returns nothing. So the chain **verifies credentials it structurally cannot
+create**. Remove `BootstrapProvisioner` / `LanePasswordProvisioner` and V2 has nothing
+to read — that is a regression wearing a contraction's clothes.
+
+The cutover therefore moved arrange **authority** without moving credential
+**production**. The §4 table lists PROVISION as merged (#452/#453), and it is — but it
+was merged into the live composition, never surfaced as a manifest-driven phase, so
+it is the one phase `--arrange` cannot run. Closing that gap is real work (a PROVISION
+phase minting from the manifest), not a deletion, and it is what has to land before
+anything can be deleted. **The arrange authority is single for everything except
+credential production, and that exception is named rather than papered over.**
 
 ---
 

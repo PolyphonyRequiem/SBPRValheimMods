@@ -96,10 +96,6 @@ OUTCOME_FAILED = "failed"
 OUTCOME_NOT_REACHED = "not-reached"
 
 
-class CutoverError(RuntimeError):
-    """A phase raised instead of reporting. Carries the phase that failed."""
-
-
 @dataclass(frozen=True)
 class PhaseOutcome:
     """One phase's result within the chain, with its own report kept intact.
