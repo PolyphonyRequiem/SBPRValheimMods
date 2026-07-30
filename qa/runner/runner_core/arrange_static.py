@@ -162,15 +162,24 @@ class StaticEnvironment:
     not by staying silent. Wiring the proof seam is a decision, so it is made at the
     construction site.
 
-    `read_text` keeps its no-op default by contrast: it backs S8's wrapper-content
-    check, where "unreadable wrapper" is already an honest, self-describing result and
-    focused tests that exercise unrelated preconditions have no wrapper to offer.
+    `read_text` is MANDATORY for the same reason (#473). It backs S8's wrapper-content
+    check — the #453 join-delivery proof, whose whole job is to refuse a client whose
+    join seam is visibly broken BEFORE spending a ten-minute boot discovering it. With
+    the seam defaulted, an omitted wiring and a genuinely unreadable wrapper produce the
+    same "launch wrapper is missing or unreadable" S8 line: fail-closed, so never a
+    security bypass, but the operator is sent to inspect filesystem permissions on a
+    machine whose filesystem is fine. A caller with no wrapper to offer says so by
+    passing `lambda _path: None`, recording the choice at the construction site.
+
+    NO field on this dataclass carries a default. That is asserted structurally by the
+    test suite, so a future merge cannot re-default a seam that no explicit test case
+    happens to omit — the failure mode that recurred across #454 → #452/#453 → #467.
     """
 
     path_exists: Callable[[str], bool]
     hash_file: Callable[[str], Optional[str]]
     find_named_files: Callable[[str, str], Optional[Sequence[str]]]
-    read_text: Callable[[str], Optional[str]] = lambda _path: None
+    read_text: Callable[[str], Optional[str]]
 
 
 def real_static_environment() -> StaticEnvironment:

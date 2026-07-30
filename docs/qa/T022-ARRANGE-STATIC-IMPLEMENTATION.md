@@ -199,6 +199,18 @@ The only environment contact is `StaticEnvironment.path_exists` / `hash_file` /
 `real_static_environment()` wires the stdlib calls; the test suite wires stubs.
 Importing or unit-testing either module touches nothing at all.
 
+**All four seams are mandatory — no field carries a default (P9, #454/#467/#473).** A
+caller with no wrapper to read, or no ability to enumerate a tree, supplies a function
+that returns `None`; it does not stay silent. The reason is diagnostic rather than
+security: every seam fails CLOSED, so an omitted one never passes a bad manifest, but
+it makes an incomplete *caller* indistinguishable from a broken *client* in the report
+("plugin tree missing or unreadable", "launch wrapper is missing or unreadable"), which
+sends an operator to inspect filesystem permissions on a machine that is fine. Two
+tests enforce it: a structural one over `dataclasses.fields(StaticEnvironment)`, which
+catches a re-defaulted seam even when every current caller happens to wire it, and an
+AST scan over every construction site in the repository, which catches an incomplete
+caller on a code path no test session reaches.
+
 On the dual-user rig, the uid-1001 plugin tree is intentionally not enumerable by uid
 1000. Run the real two-client preflight through the existing privileged operator seam
 (for example `sudo -n python3 qa/runner/sbpr-qa-arrange.py ... --check`); an ordinary

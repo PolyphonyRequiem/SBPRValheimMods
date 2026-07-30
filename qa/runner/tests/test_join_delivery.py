@@ -303,18 +303,21 @@ class TestWiredIntoStaticPhase:
         assert not report.ok
         assert any("PREPENDED" in f.detail for f in report.failures)
 
-    def test_static_environment_without_read_text_still_works(self):
-        """`read_text` stays optional: omitting it reports 'unreadable', never crashes.
+    def test_a_caller_with_no_wrapper_to_offer_wires_the_seam_explicitly(self):
+        """`read_text` is MANDATORY (#473); a caller with nothing to read says so.
 
-        This is the deliberate asymmetry with `find_named_files` (#467). An absent
-        wrapper text is an honest, self-describing S8 result, so a focused test that
-        exercises unrelated preconditions may omit the seam. Proving a component is
-        ABSENT cannot be defaulted the same way — see the mandatory-seam tests.
+        The seam used to carry a no-op default on the reasoning that "unreadable
+        wrapper" is an honest, self-describing S8 result. It is not honest enough: an
+        omitted wiring and a genuinely unreadable wrapper produce the SAME line, so an
+        operator is sent to inspect filesystem permissions on a machine that is fine.
+        Passing an explicit `lambda p: None` records the choice at the construction
+        site — the same contract `find_named_files` has carried since #454/#467.
         """
         env = StaticEnvironment(
             path_exists=lambda p: False,
             hash_file=lambda p: None,
             find_named_files=lambda _root, _name: (),
+            read_text=lambda p: None,
         )
         report = arrange_static(manifest_with(b_wrapper="/b.sh"), env)
         assert any("missing or unreadable" in f.detail for f in report.failures)
