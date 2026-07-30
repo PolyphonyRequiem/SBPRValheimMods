@@ -2,17 +2,25 @@
 """
 sbpr-qa-arrange — the arrange phase entrypoint (T022 ARRANGE spec).
 
-THIS ENTRYPOINT implements two phases:
+THIS ENTRYPOINT implements four phases:
 
   `--check`  STATIC — validates the declarative per-client manifest and every
              precondition establishable without starting a process, in well under a
              second, reporting each failure with its precondition, its client, and
              expected-vs-actual. Reads only; writes nothing.
 
+  `--sweep`  SWEEP  — clears prior-run residue on entry: credentials and their
+             ownership-provenance sidecars declared by the manifest, and Valheim
+             clients this run's harness demonstrably launched. Convergent — running
+             it twice yields an identical report — and fail-closed everywhere: a file
+             without provable ownership, and a process without this run's harness
+             marker in its own environment, are LEFT STRICTLY ALONE (B1). Removes
+             files and signals processes; writes no file and starts no process.
+
   `--stage`  STAGE  — stages every manifest artifact to EVERY client from the one
-             manifest, then reads them all back and asserts hashes. This is the only
-             mode that mutates the filesystem. It starts no process and contacts no
-             game. `--dry-run` reports exactly what it would do and writes nothing.
+             manifest, then reads them all back and asserts hashes. It starts no
+             process and contacts no game. `--dry-run` reports exactly what it would
+             do and writes nothing.
 
   `--verify` VERIFY — reads back EVERYTHING the arrange phases established and asserts
              it, then emits a machine-readable per-client readiness report. Artifacts
@@ -25,21 +33,23 @@ THIS ENTRYPOINT implements two phases:
 STATIC arrived with #450 (manifest + phase), and its guards were hardened by the
 merged provisioning issues: #452 (credentials readable by their consuming uid),
 #453 (join-target delivery verified at the wrapper), #454 (per-client ports and the
-disabled-component proof seam). STAGE is #451. VERIFY is #456.
+disabled-component proof seam). STAGE is #451. VERIFY is #456. SWEEP is #455.
 
-The remaining phases are separately owned and are NOT implemented here:
+The remaining phase is separately owned and is NOT implemented here:
 
-    SWEEP     #455  sweep + idempotency
     CUTOVER   #457  runner cutover to the new arrange phase (expand-contract)
 
-SWEEP runs BEFORE STAGE in the phase model: clearing prior-run residue first means
-staging never writes alongside state it is about to invalidate. Both are idempotent,
-so until #455 lands, running `--stage` repeatedly is safe and converges.
+SWEEP runs BEFORE STATIC and STAGE when combined: stale residue can otherwise satisfy
+a static check, and staging alongside state it is about to invalidate wastes the proof.
+Every phase here is idempotent, so any combination is safe to re-run.
 
-Invoking this program can never start a game or contact a server.
+Invoking this program can never start a game or contact a server. `--sweep` is the
+only mode that can terminate a process, and it can only terminate one carrying this
+run's own harness marker.
 
-See `docs/qa/T022-ARRANGE-SPEC.md` for the phase model these map onto, and
-`docs/qa/T022-ARRANGE-STAGING.md` for what STAGE guarantees.
+See `docs/qa/T022-ARRANGE-SPEC.md` for the phase model these map onto,
+`docs/qa/T022-ARRANGE-STAGING.md` for what STAGE guarantees, and
+`docs/qa/T022-ARRANGE-SWEEP.md` for exactly what SWEEP will and will not touch.
 
 Exit codes:
   0  the selected phase passed
@@ -72,8 +82,9 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Arrange-phase entrypoint for the T022 live QA harness. --check runs the "
             "STATIC phase (validates the per-client manifest without starting any "
-            "process); --stage runs the STAGE phase (stages every artifact to every "
-            "client and asserts the result)."
+            "process); --sweep clears prior-run residue; --stage runs the STAGE phase "
+            "(stages every artifact to every client and asserts the result); --verify "
+            "reads the arranged state back."
         ),
     )
     parser.add_argument(
@@ -88,6 +99,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Run the STATIC checks and report. Starts no process, launches no client, "
             "writes nothing."
+        ),
+    )
+    parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help=(
+            "Run the SWEEP phase: clear prior-run credentials, their provenance "
+            "sidecars, and clients this run's harness launched. Convergent and "
+            "fail-closed — anything without provable harness ownership is left "
+            "strictly alone. Removes files and signals processes; starts nothing."
         ),
     )
     parser.add_argument(
@@ -136,6 +157,33 @@ def _run_check(raw, as_json: bool) -> int:
     from runner_core.arrange_static import arrange_static
 
     report = arrange_static(raw)
+    if as_json:
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    else:
+        print(report.render())
+    return EXIT_OK if report.ok else EXIT_FAILED
+
+
+def _run_sweep(raw, *, as_json: bool) -> int:
+    import os as _os
+
+    from runner_core.arrange_manifest import ArrangeManifest, ArrangeManifestError
+    from runner_core.arrange_sweep import arrange_sweep, real_sweep_environment
+
+    try:
+        manifest = ArrangeManifest.parse(raw)
+    except ArrangeManifestError as exc:
+        # Nothing has been touched at this point: the manifest is parsed BEFORE any
+        # environment is wired, so an unreadable manifest cannot remove a file or
+        # signal a process.
+        print(f"sbpr-qa-arrange: manifest is not well-formed: {exc}")
+        return EXIT_UNREADABLE
+
+    # Explicit, not defaulted (§3 P9): deciding to remove files and signal processes
+    # on THIS machine as THIS identity belongs at the construction site.
+    report = arrange_sweep(
+        manifest, real_sweep_environment(), arranging_uid=_os.geteuid()
+    )
     if as_json:
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
     else:
@@ -276,12 +324,13 @@ def _run_verify(raw, *, as_json: bool) -> int:
 def main(argv: "list[str] | None" = None) -> int:
     args = build_parser().parse_args(argv)
 
-    if not args.check and not args.stage and not args.verify:
+    if not args.check and not args.sweep and not args.stage and not args.verify:
         print("sbpr-qa-arrange: no mode selected.")
         print("  --check  run the STATIC phase (reads only; starts no process).")
+        print("  --sweep  run the SWEEP phase (clears prior-run residue; starts nothing).")
         print("  --stage  run the STAGE phase (stages artifacts to every client).")
         print("  --verify run the VERIFY phase (reads arranged state back; writes nothing).")
-        print("  The sweep/cutover phases are not implemented here.")
+        print("  The cutover phase is not implemented here.")
         return EXIT_UNREADABLE
 
     if args.dry_run and not args.stage:
@@ -292,6 +341,14 @@ def main(argv: "list[str] | None" = None) -> int:
     if error is not None:
         print(error)
         return EXIT_UNREADABLE
+
+    if args.sweep:
+        # SWEEP runs FIRST, before STATIC. Residue from a prior run can satisfy a
+        # static check — a stale credential at a declared path is a present file —
+        # so checking before sweeping can pass on bytes the run is about to delete.
+        code = _run_sweep(raw, as_json=args.json)
+        if code != EXIT_OK or not (args.check or args.stage or args.verify):
+            return code
 
     if args.check:
         code = _run_check(raw, args.json)

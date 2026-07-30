@@ -68,7 +68,8 @@ def build_manifest(tmp_path, *, artifacts, clients, uid=None):
     return ArrangeManifest.parse(
         {
             "kind": "sbpr-qa-arrange-manifest",
-            "version": 2,
+            "version": 3,
+            "run_id": "t022-run-test",
             "lane": {
                 "lane_id": "t022-test",
                 "world_name": "testlane",

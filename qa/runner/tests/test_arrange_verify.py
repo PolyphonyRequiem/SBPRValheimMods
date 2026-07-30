@@ -64,7 +64,8 @@ def golden_manifest():
     """The REAL asymmetric pair: nothing about client_b is derived from client_a."""
     return {
         "kind": "sbpr-qa-arrange-manifest",
-        "version": 2,
+        "version": 3,
+        "run_id": "t022-run-test",
         "lane": {
             "lane_id": "t022-disposable",
             "world_name": "t022lane",

@@ -50,7 +50,8 @@ def minimal(tmp_path):
     digest = hashlib.sha256(b"harness-bytes").hexdigest()
     return {
         "kind": "sbpr-qa-arrange-manifest",
-        "version": 2,
+        "version": 3,
+        "run_id": "t022-run-test",
         "lane": {
             "lane_id": "l",
             "world_name": "w",
@@ -119,8 +120,72 @@ class TestArrangeCli:
 
     def test_no_mode_selected_exits_two(self, cli, tmp_path, capsys):
         rc = cli.main(["--manifest", write(tmp_path, minimal(tmp_path))])
+        out = capsys.readouterr().out
         assert rc == 2
-        assert "--check" in capsys.readouterr().out
+        assert "--check" in out
+        assert "--sweep" in out
+
+    def test_sweep_on_a_clean_tree_exits_zero_and_converges(self, cli, tmp_path, capsys):
+        """SWEEP over a manifest whose declared credentials do not exist.
+
+        The manifest declares no credentials at all, so every reconciliation is
+        `already-absent` and the phase passes without touching anything.
+        """
+        rc = cli.main(["--manifest", write(tmp_path, minimal(tmp_path)), "--sweep"])
+        assert rc == 0
+        assert "SWEEP: PASS" in capsys.readouterr().out
+
+    def test_sweep_json_report_is_machine_readable_and_stable(self, cli, tmp_path, capsys):
+        manifest = write(tmp_path, minimal(tmp_path))
+        cli.main(["--manifest", manifest, "--sweep", "--json"])
+        first = json.loads(capsys.readouterr().out)
+        cli.main(["--manifest", manifest, "--sweep", "--json"])
+        second = json.loads(capsys.readouterr().out)
+        assert first["phase"] == "sweep"
+        assert first["ok"] is True
+        # Convergence, asserted end to end through the CLI rather than only in the
+        # phase's unit tests: this dict is what #457 will consume.
+        assert first == second
+
+    def test_sweep_on_an_unparseable_manifest_exits_two_without_touching_anything(
+        self, cli, tmp_path, capsys
+    ):
+        """A manifest that cannot be parsed must not become a partially-executed sweep.
+
+        The parse happens BEFORE any environment is wired, so there is no window in
+        which a malformed manifest could have removed a file or signalled a process.
+        """
+        data = minimal(tmp_path)
+        del data["run_id"]
+        rc = cli.main(["--manifest", write(tmp_path, data), "--sweep"])
+        out = capsys.readouterr().out
+        assert rc == 2
+        assert "not well-formed" in out
+        assert "run_id" in out
+
+    def test_sweep_refuses_a_manifest_from_an_older_schema_revision(
+        self, cli, tmp_path, capsys
+    ):
+        """Version 2 has no `run_id`, so sweeping it would sweep with no identity.
+
+        The version bump is what makes that a named refusal instead of a sweep that
+        matches nothing and reports a clean tree.
+        """
+        data = minimal(tmp_path)
+        data["version"] = 2
+        rc = cli.main(["--manifest", write(tmp_path, data), "--sweep"])
+        out = capsys.readouterr().out
+        assert rc == 2
+        assert "version" in out
+
+    def test_sweep_runs_before_check_when_both_are_requested(self, cli, tmp_path, capsys):
+        """Ordering matters: stale residue can otherwise satisfy a static check."""
+        rc = cli.main(
+            ["--manifest", write(tmp_path, minimal(tmp_path)), "--check", "--sweep"]
+        )
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert out.index("SWEEP") < out.index("STATIC")
 
     def test_json_output_is_machine_readable(self, cli, tmp_path, capsys):
         data = minimal(tmp_path)

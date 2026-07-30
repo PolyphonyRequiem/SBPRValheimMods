@@ -301,6 +301,11 @@ def test_cleanup_bootstraps_removes_sidecar_when_client_never_arms() -> None:
             bootstrap_path=_os.path.join(home, "boot.json"),
             connect_host="127.0.0.1", connect_port=2476, loopback_port=48610,
             launch_env_path=sidecar,
+            # #455: a REAL GABS launch spec must name the run launching it, so
+            # the harness marker it writes is attributable by a later sweep.
+            # build_request fails closed without it, which would abort this boot
+            # before _apply_env writes the sidecar this test is about.
+            run_id="t022-run-test-0001",
         )
 
         with pytest.raises(ClientLaunchError):

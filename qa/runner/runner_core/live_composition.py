@@ -69,6 +69,7 @@ from .lane_password_mint import (
 )
 from .wire_mint import (
     assert_descriptor_carries_no_wire_secrets,
+    mint_run_id,
     mint_wire_envelope,
     resolve_ttl_seconds,
 )
@@ -833,6 +834,16 @@ def build_live_run(
     if _lane_password is not None:
         descriptor = {**descriptor, "lane_password": _lane_password}
 
+    # #455 — mint the RUN ID once, here, upstream of every consumer, for the same
+    # reason the wire envelope is minted here: it identifies THIS run, so it must be
+    # fresh per run. A persisted descriptor value would be reused across runs and
+    # every run would then claim the previous run's residue as its own — the exact
+    # attribution failure the stamping exists to fix. Both credential provisioners
+    # and every launched client's harness marker read this one value, so a leaked
+    # credential or client is attributable to the run that produced it by a LATER
+    # process, which is what makes the next-entry sweep possible at all.
+    descriptor = {**descriptor, "run_id": mint_run_id()}
+
     integrity_key = str(descriptor.get("integrity_key", "sbpr-live-integrity")).encode()
 
     lane_d = descriptor["lane"]
@@ -870,6 +881,11 @@ def build_live_run(
             server_password_file=(
                 str(c["server_password_file"]) if c.get("server_password_file") is not None else None
             ),
+            # #455: the run that is launching this client. Leads the harness marker in
+            # the client's environment, so a client this run leaks is attributable by
+            # the NEXT run's sweep and not only by this process, whose in-process
+            # record a SIGKILL destroys.
+            run_id=str(descriptor["run_id"]),
         )
         for c in descriptor["clients"]
     )
