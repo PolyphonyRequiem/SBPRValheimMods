@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import dataclasses
 import os
 
 import pytest
@@ -61,6 +62,9 @@ def fs(paths):
                 if p.startswith(root.rstrip("/") + "/") and p.rsplit("/", 1)[-1] == name
             )
         ),
+        # These cases declare no wrapper_path, so S8's wrapper branch never runs.
+        # The stub records that choice explicitly rather than inheriting a default.
+        read_text=lambda _p: None,
     )
 
 
@@ -223,7 +227,7 @@ class TestGolden:
         assert arrange_static(m, fs(paths)).ok
 
     def test_static_starts_no_process_and_writes_nothing(self):
-        """The ONLY environment contact is the three read seams; assert they are all
+        """The ONLY environment contact is the four read seams; assert they are all
         that is ever called by recording every path touched."""
         touched = []
         env = StaticEnvironment(
@@ -232,10 +236,11 @@ class TestGolden:
             or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
             find_named_files=lambda root, name: touched.append(("find", f"{root}/{name}"))
             or (),
+            read_text=lambda p: touched.append(("read", p)) or None,
         )
         arrange_static(golden_manifest(), env)
         assert touched, "static phase must actually inspect the declared artifacts"
-        assert all(kind in ("exists", "hash", "find") for kind, _ in touched)
+        assert all(kind in ("exists", "hash", "find", "read") for kind, _ in touched)
 
 
 class TestNoSymmetryAssumption:
@@ -497,6 +502,7 @@ class TestDisabledComponents:
             path_exists=lambda p: p.startswith("/build/out/"),
             hash_file=lambda p: H_HARNESS if "QaHarness" in p else H_PRODUCT,
             find_named_files=lambda _root, _name: None,
+            read_text=lambda _p: None,
         )
         report = arrange_static(m, env)
         failure = failures_for(report, P_DISABLED_COMPONENTS, "client_b")[0]
@@ -517,16 +523,16 @@ class TestDisabledComponents:
 
 
 class TestEnumerationSeamIsMandatory:
-    """`find_named_files` has no default, so an incomplete caller cannot be built.
+    """No `StaticEnvironment` field has a default, so an incomplete caller cannot build.
 
-    The regression this locks (#467): overlapping merges restored a
-    `lambda _root, _name: None` default that #454's review had deliberately removed.
-    The default failed CLOSED, so it was never a security bypass — it was worse in a
-    subtler way. An omitted seam produced an ordinary S9 "plugin tree missing or
-    unreadable" failure against the CLIENT, pointing an operator at filesystem
-    permissions on a machine whose filesystem was fine, when the actual fault was a
-    caller that never wired the proof. Making it mandatory converts a misleading
-    runtime diagnosis into an impossible construction.
+    The regression this locks (#467, #473): overlapping merges restored defaults that
+    #454's review had deliberately removed. The defaults failed CLOSED, so they were
+    never a security bypass — they were worse in a subtler way. An omitted seam produced
+    an ordinary "plugin tree missing or unreadable" S9 / "wrapper missing or unreadable"
+    S8 failure against the CLIENT, pointing an operator at filesystem permissions on a
+    machine whose filesystem was fine, when the actual fault was a caller that never
+    wired the proof. Making the seams mandatory converts a misleading runtime diagnosis
+    into an impossible construction.
     """
 
     def test_constructing_without_find_named_files_raises_type_error(self):
@@ -534,19 +540,40 @@ class TestEnumerationSeamIsMandatory:
             StaticEnvironment(  # type: ignore[call-arg]  # arrange-seam-contract-negative
                 path_exists=lambda p: False,
                 hash_file=lambda p: None,
+                read_text=lambda p: None,
             )
         assert "find_named_files" in str(excinfo.value)
 
-    def test_read_text_remains_optional(self):
-        """The asymmetry is deliberate: only the ABSENCE proof is mandatory."""
-        env = StaticEnvironment(
-            path_exists=lambda p: False,
-            hash_file=lambda p: None,
-            find_named_files=lambda _root, _name: (),
-        )
-        assert env.read_text("/anything") is None
+    def test_constructing_without_read_text_raises_type_error(self):
+        """#473: the wrapper-content seam is mandatory too, for the same reason."""
+        with pytest.raises(TypeError) as excinfo:
+            StaticEnvironment(  # type: ignore[call-arg]  # arrange-seam-contract-negative
+                path_exists=lambda p: False,
+                hash_file=lambda p: None,
+                find_named_files=lambda _root, _name: (),
+            )
+        assert "read_text" in str(excinfo.value)
 
-    def test_every_repository_caller_supplies_the_seam(self):
+    def test_no_environment_field_carries_a_default(self):
+        """Structural guard: catches a re-defaulted seam the moment it lands.
+
+        The per-seam TypeError tests above only fire for seams some caller happens to
+        omit. This asserts the contract over the dataclass itself, so a future merge
+        cannot quietly re-add a default to a seam every current test supplies — which
+        is exactly how #452/#453 re-defaulted both seams without any test turning red.
+        """
+        offenders = [
+            f.name
+            for f in dataclasses.fields(StaticEnvironment)
+            if f.default is not dataclasses.MISSING
+            or f.default_factory is not dataclasses.MISSING  # type: ignore[misc]
+        ]
+        assert not offenders, (
+            "StaticEnvironment proof seams must not be defaulted (P9); "
+            f"defaulted field(s): {offenders}"
+        )
+
+    def test_every_repository_caller_supplies_the_seams(self):
         """No construction of the environment dataclass may omit the seam.
 
         A type error only fires on a code path that actually runs. This asserts the
@@ -574,7 +601,14 @@ class TestEnumerationSeamIsMandatory:
         assert os.path.isdir(os.path.join(repo, "qa", "runner")), repo
 
         target = StaticEnvironment.__name__
-        seam = "find_named_files"
+        # Derive the seam positions from the dataclass itself rather than hardcoding
+        # an arity number. The previous `len(node.args) >= 3` was correct at three
+        # fields and silently wrong at four: it declared a three-positional caller to
+        # have supplied `read_text`, which sits at index 3. A heuristic that must be
+        # hand-updated whenever a field is added is a guard that decays into a
+        # rubber stamp, so the index comes from `dataclasses.fields` (#473).
+        field_index = {f.name: i for i, f in enumerate(dataclasses.fields(StaticEnvironment))}
+        seams = ("find_named_files", "read_text")
         offenders = []
         scanned = 0
         constructions = 0
@@ -617,13 +651,19 @@ class TestEnumerationSeamIsMandatory:
                         # path in this scanner.
                         continue
                     constructions += 1
-                    # Keyword OR positional: four positional args also supply the seam.
-                    supplied = any(kw.arg == seam for kw in node.keywords) or (
-                        len(node.args) >= 3
-                    )
-                    if not supplied:
+                    # Keyword OR positional: a positional arg past the seam's own
+                    # field index supplies it.
+                    missing = [
+                        seam
+                        for seam in seams
+                        if not any(kw.arg == seam for kw in node.keywords)
+                        and not any(kw.arg is None for kw in node.keywords)
+                        and len(node.args) <= field_index[seam]
+                    ]
+                    if missing:
                         offenders.append(
-                            f"{os.path.relpath(path, repo)}:{node.lineno}"
+                            f"{os.path.relpath(path, repo)}:{node.lineno} "
+                            f"(missing: {', '.join(missing)})"
                         )
         # A scanner that silently matched nothing would pass forever. Assert it walked
         # a real tree AND found real constructions, so a broken root, a filter, or a
@@ -634,8 +674,8 @@ class TestEnumerationSeamIsMandatory:
             "seeing the callers it exists to guard"
         )
         assert not offenders, (
-            f"{target}(...) constructed without the mandatory "
-            f"{seam} proof seam at: {offenders}"
+            f"{target}(...) constructed without the mandatory proof seam(s) "
+            f"{list(seams)} at: {offenders}"
         )
 
 
@@ -814,6 +854,7 @@ class TestArtifactPins:
             hash_file=lambda p: hashed.append(p)
             or (H_HARNESS if "QaHarness" in p else H_PRODUCT),
             find_named_files=lambda _root, _name: (),
+            read_text=lambda _p: None,
         )
         arrange_static(golden_manifest(), env)
         assert hashed.count("/build/out/SBPR.QaHarness.T022.dll") == 1

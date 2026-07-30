@@ -277,13 +277,26 @@ arranged?" is answered by reading a file, not by inferring from process tables.
 artifact drift, pin verification, expiry checks — these are correct and have all
 demonstrably prevented harm. Arrange must keep them, not route around them.
 
-**P9 — Proof seams are mandatory, not defaulted.** Where a check's entire value is
-proving a **negative** (a component is absent, a tree contains no such file), the
-capability that establishes it must be a required dependency of the check. A defaulted
+**P9 — Proof seams are mandatory, not defaulted.** **Every** `StaticEnvironment` seam
+is a required dependency; no field on the dataclass carries a default. This began as a
+rule about **negative** proofs (a component is absent, a tree contains no such file),
+where a check's entire value is the capability that establishes it — but the same
+diagnostic argument holds for every seam a check's verdict depends on. A defaulted
 "cannot prove" seam is not a security hole when it fails closed, but it is a diagnostic
 one: an omitted wiring is then reported as a fault in the *client's filesystem* rather
 than as an incomplete caller, sending an operator to inspect a machine that is fine.
-Make the incomplete caller impossible to construct instead. (#454, restored by #467.)
+Worse, the omitted-wiring and genuinely-broken cases emit the *same* line, so the
+report cannot distinguish them. Make the incomplete caller impossible to construct
+instead. A caller that has no wrapper to read, or cannot enumerate a tree, says so by
+passing a function returning `None` — the choice is then recorded at the construction
+site rather than inherited silently.
+
+This has regressed three times (#454 established it; #452/#453 overlapping merges
+re-defaulted both seams; #467 restored only `find_named_files`; #473 restored
+`read_text`). The enforcement is therefore structural rather than per-seam: a test
+asserts no `dataclasses.fields(StaticEnvironment)` entry carries a `default` or
+`default_factory`, and an AST scan asserts every construction site in the repository
+supplies every mandatory seam by keyword or position. (#454, #467, #473.)
 
 ---
 
