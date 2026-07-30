@@ -119,17 +119,17 @@ AppID request, and GABS cannot replace it. See `AGENTS.md`.
 `diff` of the two plugin directories returned exactly one line: `SBPR.QaHarness.T022`,
 present on client_a, absent on client_b, for the entire effort. A client without the
 harness boots normally, loads every product mod, and waits at a menu forever.
-*Evidence: plugin dir diff, 2026-07-29.* → **#451**
+**MERGED (#451).** *Evidence: plugin dir diff, 2026-07-29.* → **#451**
 
 ### I2 — Provisioning must be count-agnostic
 The isolation library hardcoded `for index in 0 1 2` and `-eq 5` in five places. Adding a
 fourth artifact staged **nothing** — the loops never reached it. Silent.
-*Evidence: `run-trailborne-valbot-isolation-lib.sh` pre-fix.* → **#451**
+**MERGED (#451).** *Evidence: `run-trailborne-valbot-isolation-lib.sh` pre-fix.* → **#451**
 
 ### I3 — Staging must be able to CREATE, not only replace
 The stager validated an existing parent directory and refused otherwise
 (`parent kind: not a regular directory`). A manifest could therefore never introduce a
-NEW artifact. *Evidence: staging refusal, 11:46:42.* → **#451**
+NEW artifact. **MERGED (#451).** *Evidence: staging refusal, 11:46:42.* → **#451**
 
 ### I4 — Credentials must be readable by the identity that consumes them
 **MERGED (#452).** Written `0600` in a `0700` directory by uid 1000; consumed by uid
@@ -312,7 +312,7 @@ SWEEP    (idempotent cleanup of prior-run residue)                  [#455]
   ├── dead harness-owned clients — and ONLY harness-owned ones (B1)
   └── credentials cannot outlive the run that minted them, even on SIGKILL
 
-STAGE    (filesystem; still no game processes)                      [#451]
+STAGE    (filesystem; still no game processes)               [MERGED #451]
   ├── stage artifacts to EVERY client from ONE manifest  .......... [I1][I2][I3]
   ├── create a missing plugin directory, not only replace  ........ [I3]
   └── post-condition: every client has every artifact, hashes match

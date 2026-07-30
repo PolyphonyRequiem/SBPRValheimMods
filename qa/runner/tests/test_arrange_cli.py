@@ -138,6 +138,108 @@ class TestArrangeCli:
         assert cli.main(["--manifest", str(path), "--check"]) == 2
 
 
+class TestStageCli:
+    """`--stage` CLI surface (issue #451).
+
+    The manifest here declares the CURRENT uid rather than a hardcoded 1000, because
+    staging asserts each artifact lands owned by its client's declared uid. Pinning a
+    literal uid would make these pass only on a box where the runner happens to be
+    uid 1000 — and skip-or-lie everywhere else.
+    """
+
+    def staged_manifest(self, tmp_path):
+        import os
+
+        data = minimal(tmp_path)
+        data["clients"][0]["uid"] = os.getuid()
+        # Stage into a plugin subdirectory that does NOT exist yet, so the CLI path
+        # exercises directory creation rather than plain replacement.
+        root = tmp_path / "game"
+        data["clients"][0]["artifacts"][0]["dest_path"] = str(
+            root / "BepInEx" / "plugins" / "SBPR.QaHarness.T022" / "harness.dll"
+        )
+        return data
+
+    def test_dry_run_writes_nothing_and_reports_the_plan(self, cli, tmp_path, capsys):
+        data = self.staged_manifest(tmp_path)
+        dest = Path(data["clients"][0]["artifacts"][0]["dest_path"])
+        rc = cli.main(
+            ["--manifest", write(tmp_path, data), "--stage", "--dry-run"]
+        )
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert "dry run" in out
+        assert "[create]" in out
+        assert not dest.exists(), "--dry-run must not write"
+
+    def test_stage_places_the_artifact_and_exits_zero(self, cli, tmp_path, capsys):
+        data = self.staged_manifest(tmp_path)
+        dest = Path(data["clients"][0]["artifacts"][0]["dest_path"])
+        rc = cli.main(["--manifest", write(tmp_path, data), "--stage"])
+        out = capsys.readouterr().out
+        assert rc == 0, out
+        assert dest.read_bytes() == b"harness-bytes"
+        assert "postconditions: PASS" in out
+
+    def test_stage_is_idempotent(self, cli, tmp_path, capsys):
+        data = self.staged_manifest(tmp_path)
+        path = write(tmp_path, data)
+        assert cli.main(["--manifest", path, "--stage"]) == 0
+        capsys.readouterr()
+        assert cli.main(["--manifest", path, "--stage"]) == 0
+        assert "PASS" in capsys.readouterr().out
+
+    def test_missing_source_exits_three_with_nothing_written(self, cli, tmp_path, capsys):
+        data = self.staged_manifest(tmp_path)
+        Path(data["artifacts"][0]["source_path"]).unlink()
+        dest = Path(data["clients"][0]["artifacts"][0]["dest_path"])
+        rc = cli.main(["--manifest", write(tmp_path, data), "--stage"])
+        out = capsys.readouterr().out
+        assert rc == 3
+        assert "nothing was written" in out
+        assert not dest.exists()
+
+    def test_check_gates_stage(self, cli, tmp_path, capsys):
+        """A manifest that fails STATIC must never proceed to write bytes."""
+        data = self.staged_manifest(tmp_path)
+        data["clients"][0]["ports"]["loopback_control"] = 2456  # production deny
+        dest = Path(data["clients"][0]["artifacts"][0]["dest_path"])
+        rc = cli.main(["--manifest", write(tmp_path, data), "--check", "--stage"])
+        out = capsys.readouterr().out
+        assert rc == 1
+        assert "S2-PRODUCTION-PORT-DENY" in out
+        assert not dest.exists(), "STATIC failure must gate staging"
+
+    def test_dry_run_json_is_machine_readable(self, cli, tmp_path, capsys):
+        data = self.staged_manifest(tmp_path)
+        cli.main(["--manifest", write(tmp_path, data), "--stage", "--dry-run", "--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["phase"] == "stage"
+        assert payload["dry_run"] is True
+        assert payload["placements"][0]["client"] == "solo"
+        assert payload["placements"][0]["action"] == "create"
+
+    def test_stage_json_reports_postconditions(self, cli, tmp_path, capsys):
+        data = self.staged_manifest(tmp_path)
+        cli.main(["--manifest", write(tmp_path, data), "--stage", "--json"])
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["ok"] is True
+        assert payload["failures"] == []
+        assert payload["staged"][0]["action"] == "create"
+
+    def test_dry_run_without_stage_is_rejected(self, cli, tmp_path, capsys):
+        rc = cli.main(
+            ["--manifest", write(tmp_path, minimal(tmp_path)), "--check", "--dry-run"]
+        )
+        assert rc == 2
+        assert "--dry-run applies to --stage" in capsys.readouterr().out
+
+    def test_no_mode_message_names_both_phases(self, cli, tmp_path, capsys):
+        cli.main(["--manifest", write(tmp_path, minimal(tmp_path))])
+        out = capsys.readouterr().out
+        assert "--check" in out and "--stage" in out
+
+
 class TestShippedExample:
     """The documented example must actually parse under the real schema — a stale
     example is a silent trap for whoever writes the next manifest."""
