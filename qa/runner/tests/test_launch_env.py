@@ -66,7 +66,7 @@ def test_render_refuses_a_non_allowlisted_key() -> None:
 def test_allowlist_is_exactly_the_six_non_secret_launch_vars() -> None:
     # The three arming env vars PLUS the M6-JOIN connect target PLUS the M6-JOIN3
     # server-password FILE PATH PLUS the M6-JOIN3 QA profile NAME — all non-secret, all
-    # ride the same 0644 sidecar. The password VALUE is NOT here (it lives in the mode-0600
+    # ride the same 0644 sidecar. The password VALUE is NOT here (it lives in the per-run
     # file this path names); a secret (HMAC/operator token) is still refused.
     assert ALLOWED_SIDECAR_KEYS == frozenset(
         {

@@ -75,7 +75,7 @@ namespace SBPR.QaHarness.T022.Runtime
         internal const string ConnectEnvVar = "SBPR_QA_CONNECT";
 
         /// <summary>
-        /// Env var naming the absolute path of a mode-0600 file whose sole line is the lane's
+        /// Env var naming the absolute path of a per-run credential file whose sole line is the lane's
         /// join password. When present, the hook reads that file and sets the vanilla
         /// <c>FejdStartup.ServerPassword</c> so the vanilla handshake auto-supplies it
         /// (<c>ZNet.RPC_ClientHandshake</c> → <c>OnPasswordEntered(FejdStartup.ServerPassword)</c>)
@@ -83,7 +83,7 @@ namespace SBPR.QaHarness.T022.Runtime
         /// no password is set and vanilla's <c>needPassword=false</c> branch joins directly.
         ///
         /// <para>Only the PATH rides the 0644 launch-env sidecar (non-secret, exactly like the
-        /// bootstrap-doc path). The password itself lives ONLY in the mode-0600 file, never in
+        /// bootstrap-doc path). The password itself lives ONLY in the credential file, never in
         /// the sidecar and never logged — consistent with ADR-0009's secret-carrier discipline.</para>
         /// </summary>
         internal const string ServerPasswordFileEnvVar = "SBPR_QA_SERVER_PASSWORD_FILE";
@@ -112,7 +112,7 @@ namespace SBPR.QaHarness.T022.Runtime
             _log = log;
             _installed = true;
 
-            // Supply the lane join password (if the runner provided its 0600 file) BEFORE the
+            // Supply the lane join password (if the runner provided its per-run file) BEFORE the
             // join is driven, so vanilla's RPC_ClientHandshake finds FejdStartup.ServerPassword
             // set and auto-submits it rather than parking on the password dialog. Never logs the
             // secret — only whether a password was applied.
@@ -125,7 +125,7 @@ namespace SBPR.QaHarness.T022.Runtime
         }
 
         /// <summary>
-        /// Read the lane password from the mode-0600 file named by
+        /// Read the lane password from the per-run file named by
         /// <see cref="ServerPasswordFileEnvVar"/> (if set) and assign it to the vanilla
         /// <c>FejdStartup.ServerPassword</c> static property (private setter, reached via
         /// Harmony reflection). No-op if the env var is unset, the file is unreadable, or the
@@ -162,7 +162,7 @@ namespace SBPR.QaHarness.T022.Runtime
                 Traverse.Create(typeof(FejdStartup)).Property("ServerPassword").SetValue(password);
                 log.LogWarning(
                     "SBPRQA: lane join password applied to FejdStartup.ServerPassword " +
-                    "(value read from the 0600 file; not logged). Handshake will auto-submit it.");
+                    "(value read from the per-run file; not logged). Handshake will auto-submit it.");
             }
             catch (Exception ex)
             {

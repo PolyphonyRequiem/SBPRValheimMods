@@ -19,8 +19,9 @@ descriptor field (`wire`, `pins`, `lane`, and the client's own `role`/`verbs`).
      operatorToken, loopbackPort, verbs:"A,B,C",
      hashes:{product,helper,game,bepinex,harmony,scenario}}
 
-The doc carries the HMAC secret and operator token, so it is written **mode 0600** and
-removed on teardown. (The launch-env sidecar — a separate file — carries only the doc's
+The doc carries the HMAC secret and operator token, so it is written **mode 0644** in a
+**0711** directory and removed on teardown. This permits a known-path read by the
+uid-1001 client without making the directory listable. (The launch-env sidecar carries only the doc's
 PATH plus two non-secret ids and is 0644; see `launch_env.py`.)
 
 Engine-free stdlib only. No Valheim/BepInEx/Unity import.
@@ -32,6 +33,12 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
 
+from .credential_access import (
+    CredentialReadError,
+    ReadAsUid,
+    assert_readable_as_consumer,
+    prepare_credential_directory,
+)
 from .manifest import REQUIRED_PARTS
 
 
@@ -94,16 +101,17 @@ def build_bootstrap_doc(
 
 
 class BootstrapProvisioner:
-    """Write/remove the per-client bootstrap docs derived from the descriptor.
+    """Write, consumer-read-verify, and remove per-client bootstrap docs.
 
-    Each doc is written mode 0600 (it carries the HMAC secret + operator token) at the
+    Each doc is written mode 0644 (it carries per-run, short-TTL credentials) at the
     exact `bootstrap_path` the descriptor names for that client — which is also the path
     the launch-env sidecar advertises to the helper via `SBPR_QA_T022_BOOTSTRAP`. Every
     write is tracked so `remove`/`remove_all` clears the secret-bearing docs on teardown.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, read_as_uid: Optional[ReadAsUid] = None) -> None:
         self._written: Dict[str, ProvisionedBootstrap] = {}
+        self._read_as_uid = read_as_uid
 
     def provision_from_descriptor(self, descriptor: Mapping[str, Any]) -> List[ProvisionedBootstrap]:
         """Derive + write a bootstrap doc for every client in the descriptor.
@@ -123,50 +131,98 @@ class BootstrapProvisioner:
             raise BootstrapProvisionError("descriptor has no clients to provision")
 
         written: List[ProvisionedBootstrap] = []
-        for c in clients:
-            actor = str(c.get("actor", ""))
-            path = c.get("bootstrap_path")
-            if not path:
-                raise BootstrapProvisionError(
-                    f"client {actor!r} has no bootstrap_path; cannot provision its arm doc"
+        try:
+            for c in clients:
+                actor = str(c.get("actor", ""))
+                path = c.get("bootstrap_path")
+                if not path:
+                    raise BootstrapProvisionError(
+                        f"client {actor!r} has no bootstrap_path; cannot provision its arm doc"
+                    )
+                consumer_uid = c.get("uid")
+                if consumer_uid is None:
+                    raise BootstrapProvisionError(
+                        f"client {actor!r} has no consuming uid for bootstrap path "
+                        f"{path!r}; readability must be proved as the identity that "
+                        "launches this client"
+                    )
+                verbs = str(c.get("verbs", ""))
+                role = str(c.get("role", "Client"))
+                loopback = c.get("loopback_port")
+                if loopback is None:
+                    raise BootstrapProvisionError(
+                        f"client {actor!r} at bootstrap path {path!r} as consuming uid "
+                        f"{consumer_uid} has no loopback_port"
+                    )
+                doc = build_bootstrap_doc(
+                    role=role,
+                    actor=actor,
+                    wire=wire,
+                    pins=pins,
+                    lane=lane,
+                    verbs=verbs,
+                    loopback_port=int(loopback),
                 )
-            verbs = str(c.get("verbs", ""))
-            role = str(c.get("role", "Client"))
-            loopback = c.get("loopback_port")
-            if loopback is None:
-                raise BootstrapProvisionError(f"client {actor!r} has no loopback_port")
-            doc = build_bootstrap_doc(
-                role=role,
-                actor=actor,
-                wire=wire,
-                pins=pins,
-                lane=lane,
-                verbs=verbs,
-                loopback_port=int(loopback),
-            )
-            written.append(self._write_doc(str(path), actor, doc))
+                written.append(
+                    self._write_doc(str(path), actor, int(consumer_uid), doc)
+                )
+                assert_readable_as_consumer(
+                    actor=actor,
+                    path=str(path),
+                    consumer_uid=int(consumer_uid),
+                    read_as_uid=self._read_as_uid,
+                )
+        except CredentialReadError as exc:
+            self.remove_all()
+            raise BootstrapProvisionError(str(exc)) from exc
+        except Exception:
+            self.remove_all()
+            raise
         return written
 
-    def _write_doc(self, path: str, actor: str, doc: Mapping[str, Any]) -> ProvisionedBootstrap:
+    def _write_doc(
+        self, path: str, actor: str, consumer_uid: int, doc: Mapping[str, Any]
+    ) -> ProvisionedBootstrap:
         if not os.path.isabs(path):
-            raise BootstrapProvisionError(f"bootstrap_path must be absolute: {path!r}")
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: bootstrap_path must be absolute"
+            )
         directory = os.path.dirname(path)
-        os.makedirs(directory, mode=0o711, exist_ok=True)
+        try:
+            prepare_credential_directory(directory)
+        except OSError as exc:
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: cannot prepare mode-0711 directory: {exc}"
+            ) from exc
         if os.path.islink(path):
-            raise BootstrapProvisionError(f"refusing to write bootstrap over a symlink: {path}")
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: refusing symlink destination"
+            )
         content = json.dumps(doc, indent=2, sort_keys=False)
         tmp = f"{path}.tmp.{os.getpid()}"
-        # 0600 — the doc carries the HMAC secret + operator token.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        # 0644 — the uid-1001 client must read a uid-1000-written per-run document.
         try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(content)
                 fh.write("\n")
-        except Exception:
-            _best_effort_unlink(tmp)
-            raise
-        os.replace(tmp, path)
-        os.chmod(path, 0o644)
+            os.replace(tmp, path)
+            os.chmod(path, 0o644)
+        except Exception as exc:
+            cleanup_errors = _cleanup_failed_install(tmp, path)
+            if cleanup_errors:
+                raise BootstrapProvisionError(
+                    f"credential provision failed for client {actor!r} at {path!r} "
+                    f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}; "
+                    f"cleanup FAILED (credential may remain): {'; '.join(cleanup_errors)}"
+                ) from exc
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
+            ) from exc
         prov = ProvisionedBootstrap(path=path, actor=actor)
         self._written[path] = prov
         return prov
@@ -192,3 +248,16 @@ def _best_effort_unlink(path: str) -> None:
         return
     except OSError:
         return
+
+
+def _cleanup_failed_install(*paths: str) -> List[str]:
+    """Clean a failed install and report every path that could not be removed."""
+    errors: List[str] = []
+    for path in paths:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            errors.append(f"{path!r}: {type(exc).__name__}: {exc}")
+    return errors

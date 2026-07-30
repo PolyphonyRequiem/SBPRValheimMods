@@ -62,6 +62,11 @@ from .lease import LaneLease
 from .launch_env import SidecarWriter
 from .bootstrap_provision import BootstrapProvisioner
 from .lane_password_provision import LanePasswordProvisioner
+from .lane_password_mint import (
+    assert_descriptor_carries_no_lane_password,
+    compose_server_args_with_lane_password,
+    mint_lane_password,
+)
 from .wire_mint import (
     assert_descriptor_carries_no_wire_secrets,
     mint_wire_envelope,
@@ -417,13 +422,13 @@ def real_operator_environment(
     # non-secret arming file never lingers between runs.
     sidecar_writer = SidecarWriter()
 
-    # The bootstrap-doc provisioner (M6-LAUNCHENV). Derives each client's mode-0600 arm
+    # The bootstrap-doc provisioner (M6-LAUNCHENV). Derives each client's per-run arm
     # doc from the descriptor's wire/pins/lane at run time (before launch) and removes the
     # secret-bearing docs on teardown. When no descriptor is supplied both are no-ops.
     bootstrap_provisioner = BootstrapProvisioner()
 
     # The lane-password provisioner (M6-JOIN3 / B2). Writes each password-gated client's
-    # mode-0600 lane-password file from the descriptor's `lane_password` (before launch) and
+    # lane-password file from the composed run's minted `lane_password` (before launch) and
     # removes the credential-bearing files on teardown. No-op for an open/no-password lane
     # (no client names a `server_password_file`). Same discipline as BootstrapProvisioner.
     lane_password_provisioner = LanePasswordProvisioner()
@@ -566,7 +571,7 @@ def real_operator_environment(
         # just before `exec`ing valheim.x86_64, so the vars land in the CHILD's env across
         # the daemon fork. The sidecar carries only the three NON-SECRET arming vars
         # (a bootstrap-doc PATH, a public SteamID, a random provenance marker); the HMAC
-        # secret and operator token live only inside the mode-0600 bootstrap doc, never
+        # secret and operator token live only inside the per-run bootstrap doc, never
         # here. `SidecarWriter.write` fails closed on any non-allowlisted/secret-shaped
         # key. The exact path is the one the descriptor pins for this client (the path its
         # own wrapper resolves from `$HOME`+`$GABS_GAME_ID`), so the two lanes — which
@@ -811,6 +816,17 @@ def build_live_run(
     _composed_wire.update(_minted)
     descriptor = {**descriptor, "wire": _composed_wire}
 
+    # #452 — the lane password is a per-run credential, not descriptor topology.
+    # Mint it once and pass the same value to the dedicated server and every client
+    # credential file. A persisted value is refused rather than silently overridden.
+    assert_descriptor_carries_no_lane_password(descriptor)
+    _password_gated = any(
+        bool(c.get("server_password_file")) for c in descriptor.get("clients", ())
+    )
+    _lane_password = mint_lane_password() if _password_gated else None
+    if _lane_password is not None:
+        descriptor = {**descriptor, "lane_password": _lane_password}
+
     integrity_key = str(descriptor.get("integrity_key", "sbpr-live-integrity")).encode()
 
     lane_d = descriptor["lane"]
@@ -844,7 +860,7 @@ def build_live_run(
             # M6-JOIN3 / B1: the QA-owned profile the headless join selects by name (allowlist
             # of one). Absent => the C# hook refuses the join rather than load a human profile.
             qa_profile=(str(c["qa_profile"]) if c.get("qa_profile") is not None else None),
-            # M6-JOIN3 / B2: the mode-0600 lane-password file's PATH for a password-gated lane.
+            # M6-JOIN3 / B2: the lane-password file's PATH for a password-gated lane.
             server_password_file=(
                 str(c["server_password_file"]) if c.get("server_password_file") is not None else None
             ),
@@ -955,7 +971,13 @@ def build_live_run(
     env = real_operator_environment(
         RealOperatorConfig(
             server_binary=str(srv["server_binary"]),
-            server_args=tuple(str(a) for a in srv.get("server_args", ())),
+            server_args=(
+                compose_server_args_with_lane_password(
+                    tuple(str(a) for a in srv.get("server_args", ())), _lane_password
+                )
+                if _lane_password is not None
+                else tuple(str(a) for a in srv.get("server_args", ()))
+            ),
             server_ready_log=str(srv["server_ready_log"]),
             server_ready_marker=str(srv["server_ready_marker"]),
             client_binary=str(srv["client_binary"]),

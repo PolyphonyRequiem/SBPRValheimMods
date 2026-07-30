@@ -32,7 +32,7 @@ purely through this sidecar (see `tests/test_launch_env_sidecar_delivery.py`).
 
 - The three vars are NOT secret: a bootstrap-doc **path**, a public SteamID64, and a
   random provenance marker. The HMAC secret + operator token live only INSIDE the
-  bootstrap doc, which stays mode 0600 and is untouched by this mechanism. So the sidecar
+  per-run bootstrap doc and are untouched by this mechanism. So the sidecar
   is written 0644 without leaking a credential — and it is removed on teardown regardless.
 - Per-launch (a fresh file written before each boot, removed after) keeps values scoped
   to one run, beating a static game-config env that would persist between runs.
@@ -54,7 +54,7 @@ SIDECAR_SUBDIR = os.path.join(".local", "share", "sbpr-qa", "launch-env")
 _KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 # The sidecar carries only these keys; anything else is refused so a caller can never
-# smuggle a secret (HMAC/operator token) into the 0644 file. The bootstrap DOC (0600)
+# smuggle a secret (HMAC/operator token) into the 0644 file. The per-run bootstrap DOC
 # is the sole carrier of secrets; the sidecar only names its PATH.
 #
 # SBPR_QA_CONNECT (M6-JOIN) carries the lane join target as `host:port`. GABS's
@@ -72,9 +72,9 @@ ALLOWED_SIDECAR_KEYS = frozenset(
         "SBPR_QA_HARNESS_INSTANCE",
         "SBPR_QA_STEAM_ID",
         "SBPR_QA_CONNECT",
-        # M6-JOIN3: absolute PATH of the mode-0600 lane-password file (non-secret, exactly
-        # like SBPR_QA_T022_BOOTSTRAP names the 0600 bootstrap doc). The password VALUE lives
-        # only in that 0600 file, never in this 0644 sidecar. The QA FejdStartup auto-join hook
+        # M6-JOIN3: absolute PATH of the lane-password file (non-secret, exactly like
+        # SBPR_QA_T022_BOOTSTRAP names the bootstrap doc). The password VALUE lives only in
+        # that per-run file, never in this 0644 sidecar. The QA FejdStartup auto-join hook
         # reads the file and sets vanilla FejdStartup.ServerPassword so a password-gated lane's
         # handshake auto-submits it instead of parking on the password dialog headless.
         "SBPR_QA_SERVER_PASSWORD_FILE",
@@ -127,7 +127,7 @@ def render_sidecar(env: Mapping[str, str]) -> str:
             raise LaunchEnvError(
                 f"refusing sidecar key {key!r}: only the three non-secret arming vars "
                 f"{sorted(ALLOWED_SIDECAR_KEYS)} may be written to the 0644 sidecar "
-                "(secrets live in the mode-0600 bootstrap doc, never here)"
+                "(secrets live in the per-run bootstrap doc, never here)"
             )
         if "\n" in value or "\r" in value or "\x00" in value:
             raise LaunchEnvError(

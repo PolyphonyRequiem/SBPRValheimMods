@@ -584,9 +584,10 @@ def _check_lane_password(manifest: ArrangeManifest) -> List[StaticFailure]:
     never reached. Every layer behaved as designed; only the data was wrong.
 
     §2 I4 rides along here: a credential is only useful if the identity that CONSUMES
-    it can read it. Credentials were written 0600 by uid 1000 and consumed by uid
-    1001. So a client's password credential must declare that client's OWN uid as its
-    consumer — checked per client, never assumed equal across clients.
+    it can read it. The historical 0600/0700 policy made cross-uid use impossible; the
+    approved PROVISION policy is now 0644 under a 0711 dedicated credential directory,
+    followed by an actual read as the declared uid. STATIC's part remains purely
+    declarative: the credential consumer must be this client's OWN uid.
     """
     failures: List[StaticFailure] = []
     requires = manifest.lane.requires_password
@@ -632,15 +633,14 @@ def _check_lane_password(manifest: ArrangeManifest) -> List[StaticFailure]:
                         detail=f"credential {name!r} is consumed by a different uid than this client runs as",
                         expected=f"consumer_uid == {client.uid} (the uid {client.user!r} runs as)",
                         actual=f"consumer_uid={cred.consumer_uid}",
-                        remedy="A credential written for one uid and read by another is "
-                        "structurally unreadable in a 0700 directory, and the only "
-                        "symptom is a client sitting at a menu. Declare the consuming "
-                        "uid to be this client's own.",
+                        remedy="Declare the consuming uid to be this client's own. "
+                        "PROVISION will then write under the approved 0711/0644 policy "
+                        "and prove readability by opening the file as that uid.",
                     )
                 )
 
-    # Two clients must not share a credential path: a 0600 file can be readable by
-    # exactly one uid, so a shared path is unsatisfiable by construction.
+    # Credentials remain per-client even under the approved 0644 throwaway-file policy:
+    # sharing one mutable path lets one client's lifecycle overwrite/remove another's.
     by_path: Dict[str, List[Tuple[str, str]]] = defaultdict(list)
     for client in manifest.clients:
         for name, cred in client.credentials.items():
@@ -662,9 +662,9 @@ def _check_lane_password(manifest: ArrangeManifest) -> List[StaticFailure]:
                         detail=f"credential {name!r} shares a path with a different-uid client",
                         expected=f"a credential path private to {actor}",
                         actual=f"{path} is shared by {rendered} across uids {sorted(uids)}",
-                        remedy="A mode-0600 credential is readable by exactly one uid. "
-                        "Give each client its own credential path under a directory it "
-                        "owns.",
+                        remedy="Give each client its own credential path. Per-run "
+                        "provisioning and teardown must never overwrite or remove a "
+                        "sibling client's credential.",
                     )
                 )
     return failures

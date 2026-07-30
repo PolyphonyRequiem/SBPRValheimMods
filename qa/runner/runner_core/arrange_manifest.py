@@ -214,14 +214,14 @@ class Credential:
     name: str
     path: str
     consumer_uid: int
-    mode: int = 0o600
+    mode: int = 0o644
 
     @staticmethod
     def parse(name: str, raw: Any, where: str) -> "Credential":
         data = _require_mapping(raw, f"{where}[{name}]")
         path = _require_abs_path(data, "path", f"{where}[{name}]")
         consumer_uid = _require_int(data, "consumer_uid", f"{where}[{name}]")
-        mode = data.get("mode", 0o600)
+        mode = data.get("mode", 0o644)
         if isinstance(mode, str):
             try:
                 mode = int(mode, 8)
@@ -231,6 +231,11 @@ class Credential:
                 )
         if isinstance(mode, bool) or not isinstance(mode, int):
             raise ArrangeManifestError(f"{where}[{name}].mode: expected an integer, got {mode!r}")
+        if mode != 0o644:
+            raise ArrangeManifestError(
+                f"{where}[{name}].mode: expected exactly '0644' for the approved "
+                f"cross-uid throwaway-credential policy, got {mode:#06o}"
+            )
         return Credential(name=name, path=path, consumer_uid=consumer_uid, mode=mode)
 
 

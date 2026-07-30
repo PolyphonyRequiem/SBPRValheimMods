@@ -1,8 +1,8 @@
 """M6-JOIN3 / B2 — the lane-password file has a real PRODUCER and a TEARDOWN unlink.
 
-The branch shipped a consumer (the QA FejdStartup hook reads a mode-0600 file named by
+The branch shipped a consumer (the QA FejdStartup hook reads a credential file named by
 SBPR_QA_SERVER_PASSWORD_FILE) with no producer and no teardown. These tests prove the
-producer now exists with the same discipline as BootstrapProvisioner — 0600, atomic,
+producer now exists with the same discipline as BootstrapProvisioner — atomic,
 descriptor-derived — and that the credential is unlinked on EVERY teardown path, proven
 by command output (the file is gone), not merely asserted. They also prove the value is
 never surfaced in an error message.
@@ -14,6 +14,7 @@ import stat
 
 import pytest
 
+import runner_core.lane_password_provision as lane_password_module
 from runner_core.lane_password_provision import (
     LanePasswordProvisioner,
     LanePasswordProvisionError,
@@ -21,9 +22,13 @@ from runner_core.lane_password_provision import (
 )
 
 
-def _descriptor(tmp_path, *, password="t009lproof", with_file=True):
+def _descriptor(tmp_path, *, password="t009lproof", with_file=True, uid=None):
     pwfile = str(tmp_path / "lane" / "lane-password.txt")
-    client = {"actor": "client_a", "steam_id": "76561197965627562"}
+    client = {
+        "actor": "client_a",
+        "uid": os.geteuid() if uid is None else uid,
+        "steam_id": "76561197965627562",
+    }
     if with_file:
         client["server_password_file"] = pwfile
     d = {"clients": [client]}
@@ -55,6 +60,45 @@ def test_producer_writes_password_file_mode_0644(tmp_path):
         assert fh.read().strip() == "t009lproof"
 
 
+def test_provision_asserts_readability_as_each_consuming_uid(tmp_path):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+    reads = []
+    prov = LanePasswordProvisioner(
+        read_as_uid=lambda path, uid: reads.append((path, uid))
+    )
+
+    prov.provision_from_descriptor(d)
+
+    assert reads == [(pwfile, 1001)]
+
+
+def test_unreadable_failure_names_client_path_and_consuming_uid(tmp_path):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+
+    def unreadable(_path, _uid):
+        raise PermissionError("denied")
+
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
+        LanePasswordProvisioner(read_as_uid=unreadable).provision_from_descriptor(d)
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert pwfile in message
+    assert "uid 1001" in message
+    assert "missing or unreadable" in message
+
+
+def test_provision_repairs_existing_directory_to_0711(tmp_path):
+    d, pwfile = _descriptor(tmp_path)
+    directory = os.path.dirname(pwfile)
+    os.makedirs(directory, mode=0o700)
+    os.chmod(directory, 0o700)
+
+    LanePasswordProvisioner().provision_from_descriptor(d)
+
+    assert stat.S_IMODE(os.stat(directory).st_mode) == 0o711
+
+
 def test_producer_is_atomic_no_tmp_left_behind(tmp_path):
     d, pwfile = _descriptor(tmp_path)
     LanePasswordProvisioner().provision_from_descriptor(d)
@@ -62,6 +106,38 @@ def test_producer_is_atomic_no_tmp_left_behind(tmp_path):
     directory = os.path.dirname(pwfile)
     leftovers = [f for f in os.listdir(directory) if ".tmp." in f]
     assert leftovers == [], f"atomic write left temp files: {leftovers}"
+
+
+@pytest.mark.parametrize("failure_point", ["replace", "chmod"])
+def test_install_failure_leaves_no_final_or_temp_credential(
+    tmp_path, monkeypatch, failure_point
+):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+    real_replace = lane_password_module.os.replace
+    real_chmod = lane_password_module.os.chmod
+
+    def replace(src, dst):
+        if failure_point == "replace" and dst == pwfile:
+            raise OSError("replace failed")
+        return real_replace(src, dst)
+
+    def chmod(path, mode):
+        if failure_point == "chmod" and path == pwfile:
+            raise OSError("chmod failed")
+        return real_chmod(path, mode)
+
+    monkeypatch.setattr(lane_password_module.os, "replace", replace)
+    monkeypatch.setattr(lane_password_module.os, "chmod", chmod)
+
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
+        LanePasswordProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(d)
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert pwfile in message
+    assert "uid 1001" in message
+    assert not os.path.exists(pwfile)
+    assert list((tmp_path / "lane").glob("*.tmp.*")) == []
 
 
 def test_teardown_unlinks_on_success(tmp_path):
@@ -108,15 +184,54 @@ def test_fails_closed_when_file_named_but_no_password(tmp_path):
     # write an empty credential the handshake would silently reject.
     d, _ = _descriptor(tmp_path, password=None, with_file=True)
     prov = LanePasswordProvisioner()
-    with pytest.raises(LanePasswordProvisionError):
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
         prov.provision_from_descriptor(d)
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert d["clients"][0]["server_password_file"] in message
+    assert f"uid {d['clients'][0]['uid']}" in message
+
+
+def test_fails_closed_when_password_consumer_uid_is_undeclared(tmp_path):
+    d, _ = _descriptor(tmp_path)
+    del d["clients"][0]["uid"]
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
+        LanePasswordProvisioner().provision_from_descriptor(d)
+    assert "client_a" in str(exc_info.value)
+    assert "uid" in str(exc_info.value)
 
 
 def test_fails_closed_on_empty_password(tmp_path):
     d, _ = _descriptor(tmp_path, password="", with_file=True)
     prov = LanePasswordProvisioner()
-    with pytest.raises(LanePasswordProvisionError):
+    with pytest.raises(LanePasswordProvisionError) as exc_info:
         prov.provision_from_descriptor(d)
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert d["clients"][0]["server_password_file"] in message
+    assert f"uid {d['clients'][0]['uid']}" in message
+
+
+def test_cleanup_failure_is_not_silently_suppressed(tmp_path, monkeypatch):
+    d, pwfile = _descriptor(tmp_path, uid=1001)
+    real_unlink = lane_password_module.os.unlink
+
+    def unlink(path):
+        if path == pwfile:
+            raise OSError("unlink failed")
+        return real_unlink(path)
+
+    def fail_chmod(*_args):
+        raise OSError("chmod failed")
+
+    monkeypatch.setattr(lane_password_module.os, "chmod", fail_chmod)
+    monkeypatch.setattr(lane_password_module.os, "unlink", unlink)
+
+    with pytest.raises(LanePasswordProvisionError, match="cleanup") as exc_info:
+        LanePasswordProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(d)
+
+    message = str(exc_info.value)
+    assert "client_a" in message and pwfile in message and "uid 1001" in message
 
 
 def test_password_value_never_appears_in_error_message(tmp_path):
@@ -187,6 +302,7 @@ def test_real_environment_provisions_then_cleans_up_password_file(tmp_path):
         "clients": [
             {
                 "actor": "client_a",
+                "uid": os.geteuid(),
                 "steam_id": "76561197965627562",
                 "verbs": "Ping",
                 "loopback_port": 48610,

@@ -3,7 +3,7 @@
 ## The gap this closes
 
 The M6-JOIN3 branch shipped a *consumer* — the QA FejdStartup auto-join hook reads a
-mode-0600 file named by `SBPR_QA_SERVER_PASSWORD_FILE` and sets vanilla
+credential file named by `SBPR_QA_SERVER_PASSWORD_FILE` and sets vanilla
 `FejdStartup.ServerPassword` from it so a password-gated lane's handshake auto-submits
 the password headless. But NOTHING wrote that file and NOTHING removed it. A consumer of
 a credential with no producer and no teardown is worse than no feature: it leaves a live
@@ -11,7 +11,8 @@ credential path with no lifecycle, and violates the card's "removed on teardown"
 
 This module is the missing producer. It mirrors `BootstrapProvisioner` discipline exactly:
 
-  * writes the file **mode 0600** (it carries the lane join password),
+  * writes the file **mode 0644** in a **0711** directory (known-path cross-uid read,
+    without directory listing),
   * writes it **atomically** (temp + fsync-free O_CREAT|O_EXCL-free rename — same as the
     bootstrap doc), refusing to follow a symlink out of the intended directory,
   * derives the password **from the descriptor** (a single source of truth), never invents
@@ -20,7 +21,7 @@ This module is the missing producer. It mirrors `BootstrapProvisioner` disciplin
     (success, failure, timeout, abort, block).
 
 The password VALUE never touches the 0644 launch-env sidecar — only the file PATH rides
-there (`SBPR_QA_SERVER_PASSWORD_FILE`), exactly like the 0600 bootstrap doc's path rides
+there (`SBPR_QA_SERVER_PASSWORD_FILE`), exactly like the bootstrap doc's path rides
 the sidecar as `SBPR_QA_T022_BOOTSTRAP`. The value is never placed in a log line or an
 exception message by this module.
 
@@ -30,7 +31,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Optional
+
+from .credential_access import (
+    CredentialReadError,
+    ReadAsUid,
+    assert_readable_as_consumer,
+    prepare_credential_directory,
+)
 
 
 class LanePasswordProvisionError(RuntimeError):
@@ -54,7 +62,7 @@ class ProvisionedLanePassword:
 
 
 class LanePasswordProvisioner:
-    """Write/remove the per-client mode-0600 lane-password files derived from the descriptor.
+    """Write, verify, and remove per-client lane-password files.
 
     The password value is read once from `descriptor["lane_password"]` (a run secret,
     alongside the wire secrets) and written to the exact `server_password_file` path each
@@ -64,11 +72,12 @@ class LanePasswordProvisioner:
     (an open/no-password lane needs no file), which is a legitimate, tested outcome.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, read_as_uid: Optional[ReadAsUid] = None) -> None:
         self._written: Dict[str, ProvisionedLanePassword] = {}
+        self._read_as_uid = read_as_uid
 
     def provision_from_descriptor(self, descriptor: Mapping[str, Any]) -> List[ProvisionedLanePassword]:
-        """Write a mode-0600 password file for every client that names a `server_password_file`.
+        """Write and consumer-read-verify every declared `server_password_file`.
 
         The password value is `descriptor["lane_password"]`. If NO client names a
         `server_password_file`, this is a no-op (the lane is open / needs no password) and
@@ -83,7 +92,7 @@ class LanePasswordProvisioner:
             return []
 
         targets = [
-            (str(c.get("actor", "")), c.get("server_password_file"))
+            (str(c.get("actor", "")), c.get("server_password_file"), c.get("uid"))
             for c in clients
             if c.get("server_password_file")
         ]
@@ -93,38 +102,85 @@ class LanePasswordProvisioner:
 
         password = descriptor.get("lane_password")
         if password is None or str(password) == "":
+            rendered = ", ".join(
+                f"client {actor!r} path={path!r} consuming uid {uid!r}"
+                for actor, path, uid in targets
+            )
             raise LanePasswordProvisionError(
-                "a client names a server_password_file but the descriptor carries no "
-                "non-empty 'lane_password'; refusing to write an empty credential (fail closed)"
+                f"{rendered}: descriptor carries no non-empty 'lane_password'; "
+                "refusing to write an empty credential (fail closed)"
             )
         password = str(password)
 
         written: List[ProvisionedLanePassword] = []
-        for actor, path in targets:
-            written.append(self._write_file(str(path), actor, password))
+        try:
+            for actor, path, consumer_uid in targets:
+                if consumer_uid is None:
+                    raise LanePasswordProvisionError(
+                        f"client {actor!r} declares server_password_file={path!r} but no "
+                        "consuming uid; readability must be proved as that identity"
+                    )
+                written.append(
+                    self._write_file(str(path), actor, int(consumer_uid), password)
+                )
+                assert_readable_as_consumer(
+                    actor=actor,
+                    path=str(path),
+                    consumer_uid=int(consumer_uid),
+                    read_as_uid=self._read_as_uid,
+                )
+        except CredentialReadError as exc:
+            self.remove_all()
+            raise LanePasswordProvisionError(str(exc)) from exc
+        except Exception:
+            self.remove_all()
+            raise
         return written
 
-    def _write_file(self, path: str, actor: str, password: str) -> ProvisionedLanePassword:
+    def _write_file(
+        self, path: str, actor: str, consumer_uid: int, password: str
+    ) -> ProvisionedLanePassword:
         if not os.path.isabs(path):
-            raise LanePasswordProvisionError(f"server_password_file must be absolute: {path!r}")
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: server_password_file must be absolute"
+            )
         directory = os.path.dirname(path)
-        os.makedirs(directory, mode=0o711, exist_ok=True)
-        if os.path.islink(path):
-            raise LanePasswordProvisionError(f"refusing to write lane password over a symlink: {path}")
-        tmp = f"{path}.tmp.{os.getpid()}"
-        # 0600 — the file carries the lane join password.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
         try:
+            prepare_credential_directory(directory)
+        except OSError as exc:
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: cannot prepare mode-0711 directory: {exc}"
+            ) from exc
+        if os.path.islink(path):
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: refusing symlink destination"
+            )
+        tmp = f"{path}.tmp.{os.getpid()}"
+        # 0644 — the uid-1001 client must read a uid-1000-written per-run credential.
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 # Single line, no trailing metadata: the consumer trims surrounding whitespace.
                 fh.write(password)
                 fh.write("\n")
-        except Exception:
-            _best_effort_unlink(tmp)
+            os.replace(tmp, path)
+            os.chmod(path, 0o644)
+        except Exception as exc:
+            cleanup_errors = _cleanup_failed_install(tmp, path)
             # Do NOT include the password in any error surfaced from here.
-            raise LanePasswordProvisionError(f"failed to write lane password file for {actor!r}")
-        os.replace(tmp, path)
-        os.chmod(path, 0o644)
+            if cleanup_errors:
+                raise LanePasswordProvisionError(
+                    f"credential provision failed for client {actor!r} at {path!r} "
+                    f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}; "
+                    f"cleanup FAILED (credential may remain): {'; '.join(cleanup_errors)}"
+                ) from exc
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
+            ) from exc
         prov = ProvisionedLanePassword(path=path, actor=actor)
         self._written[path] = prov
         return prov
@@ -150,3 +206,16 @@ def _best_effort_unlink(path: str) -> None:
         return
     except OSError:
         return
+
+
+def _cleanup_failed_install(*paths: str) -> List[str]:
+    """Clean a failed install and report every path that could not be removed."""
+    errors: List[str] = []
+    for path in paths:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            errors.append(f"{path!r}: {type(exc).__name__}: {exc}")
+    return errors

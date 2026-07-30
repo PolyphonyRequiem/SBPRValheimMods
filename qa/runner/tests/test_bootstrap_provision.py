@@ -3,7 +3,7 @@
 `t_2a954860` found the bootstrap docs were hand-authored operator inputs the runner
 never wrote — so they went stale silently (helper hash `8436e740` pinned against a
 deployed `135f6029`). These tests assert the provisioner now EMITS each doc from the
-descriptor (nothing fabricated), writes it mode 0600 (it carries the HMAC secret +
+descriptor (nothing fabricated), writes it mode 0644 (it carries the HMAC secret +
 operator token), and removes it on teardown.
 """
 from __future__ import annotations
@@ -14,6 +14,7 @@ import stat
 
 import pytest
 
+import runner_core.bootstrap_provision as bootstrap_module
 from runner_core.bootstrap_provision import (
     BootstrapProvisioner,
     BootstrapProvisionError,
@@ -34,6 +35,7 @@ _PINS = {p: (str(i) * 64)[:64] for i, p in enumerate(REQUIRED_PARTS, start=1)}
 def _descriptor(tmp_path, **client_overrides):
     a = {
         "actor": "client_a",
+        "uid": 1000,
         "role": "Client",
         "verbs": "Craft,UpgradeItem,ReadInventory,Ping,Cleanup,Disarm",
         "loopback_port": 48610,
@@ -42,12 +44,18 @@ def _descriptor(tmp_path, **client_overrides):
     a.update(client_overrides)
     b = {
         "actor": "client_b",
+        "uid": os.geteuid(),
         "role": "Client",
         "verbs": "Craft,UpgradeItem,ReadInventory,Ping,Cleanup,Disarm",
         "loopback_port": 48611,
         "bootstrap_path": str(tmp_path / "qa-artifacts" / "t022-bootstrap-client_b.json"),
     }
     return {"wire": _WIRE, "pins": _PINS, "lane": _LANE, "clients": [a, b]}
+
+
+def _same_process_reader(path, _uid):
+    with open(path, "rb") as fh:
+        fh.read(1)
 
 
 # --------------------------------------------------------------------------- #
@@ -96,12 +104,12 @@ def test_build_doc_fails_closed_on_empty_verbs() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The provisioner writes 0600 secret-bearing docs and removes them on teardown.
+# The provisioner writes 0644 short-TTL docs and removes them on teardown.
 # --------------------------------------------------------------------------- #
 
 def test_provision_writes_a_0644_doc_per_client(tmp_path) -> None:
     descriptor = _descriptor(tmp_path)
-    prov = BootstrapProvisioner()
+    prov = BootstrapProvisioner(read_as_uid=_same_process_reader)
     written = prov.provision_from_descriptor(descriptor)
     assert sorted(p.actor for p in written) == ["client_a", "client_b"]
     for client in descriptor["clients"]:
@@ -122,11 +130,130 @@ def test_provision_writes_a_0644_doc_per_client(tmp_path) -> None:
         assert doc["hashes"] == {p: _PINS[p] for p in REQUIRED_PARTS}
 
 
+@pytest.mark.parametrize("failure_point", ["replace", "chmod"])
+def test_install_failure_leaves_no_final_or_temp_bootstrap(
+    tmp_path, monkeypatch, failure_point
+) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"] = [descriptor["clients"][0]]
+    client = descriptor["clients"][0]
+    client["uid"] = 1001
+    path = client["bootstrap_path"]
+    real_replace = bootstrap_module.os.replace
+    real_chmod = bootstrap_module.os.chmod
+
+    def replace(src, dst):
+        if failure_point == "replace" and dst == path:
+            raise OSError("replace failed")
+        return real_replace(src, dst)
+
+    def chmod(actual_path, mode):
+        if failure_point == "chmod" and actual_path == path:
+            raise OSError("chmod failed")
+        return real_chmod(actual_path, mode)
+
+    monkeypatch.setattr(bootstrap_module.os, "replace", replace)
+    monkeypatch.setattr(bootstrap_module.os, "chmod", chmod)
+
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(
+            descriptor
+        )
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert path in message
+    assert "uid 1001" in message
+    assert not os.path.exists(path)
+    assert list((tmp_path / "qa-artifacts").glob("*.tmp.*")) == []
+
+
+def test_provision_asserts_each_bootstrap_readable_as_its_consumer(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"][0]["uid"] = 1000
+    descriptor["clients"][1]["uid"] = 1001
+    reads = []
+    provisioner = BootstrapProvisioner(
+        read_as_uid=lambda path, uid: reads.append((path, uid))
+    )
+
+    provisioner.provision_from_descriptor(descriptor)
+
+    assert reads == [
+        (descriptor["clients"][0]["bootstrap_path"], 1000),
+        (descriptor["clients"][1]["bootstrap_path"], 1001),
+    ]
+
+
+def test_unreadable_bootstrap_failure_names_client_path_and_uid(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"][1]["uid"] = 1001
+    path = descriptor["clients"][1]["bootstrap_path"]
+
+    def unreadable(actual_path, _uid):
+        if actual_path == path:
+            raise PermissionError("denied")
+
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner(read_as_uid=unreadable).provision_from_descriptor(descriptor)
+
+    message = str(exc_info.value)
+    assert "client_b" in message
+    assert path in message
+    assert "uid 1001" in message
+    assert "missing or unreadable" in message
+
+
+def test_missing_loopback_error_names_client_path_and_uid(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    client = descriptor["clients"][0]
+    client["uid"] = 1001
+    del client["loopback_port"]
+
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(
+            descriptor
+        )
+
+    message = str(exc_info.value)
+    assert "client_a" in message
+    assert client["bootstrap_path"] in message
+    assert "uid 1001" in message
+
+
+def test_cleanup_failure_is_not_silently_suppressed(tmp_path, monkeypatch) -> None:
+    descriptor = _descriptor(tmp_path)
+    descriptor["clients"] = [descriptor["clients"][0]]
+    client = descriptor["clients"][0]
+    client["uid"] = 1001
+    path = client["bootstrap_path"]
+    real_unlink = bootstrap_module.os.unlink
+
+    def unlink(actual_path):
+        if actual_path == path:
+            raise OSError("unlink failed")
+        return real_unlink(actual_path)
+
+    def fail_chmod(*_args):
+        raise OSError("chmod failed")
+
+    monkeypatch.setattr(bootstrap_module.os, "chmod", fail_chmod)
+    monkeypatch.setattr(bootstrap_module.os, "unlink", unlink)
+
+    with pytest.raises(BootstrapProvisionError, match="cleanup") as exc_info:
+        BootstrapProvisioner(read_as_uid=lambda _path, _uid: None).provision_from_descriptor(
+            descriptor
+        )
+
+    message = str(exc_info.value)
+    assert "client_a" in message and path in message and "uid 1001" in message
+
+
 def test_provisioned_doc_matches_the_wire_block_it_derives_from(tmp_path) -> None:
     # The stale-doc failure mode was a doc whose nonce/hashes no longer matched the
     # descriptor. An emitted doc cannot drift: assert byte-equality of the crypto fields.
     descriptor = _descriptor(tmp_path)
-    BootstrapProvisioner().provision_from_descriptor(descriptor)
+    BootstrapProvisioner(read_as_uid=_same_process_reader).provision_from_descriptor(descriptor)
     doc = json.load(open(descriptor["clients"][0]["bootstrap_path"]))
     assert doc["nonce"] == descriptor["wire"]["nonce"]
     assert doc["expiry"] == descriptor["wire"]["expiry_unix_ms"]
@@ -134,7 +261,7 @@ def test_provisioned_doc_matches_the_wire_block_it_derives_from(tmp_path) -> Non
 
 def test_remove_all_clears_secret_bearing_docs(tmp_path) -> None:
     descriptor = _descriptor(tmp_path)
-    prov = BootstrapProvisioner()
+    prov = BootstrapProvisioner(read_as_uid=_same_process_reader)
     prov.provision_from_descriptor(descriptor)
     prov.remove_all()
     for client in descriptor["clients"]:
@@ -147,6 +274,15 @@ def test_provision_fails_closed_when_a_client_lacks_bootstrap_path(tmp_path) -> 
     del descriptor["clients"][0]["bootstrap_path"]
     with pytest.raises(BootstrapProvisionError):
         BootstrapProvisioner().provision_from_descriptor(descriptor)
+
+
+def test_provision_fails_closed_when_consumer_uid_is_undeclared(tmp_path) -> None:
+    descriptor = _descriptor(tmp_path)
+    del descriptor["clients"][0]["uid"]
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner().provision_from_descriptor(descriptor)
+    assert "client_a" in str(exc_info.value)
+    assert "uid" in str(exc_info.value)
 
 
 def test_provision_refuses_relative_bootstrap_path(tmp_path) -> None:

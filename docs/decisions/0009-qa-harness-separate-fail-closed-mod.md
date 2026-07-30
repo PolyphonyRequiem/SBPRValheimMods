@@ -848,7 +848,8 @@ deferred to M4 but are required before M6.**
   > `source`s the sidecar just before `exec`ing the game, so the vars cross the fork into the
   > child. The sidecar carries ONLY the three **non-secret** vars (a bootstrap-doc path, a
   > public SteamID, a random marker) and is written 0644; the **HMAC secret + operator
-  > token** live solely in the mode-0600 bootstrap doc the sidecar points at. `_apply_env`
+  > token** lived solely in the mode-0600 bootstrap doc at this milestone (superseded by
+  > the ARRANGE #452 cross-uid policy below). `_apply_env`
   > now writes the sidecar (not `os.environ`); teardown removes both the sidecar and the
   > secret-bearing doc on every exit path. **Bootstrap-doc provisioning** is no longer
   > hand-authored: `runner_core/bootstrap_provision.py` `BootstrapProvisioner` **emits** each
@@ -863,6 +864,17 @@ deferred to M4 but are required before M6.**
   > three vars — locally-gated (skips where no `gabs` binary, e.g. CI) and proven to FAIL
   > when the pre-fix `os.environ` path is reinstated. **T6 unchanged; the four AT legs still
   > ride `LiveLoopbackTransport`. Maturity: still POSSIBLE, not PERFORMED.**
+  >
+  > **Implementation note (ARRANGE #452, consumer-readable per-run credentials).** The
+  > earlier mode-0600/0700 statement assumed the runner and every client shared one uid;
+  > the permanent dual-user rig disproved that assumption. The runner now mints the
+  > disposable-lane password per run (never in the durable descriptor), writes both
+  > bootstrap docs and lane-password files mode 0644 under mode-0711 directories, and
+  > immediately opens each file **as that client's declared consuming uid** before any
+  > launch. `0711` permits traversal to a known path without directory listing; `0644` is
+  > the explicit I4 trade for short-TTL throwaway credentials swept on teardown. Missing
+  > and permission-denied files are one fail-closed precondition naming actor, path, and
+  > uid. The launch sidecar remains non-secret and carries paths only.
   >
   > **Implementation note (M6-STEAMGATE, fail fast on a dead client — two defects fixed,
   > run still NOT performed).** The QA client cannot boot without a **running Steam owned
