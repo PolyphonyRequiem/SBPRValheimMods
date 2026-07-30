@@ -215,6 +215,15 @@ class ClientSpec:
     # LanePasswordProvisioner writes). Delivered as SBPR_QA_SERVER_PASSWORD_FILE via the
     # sidecar. Absent for an open/no-password lane.
     server_password_file: Optional[str] = None
+    # The id of the run launching this client (#455). It leads the harness marker
+    # written into the client's environment, which is what makes a leaked client
+    # attributable by a LATER process — the sweep on the next arrange entry — rather
+    # than only by the launching process, whose in-process record a SIGKILL destroys.
+    # Optional on the dataclass for the same reason as every other additive field
+    # (legacy/unit specs construct a bare three-field spec), but the REAL GABS launch
+    # path requires it and `build_request` fails closed when it is absent: launching a
+    # client nothing could later attribute is precisely the residue #455 exists to end.
+    run_id: Optional[str] = None
 
 
 class DualClientLauncher:
@@ -375,7 +384,14 @@ STEAM_ID_ENV_VAR = "SBPR_QA_STEAM_ID"
 # gameId or binary path. A gameId-wide `games_kill` would terminate Daniel's own Steam
 # Valheim (different binary path, same gameId "valheim"); this marker is provenance the
 # harness alone controls, so teardown can be scoped to a single harness-launched process.
-HARNESS_INSTANCE_ENV_VAR = "SBPR_QA_HARNESS_INSTANCE"
+#
+# Defined in `proc_provenance` (the layer both the launcher and #455's sweeper sit on)
+# and re-exported here so existing importers are unaffected and the two can never
+# disagree about the name or the marker's shape.
+from .proc_provenance import (  # noqa: E402  (re-export, kept beside its documentation)
+    HARNESS_INSTANCE_ENV_VAR,
+    mint_marker,
+)
 # The join target the wrapper turns into a `+connect host:port` launch ARGUMENT (M6-JOIN).
 # GABS's games_start delivers no per-launch argv (just as it delivers no per-launch env),
 # so this `host:port` rides the same non-secret launch-env sidecar the wrapper already
@@ -504,6 +520,11 @@ class GabsClientBooter:
                 ("connect_port", spec.connect_port),
                 ("loopback_port", spec.loopback_port),
                 ("launch_env_path", spec.launch_env_path),
+                # #455: without a run id the marker cannot name its run, so a client
+                # this launch leaks is unattributable by any later sweep and becomes
+                # permanent residue. Missing it is a launch-time bug, not a runtime
+                # surprise, so it joins the same fail-closed list.
+                ("run_id", spec.run_id),
             )
             if val is None
         ]
@@ -516,7 +537,12 @@ class GabsClientBooter:
         # mypy/readers: the None-guard above proves these are set.
         connect_target = f"{spec.connect_host}:{spec.connect_port}"
         # Unique per-boot provenance marker the harness injects and later matches on.
-        marker = f"{spec.actor}:{uuid.uuid4().hex}"
+        # It leads with the RUN id (#455) so a process is attributable by a LATER
+        # process — the sweep on the next arrange entry — and not only by the one that
+        # launched it. A run killed with SIGKILL leaves no in-process record, and
+        # before this the marker's `<actor>:<random>` shape carried nothing a
+        # subsequent run could recognise as its predecessor's.
+        marker = mint_marker(str(spec.run_id), spec.actor, uuid.uuid4().hex)
         launch_env = {
             BOOTSTRAP_ENV_VAR: str(spec.bootstrap_path),
             STEAM_ID_ENV_VAR: spec.steam_id,

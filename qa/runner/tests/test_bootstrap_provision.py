@@ -50,7 +50,15 @@ def _descriptor(tmp_path, **client_overrides):
         "loopback_port": 48611,
         "bootstrap_path": str(tmp_path / "qa-artifacts" / "t022-bootstrap-client_b.json"),
     }
-    return {"wire": _WIRE, "pins": _PINS, "lane": _LANE, "clients": [a, b]}
+    return {
+        "wire": _WIRE,
+        "pins": _PINS,
+        "lane": _LANE,
+        "clients": [a, b],
+        # #455: provisioning refuses to write a credential it cannot stamp with the
+        # run that minted it, so every descriptor carries a run id.
+        "run_id": "t022-run-test-0001",
+    }
 
 
 def _same_process_reader(path, _uid):
@@ -267,6 +275,71 @@ def test_remove_all_clears_secret_bearing_docs(tmp_path) -> None:
     for client in descriptor["clients"]:
         assert not os.path.exists(client["bootstrap_path"])
     assert prov.written == []
+
+
+def test_writes_an_ownership_provenance_sidecar_carrying_the_wire_ttl(tmp_path) -> None:
+    """#455: every doc gets a companion naming the run that minted it and its TTL.
+
+    The bootstrap doc's provenance carries a REAL expiry — the same wire TTL the C#
+    arm gate enforces — so a sweeper can tell "residue of a prior run" from
+    "still-valid credential of a concurrent run" from the sidecar alone.
+
+    A sidecar rather than an `sbprQaRun` member inside the doc: `ArmBootstrapParser`
+    does ignore unknown members, so a field would parse, but one mechanism for both
+    credential kinds means the sweeper has one code path, and a cleanup feature never
+    alters a format that crosses into a fail-closed arming gate. Asserted here by
+    byte-comparing the doc against what `build_bootstrap_doc` produces.
+    """
+    from runner_core.credential_provenance import parse_provenance, provenance_path
+
+    descriptor = _descriptor(tmp_path)
+    BootstrapProvisioner(read_as_uid=_same_process_reader).provision_from_descriptor(
+        descriptor
+    )
+    client = descriptor["clients"][0]
+    doc = json.load(open(client["bootstrap_path"]))
+    # The doc shape the C# parser consumes is UNCHANGED by the stamping.
+    assert set(doc) == {
+        "enabled", "role", "actor", "worldUid", "worldName", "nonce", "expiry",
+        "hmacSecret", "operatorToken", "loopbackPort", "verbs", "hashes",
+    }
+
+    sidecar = provenance_path(client["bootstrap_path"])
+    parsed = parse_provenance(open(sidecar, encoding="utf-8").read())
+    assert parsed is not None
+    assert parsed.run_id == descriptor["run_id"]
+    assert parsed.actor == "client_a"
+    assert parsed.expiry_unix_ms == _WIRE["expiry_unix_ms"]
+    # It carries no secret: the HMAC secret and operator token live only in the doc.
+    text = open(sidecar, encoding="utf-8").read()
+    assert _WIRE["hmac_secret"] not in text
+    assert _WIRE["operator_token"] not in text
+
+
+def test_remove_all_clears_the_provenance_sidecars_too(tmp_path) -> None:
+    from runner_core.credential_provenance import provenance_path
+
+    descriptor = _descriptor(tmp_path)
+    prov = BootstrapProvisioner(read_as_uid=_same_process_reader)
+    prov.provision_from_descriptor(descriptor)
+    for client in descriptor["clients"]:
+        assert os.path.exists(provenance_path(client["bootstrap_path"]))
+    prov.remove_all()
+    for client in descriptor["clients"]:
+        assert not os.path.exists(provenance_path(client["bootstrap_path"]))
+
+
+def test_provision_fails_closed_when_the_descriptor_names_no_run_id(tmp_path) -> None:
+    """An unattributable credential is one a later sweep must leave behind forever."""
+    descriptor = _descriptor(tmp_path)
+    del descriptor["run_id"]
+    with pytest.raises(BootstrapProvisionError) as exc_info:
+        BootstrapProvisioner(read_as_uid=_same_process_reader).provision_from_descriptor(
+            descriptor
+        )
+    assert "run_id" in str(exc_info.value)
+    for client in descriptor["clients"]:
+        assert not os.path.exists(client["bootstrap_path"])
 
 
 def test_provision_fails_closed_when_a_client_lacks_bootstrap_path(tmp_path) -> None:

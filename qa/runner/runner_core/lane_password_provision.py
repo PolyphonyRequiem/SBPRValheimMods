@@ -30,6 +30,7 @@ Engine-free stdlib only. No Valheim/BepInEx/Unity import.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -38,6 +39,12 @@ from .credential_access import (
     ReadAsUid,
     assert_readable_as_consumer,
     prepare_credential_directory,
+)
+from .credential_provenance import (
+    CredentialProvenance,
+    CredentialProvenanceError,
+    provenance_path,
+    write_provenance,
 )
 
 
@@ -112,6 +119,18 @@ class LanePasswordProvisioner:
             )
         password = str(password)
 
+        # #455: the run id every credential this call writes will be stamped with. A
+        # descriptor with no run id is refused rather than stamped with a placeholder:
+        # an unattributable credential is one a later sweep must leave behind forever,
+        # which is precisely the residue this stamping exists to make clearable.
+        run_id = descriptor.get("run_id")
+        if not run_id or not isinstance(run_id, str):
+            raise LanePasswordProvisionError(
+                "descriptor carries no non-empty 'run_id'; refusing to write a "
+                "credential no later sweep could attribute to the run that minted it "
+                "(fail closed)"
+            )
+
         written: List[ProvisionedLanePassword] = []
         try:
             for actor, path, consumer_uid in targets:
@@ -121,7 +140,9 @@ class LanePasswordProvisioner:
                         "consuming uid; readability must be proved as that identity"
                     )
                 written.append(
-                    self._write_file(str(path), actor, int(consumer_uid), password)
+                    self._write_file(
+                        str(path), actor, int(consumer_uid), password, run_id
+                    )
                 )
                 assert_readable_as_consumer(
                     actor=actor,
@@ -138,7 +159,7 @@ class LanePasswordProvisioner:
         return written
 
     def _write_file(
-        self, path: str, actor: str, consumer_uid: int, password: str
+        self, path: str, actor: str, consumer_uid: int, password: str, run_id: str
     ) -> ProvisionedLanePassword:
         if not os.path.isabs(path):
             raise LanePasswordProvisionError(
@@ -182,13 +203,44 @@ class LanePasswordProvisioner:
                 f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
             ) from exc
         prov = ProvisionedLanePassword(path=path, actor=actor)
+        # Stamp ownership provenance NEXT TO the credential, never inside it: the C#
+        # hook reads and trims the WHOLE file as the password, so any metadata within
+        # it would become part of the password. The lane password carries NO expiry —
+        # that is recorded as None rather than invented, because a lane password's
+        # validity ends only with lane teardown and pretending otherwise would assert
+        # a bound #455 does not deliver (#457 owns shortening the lane's lifetime).
+        try:
+            write_provenance(
+                CredentialProvenance(
+                    run_id=run_id,
+                    actor=actor,
+                    credential_path=path,
+                    minted_unix_ms=int(time.time() * 1000),
+                    expiry_unix_ms=None,
+                )
+            )
+        except CredentialProvenanceError as exc:
+            # Unwind the credential itself: a credential with no provenance is one a
+            # later sweep is obliged to leave behind, so leaving it here would create
+            # exactly the permanent residue this stamping exists to prevent.
+            _best_effort_unlink(path)
+            raise LanePasswordProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: {exc}"
+            ) from exc
         self._written[path] = prov
         return prov
 
     def remove(self, path: str) -> None:
-        """Remove the credential-bearing password file at `path`. Idempotent."""
+        """Remove the credential-bearing password file at `path`. Idempotent.
+
+        Removes its ownership-provenance sidecar too: a sidecar outliving the
+        credential it describes is itself residue, and it would make a later sweep
+        report an ownership decision about a file that no longer exists.
+        """
         self._written.pop(path, None)
         _best_effort_unlink(path)
+        _best_effort_unlink(provenance_path(path))
 
     def remove_all(self) -> None:
         for path in list(self._written):

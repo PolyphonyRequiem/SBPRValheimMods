@@ -88,6 +88,26 @@ def mint_wire_envelope(ttl_seconds: float, *, now_ms: int | None = None) -> Dict
     }
 
 
+def mint_run_id(*, now_ms: int | None = None) -> str:
+    """Mint the identifier for ONE run (#455).
+
+    Shape is `t022-<unix-ms>-<random>`: the timestamp makes a stray file or a stray
+    process legible to a human reading a directory listing or `ps` output without
+    consulting anything else, and the random suffix is what makes the id actually
+    unique — two runs starting inside the same millisecond must not collide, because
+    a collision would let one run's sweep claim the other's live credentials.
+
+    Minted, never persisted, for the same reason as the wire envelope: a run id read
+    from a descriptor would be reused across runs, and every run would then attribute
+    the previous run's residue to itself.
+    """
+    base_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    # Shorter than the 43-char wire tokens: this is an identifier, not a secret. It
+    # appears in a process's environment, which is readable by its own uid, so it must
+    # not carry entropy anything relies on being unguessable.
+    return f"t022-{base_ms}-{secrets.token_hex(8)}"
+
+
 def assert_descriptor_carries_no_wire_secrets(wire: Mapping[str, Any]) -> None:
     """Fail closed if any secret-bearing wire field is still persisted.
 

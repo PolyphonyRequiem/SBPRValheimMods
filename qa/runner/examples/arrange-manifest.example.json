@@ -1,6 +1,14 @@
 {
   "kind": "sbpr-qa-arrange-manifest",
-  "version": 2,
+  "version": 3,
+
+  "_run_id_comment": [
+    "Identifies THIS run (#455). Every credential the runner writes gets a",
+    "provenance sidecar stamped with it, so the sweep on the next arrange entry can",
+    "tell its own residue from a file an operator placed deliberately. A real",
+    "descriptor mints a fresh value per run; this example uses a fixed placeholder."
+  ],
+  "run_id": "t022-run-example-0000",
 
   "_comment": [
     "EXAMPLE arrange manifest (T022 ARRANGE spec §3 P2, issue #450).",

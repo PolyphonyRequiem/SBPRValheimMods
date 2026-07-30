@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -38,6 +39,12 @@ from .credential_access import (
     ReadAsUid,
     assert_readable_as_consumer,
     prepare_credential_directory,
+)
+from .credential_provenance import (
+    CredentialProvenance,
+    CredentialProvenanceError,
+    provenance_path,
+    write_provenance,
 )
 from .manifest import REQUIRED_PARTS
 
@@ -130,6 +137,26 @@ class BootstrapProvisioner:
         if not isinstance(clients, (list, tuple)) or not clients:
             raise BootstrapProvisionError("descriptor has no clients to provision")
 
+        # #455: the run id every doc this call writes is stamped with, and the TTL the
+        # wire already mints. Refused rather than defaulted: an unattributable
+        # credential is one a later sweep must leave behind forever.
+        run_id = descriptor.get("run_id")
+        if not run_id or not isinstance(run_id, str):
+            raise BootstrapProvisionError(
+                "descriptor carries no non-empty 'run_id'; refusing to write a "
+                "credential no later sweep could attribute to the run that minted it "
+                "(fail closed)"
+            )
+        # The TTL the wire already minted. Validated here rather than indexed blindly:
+        # `build_bootstrap_doc` names this field in a fail-closed check, and reaching
+        # past it with a raw index would turn that named error into a bare KeyError.
+        expiry_raw = wire.get("expiry_unix_ms")
+        if isinstance(expiry_raw, bool) or not isinstance(expiry_raw, int):
+            raise BootstrapProvisionError(
+                f"descriptor wire 'expiry_unix_ms' must be an integer, got {expiry_raw!r}"
+            )
+        expiry_unix_ms = int(expiry_raw)
+
         written: List[ProvisionedBootstrap] = []
         try:
             for c in clients:
@@ -164,7 +191,9 @@ class BootstrapProvisioner:
                     loopback_port=int(loopback),
                 )
                 written.append(
-                    self._write_doc(str(path), actor, int(consumer_uid), doc)
+                    self._write_doc(
+                        str(path), actor, int(consumer_uid), doc, run_id, expiry_unix_ms
+                    )
                 )
                 assert_readable_as_consumer(
                     actor=actor,
@@ -181,7 +210,13 @@ class BootstrapProvisioner:
         return written
 
     def _write_doc(
-        self, path: str, actor: str, consumer_uid: int, doc: Mapping[str, Any]
+        self,
+        path: str,
+        actor: str,
+        consumer_uid: int,
+        doc: Mapping[str, Any],
+        run_id: str,
+        expiry_unix_ms: int,
     ) -> ProvisionedBootstrap:
         if not os.path.isabs(path):
             raise BootstrapProvisionError(
@@ -224,13 +259,47 @@ class BootstrapProvisioner:
                 f"as consuming uid {consumer_uid}: {type(exc).__name__}: {exc}"
             ) from exc
         prov = ProvisionedBootstrap(path=path, actor=actor)
+        # Stamp ownership provenance beside the doc (#455). Unlike the lane password
+        # this one carries a REAL expiry — the wire's TTL, the same value the C# arm
+        # gate enforces — so a sweeper can distinguish "residue of a prior run" from
+        # "still-valid credential of a concurrent run" without consulting anything but
+        # the sidecar. A sidecar rather than an added `sbprQaRun` member inside the doc:
+        # `ArmBootstrapParser.Parse` does ignore unknown members (verified), so a field
+        # would work, but one mechanism for both credential kinds means the sweeper has
+        # one code path, and a cleanup feature never alters a format that crosses into a
+        # fail-closed arming gate.
+        try:
+            write_provenance(
+                CredentialProvenance(
+                    run_id=run_id,
+                    actor=actor,
+                    credential_path=path,
+                    minted_unix_ms=int(time.time() * 1000),
+                    expiry_unix_ms=expiry_unix_ms,
+                )
+            )
+        except CredentialProvenanceError as exc:
+            # Unwind the doc: a secret-bearing credential with no provenance is one a
+            # later sweep is obliged to leave behind, which is the exact residue this
+            # stamping exists to prevent.
+            _best_effort_unlink(path)
+            raise BootstrapProvisionError(
+                f"credential provision failed for client {actor!r} at {path!r} "
+                f"as consuming uid {consumer_uid}: {exc}"
+            ) from exc
         self._written[path] = prov
         return prov
 
     def remove(self, path: str) -> None:
-        """Remove the secret-bearing bootstrap doc at `path`. Idempotent."""
+        """Remove the secret-bearing bootstrap doc at `path`. Idempotent.
+
+        Removes its ownership-provenance sidecar too: a sidecar outliving the
+        credential it describes is itself residue, and it would make a later sweep
+        report an ownership decision about a file that no longer exists.
+        """
         self._written.pop(path, None)
         _best_effort_unlink(path)
+        _best_effort_unlink(provenance_path(path))
 
     def remove_all(self) -> None:
         for path in list(self._written):

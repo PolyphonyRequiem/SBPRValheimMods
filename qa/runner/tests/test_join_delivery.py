@@ -128,7 +128,7 @@ def manifest_with(*, a_wrapper=None, b_wrapper=None, b_kind="steam_applaunch"):
         }
 
     return {
-        "kind": "sbpr-qa-arrange-manifest", "version": 2,
+        "kind": "sbpr-qa-arrange-manifest", "version": 3, "run_id": "t022-run-test",
         "lane": {"lane_id": "l", "world_name": "w", "host": "127.0.0.1",
                  "port": 2476, "requires_password": False},
         "artifacts": [],

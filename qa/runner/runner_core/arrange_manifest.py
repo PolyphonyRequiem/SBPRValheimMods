@@ -37,7 +37,11 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 MANIFEST_KIND = "sbpr-qa-arrange-manifest"
-MANIFEST_VERSION = 2
+# 3 (#455): `run_id` became a required top-level field. The bump is what makes an
+# older manifest a NAMED refusal at :485 rather than a manifest that parses and then
+# sweeps with an empty run identity — which would match nothing and silently leave
+# every credential behind while reporting a clean sweep.
+MANIFEST_VERSION = 3
 
 # Hard production deny list (§3 P8 / B2). These hold REAL worlds — Niflheim 2456 and
 # Heistan 2466 — and may never appear as a target anywhere in an arrange manifest.
@@ -455,11 +459,19 @@ class LaneEntry:
 
 @dataclass(frozen=True)
 class ArrangeManifest:
-    """The whole arrange manifest: one lane, one artifact catalogue, N clients."""
+    """The whole arrange manifest: one lane, one artifact catalogue, N clients.
+
+    `run_id` identifies THIS run and is required (#455). It is the fact that lets a
+    later sweep tell its own residue from a file an operator placed deliberately: the
+    runner stamps it into a provenance sidecar beside every credential it writes, and
+    the sweeper matches on it. Without it, a sweeper at a declared path can only
+    guess, and a guessing sweeper that deletes credentials is worse than none.
+    """
 
     lane: LaneEntry
     artifacts: Mapping[str, Artifact]
     clients: Sequence[ClientEntry]
+    run_id: str
     version: int = MANIFEST_VERSION
 
     def client(self, actor: str) -> ClientEntry:
@@ -518,5 +530,6 @@ class ArrangeManifest:
             lane=LaneEntry.parse(data.get("lane")),
             artifacts=artifacts,
             clients=tuple(clients),
+            run_id=_require_str(data, "run_id", "manifest"),
             version=version,
         )

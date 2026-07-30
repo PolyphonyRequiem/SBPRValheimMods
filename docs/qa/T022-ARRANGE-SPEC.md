@@ -1,7 +1,7 @@
 ---
 title: T022 ARRANGE — specification
 status: current
-last_updated: 2026-07-29
+last_updated: 2026-07-30
 ---
 
 # T022 ARRANGE — specification
@@ -221,7 +221,33 @@ Cleanup runs only on the runner's graceful exit paths. Every SIGKILL left **live
 credentials on disk** (verified: expiry ~113 min in the future). The TTL bounds the
 damage, but the guarantee is weaker than the design claims: cleanup-on-graceful-exit, not
 cleanup-guaranteed.
-**Requirement:** sweep on startup as well as teardown. → **#455**
+**Requirement:** sweep on startup as well as teardown. → **SHIPPED, #455**
+
+**Corrected by #455.** The original requirement was written as "credentials cannot outlive
+the run that minted them, even when that run is SIGKILLed". That is **not achievable
+in-process** — SIGKILL runs no handler, no `atexit`, no `finally` — and three distinct
+mechanisms were blurred into one promise. Stated separately:
+
+1. **Graceful teardown** (exists) — the exit paths the runner actually reaches.
+2. **Next-entry sweep** (#455) — no credential from a prior run survives *into the next
+   run*. **This is the strongest guarantee available**, and it does not bound the residue
+   window *between* runs.
+3. **TTL** (exists, `wire_mint`) — a bootstrap doc is cryptographically inert past
+   `expiry_unix_ms`, enforced at the C# arm gate, swept or not.
+
+**Residual gap, explicitly not closed by #455:** lane-password files carry **no TTL**;
+their validity ends only with lane teardown. That is the real "~113 minutes" exposure, and
+shortening the disposable lane's lifetime is **#457's** scope. `CredentialProvenance`
+records a lane password's expiry as `None` rather than inventing one, so the sweep report
+never asserts a bound the system does not have.
+
+Closing I10 also required a fact that did not exist: nothing on disk distinguished our
+residue from an operator's file at a declared path. #455 introduces per-credential
+ownership-provenance sidecars (`<path>.sbprqa`) for that. The spec's earlier reference to
+"stale provenance receipts" named an artifact class that did not exist on disk — grepping
+`provenance|receipt` across `qa/` matched only in-memory C# RPC `Receipt` objects and
+comments about the PID marker — and now refers to those sidecars, which are checkable.
+See `T022-ARRANGE-SWEEP.md`.
 
 ### I11 — Preflight is cheap; booting is expensive
 The STATIC phase runs in **64 ms** on the real two-client manifest, needs no game, no
@@ -268,7 +294,10 @@ established. Assume nothing about symmetry between clients.
 starts. Nothing expensive happens until everything cheap has passed.
 
 **P6 — Idempotent + self-cleaning.** Safe to run repeatedly. Sweeps stale state from
-prior runs (credentials, receipts, dead harness-owned clients) on entry.
+prior runs (credentials, their ownership-provenance sidecars, dead harness-owned clients)
+on entry. Convergence is a checkable property, not an aspiration: a second sweep over an
+already-swept tree reports every action `already-absent` and emits a byte-identical
+machine-readable report. Shipped by #455; see `T022-ARRANGE-SWEEP.md`.
 
 **P7 — Observable.** Emits a machine-readable readiness report per client, so "is it
 arranged?" is answered by reading a file, not by inferring from process tables.
@@ -320,10 +349,10 @@ STATIC   (no processes; sub-second; fail here whenever possible)   [MERGED #450]
   │      and disjoint, and the client's own wrapper can carry it  .. [I5][I12]
   └── S9 components declared disabled are provably absent  ......... [I6][P9]
 
-SWEEP    (idempotent cleanup of prior-run residue)                  [#455]
-  ├── stale credentials and provenance receipts  .................. [I10]
+SWEEP    (idempotent cleanup of prior-run residue)          [MERGED #455]
+  ├── stale credentials and their ownership-provenance sidecars  .. [I10]
   ├── dead harness-owned clients — and ONLY harness-owned ones (B1)
-  └── credentials cannot outlive the run that minted them, even on SIGKILL
+  └── no prior run's credential survives INTO the next run [I10]
 
 STAGE    (filesystem; still no game processes)               [MERGED #451]
   ├── stage artifacts to EVERY client from ONE manifest  .......... [I1][I2][I3]
@@ -441,6 +470,58 @@ AST scan of every construction site in the repository.
 The CLI chains `--check` → `--stage` → `--verify`, each gating the next: verifying a
 tree staging refused to finish would report against bytes nobody stands behind.
 
+### 4.2 SWEEP as shipped (#455)
+
+`runner_core/arrange_sweep.py`, reached by `sbpr-qa-arrange --sweep`. It is the only
+phase that removes a file or signals a process, and it **writes nothing**. Full detail in
+`T022-ARRANGE-SWEEP.md`; the load-bearing points:
+
+| id | criterion | how it is established |
+|---|---|---|
+| W1 | prior-run credentials cleared | every path the manifest declares is reconciled to absent, keyed on an ownership-provenance sidecar |
+| W2 | ownership-provenance sidecars cleared | removed with the credential they describe; kept when it was left behind; removed alone when orphaned |
+| W3 | harness-owned clients cleared | marker-only, per B1 below |
+
+**Convergent, not remembered.** SWEEP is a pure function of the manifest —
+*reconcile-to-declared-absent* — not *delete-what-I-remember-writing*, because in-process
+tracking is exactly what fails when the process doing the remembering was SIGKILLed. Every
+action is "remove if present and provably ours, else record why not", so a second run over
+an already-swept tree reports every action `already-absent` with a byte-identical
+`as_dict()`.
+
+**Ownership is a fact on disk.** Nothing previously distinguished our residue from an
+operator's file at a declared path, so every credential the runner writes now gets a
+`<path>.sbprqa` companion naming the run that minted it, the actor, and its expiry (`None`
+for a lane password, which genuinely has no TTL). The sidecar carries no secret. The
+manifest gained a required top-level `run_id` and `MANIFEST_VERSION` moved 2 → 3, so an
+older manifest is a *named refusal* rather than one that sweeps with an empty identity and
+reports a clean tree.
+
+**B1 is implemented literally.** A process is signalled only when its own environment
+carries this run's harness marker; `None` from `/proc/<pid>/environ` — including EACCES on
+a uid-1001 process — means **not provably ours**, and there is deliberately no fallback
+heuristic (no cmdline match, no cwd match, no `pkill -f`, no game-root prefix), because
+every one of those also matches Daniel's own Steam Valheim. Marker and `/proc/<pid>/stat`
+field 22 are re-read immediately before every signal, so a recycled PID is never signalled.
+The marker itself became `<run_id>:<actor>:<random>`: the old `<actor>:<random>` shape was
+interpretable only by the launching process, so a SIGKILLed run left clients no later sweep
+could attribute. Zombies are report-only and SWEEP issues no GABS call — `SweepEnvironment`
+has no GABS seam at all — because reaping was fixed upstream in our fork.
+
+**Fail closed toward leaving things alone.** A symlinked path, a foreign owner uid, an
+unparseable sidecar, a foreign unexpired run, and an unenumerable process table are each
+`left-alone`/`refused` with `ok=False` — never a silent skip and never an optimistic
+delete. "I could not look" is never reported as "nothing was there".
+
+**Proof seams are mandatory here too (P9).** No field on `SweepEnvironment` carries a
+default and `arrange_sweep` defaults neither the environment nor the arranging uid: for a
+phase that kills processes, the decision to touch *this* machine as *this* identity must be
+written where a human reviews it. Enforcement is structural, matching #456/#473.
+
+**Ordering.** `--sweep` runs before `--check` and `--stage`: a stale credential at a
+declared path *is* a present file, so a static check can pass on bytes the run is about to
+delete.
+
 
 ---
 
@@ -523,11 +604,14 @@ Recorded so the reconciliation is auditable rather than silent (#468).
 | Phases mapped SWEEP #451 / VERIFY #455 / LAUNCH #456 | SWEEP #455 / STAGE #451 / VERIFY #456 / CUTOVER #457 | The mapping was wrong and the CLI copied it |
 | "zombie clients GABS never reaps" as a standing fact | Fixed upstream; local reset is defence in depth | `AGENTS.md`, GABS fork |
 | No stance on defaulted proof seams | P9 added | #454's contract, regressed and restored by #467 |
+| I10 promised cleanup "even on SIGKILL"; SWEEP listed "provenance receipts" | I10 restated as next-entry + TTL, with the un-TTL'd lane password named as a residual gap; receipts redefined as the `.sbprqa` ownership sidecars | The first was unachievable in-process; the second named an artifact class that did not exist on disk (#455) |
 | "dual-client rig" | "dual-user rig" | There is one machine; the old term implied two |
 
 ## Related
 
 - `docs/qa/T022-ARRANGE-STATIC-IMPLEMENTATION.md` — the shipped STATIC phase in detail.
+- `docs/qa/T022-ARRANGE-SWEEP.md` — the shipped SWEEP phase in detail: the C2 decision
+  table, B1 marker-only process safety, and what the next-entry guarantee does not bound.
 - `docs/qa/T022-ARRANGE-CREDENTIAL-PROVISIONING.md` — I4 as implemented.
 - `docs/decisions/0009-qa-harness-separate-fail-closed-mod.md` — why the harness is a
   separate fail-closed mod with an engine-free external runner.

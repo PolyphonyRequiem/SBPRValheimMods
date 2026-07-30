@@ -21,6 +21,7 @@ from typing import Callable, Optional
 
 import pytest
 
+from runner_core.proc_provenance import marker_run_id
 from runner_core.operator_drivers import (
     BOOTSTRAP_ENV_VAR,
     CONNECT_TARGET_ENV_VAR,
@@ -43,6 +44,9 @@ LOOPBACK_PORT = 48610
 GABS_ENDPOINT = "http://localhost:8080/mcp"
 BOOTSTRAP_PATH = "/run/sbpr-qa/arm-bootstrap-client_a.json"
 LAUNCH_ENV_PATH = "/home/qa/.local/share/sbpr-qa/launch-env/valheim.env"
+# The run minting these launches (#455). It leads every harness marker, so a client
+# this run leaks is attributable by the NEXT run's sweep.
+RUN_ID = "t022-run-test-0001"
 
 
 def _spec(actor="client_a", **overrides) -> ClientSpec:
@@ -57,6 +61,7 @@ def _spec(actor="client_a", **overrides) -> ClientSpec:
         connect_port=LANE_PORT,
         loopback_port=LOOPBACK_PORT,
         launch_env_path=LAUNCH_ENV_PATH,
+        run_id=RUN_ID,
     )
     kwargs.update(overrides)
     return ClientSpec(**kwargs)
@@ -249,7 +254,7 @@ def test_boot_drives_gabs_env_and_returns_live_handle() -> None:
     # requested start. No pre-launch gameId-wide kill (that would hit Daniel's game).
     assert rec.env_applied[0][BOOTSTRAP_ENV_VAR] == BOOTSTRAP_PATH
     assert rec.env_applied[0][STEAM_ID_ENV_VAR] == LICENSED_STEAM_IDENTITIES[0]
-    assert rec.env_applied[0][HARNESS_INSTANCE_ENV_VAR].startswith("client_a:")
+    assert rec.env_applied[0][HARNESS_INSTANCE_ENV_VAR].startswith(f"{RUN_ID}:client_a:")
     assert rec.started == ["valheim"]
     # Nothing was terminated on a clean first-attempt arm.
     assert rec.terminated == []
@@ -265,7 +270,14 @@ def test_build_request_injects_unique_harness_marker() -> None:
     a = GabsClientBooter.build_request(_spec())
     b = GabsClientBooter.build_request(_spec())
     assert a.launch_env[HARNESS_INSTANCE_ENV_VAR] != b.launch_env[HARNESS_INSTANCE_ENV_VAR]
-    assert a.launch_env[HARNESS_INSTANCE_ENV_VAR].startswith("client_a:")
+    # The marker leads with the RUN id (#455), then the actor. The run prefix is what
+    # makes a leaked client attributable by a LATER process — the next arrange entry's
+    # sweep — rather than only by the process that launched it, whose in-process record
+    # a SIGKILL destroys. Asserted through `marker_run_id` rather than by string
+    # slicing so the format has exactly one authority.
+    assert a.launch_env[HARNESS_INSTANCE_ENV_VAR].startswith(f"{RUN_ID}:client_a:")
+    assert marker_run_id(a.launch_env[HARNESS_INSTANCE_ENV_VAR]) == RUN_ID
+    assert marker_run_id(b.launch_env[HARNESS_INSTANCE_ENV_VAR]) == RUN_ID
 
 
 # --------------------------------------------------------------------------- #

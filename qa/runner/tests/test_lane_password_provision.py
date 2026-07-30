@@ -31,7 +31,9 @@ def _descriptor(tmp_path, *, password="t009lproof", with_file=True, uid=None):
     }
     if with_file:
         client["server_password_file"] = pwfile
-    d = {"clients": [client]}
+    # #455: provisioning refuses to write a credential it cannot stamp with the run
+    # that minted it, so every descriptor carries a run id.
+    d = {"clients": [client], "run_id": "t022-run-test-0001"}
     if password is not None:
         d["lane_password"] = password
     return d, pwfile
@@ -147,6 +149,62 @@ def test_teardown_unlinks_on_success(tmp_path):
     assert os.path.exists(pwfile)
     prov.remove_all()
     # Proven by the filesystem, not an assertion on an internal flag: the file is GONE.
+    assert not os.path.exists(pwfile)
+
+
+def test_writes_an_ownership_provenance_sidecar_beside_the_password(tmp_path):
+    """#455: the credential itself must stay byte-exact; provenance goes NEXT to it.
+
+    The C# hook reads and trims the WHOLE file as the password, so metadata inside it
+    would become part of the password and the handshake would silently fail. This is
+    the reason the provenance is a sidecar rather than a field.
+    """
+    from runner_core.credential_provenance import parse_provenance, provenance_path
+
+    d, pwfile = _descriptor(tmp_path)
+    LanePasswordProvisioner().provision_from_descriptor(d)
+
+    # The credential is exactly the password plus the trailing newline it always had.
+    with open(pwfile, encoding="utf-8") as fh:
+        assert fh.read() == "t009lproof\n"
+
+    sidecar = provenance_path(pwfile)
+    assert os.path.exists(sidecar)
+    parsed = parse_provenance(open(sidecar, encoding="utf-8").read())
+    assert parsed is not None
+    assert parsed.run_id == "t022-run-test-0001"
+    assert parsed.actor == "client_a"
+    assert parsed.credential_path == pwfile
+    # A lane password carries NO TTL. Recorded as None rather than invented: its
+    # validity ends only with lane teardown, which is the residual exposure #455
+    # documents and #457 bounds. An invented expiry would assert a bound we do not have.
+    assert parsed.expiry_unix_ms is None
+    # It must not leak the credential it describes.
+    assert "t009lproof" not in open(sidecar, encoding="utf-8").read()
+    # Readable by the consuming uid, like the credential (0644 in a 0711 directory).
+    assert (os.stat(sidecar).st_mode & 0o777) == 0o644
+
+
+def test_teardown_removes_the_provenance_sidecar_too(tmp_path):
+    """A sidecar outliving its credential is itself residue."""
+    from runner_core.credential_provenance import provenance_path
+
+    d, pwfile = _descriptor(tmp_path)
+    prov = LanePasswordProvisioner()
+    prov.provision_from_descriptor(d)
+    assert os.path.exists(provenance_path(pwfile))
+    prov.remove_all()
+    assert not os.path.exists(pwfile)
+    assert not os.path.exists(provenance_path(pwfile))
+
+
+def test_fails_closed_when_the_descriptor_names_no_run_id(tmp_path):
+    """An unattributable credential is one a later sweep must leave behind forever."""
+    d, pwfile = _descriptor(tmp_path)
+    del d["run_id"]
+    with pytest.raises(LanePasswordProvisionError) as excinfo:
+        LanePasswordProvisioner().provision_from_descriptor(d)
+    assert "run_id" in str(excinfo.value)
     assert not os.path.exists(pwfile)
 
 
@@ -299,6 +357,9 @@ def test_real_environment_provisions_then_cleans_up_password_file(tmp_path):
         "pins": {p: hashlib.sha256(p.encode()).hexdigest() for p in REQUIRED_PARTS},
         "lane": {"world_uid": 1, "world_name": "w"},
         "lane_password": "t009lproof",
+        # #455: both provisioners refuse to write a credential they cannot stamp with
+        # the run that minted it, so the descriptor carries a run id.
+        "run_id": "t022-run-test-0001",
         "clients": [
             {
                 "actor": "client_a",
