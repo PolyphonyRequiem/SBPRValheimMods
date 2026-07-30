@@ -120,7 +120,7 @@
       "join": {
         "host": "127.0.0.1",
         "port": 2476,
-        "_comment": "`steam -applaunch` does not forward arguments, but the Steam `%command%` wrapper does: run-valbot-bepinex.sh appends `+connect $SBPR_QA_CONNECT` after \"$@\", which survives run_bepinex.sh's argv rotation and lands in the game's real argv. Proven live in #449 (server logged this client's own SteamID + in-world spawn). `connect_argv` is therefore legal under every launcher kind; STATIC does not guess at launcher capability, and whether argv actually reaches the game is VERIFY's job (#455).",
+        "_comment": "`steam -applaunch` does not forward arguments, but the Steam `%command%` wrapper does: run-valbot-bepinex.sh appends `+connect $SBPR_QA_CONNECT` after \"$@\", which survives run_bepinex.sh's argv rotation and lands in the game's real argv. Proven live in #449 (server logged this client's own SteamID + in-world spawn). `connect_argv` is therefore legal under every launcher kind; STATIC does not guess at launcher capability, and whether argv actually reaches the game is VERIFY's job (#456).",
         "delivery": "connect_argv"
       },
       "artifacts": [

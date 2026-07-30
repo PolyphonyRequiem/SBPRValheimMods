@@ -13,6 +13,7 @@ the client, and expected-vs-actual (the anti-silence contract).
 """
 from __future__ import annotations
 
+import ast
 import copy
 import os
 
@@ -515,6 +516,129 @@ class TestDisabledComponents:
         assert arrange_static(m, fs(paths)).ok
 
 
+class TestEnumerationSeamIsMandatory:
+    """`find_named_files` has no default, so an incomplete caller cannot be built.
+
+    The regression this locks (#467): overlapping merges restored a
+    `lambda _root, _name: None` default that #454's review had deliberately removed.
+    The default failed CLOSED, so it was never a security bypass — it was worse in a
+    subtler way. An omitted seam produced an ordinary S9 "plugin tree missing or
+    unreadable" failure against the CLIENT, pointing an operator at filesystem
+    permissions on a machine whose filesystem was fine, when the actual fault was a
+    caller that never wired the proof. Making it mandatory converts a misleading
+    runtime diagnosis into an impossible construction.
+    """
+
+    def test_constructing_without_find_named_files_raises_type_error(self):
+        with pytest.raises(TypeError) as excinfo:
+            StaticEnvironment(  # type: ignore[call-arg]  # arrange-seam-contract-negative
+                path_exists=lambda p: False,
+                hash_file=lambda p: None,
+            )
+        assert "find_named_files" in str(excinfo.value)
+
+    def test_read_text_remains_optional(self):
+        """The asymmetry is deliberate: only the ABSENCE proof is mandatory."""
+        env = StaticEnvironment(
+            path_exists=lambda p: False,
+            hash_file=lambda p: None,
+            find_named_files=lambda _root, _name: (),
+        )
+        assert env.read_text("/anything") is None
+
+    def test_every_repository_caller_supplies_the_seam(self):
+        """No construction of the environment dataclass may omit the seam.
+
+        A type error only fires on a code path that actually runs. This asserts the
+        contract over every construction site in the repository, including ones a
+        given test session never reaches, so a future merge that reintroduces a
+        two-field caller fails here rather than ten minutes into a GPU boot.
+
+        The scan is an AST walk, deliberately not a text/paren scan. A naive brace
+        counter cannot tell a paren inside a string or comment from a real one, so an
+        unbalanced paren in a docstring makes it swallow an arbitrary trailing region
+        of the file — which can then contain the keyword being looked for and turn the
+        check into a silent PASS. A guard whose whole job is catching silent
+        regressions must not itself be able to fail silently, so the parser decides
+        what a call is.
+        """
+        # Anchor on the repository root by walking up to its marker, NOT by counting
+        # `dirname` levels: this file sits at qa/runner/tests/, so three dirnames
+        # lands on `qa/` and would silently skip every caller outside it — a scanner
+        # that cannot see the thing it guards is worse than no scanner.
+        repo = os.path.dirname(os.path.abspath(__file__))
+        while not os.path.isfile(os.path.join(repo, "AGENTS.md")):
+            parent = os.path.dirname(repo)
+            assert parent != repo, "could not locate the repository root (AGENTS.md)"
+            repo = parent
+        assert os.path.isdir(os.path.join(repo, "qa", "runner")), repo
+
+        target = StaticEnvironment.__name__
+        seam = "find_named_files"
+        offenders = []
+        scanned = 0
+        constructions = 0
+        for dirpath, dirnames, filenames in os.walk(repo):
+            dirnames[:] = [
+                d
+                for d in dirnames
+                if d not in {".git", "__pycache__", "obj", "bin", "node_modules"}
+                and not d.startswith(".venv")
+            ]
+            for filename in filenames:
+                if not filename.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, filename)
+                text = open(path, encoding="utf-8", errors="replace").read()
+                try:
+                    tree = ast.parse(text)
+                except SyntaxError:
+                    continue
+                scanned += 1
+                lines = text.splitlines()
+                for node in ast.walk(tree):
+                    if not isinstance(node, ast.Call):
+                        continue
+                    func = node.func
+                    name = (
+                        func.id
+                        if isinstance(func, ast.Name)
+                        else func.attr
+                        if isinstance(func, ast.Attribute)
+                        else None
+                    )
+                    if name != target:
+                        continue
+                    line = lines[node.lineno - 1]
+                    if "arrange-seam-contract-negative" in line:
+                        # The one deliberate omission: the negative test above, which
+                        # asserts the incomplete construction raises. Marked inline so
+                        # the exemption is visible at the site rather than encoded as a
+                        # path in this scanner.
+                        continue
+                    constructions += 1
+                    # Keyword OR positional: four positional args also supply the seam.
+                    supplied = any(kw.arg == seam for kw in node.keywords) or (
+                        len(node.args) >= 3
+                    )
+                    if not supplied:
+                        offenders.append(
+                            f"{os.path.relpath(path, repo)}:{node.lineno}"
+                        )
+        # A scanner that silently matched nothing would pass forever. Assert it walked
+        # a real tree AND found real constructions, so a broken root, a filter, or a
+        # parser change cannot look like a clean result.
+        assert scanned > 10, f"scanner walked only {scanned} python files from {repo}"
+        assert constructions >= 8, (
+            f"scanner found only {constructions} construction site(s); it is no longer "
+            "seeing the callers it exists to guard"
+        )
+        assert not offenders, (
+            f"{target}(...) constructed without the mandatory "
+            f"{seam} proof seam at: {offenders}"
+        )
+
+
 class TestRealDisabledComponentEnumeration:
     @staticmethod
     def failures_for_root(root):
@@ -789,7 +913,7 @@ class TestJoinTarget:
         That check was therefore refusing the ONLY configuration proven to work. A
         fail-closed guard that blocks the working path is worse than no guard. STATIC
         does not guess at launcher capability; whether argv reaches the game is VERIFY's
-        job (#455), which can read the launched process's actual argv."""
+        job (#456), which can read the launched process's actual argv."""
         m = golden_manifest()
         m["clients"][1]["join"]["delivery"] = "connect_argv"
         assert m["clients"][1]["launcher"]["kind"] == "steam_applaunch"

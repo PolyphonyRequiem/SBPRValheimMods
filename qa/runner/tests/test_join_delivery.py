@@ -296,6 +296,7 @@ class TestWiredIntoStaticPhase:
         env = StaticEnvironment(
             path_exists=lambda p: False,
             hash_file=lambda p: None,
+            find_named_files=lambda _root, _name: (),
             read_text=lambda p: ROTATION_BROKEN_STEAM_WRAPPER,
         )
         report = arrange_static(manifest_with(b_wrapper="/b.sh"), env)
@@ -303,8 +304,18 @@ class TestWiredIntoStaticPhase:
         assert any("PREPENDED" in f.detail for f in report.failures)
 
     def test_static_environment_without_read_text_still_works(self):
-        """Back-compat: a two-field environment reports 'unreadable', never crashes."""
-        env = StaticEnvironment(path_exists=lambda p: False, hash_file=lambda p: None)
+        """`read_text` stays optional: omitting it reports 'unreadable', never crashes.
+
+        This is the deliberate asymmetry with `find_named_files` (#467). An absent
+        wrapper text is an honest, self-describing S8 result, so a focused test that
+        exercises unrelated preconditions may omit the seam. Proving a component is
+        ABSENT cannot be defaulted the same way — see the mandatory-seam tests.
+        """
+        env = StaticEnvironment(
+            path_exists=lambda p: False,
+            hash_file=lambda p: None,
+            find_named_files=lambda _root, _name: (),
+        )
         report = arrange_static(manifest_with(b_wrapper="/b.sh"), env)
         assert any("missing or unreadable" in f.detail for f in report.failures)
 

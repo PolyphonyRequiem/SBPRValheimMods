@@ -49,7 +49,7 @@ WHAT THIS DELIBERATELY DOES NOT DO
 ----------------------------------
 It does not prove the target ARRIVES. Reading the launched process's real
 `/proc/<pid>/cmdline` is the only thing that proves that, and it belongs to VERIFY
-(#455) because it requires a running process. What this does is refuse to spend ten
+(#456) because it requires a running process. What this does is refuse to spend ten
 minutes booting a client whose delivery path is visibly broken before launch — the
 standing rule that structurally unrecoverable conditions are caught at preflight rather
 than discovered by a burned launch.
