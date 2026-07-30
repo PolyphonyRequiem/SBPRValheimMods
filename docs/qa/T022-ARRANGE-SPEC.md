@@ -378,6 +378,24 @@ be exactly one mechanism in the tree that knows how to read as another identity 
 credential readable by the uid that WROTE it proves nothing, and that trap is easy to
 re-introduce by writing a fresh `os.access` check that looks equivalent and is not.
 
+V2 calls the raw `credential_access.read_as_uid` seam rather than the actor-naming
+`assert_readable_as_consumer` wrapper, because VERIFY already knows the actor and names
+it in its own report; routing through the wrapper would embed a placeholder actor inside
+the message an operator reads. `assert_readable_as_consumer` remains the right entry
+point for callers that do not.
+
+**V2 is proven on the real wire, not against stubs.** The cross-uid tests
+(`-m crossuid`) run an actual `sudo -n -u #1001` probe against the rig's second QA
+identity and assert all three directions: the approved 0711/0644 policy is readable by
+uid 1001; the historical 0700/0600 arrangement is **not**, while the *same file* remains
+readable by the uid that wrote it (the trap — a same-uid read would have reported PASS);
+and a dangling path fails identically, per I4. They **fail rather than skip** when the
+second identity or passwordless sudo is absent, because a skipped test reads as green
+while proving nothing — the exact class of silence this phase exists to end. CI has no
+second identity and therefore deselects them **deliberately** with `-m 'not crossuid'`;
+that exclusion is the only thing keeping them out, so removing it turns CI red and names
+the reason rather than quietly proving less.
+
 **V3 has two rungs of evidence and they are not the same claim.** This is the honesty
 rule (`AGENTS.md`, "logs green ≠ playable") made structural rather than editorial:
 

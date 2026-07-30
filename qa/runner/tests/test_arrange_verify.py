@@ -353,6 +353,59 @@ class TestCredentialReadableByConsumer:
         assert result.proven_live is False
         assert result.method == "unestablished"
 
+    def test_failure_never_names_a_client_that_does_not_exist(self):
+        """The report must not embed a placeholder actor inside its own message.
+
+        Caught by the first live cross-uid run: VERIFY emitted an outer line naming
+        `client_b` wrapping a nested one naming `<verify>`, a client in no manifest.
+        Fail-closed, so never a wrong verdict — but it sends an operator grepping for
+        an actor that does not exist. The probe seam is now the raw
+        `credential_access.read_as_uid`, and the actor is attached here, where it is
+        actually known.
+        """
+        report = arrange_verify(
+            parsed(), env(unreadable_credentials=("/run/sbpr-qa/b/lane-pw.txt",))
+        )
+        rendered = report.render()
+        assert "<verify>" not in rendered
+        for failure in report.client("client_b").failures:
+            assert "<verify>" not in failure.actual
+
+    def test_failure_actual_is_one_line_not_a_pasted_traceback(self):
+        """`actual` is read by a human scanning a multi-client report.
+
+        The real probe raises with the subprocess's whole stderr, traceback included.
+        Pasting that verbatim buries the one line that matters under six that don't,
+        and does it once per failing credential per client.
+        """
+
+        def _read(path, uid):
+            raise PermissionError(
+                "Traceback (most recent call last):\n"
+                '  File "<string>", line 1, in <module>\n'
+                "PermissionError: [Errno 13] Permission denied: '/run/sbpr-qa/b/lane-pw.txt'"
+            )
+
+        environment = VerifyEnvironment(
+            stage_postconditions=lambda _m: (),
+            read_credential_as_uid=_read,
+            read_text=lambda p: good_files().get(p),
+            live_processes=lambda _c: (),
+            port_is_free=lambda _h, _p: True,
+        )
+        failure = failures_for(
+            arrange_verify(parsed(), environment), P_CREDENTIALS, "client_a"
+        )[0]
+
+        assert "\n" not in failure.actual
+        assert "Traceback" not in failure.actual
+        # The one line that matters survives.
+        assert "Permission denied" in failure.actual
+        # ...and the type is named exactly once. The probe's last stderr line already
+        # begins `PermissionError:`, so re-prefixing produced
+        # `PermissionError: PermissionError: ...` on the live cross-uid run.
+        assert failure.actual.count("PermissionError") == 1
+
     def test_a_read_that_raises_a_plain_oserror_is_still_a_named_failure(self):
         """The seam's contract is 'raises on failure', not 'raises CredentialReadError'."""
 
@@ -1006,3 +1059,172 @@ class TestRealVerifyEnvironment:
         manifest = ArrangeManifest.parse(raw)
 
         assert real_verify_environment().live_processes(manifest.client("client_a")) == ()
+
+    def test_real_credential_probe_reads_as_the_current_uid(self, tmp_path):
+        """The same-uid path of the real seam, with no sudo and no rig dependency."""
+        path = tmp_path / "lane-pw.txt"
+        path.write_text("throwaway\n", encoding="utf-8")
+        # Returns None on success, raises on failure.
+        assert real_verify_environment().read_credential_as_uid(str(path), os.getuid()) is None
+
+    def test_real_credential_probe_refuses_a_missing_file(self, tmp_path):
+        with pytest.raises(OSError):
+            real_verify_environment().read_credential_as_uid(
+                str(tmp_path / "nope"), os.getuid()
+            )
+
+
+@pytest.mark.crossuid
+class TestRealCrossUidCredentialRead:
+    """The criterion that cannot be honestly proven same-uid (#452 seam, #456 V2).
+
+    A credential readable by the uid that WROTE it proves nothing — that is the entire
+    point of V2, and it is the one thing a same-uid test can never establish. So these
+    run the REAL `sudo -n -u #<uid>` probe against a real second identity.
+
+    They FAIL rather than skip when the rig is absent. A skipped test reads as green
+    while proving nothing, which is the exact failure mode this phase exists to end;
+    if this box has no second QA identity, that is a fact the suite should state out
+    loud. Deselect deliberately with `-m 'not crossuid'` when running somewhere the
+    dual-user rig does not exist.
+    """
+
+    CONSUMER_UID = 1001
+
+    @staticmethod
+    def make_traversable(leaf, tmp_path):
+        """Make every ancestor of `leaf` traversable by a foreign uid.
+
+        Not incidental test plumbing — this IS I4's "two independent locks, either one
+        sufficient". `pytest`'s `tmp_path` sits under a 0700 `/tmp/pytest-of-<user>`
+        directory, so a perfectly-moded 0644 credential inside it is still unreachable
+        by uid 1001: traversal requires the execute bit on EVERY component of the path,
+        not just the last one. That is precisely the defect the credential policy
+        encodes (0711 *directory* + 0644 file), and it caught these tests on their
+        first real run. PROVISION establishes the same property in production via
+        `prepare_credential_directory`.
+        """
+        current = os.path.dirname(str(leaf))
+        stop = os.path.dirname(os.path.dirname(str(tmp_path)))
+        while current and current != "/" and current.startswith(stop):
+            os.chmod(current, os.stat(current).st_mode | 0o111)
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+    @pytest.fixture
+    def consumer_uid(self):
+        import pwd
+        import subprocess
+
+        try:
+            pwd.getpwuid(self.CONSUMER_UID)
+        except KeyError:
+            pytest.fail(
+                f"uid {self.CONSUMER_UID} does not exist on this host; the cross-uid "
+                "credential criterion cannot be proven here. Deselect with "
+                "-m 'not crossuid' rather than letting it look green."
+            )
+        probe = subprocess.run(
+            ["sudo", "-n", "-u", f"#{self.CONSUMER_UID}", "--", "/usr/bin/true"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if probe.returncode != 0:
+            pytest.fail(
+                f"passwordless sudo to uid {self.CONSUMER_UID} is unavailable "
+                f"({probe.stderr.strip()}); V2 cannot be proven on the real wire here."
+            )
+        return self.CONSUMER_UID
+
+    def test_approved_policy_is_readable_by_the_consuming_uid(
+        self, tmp_path, consumer_uid
+    ):
+        """0711 directory / 0644 file: traversable by known path, not listable."""
+        directory = tmp_path / "creds"
+        directory.mkdir()
+        credential = directory / "lane-pw.txt"
+        credential.write_text("throwaway\n", encoding="utf-8")
+        os.chmod(credential, 0o644)
+        self.make_traversable(credential, tmp_path)
+        os.chmod(directory, 0o711)
+
+        # Raises if the foreign uid cannot read it.
+        real_verify_environment().read_credential_as_uid(str(credential), consumer_uid)
+
+    def test_historical_defect_fails_closed_for_the_consuming_uid(
+        self, tmp_path, consumer_uid
+    ):
+        """0700 directory / 0600 file — two independent locks, either one sufficient.
+
+        This is the arrangement that cost twelve days, and its only symptom was a
+        client waiting at a menu.
+        """
+        directory = tmp_path / "creds"
+        directory.mkdir()
+        credential = directory / "lane-pw.txt"
+        credential.write_text("throwaway\n", encoding="utf-8")
+        # Traversable ancestry, so the ONLY thing denying the foreign uid is the
+        # 0700/0600 pair under test — otherwise this would pass for the wrong reason.
+        self.make_traversable(credential, tmp_path)
+        os.chmod(directory, 0o700)
+        os.chmod(credential, 0o600)
+
+        environment = real_verify_environment()
+        with pytest.raises(OSError):
+            environment.read_credential_as_uid(str(credential), consumer_uid)
+
+        # ...and the SAME file is readable by the uid that wrote it. This is the trap
+        # the criterion exists to close: a same-uid read would have reported PASS.
+        environment.read_credential_as_uid(str(credential), os.getuid())
+
+    def test_dangling_reference_fails_closed_too(self, tmp_path, consumer_uid):
+        """I4: a dangling reference is the same defect as an unreadable one (#461)."""
+        target = tmp_path / "never-provisioned.txt"
+        self.make_traversable(target, tmp_path)
+        with pytest.raises(OSError):
+            real_verify_environment().read_credential_as_uid(str(target), consumer_uid)
+
+    def test_verify_phase_end_to_end_against_the_real_consuming_identity(
+        self, tmp_path, consumer_uid
+    ):
+        """V2 through `arrange_verify` itself, not just the seam underneath it."""
+        directory = tmp_path / "creds"
+        directory.mkdir()
+        credential = directory / "lane-pw.txt"
+        credential.write_text("throwaway\n", encoding="utf-8")
+        os.chmod(credential, 0o644)
+        self.make_traversable(credential, tmp_path)
+        os.chmod(directory, 0o711)
+
+        raw = golden_manifest()
+        raw["clients"][1]["uid"] = consumer_uid
+        raw["clients"][1]["credentials"]["server_password"]["path"] = str(credential)
+        raw["clients"][1]["credentials"]["server_password"]["consumer_uid"] = consumer_uid
+
+        environment = VerifyEnvironment(
+            stage_postconditions=lambda _m: (),
+            read_credential_as_uid=real_verify_environment().read_credential_as_uid,
+            read_text=lambda p: good_files().get(p),
+            live_processes=lambda _c: (),
+            port_is_free=lambda _h, _p: True,
+        )
+        report = arrange_verify(ArrangeManifest.parse(raw), environment)
+        result = criterion(report, "client_b", P_CREDENTIALS)
+
+        assert result.ok, report.render()
+        assert result.proven_live is True
+        assert f"uid{consumer_uid}" in result.evidence
+
+        # Now break it exactly as the historical defect did, and prove VERIFY refuses.
+        os.chmod(credential, 0o600)
+        os.chmod(directory, 0o700)
+        broken = arrange_verify(ArrangeManifest.parse(raw), environment)
+        failure = failures_for(broken, P_CREDENTIALS, "client_b")[0]
+
+        assert broken.ok is False
+        assert failure.client == "client_b"
+        assert f"uid {consumer_uid}" in failure.expected
+        assert "<verify>" not in failure.actual

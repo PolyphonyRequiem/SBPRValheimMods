@@ -86,7 +86,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .arrange_manifest import ArrangeManifest, ClientEntry
 from .arrange_static import StaticFailure
-from .credential_access import CredentialReadError, assert_readable_as_consumer
+from .credential_access import CredentialReadError, read_as_uid
 from .join_delivery import CONNECT_VAR, inspect_wrapper
 
 # Stable precondition ids, reported verbatim and grepped by operators — part of the
@@ -232,9 +232,12 @@ def real_verify_environment() -> VerifyEnvironment:
 
     return VerifyEnvironment(
         stage_postconditions=_stage_postconditions,
-        read_credential_as_uid=lambda path, uid: assert_readable_as_consumer(
-            actor="<verify>", path=path, consumer_uid=uid
-        ),
+        # The probe raises a bare PermissionError/OSError; VERIFY wraps it with the
+        # actor it belongs to. Passing a placeholder actor here would embed a fake one
+        # ("<verify>") inside the message the operator reads — observed doing exactly
+        # that on the first live cross-uid run, where the outer line named client_b and
+        # the nested one named a client that does not exist.
+        read_credential_as_uid=read_as_uid,
         read_text=_read_text,
         live_processes=_live_processes,
         port_is_free=_port_is_free,
@@ -395,9 +398,17 @@ def _verify_credentials(
 
     §2 I4 also records that a DANGLING reference is the same defect as an unreadable
     one — #461's live run found `SBPR_QA_SERVER_PASSWORD_FILE` pointing at a
-    non-existent path on both clients. `assert_readable_as_consumer` collapses missing
-    and permission-denied into one fail-closed error deliberately: either leaves the
-    headless client without credentials, and the remedy names both possibilities.
+    non-existent path on both clients. Missing and permission-denied are therefore
+    collapsed into one fail-closed failure deliberately: either leaves the headless
+    client without credentials, and the remedy names both possibilities.
+
+    The probe is `credential_access.read_as_uid` — the raw seam — rather than
+    `assert_readable_as_consumer`, because THIS function already knows the actor and
+    names it in the report. Routing through the actor-naming wrapper would require
+    passing a placeholder, which then appears verbatim as a fake client id inside the
+    message an operator reads. That is not hypothetical: the first live cross-uid run
+    emitted an outer line naming `client_b` wrapping an inner one naming `<verify>`,
+    a client that does not exist in any manifest.
     """
     failures: List[StaticFailure] = []
     checked: List[str] = []
@@ -406,6 +417,21 @@ def _verify_credentials(
         try:
             env.read_credential_as_uid(credential.path, credential.consumer_uid)
         except (CredentialReadError, OSError, ValueError) as exc:
+            # Keep the exception TYPE and message but attribute it here, where the
+            # actor is known. `expected`/`client` carry the identity; `actual` carries
+            # only what actually went wrong — the last line of the probe's output,
+            # since the real cross-uid probe raises with the subprocess's whole stderr
+            # (traceback included), which would otherwise bury the one useful line
+            # once per failing credential per client.
+            detail = str(exc).strip().splitlines()[-1] if str(exc).strip() else ""
+            # That last line is itself already `PermissionError: [Errno 13] ...`, so
+            # prefixing the type again reads `PermissionError: PermissionError: ...`.
+            # Observed on the live cross-uid run.
+            prefix = f"{type(exc).__name__}: "
+            if detail.startswith(prefix):
+                rendered = detail
+            else:
+                rendered = f"{prefix}{detail or exc}"
             failures.append(
                 StaticFailure(
                     precondition=P_CREDENTIALS,
@@ -415,7 +441,7 @@ def _verify_credentials(
                         f"{credential.path} readable while acting as uid "
                         f"{credential.consumer_uid} ({client.user})"
                     ),
-                    actual=f"{type(exc).__name__}: {exc}",
+                    actual=rendered,
                     remedy=(
                         "The file is missing, or exists but is locked against the "
                         "identity that consumes it. Both leave this client without a "

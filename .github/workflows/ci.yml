@@ -326,10 +326,18 @@ jobs:
       # Runner pytest suite: 32 adopted no-false-PASS FSM cases + the M5 runner
       # cases (lease / pins / per-phase timeout / evidence / verdict authority).
       # Engine-free (stdlib + pytest), so it gates fast with no Valheim SDK.
+      #
+      # `-m 'not crossuid'` is DELIBERATE, not incidental. Those tests run a real
+      # `sudo -n -u #1001` probe to prove a credential is readable BY ITS CONSUMER
+      # (#456 V2) — the one criterion a same-uid test cannot establish. A CI runner
+      # has no second QA identity, so they are deselected here and run on the
+      # dual-user rig. They FAIL rather than skip when the identity is missing, so
+      # this exclusion is the only thing that keeps them out; if it is ever removed,
+      # CI turns red and names the reason instead of quietly proving nothing.
       - name: 'AT-QA runner deterministic suite (pytest, no SDK)'
         run: |
           python3 -m pip install --quiet pytest
-          cd qa/runner && python3 -m pytest tests/ -q
+          cd qa/runner && python3 -m pytest tests/ -q -m 'not crossuid'
 
       # QA overlay packer (M5, ADR-0009 §7/§8): build a deterministic overlay
       # (runner + contracts + disposable-world profile; helper absent in this
