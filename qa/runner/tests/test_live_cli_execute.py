@@ -290,3 +290,268 @@ def test_dry_run_still_default_and_passes(capsys) -> None:
     rc = cli.main(["--dry-run", "--scenario", "success"])
     assert rc == 0
     assert "verdict: PASS" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------- #
+# ARRANGE gate (#457 migrate): --live arranges through the single authority
+# before anything launches, and REFUSES the launch when it is not READY.
+# --------------------------------------------------------------------------- #
+
+def _arrange_manifest(tmp_path, *, production_port=False):
+    """A real one-client arrange manifest with real files on disk.
+
+    Deliberately NOT a stub of the chain: these tests drive the REAL four phases so
+    they prove the launcher is gated by an arrangement that actually happened, not by
+    a mock that reported it had. The declared uid is the CURRENT one, so the
+    credential/port work is genuine rather than silently skipped.
+    """
+    import hashlib
+    import json as _json
+    import os
+    import socket
+
+    root = tmp_path / "arrgame"
+    (root / "BepInEx" / "plugins").mkdir(parents=True, exist_ok=True)
+    src = tmp_path / "arrbuild" / "harness.dll"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_bytes(b"harness-bytes")
+    digest = hashlib.sha256(b"harness-bytes").hexdigest()
+
+    free = []
+    holders = [socket.socket(socket.AF_INET, socket.SOCK_STREAM) for _ in range(2)]
+    for holder in holders:
+        holder.bind(("127.0.0.1", 0))
+        free.append(holder.getsockname()[1])
+    for holder in holders:
+        holder.close()
+
+    sidecar = tmp_path / "arr-launch-env" / "solo.env"
+    sidecar.parent.mkdir(parents=True, exist_ok=True)
+    sidecar.write_text("SBPR_QA_CONNECT=127.0.0.1:2476\n", encoding="utf-8")
+    wrapper = tmp_path / "arr-run-solo.sh"
+    wrapper.write_text(
+        '. "$SBPR_QA_LAUNCH_ENV_FILE"\n'
+        'SBPR_QA_CONNECT_ARGS=(+connect "$SBPR_QA_CONNECT")\n'
+        'exec "$RUNNER" "$@" "${SBPR_QA_CONNECT_ARGS[@]}"\n',
+        encoding="utf-8",
+    )
+
+    data = {
+        "kind": "sbpr-qa-arrange-manifest",
+        "version": 3,
+        "run_id": "t022-run-migrate-test",
+        "lane": {
+            "lane_id": "l",
+            "world_name": "w",
+            "host": "127.0.0.1",
+            "port": 2476,
+            "requires_password": False,
+        },
+        "artifacts": [
+            {"name": "harness", "source_path": str(src), "sha256": digest}
+        ],
+        "clients": [
+            {
+                "actor": "solo",
+                "uid": os.getuid(),
+                "user": "poly",
+                "steam_account": "76561197965627562",
+                "game_root": str(root),
+                "binary_path": str(root / "valheim.x86_64"),
+                "plugins_dir": str(root / "BepInEx" / "plugins"),
+                "launcher": {
+                    "kind": "direct_exec",
+                    "launch_env_path": str(sidecar),
+                    "wrapper_path": str(wrapper),
+                },
+                "ports": {
+                    # A production port here is the fail case: 2456 is Niflheim, a
+                    # REAL world, and the deny must survive the cutover intact.
+                    "loopback_control": 2456 if production_port else free[0],
+                    "valbridge_gabp": free[1],
+                    "unity_script_host": None,
+                },
+                "qa_profile": "sbpr_qa_solo",
+                "join": {
+                    "host": "127.0.0.1",
+                    "port": 2476,
+                    "delivery": "connect_argv",
+                },
+                "artifacts": [
+                    {
+                        "artifact": "harness",
+                        "dest_path": str(root / "BepInEx" / "plugins" / "harness.dll"),
+                    }
+                ],
+                "credentials": {},
+            }
+        ],
+    }
+    path = tmp_path / "arrange-manifest.json"
+    path.write_text(_json.dumps(data), encoding="utf-8")
+    return str(path), root / "BepInEx" / "plugins" / "harness.dll"
+
+
+def test_live_arranges_through_the_single_authority_before_launching(
+    tmp_path, capsys
+) -> None:
+    """§3 P1, executed: the run is arranged by the chain, then it launches.
+
+    Order matters and is asserted: the arrange report must appear BEFORE the executor
+    is reached, because arranging after a launch would arrange a client that has
+    already booted with whatever was on disk.
+    """
+    cli = _load_cli()
+    sentinel, overlay = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text("{}")
+    arrange, staged = _arrange_manifest(tmp_path)
+
+    called = {}
+
+    def stub_runner(descriptor_path):
+        # The artifact must ALREADY be staged by the time the launcher runs — proof
+        # the arrangement genuinely happened first rather than being reported.
+        called["staged_at_launch"] = staged.exists()
+        return _FakeReport("PASS")
+
+    rc = cli.main(
+        ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", overlay,
+         "--run-descriptor", str(descriptor), "--arrange-manifest", arrange],
+        live_runner=stub_runner,
+        steam_probe=_steam_ready,
+    )
+    out = capsys.readouterr().out
+
+    assert rc == 0, out
+    assert called["staged_at_launch"] is True
+    assert "LIVE-ARRANGE" in out
+    assert "arrange CUTOVER: READY" in out
+    assert out.index("LIVE-ARRANGE") < out.index("LIVE-EXECUTE")
+
+
+def test_live_refuses_to_launch_when_the_run_is_not_ready(tmp_path, capsys) -> None:
+    """Fail-closed, and the launcher is never reached.
+
+    A guard that merely logs a complaint and launches anyway is not a guard. The
+    executor here raises if invoked, so reaching it turns this test red rather than
+    letting an unarranged run through.
+    """
+    cli = _load_cli()
+    sentinel, overlay = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text("{}")
+    arrange, staged = _arrange_manifest(tmp_path, production_port=True)
+
+    def _never(_path):
+        raise AssertionError("executor reached despite the run not being READY")
+
+    rc = cli.main(
+        ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", overlay,
+         "--run-descriptor", str(descriptor), "--arrange-manifest", arrange],
+        live_runner=_never,
+        steam_probe=_steam_ready,
+    )
+    out = capsys.readouterr().out
+
+    assert rc == 2
+    assert "NOT READY" in out
+    assert "S2-PRODUCTION-PORT-DENY" in out
+    assert "LIVE-EXECUTE" not in out
+    # And it did not paper over the missing precondition by staging anyway.
+    assert not staged.exists()
+
+
+def test_arrange_refusal_is_not_softened_into_a_retry(tmp_path, capsys) -> None:
+    """§6: no retry may substitute for a correct precondition.
+
+    Re-invoking with the same broken manifest must refuse identically, not eventually
+    succeed. A gate that yields on the second attempt is a gate that yields.
+    """
+    cli = _load_cli()
+    sentinel, overlay = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text("{}")
+    arrange, _staged = _arrange_manifest(tmp_path, production_port=True)
+
+    def _never(_path):
+        raise AssertionError("executor reached despite the run not being READY")
+
+    args = ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", overlay,
+            "--run-descriptor", str(descriptor), "--arrange-manifest", arrange]
+    for _ in range(3):
+        assert cli.main(args, live_runner=_never, steam_probe=_steam_ready) == 2
+        capsys.readouterr()
+
+
+def test_live_without_an_arrange_manifest_still_runs_the_legacy_path(
+    tmp_path, capsys
+) -> None:
+    """The migrate step is opt-in: the descriptor-derived path is untouched.
+
+    This is what makes the step independently green. The contract step removes the
+    alternative; until then a caller that has not moved must keep working.
+    """
+    cli = _load_cli()
+    sentinel, overlay = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text("{}")
+
+    rc = cli.main(
+        ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", overlay,
+         "--run-descriptor", str(descriptor)],
+        live_runner=lambda p: _FakeReport("PASS"),
+        steam_probe=_steam_ready,
+    )
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "LIVE-ARRANGE" not in out
+
+
+def test_unreadable_arrange_manifest_refuses_before_launching(tmp_path, capsys) -> None:
+    cli = _load_cli()
+    sentinel, overlay = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text("{}")
+
+    def _never(_path):
+        raise AssertionError("executor reached with an unreadable arrange manifest")
+
+    rc = cli.main(
+        ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", overlay,
+         "--run-descriptor", str(descriptor),
+         "--arrange-manifest", str(tmp_path / "nope.json")],
+        live_runner=_never,
+        steam_probe=_steam_ready,
+    )
+    assert rc == 2
+    assert "cannot read arrange manifest" in capsys.readouterr().out
+
+
+def test_arrange_gate_runs_after_the_steam_precondition(tmp_path, capsys) -> None:
+    """Steam is checked first, and a Steam refusal means nothing is arranged.
+
+    Ordering is not cosmetic: STAGE writes to a client's plugin tree, so arranging
+    before knowing the client can even boot would mutate a filesystem for a run that
+    was always going to be refused.
+    """
+    cli = _load_cli()
+    sentinel, overlay = _write_overlay(tmp_path)
+    descriptor = tmp_path / "descriptor.json"
+    descriptor.write_text("{}")
+    arrange, staged = _arrange_manifest(tmp_path)
+
+    def _never(_path):
+        raise AssertionError("executor reached despite Steam being down")
+
+    rc = cli.main(
+        ["--live", "--lane-sentinel", sentinel, "--overlay-manifest", overlay,
+         "--run-descriptor", str(descriptor), "--arrange-manifest", arrange],
+        live_runner=_never,
+        steam_probe=_steam_down,
+    )
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert "Steam precondition failed" in out
+    assert "LIVE-ARRANGE" not in out
+    assert not staged.exists(), "arranged a filesystem for a run Steam had already refused"

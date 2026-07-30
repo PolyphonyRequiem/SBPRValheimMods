@@ -22,6 +22,13 @@ two-client cold run is the separate operator-authorized **M6** card — never he
 """
 from __future__ import annotations
 
+from .arrange_cutover import (
+    CutoverEnvironment,
+    CutoverReport,
+    PhaseOutcome,
+    arrange_cutover,
+    real_cutover_environment,
+)
 from .arrange_manifest import (
     ArrangeManifest,
     ArrangeManifestError,
@@ -89,6 +96,8 @@ __all__ = [
     "ClientEntry",
     "ClientSpec",
     "Credential",
+    "CutoverEnvironment",
+    "CutoverReport",
     "DualClientLauncher",
     "EntitlementControlChannel",
     "EntitlementDeliveryConfig",
@@ -111,6 +120,7 @@ __all__ = [
     "LiveRunReport",
     "OperatorSafetyError",
     "PhaseBudget",
+    "PhaseOutcome",
     "PhaseTimeoutError",
     "PhaseTimeoutTransport",
     "PinDriftError",
@@ -122,9 +132,11 @@ __all__ = [
     "StaticFailure",
     "StaticReport",
     "T022RunOrchestrator",
+    "arrange_cutover",
     "arrange_static",
     "build_live_run",
     "evaluate_live_preflight",
+    "real_cutover_environment",
     "real_operator_environment",
     "real_static_environment",
     "run_live_qualification",

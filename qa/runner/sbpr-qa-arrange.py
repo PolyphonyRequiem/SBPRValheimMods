@@ -30,22 +30,34 @@ THIS ENTRYPOINT implements four phases:
              nothing. A partial arrangement is a hard failure naming the client and the
              missing thing — never a silent proceed.
 
+  `--arrange` CUTOVER — runs the four phases above as ONE authority, in the spec's
+             order (SWEEP -> STATIC -> STAGE -> VERIFY), over ONE manifest, and reports
+             the run's entry condition. This is §3 P1's "single authority": the live
+             runner arranges through THIS, so there is no second description of the run
+             that can be right while this one is wrong. A failing phase stops the chain
+             and the phases never reached are reported as `not-reached`, never omitted
+             and never rendered as passes.
+
 STATIC arrived with #450 (manifest + phase), and its guards were hardened by the
 merged provisioning issues: #452 (credentials readable by their consuming uid),
 #453 (join-target delivery verified at the wrapper), #454 (per-client ports and the
-disabled-component proof seam). STAGE is #451. VERIFY is #456. SWEEP is #455.
-
-The remaining phase is separately owned and is NOT implemented here:
-
-    CUTOVER   #457  runner cutover to the new arrange phase (expand-contract)
+disabled-component proof seam). STAGE is #451. VERIFY is #456. SWEEP is #455. The
+CUTOVER composition is #457.
 
 SWEEP runs BEFORE STATIC and STAGE when combined: stale residue can otherwise satisfy
 a static check, and staging alongside state it is about to invalidate wastes the proof.
 Every phase here is idempotent, so any combination is safe to re-run.
 
-Invoking this program can never start a game or contact a server. `--sweep` is the
-only mode that can terminate a process, and it can only terminate one carrying this
-run's own harness marker.
+Invoking this program can never start a game or contact a server — including under
+`--arrange`. Arrange ends at READY; LAUNCH is a separate, operator-authorized step.
+`--sweep` is the only mode that can terminate a process, and it can only terminate one
+carrying this run's own harness marker.
+
+READINESS IS NOT PROOF OF A JOIN. A READY report is pre-launch evidence. VERIFY's V3
+criterion has two rungs and they are not the same claim: `live-argv` reads a running
+process's real kernel argv and is proof, but is only obtainable when a client is
+already up; `staged-delivery` is what this ordering can honestly obtain. The report
+records which one it holds — do not read the stronger claim off a READY line.
 
 See `docs/qa/T022-ARRANGE-SPEC.md` for the phase model these map onto,
 `docs/qa/T022-ARRANGE-STAGING.md` for what STAGE guarantees, and
@@ -127,6 +139,17 @@ def build_parser() -> argparse.ArgumentParser:
             "Run the VERIFY phase: read back every arranged fact and emit a "
             "per-client readiness report. Reads and probes only; writes nothing and "
             "launches nothing."
+        ),
+    )
+    parser.add_argument(
+        "--arrange",
+        action="store_true",
+        help=(
+            "Run the WHOLE arrange chain as one authority (CUTOVER, #457): SWEEP -> "
+            "STATIC -> STAGE -> VERIFY over one manifest, reporting the run's entry "
+            "condition. A failing phase stops the chain; phases never reached are "
+            "reported as such rather than omitted. Launches nothing: readiness is "
+            "pre-launch evidence, never proof a client joined."
         ),
     )
     parser.add_argument(
@@ -321,26 +344,68 @@ def _run_verify(raw, *, as_json: bool) -> int:
     return EXIT_OK if report.ok else EXIT_FAILED
 
 
+def _run_arrange(raw, *, as_json: bool) -> int:
+    import os as _os
+
+    from runner_core.arrange_cutover import arrange_cutover, real_cutover_environment
+    from runner_core.arrange_manifest import ArrangeManifest, ArrangeManifestError
+
+    try:
+        manifest = ArrangeManifest.parse(raw)
+    except ArrangeManifestError as exc:
+        # Nothing has been touched: the manifest is parsed BEFORE any environment is
+        # wired, so an unreadable manifest cannot remove a file, stage bytes, or
+        # signal a process.
+        print(f"sbpr-qa-arrange: manifest is not well-formed: {exc}")
+        return EXIT_UNREADABLE
+
+    # Explicit, not defaulted (§3 P9): this chain sweeps files, signals processes,
+    # writes a filesystem and reads another identity's credentials. Deciding to do
+    # that on THIS machine as THIS identity belongs at the construction site.
+    report = arrange_cutover(
+        manifest, real_cutover_environment(arranging_uid=_os.geteuid())
+    )
+    if as_json:
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    else:
+        print(report.render())
+    return EXIT_OK if report.ready else EXIT_FAILED
+
+
 def main(argv: "list[str] | None" = None) -> int:
     args = build_parser().parse_args(argv)
 
-    if not args.check and not args.sweep and not args.stage and not args.verify:
+    if not (args.check or args.sweep or args.stage or args.verify or args.arrange):
         print("sbpr-qa-arrange: no mode selected.")
+        print("  --arrange run the WHOLE chain: SWEEP -> STATIC -> STAGE -> VERIFY.")
         print("  --check  run the STATIC phase (reads only; starts no process).")
         print("  --sweep  run the SWEEP phase (clears prior-run residue; starts nothing).")
         print("  --stage  run the STAGE phase (stages artifacts to every client).")
         print("  --verify run the VERIFY phase (reads arranged state back; writes nothing).")
-        print("  The cutover phase is not implemented here.")
+        print("  No mode launches a client. Arrange ends at READY.")
         return EXIT_UNREADABLE
 
     if args.dry_run and not args.stage:
         print("sbpr-qa-arrange: --dry-run applies to --stage; --check never writes.")
         return EXIT_UNREADABLE
 
+    if args.arrange and (args.check or args.sweep or args.stage or args.verify):
+        # --arrange IS the composition of the other four, in the spec's order. Accepting
+        # both would let a caller express an ordering the spec forbids (e.g. --check
+        # before --sweep) while believing the chain honoured it.
+        print(
+            "sbpr-qa-arrange: --arrange runs SWEEP -> STATIC -> STAGE -> VERIFY itself; "
+            "do not combine it with the individual phase flags."
+        )
+        return EXIT_UNREADABLE
+
     raw, error = _load_manifest(args.manifest)
     if error is not None:
         print(error)
         return EXIT_UNREADABLE
+
+    if args.arrange:
+        return _run_arrange(raw, as_json=args.json)
 
     if args.sweep:
         # SWEEP runs FIRST, before STATIC. Residue from a prior run can satisfy a

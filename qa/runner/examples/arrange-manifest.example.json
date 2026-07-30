@@ -122,7 +122,7 @@
       "ports": {
         "loopback_control": 48611,
         "valbridge_gabp": 49153,
-        "unity_script_host": null
+        "unity_script_host": 48211
       },
       "qa_profile": "sbpr_qa_valbot",
       "join": {
