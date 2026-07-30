@@ -14,8 +14,8 @@ This module is the single declarative description of *every* client: identity (u
 uid/user + Steam account), game root, launch mechanism, port set, required artifacts,
 credential paths, and join target. It is a pure data model — parsing it starts no
 process, reads no file, and contacts no game. `arrange_static` performs the cheap
-checks over it; the later arrange phases (sweep / provision / verify / launch, issues
-#451-#457) consume the SAME object.
+checks over it; the later arrange phases (stage #451, sweep #455, verify #456, and the
+runner cutover #457) consume the SAME object.
 
 THE TWO STRUCTURAL RULES
 ------------------------
@@ -59,7 +59,8 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # kind must appear here and carry its required parameters. Adding a launch mechanism
 # (a third client launched some other way) is an entry in THIS TABLE plus manifest
 # data — not a new branch in any consumer. Nothing here executes a launch; these are
-# the fields the later LAUNCH phase (#456) will read.
+# the fields the later launch path — brought under the arrange phase by the runner
+# cutover (#457) — will read.
 #
 # `wrapper_path` (optional on every kind) names the launch wrapper script that actually
 # execs the game. GABS delivers neither per-launch env nor per-launch argv to the forked

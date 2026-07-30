@@ -2,15 +2,28 @@
 """
 sbpr-qa-arrange — the arrange phase entrypoint (T022 ARRANGE spec).
 
-THIS TICKET (#450) implements `--check` ONLY: the STATIC phase. It validates the
+THIS ENTRYPOINT implements `--check` ONLY: the STATIC phase. It validates the
 declarative per-client manifest and every precondition that can be established
 without starting a process — in well under a second — and reports each failure with
 its precondition, its client, and expected-vs-actual.
 
-The later phases (SWEEP #451, PROVISION #452-#454, VERIFY #455, LAUNCH #456, the
-runner cutover #457) are separately owned and are NOT implemented here. Invoking
-this program can therefore never start a game, mutate a file, or contact a server —
-`--check` reads the manifest and the artifact bytes it names, and nothing else.
+STATIC arrived with #450 (manifest + phase), and its guards were hardened by the
+merged provisioning issues: #452 (credentials readable by their consuming uid),
+#453 (join-target delivery verified at the wrapper), #454 (per-client ports and the
+disabled-component proof seam).
+
+The later phases are separately owned and are NOT implemented here:
+
+    STAGE     #451  unified artifact staging to every client from one manifest
+    SWEEP     #455  sweep + idempotency
+    VERIFY    #456  post-arrange verification + readiness report
+    CUTOVER   #457  runner cutover to the new arrange phase (expand-contract)
+
+Invoking this program can therefore never start a game, mutate a file, or contact a
+server — `--check` reads the manifest and the artifact bytes it names, and nothing
+else.
+
+See `docs/qa/T022-ARRANGE-SPEC.md` for the phase model these map onto.
 
 Exit codes:
   0  every static precondition passed

@@ -152,17 +152,25 @@ class StaticEnvironment:
     unreadable deployed copy, launch wrapper, or plugin tree reportable as a specific
     failure instead of an exception that hides the other problems in the manifest.
 
-    The newer seams default to no-op failures so older callers and focused test stubs
-    remain source-compatible; a check that needs an omitted proof reports the resource
-    unreadable rather than crashing.
+    `find_named_files` is MANDATORY and deliberately has no default (#454/#467). S9 is
+    the only check that can prove a component declared disabled is genuinely ABSENT,
+    and absence can only be established by enumerating the whole tree. A default would
+    let a caller omit that seam and still construct a valid-looking environment: the
+    omission then surfaces as an ordinary "tree unverifiable" S9 failure attributed to
+    the client's filesystem, when the real fault is incomplete wiring in the caller. A
+    caller that cannot enumerate must say so by passing a function that returns None,
+    not by staying silent. Wiring the proof seam is a decision, so it is made at the
+    construction site.
+
+    `read_text` keeps its no-op default by contrast: it backs S8's wrapper-content
+    check, where "unreadable wrapper" is already an honest, self-describing result and
+    focused tests that exercise unrelated preconditions have no wrapper to offer.
     """
 
     path_exists: Callable[[str], bool]
     hash_file: Callable[[str], Optional[str]]
+    find_named_files: Callable[[str, str], Optional[Sequence[str]]]
     read_text: Callable[[str], Optional[str]] = lambda _path: None
-    find_named_files: Callable[[str, str], Optional[Sequence[str]]] = (
-        lambda _root, _name: None
-    )
 
 
 def real_static_environment() -> StaticEnvironment:
@@ -478,8 +486,8 @@ def _check_artifact_pins(
     byte-equality guard. That invariant is working as intended and is preserved here,
     generalised over every artifact and every client.
 
-    A destination that does not exist yet is NOT a failure — staging (#452) is what
-    creates it, and §2 I3 records that a stager unable to CREATE a new artifact was
+    A destination that does not exist yet is NOT a failure — unified staging (#451) is
+    what creates it, and §2 I3 records that a stager unable to CREATE a new artifact was
     itself a defect. What IS a failure is a destination that exists with the WRONG
     bytes, because that is the stale-deploy case that silently runs old code.
 
@@ -536,7 +544,7 @@ def _check_artifact_pins(
             if artifact is None:
                 continue  # already reported by S6
             if not env.path_exists(req.dest_path):
-                # Not yet staged. PROVISION (#452) creates it; a stager that could
+                # Not yet staged. STAGE (#451) creates it; a stager that could
                 # only replace and never create was itself a defect (I3).
                 continue
             deployed = env.hash_file(req.dest_path)
@@ -706,7 +714,7 @@ def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
     `SteamLaunch` marker and ROTATES argv, so appended args survive into the game and
     PREPENDED args are swallowed by Steam's wrapper chain. That is a property of the
     wrapper's internals, not of the manifest, so it cannot be checked from here — it
-    belongs to VERIFY (#455), which reads the launched process's actual argv. What
+    belongs to VERIFY (#456), which reads the launched process's actual argv. What
     STATIC can still do is what it does below: refuse a client with no target, or a
     target pointing somewhere other than this run's lane.
 
@@ -717,7 +725,7 @@ def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
       * a joining client names its QA-owned profile, so it can never load a human
         character (the M6-JOIN4 allowlist-of-one).
 
-    Whether the target actually ARRIVES is a VERIFY-phase fact (#455) and is out of
+    Whether the target actually ARRIVES is a VERIFY-phase fact (#456) and is out of
     scope here. STATIC deliberately no longer guesses at launcher capability.
     """
     failures: List[StaticFailure] = []
@@ -756,7 +764,7 @@ def _check_join_target(manifest: ArrangeManifest) -> List[StaticFailure]:
         # docstring — #449 proved a Steam-launched client receives `+connect` fine via
         # the `%command%` wrapper seam, so refusing that combination would block the
         # only configuration verified in a live run. Argv actually reaching the game is
-        # VERIFY's job (#455), which can read the launched process's real argv; STATIC
+        # VERIFY's job (#456), which can read the launched process's real argv; STATIC
         # cannot see inside a wrapper and must not pretend otherwise.
 
         if not client.qa_profile:
