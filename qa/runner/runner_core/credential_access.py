@@ -54,6 +54,14 @@ def _read_as_uid(path: str, uid: int) -> None:
         raise PermissionError(detail)
 
 
+# The raw probe, exported for callers that attach their own actor context to the
+# failure (VERIFY, #456). `assert_readable_as_consumer` is the right entry point when
+# the caller wants the actor-naming wrapper; a caller that already names the actor in
+# its own report would otherwise have to pass a placeholder, which then appears as a
+# fake client id inside the message an operator reads.
+read_as_uid = _read_as_uid
+
+
 def assert_readable_as_consumer(
     *,
     actor: str,
