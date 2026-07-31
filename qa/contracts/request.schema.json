@@ -17,10 +17,11 @@
       "enum": [
         "SpawnStation", "GrantVanillaMaterials", "PlaceVanillaPiece", "SetWorldTime",
         "Craft", "UpgradeItem", "DropItem", "PickUpNearest", "TamperField",
+        "sbpr_master",
         "ReadInventory", "ReadItem", "ReadTooltip", "ReadWorldName", "ReadWorldUid",
         "Ping", "Cleanup", "Disarm"
       ],
-      "description": "The finite verb catalog. Fixture verbs are Server-role (per-peer ZRpc); action verbs are Client-role (loopback); observation/lifecycle verbs are either role."
+      "description": "The finite verb catalog. Fixture verbs are Server-role (per-peer ZRpc); action verbs are Client-role (loopback); observation/lifecycle verbs are either role. `sbpr_master` is the Client-role RELAY of the product's OWN admin verb (discriminator 1=offer, 2=buy): the harness grants nothing and holds no key — the product re-checks its seam config, the transport-authenticated peer, admin membership, the bound principal, and the Bond/Attunement/AP preconditions server-side. Its receipt proves DELIVERY only, never that entitlement applied; the server log is the sole truth for that."
     },
     "argumentBounds": {
       "description": "Non-normative summary of the typed argument bounds enforced by VerbCatalog/VerbArg. AllowlistedId: exact static-allowlist id, length 1..128. BoundedInt qty: 1..64. BoundedDouble radius/posRadius: 0..8. BoundedInt targetQuality: 1..4. BoundedString slot: 1..32. BoundedString phase/scope: 1..16."

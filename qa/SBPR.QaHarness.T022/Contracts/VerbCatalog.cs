@@ -137,6 +137,14 @@ namespace SBPR.QaHarness.T022.Core
         private const int SlotMax = 32;
         private const int PhaseMax = 16;
 
+        /// <summary>
+        /// The product's REAL admin discriminators for `sbpr_master`
+        /// (MasterworkOwnershipProvisioningAdmin.cs: CmdOffer=1, CmdBuy=2). Pinned as named
+        /// constants so the relay verb's bounds cannot drift from the product's own values.
+        /// </summary>
+        public const long AdminOffer = 1;
+        public const long AdminBuy = 2;
+
         private static readonly Dictionary<string, CapabilityVerb> _byName = Build();
 
         private static Dictionary<string, CapabilityVerb> Build()
@@ -188,6 +196,29 @@ namespace SBPR.QaHarness.T022.Core
                 {
                     new VerbArg("itemSlot", ArgKind.BoundedString, 1, SlotMax),
                     new VerbArg("field", ArgKind.AllowlistedId, 0, 0),
+                }),
+
+                // ── Product admin RELAY (Client role, loopback) ────────────────
+                // ADR-0009 §4 forbids the HARNESS granting entitlement — and this verb does
+                // not. It carries no key, mints nothing, and constructs no entitlement state.
+                // It asks the PRODUCT to run its own admin path, exactly as a joined admin
+                // would, and the product re-checks EVERY one of its own gates server-side at
+                // execution: seam-enabled config (default OFF), transport-authenticated peer,
+                // admin membership, bound principal, and the Bond/Attunement/earned-AP
+                // preconditions (MasterworkOwnershipProvisioningAdmin.RPC_Own). If any of those
+                // fail the product refuses and the harness has gained nothing — which is the
+                // property that keeps this on the correct side of the trust boundary.
+                //
+                // It is NOT a console relay (ADR-0009 §5.2 / §Decision): it invokes the same
+                // per-peer ZRpc the console command invokes (ZNet.GetServerRPC().Invoke), so it
+                // touches no Terminal/ScriptTools lock and adds no console command surface.
+                //
+                // The discriminator is bounded to exactly OFFER(1)/BUY(2) — the product's real
+                // values (CmdOffer=1/CmdBuy=2), pinned here so the retired 0/1 off-by-one that
+                // sank the old QaT022Driver cannot silently return.
+                new("sbpr_master", VerbChannel.ClientLoopback, new[]
+                {
+                    new VerbArg("discriminator", ArgKind.BoundedInt, AdminOffer, AdminBuy),
                 }),
 
                 // ── Observation (either role) ─────────────────────────────────

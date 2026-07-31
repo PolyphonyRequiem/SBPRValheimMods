@@ -58,16 +58,33 @@ namespace SBPR.QaHarness.T022.Runtime
             IServerAuthorityRecheck serverAuthority,
             Func<DeliveringPeerState, IServerFixtureVerbExecutor>? fixtureExecutorFactory,
             ManualLogSource log)
+            => Configure(armed, operatorToken, loopbackPort, serverAuthority, fixtureExecutorFactory, null, log);
+
+        /// <summary>
+        /// Arm the component for a run, additionally supplying the CLIENT action/observation
+        /// executor. <paramref name="clientActionExecutor"/> is the M5-BIND wire between the
+        /// control plane and the M4-BIND adapters: without it an admitted client verb is merely
+        /// acknowledged NotImplementedInMilestone (the historical M2R behaviour, which is why no
+        /// automated leg could ever execute). Passing null preserves that behaviour exactly.
+        /// </summary>
+        internal void Configure(
+            ArmedState armed, string operatorToken, int loopbackPort,
+            IServerAuthorityRecheck serverAuthority,
+            Func<DeliveringPeerState, IServerFixtureVerbExecutor>? fixtureExecutorFactory,
+            IClientActionVerbExecutor? clientActionExecutor,
+            ManualLogSource log)
         {
             _armed = armed ?? throw new ArgumentNullException(nameof(armed));
             _log = log;
 
             if (armed.Role == HarnessRole.Client)
             {
-                _runtime = new ControlPlaneRuntime(armed);
+                _runtime = new ControlPlaneRuntime(armed, clientActionExecutor);
                 _loopback = new LoopbackControlServer(operatorToken);
                 _loopback.Start(loopbackPort);
-                Banner("ARMED", $"role=Client loopback=127.0.0.1:{_loopback.BoundPort}");
+                Banner("ARMED", clientActionExecutor != null
+                    ? $"role=Client loopback=127.0.0.1:{_loopback.BoundPort} + M5 action/observation execution"
+                    : $"role=Client loopback=127.0.0.1:{_loopback.BoundPort}");
             }
             else
             {

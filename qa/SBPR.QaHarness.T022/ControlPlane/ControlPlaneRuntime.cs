@@ -36,16 +36,34 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
         private readonly ControlDispatcher _dispatcher;
         private readonly long _requestTimeoutMs;
 
+        // Optional CLIENT action/observation executor. Null reproduces the exact M2R behaviour
+        // (admitted verbs report NotImplementedInMilestone and touch nothing). When injected,
+        // an ADMITTED client verb is upgraded from that acknowledgement into a real execution —
+        // the same shape ServerRpcResponder uses for IServerFixtureVerbExecutor. This can never
+        // widen the verb surface: it is consulted only AFTER full M1 admission + slot dispatch.
+        private readonly IClientActionVerbExecutor? _clientActions;
+
         // Receipt idempotency cache (requestId -> receipt): a genuine replay returns the
         // exact prior receipt, never a re-execution (mirrors RequestAdmission's replay cache).
         private readonly Dictionary<string, ControlReceipt> _receipts = new(StringComparer.Ordinal);
 
         public ControlPlaneRuntime(ArmedState armed, long requestTimeoutMs = 5_000)
+            : this(armed, null, requestTimeoutMs)
+        {
+        }
+
+        /// <summary>
+        /// Construct with an optional CLIENT action/observation executor. Passing null is
+        /// identical to the M2R constructor above (no game I/O on any verb).
+        /// </summary>
+        public ControlPlaneRuntime(
+            ArmedState armed, IClientActionVerbExecutor? clientActions, long requestTimeoutMs = 5_000)
         {
             _armed = armed ?? throw new ArgumentNullException(nameof(armed));
             _admission = new RequestAdmission(armed);
             _dispatcher = new ControlDispatcher(maxQueueDepth: 0); // strict single-slot in M2R
             _requestTimeoutMs = requestTimeoutMs > 0 ? requestTimeoutMs : 5_000;
+            _clientActions = clientActions;
         }
 
         /// <summary>The armed run this runtime serves.</summary>
@@ -99,7 +117,7 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
                     RoleToken(_armed.Role), _armed.World.WorldUid, env.Seq, nowUnixMs, "busy");
             }
 
-            // Execute the (bounded) M2R primitive, then free the slot.
+            // Execute the (bounded) primitive, then free the slot.
             ControlReceipt receipt;
             if (ExecutableInM2R.Contains(verb))
             {
@@ -107,6 +125,24 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
                     reqId, verb, ControlOutcome.Ok, RejectReason.None.ToString(),
                     RoleToken(_armed.Role), _armed.World.WorldUid, env.Seq, nowUnixMs,
                     verb == "Ping" ? "pong" : "disarm-ack");
+            }
+            else if (_clientActions != null && _clientActions.Handles(verb))
+            {
+                // CLIENT ACTION/OBSERVATION EXECUTION. Reached only for a verb that already
+                // passed full M1 admission (nonce/role/world/catalog/manifest/typed args/expiry/
+                // sequence/HMAC) and took the single execution slot. The executor performs no
+                // admission of its own and cannot widen the verb surface; it maps the admitted
+                // verb to its M4-BIND adapter call and reports the OBSERVED result. A refusal
+                // (busy / timeout / adapter gate) yields Rejected with no game side effect.
+                var outcome = _clientActions.Execute(
+                    verb, env.Args ?? EmptyArgs,
+                    reqId, _armed.Nonce, env.Seq, _armed.World.WorldUid, nowUnixMs);
+                receipt = new ControlReceipt(
+                    reqId, verb,
+                    outcome.Executed ? ControlOutcome.Ok : ControlOutcome.Rejected,
+                    RejectReason.None.ToString(),
+                    RoleToken(_armed.Role), _armed.World.WorldUid, env.Seq, nowUnixMs,
+                    outcome.Status);
             }
             else
             {
@@ -117,6 +153,9 @@ namespace SBPR.QaHarness.T022.Core.ControlPlane
             _dispatcher.Complete(reqId, nowUnixMs, _requestTimeoutMs);
             return Remember(reqId, receipt);
         }
+
+        private static readonly Dictionary<string, object?> EmptyArgs =
+            new(StringComparer.Ordinal);
 
         private ControlReceipt Remember(string reqId, ControlReceipt receipt)
         {

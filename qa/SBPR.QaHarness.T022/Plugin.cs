@@ -191,7 +191,39 @@ namespace SBPR.QaHarness.T022
             }
             else
             {
-                _component.Configure(decision.State, boot.OperatorToken, boot.LoopbackPort, authority, Logger);
+                // M5-BIND: build the REAL client action/observation executor. This is the wire the
+                // M4-BIND card left unconnected — without it every client verb (Craft/UpgradeItem/
+                // DropItem/PickUpNearest/TamperField and the Read* family) admitted through the full
+                // security gate and then returned NotImplementedInMilestone, which is why no
+                // automated T022 leg could ever execute and every proof to date required a human at
+                // the game console.
+                //
+                // Every game-touching call is routed through the EXISTING single-slot
+                // ControlDispatcher (strict depth 0), on the helper's own main-thread pump, taking
+                // no ScriptTools/ValBridge lock (ADR-0009 §5.2, AT-QA-NO-SCRIPTTOOLS-LOCK). The
+                // adapters keep their own firewalls: tamper is degrade-only behind TamperPolicy,
+                // craft/upgrade DRIVE the product's issuance seam and OBSERVE the result, and every
+                // receipt is verdict-free (ADR-0009 §4/§6).
+                var actionDispatcher = new ControlDispatcher(maxQueueDepth: 0);
+                var invoker = new DispatcherMainThreadInvoker(
+                    actionDispatcher, () => (long)(Time.realtimeSinceStartupAsDouble * 1000.0));
+                var itemLedger = new RunItemLedger();
+
+                ClientActionExecutorBridge? clientExecutor = null;
+                clientExecutor = new ClientActionExecutorBridge(
+                    new GameActionAdapter(invoker, new DeferredContextSource(() => clientExecutor!), itemLedger),
+                    new GameObservationAdapter(invoker, new DeferredContextSource(() => clientExecutor!)),
+                    // M5-SEED: the product admin relay. It grants nothing — it invokes the
+                    // product's OWN per-peer admin RPC (the same one its console command uses,
+                    // so no Terminal/ScriptTools lock is taken) and the product independently
+                    // re-checks seam config + admin + bound principal + Bond/Attunement/AP
+                    // server-side. The `sbpr_master` verb still has to be in the run's
+                    // capability manifest to be reachable at all.
+                    new ZNetProductAdminRelay());
+
+                _component.Configure(
+                    decision.State, boot.OperatorToken, boot.LoopbackPort, authority,
+                    null, clientExecutor, Logger);
             }
         }
 

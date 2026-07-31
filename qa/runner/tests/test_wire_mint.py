@@ -118,7 +118,7 @@ def _live_descriptor(tmp_path, *, wire_extra=None):
             "client_a": {"host": "127.0.0.1", "port": 5, "role": "Client"},
             "client_b": {"host": "127.0.0.1", "port": 6, "role": "Client"},
         },
-        "entitlement": {"host": "127.0.0.1", "port": 7, "role": "Server"},
+        "entitlement": {"host": "127.0.0.1", "port": 7, "role": "Client"},
     }
     if wire_extra:
         wire.update(wire_extra)
