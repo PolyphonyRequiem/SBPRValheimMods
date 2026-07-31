@@ -826,11 +826,37 @@ def build_live_run(
     # #452 — the lane password is a per-run credential, not descriptor topology.
     # Mint it once and pass the same value to the dedicated server and every client
     # credential file. A persisted value is refused rather than silently overridden.
+    #
+    # EXTERNALLY-MANAGED LANE (#482 follow-on). Minting assumes the runner LAUNCHES the
+    # dedicated server, so the fresh password can reach it via argv. That assumption
+    # breaks for a long-lived lane the runner does not own (e.g. the t009l docker
+    # container, whose SERVER_PASS was fixed when it started, and whose descriptor sets
+    # `server_binary` to /bin/true because the runner must not launch it). Minting there
+    # would hand the CLIENTS a password the SERVER has never heard of, and every join
+    # would fail with a misleading wrong-password error.
+    #
+    # `server.externally_managed: true` is the explicit, opt-in acknowledgement of that
+    # topology: the operator declares the lane pre-exists and supplies its password out
+    # of band via SBPR_QA_LANE_PASSWORD. The secret is STILL never persisted in the
+    # descriptor — the #452 guard below runs unconditionally — it simply comes from the
+    # environment instead of a mint. Absent the flag, behaviour is exactly as before.
     assert_descriptor_carries_no_lane_password(descriptor)
+    _srv_block = descriptor.get("server", {})
+    _externally_managed = bool(_srv_block.get("externally_managed", False))
     _password_gated = any(
         bool(c.get("server_password_file")) for c in descriptor.get("clients", ())
     )
-    _lane_password = mint_lane_password() if _password_gated else None
+    if _password_gated and _externally_managed:
+        _lane_password = os.environ.get("SBPR_QA_LANE_PASSWORD", "")
+        if not _lane_password:
+            raise ValueError(
+                "descriptor declares server.externally_managed=true and clients require a "
+                "lane password, but SBPR_QA_LANE_PASSWORD is unset. The runner does not "
+                "launch this lane, so it cannot mint a password the server would accept — "
+                "supply the pre-existing lane's password in the environment."
+            )
+    else:
+        _lane_password = mint_lane_password() if _password_gated else None
     if _lane_password is not None:
         descriptor = {**descriptor, "lane_password": _lane_password}
 
@@ -952,7 +978,13 @@ def build_live_run(
         world_uid=str(descriptor["world_uid"]),
         world_name=str(descriptor["world_name"]),
         run_nonce=str(wire["nonce"]),
-        expiry=int(descriptor["expiry"]),
+        # The MINTED expiry, not a persisted descriptor field. `wire_mint` derives one
+        # expiry per run and rebinds `wire`; a stale top-level `descriptor["expiry"]`
+        # would either KeyError (it is no longer persisted) or, worse, disagree with the
+        # value the arm docs and transport authenticate against — the exact divergence
+        # that produced a 106-minute-past expiry and a helper that refused to arm
+        # (t_e8777cca). One minted envelope, one expiry, every consumer.
+        expiry=int(wire["expiry_unix_ms"]),
         phase_budget=phase_budget,
         expected_conn_gen={k: int(v) for k, v in descriptor["expected_conn_gen"].items()},
         actor_identity={k: str(v) for k, v in descriptor["actor_identity"].items()},
