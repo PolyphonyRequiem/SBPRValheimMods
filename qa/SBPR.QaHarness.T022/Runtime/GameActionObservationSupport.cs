@@ -202,6 +202,37 @@ namespace SBPR.QaHarness.T022.Runtime
     }
 
     /// <summary>
+    /// An <see cref="IAdapterRequestContextSource"/> that resolves its backing source lazily.
+    ///
+    /// Needed because the wiring is genuinely circular: the adapters require a context source at
+    /// construction, while the executor bridge that OWNS the ambient context requires the adapters
+    /// at construction. Deferring the lookup to call time breaks the cycle without either party
+    /// holding a half-built reference. The resolution happens on the main-thread pump, after
+    /// construction has completed, so the delegate never observes a null bridge in practice; it
+    /// fails closed with a placeholder context if it somehow does.
+    /// </summary>
+    internal sealed class DeferredContextSource : IAdapterRequestContextSource
+    {
+        private readonly Func<IAdapterRequestContextSource?> _resolve;
+
+        public DeferredContextSource(Func<IAdapterRequestContextSource?> resolve)
+        {
+            _resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
+        }
+
+        public AdapterRequestContext Current
+        {
+            get
+            {
+                var inner = _resolve();
+                return inner != null
+                    ? inner.Current
+                    : new AdapterRequestContext("unresolved", "Client", 0, string.Empty, 0, 0, 0);
+            }
+        }
+    }
+
+    /// <summary>
     /// Builds engine-free <see cref="ItemFingerprint"/> / <see cref="RedactedReceipt"/> values from a LIVE
     /// ItemDrop.ItemData using ONLY raw observed facts (PR408 §3.8/§3.10). No verdict, no product-state
     /// claim, no raw custom-data value — values are digested by the engine-free ReceiptFirewall.

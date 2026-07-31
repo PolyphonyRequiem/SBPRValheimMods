@@ -968,10 +968,18 @@ def build_live_run(
     # an authorized delivery endpoint there is no relay path and the run fails closed
     # (the harness never mints entitlement).
     ent_d = wire["entitlement"]
+    # Entitlement rides a CLIENT loopback endpoint, not the server. The dedicated server
+    # starts NO host listener (ControlPlaneComponent starts one only for HarnessRole.Client;
+    # its own armed banner reads "role=Server per-peer-ZRpc (NO host listener)"), and
+    # `sbpr_master` is a ClientLoopback verb, so a Server-role envelope is refused
+    # RoleMismatch by admission step 7 before it can reach the relay. The relay itself must
+    # run on a JOINED CLIENT anyway: it invokes the product's per-peer admin RPC on that
+    # client's server connection, which is what makes the product resolve the acting peer as
+    # that client's authenticated admin identity.
     ent_ep = ChannelEndpoint(
         host=str(ent_d["host"]),
         port=int(ent_d["port"]),
-        role=str(ent_d.get("role", "Server")),
+        role=str(ent_d.get("role", "Client")),
     )
     entitlement_delivery = EntitlementDeliveryConfig(
         endpoint=ent_ep,

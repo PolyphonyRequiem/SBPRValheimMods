@@ -979,6 +979,122 @@ deferred to M4 but are required before M6.**
   adminlist byte-restored; no production touched. **Hard gate: M0–M5 all green +
   `reviewer-cleanroom` + Daniel approve before M6 is ever authorized.**
 
+  > **Implementation note (M5-BIND, the client action/observation EXECUTION wire —
+  > executable, NOT executed).** M4-BIND (#425) landed the live `GameActionAdapter` /
+  > `GameObservationAdapter` against the PR408 vanilla seams, and M2R (#413) landed the
+  > fail-closed `ControlPlaneRuntime`. **Neither card connected them.** `ControlPlaneRuntime`
+  > carried a closed `ExecutableInM2R = { "Ping", "Disarm" }` set, so EVERY other client verb —
+  > `Craft`, `UpgradeItem`, `DropItem`, `PickUpNearest`, `TamperField` and all five `Read*` —
+  > passed the entire fail-closed admission gate (nonce/role/world/catalog/manifest/typed
+  > args/expiry/sequence/HMAC), took the single-slot dispatcher slot, and then returned
+  > `NotImplementedInMilestone` with status `not-implemented-m2r`. `GameActionAdapter` was
+  > never constructed anywhere in the assembly. **This — not entitlement delivery — is why no
+  > automated T022 leg had ever executed and why every leg proven to date (ISSUE, UPGRADE,
+  > TRANSFER on 2026-07-30) required a human typing at the game console.** The gap was
+  > invisible to the runner-side tests because they exercise a socket stub that answers any
+  > verb, and invisible to `tests-core` because the adapters are engine-bound and not
+  > link-compiled there — a textbook green-against-stubs seam.
+  >
+  > **Delivered:** an engine-free `IClientActionVerbExecutor` seam
+  > (`ControlPlane/ClientActionVerbExecutor.cs`) that is the exact client-side analogue of the
+  > existing `IServerFixtureVerbExecutor`, plus the engine-bound `ClientActionExecutorBridge`
+  > (`Runtime/ClientActionExecutorBridge.cs`) that maps an admitted verb to its M4-BIND adapter
+  > call. `ControlPlaneRuntime` gained an optional executor (null = the exact prior M2R
+  > behaviour, so the change is additive and reversible), and `Plugin` constructs the bridge on
+  > the client arm path behind the same single-slot `ControlDispatcher`.
+  >
+  > **No security property is widened.** The executor performs NO admission of its own and is
+  > consulted only AFTER the full M1 gate and slot dispatch, so it cannot reach an unknown,
+  > out-of-manifest, expired, replayed, badly-signed, wrong-world or wrong-role verb — asserted
+  > by seven negative tests including `ExecutorCannotWidenTheVerbSurface` (an executor claiming
+  > to `Handles()` a non-catalog verb still never runs, because admission rejects `UnknownVerb`
+  > first). **The verb catalog is UNCHANGED** — no verb was added, and in particular no
+  > entitlement/admin-relay verb exists; entitlement delivery remains an open design question
+  > for §4, untouched by this note. Tamper stays degrade-only (the bridge fixes the operation
+  > to `Replace`; `TamperOperation` has no add member). Wire-to-adapter argument coercion is
+  > strict and fail-closed — the catalog types `itemSlot` as a bounded STRING while
+  > `IActionAdapter` takes an int index, so a non-numeric/negative/oversized slot refuses the
+  > primitive with NO game call rather than defaulting to slot 0. An adapter fault becomes a
+  > bounded refusal token (type name only, no message that could carry a raw value) instead of
+  > escaping into the pump and killing the control plane.
+  >
+  > **Verified (this card):** helper net48 Release **0w/0e** against the live assembly;
+  > `qa/tests-core` **398/398** (385 pre-existing + 13 new, no regression); `SBPR.Trailborne`
+  > net48 Release **0w/0e**; `qa/runner` **627/627** with the host verified clear of any
+  > `valheim.x86_64` first (issue #481); dependency-boundary guard OK both directions;
+  > docs-lint OK; `git diff --check` clean. **Mutation-checked:** forcing `_clientActions =
+  > null` (simulating the pre-wiring state) fails exactly 5 of the new tests, proving they bind
+  > the real seam rather than passing vacuously.
+  >
+  > **Truthful maturity: EXECUTABLE, NOT EXECUTED.** Compiling, unit-passing, and structurally
+  > wired is NOT live. No client was launched, no world was joined, no craft/upgrade/drop/
+  > pickup/tamper ran in-world, and the four T022 ATs remain **unobserved**. Whether the
+  > private `InventoryGui` issuance seam actually drives a craft on a joined client is
+  > precisely what M6 must find out; this card only makes it possible for the runner to try.
+
+  > **Implementation note (M5-SEED-RELAY, entitlement via the product's OWN admin RPC —
+  > Daniel's §4 ruling, 2026-07-30).** The `wire.entitlement` endpoint `build_live_run`
+  > requires did not exist and could not be filled in as-configured, for three independent
+  > structural reasons: (1) the dedicated server starts NO loopback listener
+  > (`ControlPlaneComponent.Configure` starts one only for `HarnessRole.Client`); (2)
+  > `sbpr_master` was not in `VerbCatalog`, so `RequestAdmission` step 5 rejected
+  > `UnknownVerb`; (3) the delivery config defaulted to `role: "Server"`, which step 7 rejects
+  > `RoleMismatch`. `test_live_entitlement_delivery.py` passed regardless because its stub
+  > socket answers ANY verb with ANY arguments and checks neither catalog membership nor role
+  > admission — green-against-stubs, and it hid the gap for twelve days.
+  >
+  > **The ruling.** §4 forbids the HARNESS granting entitlement. Daniel ruled that RELAYING the
+  > product's own admin verb is categorically different and permitted. **This ADR is amended
+  > accordingly**: `sbpr_master` is added to `VerbCatalog` as a **ClientLoopback** verb whose
+  > entire declared surface is ONE `BoundedInt discriminator` pinned to the product's real
+  > `CmdOffer=1`/`CmdBuy=2`.
+  >
+  > **Why this does not cross the §4 boundary.** The harness holds no key, mints nothing,
+  > constructs no entitlement/ownership/AP state, and cannot express a subject or amount — the
+  > closed schema admits exactly one integer and rejects any undeclared argument. Every
+  > authorization decision remains server-side inside the product, re-checked at execution by
+  > `MasterworkOwnershipProvisioningAdmin.RPC_Own`: seam config (default OFF), the
+  > transport-authenticated peer (never a claimed identity), admin membership, the bound
+  > principal, and the Bond/Attunement/earned-AP preconditions. **A refused grant stays
+  > refused; the harness cannot make it succeed.**
+  >
+  > **It is NOT the console relay §5.2/§Decision reject.** The product's `sbpr_master` console
+  > command is a thin wrapper over `ZNet.instance.GetServerRPC().Invoke(RpcOwn, cmd)`.
+  > `ZNetProductAdminRelay` invokes that SAME per-peer ZRpc directly, touching no
+  > `Terminal`/`ScriptTools` lock and adding no console command surface.
+  > `AT-QA-NO-SCRIPTTOOLS-LOCK` is unaffected.
+  >
+  > **Load-bearing limitation, do not paper over:** the product's handler is `void` /
+  > fire-and-forget, so the relay CANNOT observe whether the grant applied — it reports
+  > DELIVERY only (`invoke-delivered`). **The SERVER LOG is the sole truth for whether
+  > entitlement moved**, and the runner must correlate there. A `sbpr_master` receipt is not
+  > evidence the purchase happened; treating it as such would manufacture a green of exactly
+  > the kind this ADR exists to prevent.
+  >
+  > **Also corrected:** the runner emitted `args={"command","commandType"}` against a closed
+  > schema declaring only `discriminator` (would have been refused `OutOfBoundsArg`), and the
+  > entitlement endpoint role now defaults to `Client`. Both were latent false-sends. A new
+  > contract guard (`test_entitlement_envelope_matches_the_helper_catalog_schema`) asserts the
+  > emitted envelope would survive the REAL admission gate rather than only the permissive stub.
+  >
+  > **Verified:** helper net48 **0w/0e**; `qa/tests-core` **405/405** (+7 relay tests, incl.
+  > client-role-only, discriminator bounds rejecting the retired 0/1, out-of-manifest refusal,
+  > undeclared-arg rejection, and a structural no-key-on-the-wire assertion); `SBPR.Trailborne`
+  > **0w/0e**; `qa/runner` **628/628**; `SchemaSyncTests` forced the `qa/contracts` request
+  > schema to be updated in the same change. **Mutation-checked:** widening the discriminator
+  > bounds to 0..99 fails the pinning test.
+  >
+  > **Still EXECUTABLE, NOT EXECUTED.** No client launched, no entitlement seeded in-world, no
+  > AT observed.
+
+  > **Scope note (2026-07-30, Daniel).** TAMPER is **descoped from the initial automated run**
+  > and carried as an **end-of-project stretch goal**. The near-term automated target is the
+  > **three-leg** ISSUE → UPGRADE → TRANSFER path. TAMPER remains defined, allowlisted, and
+  > degrade-only in the catalog/`TamperPolicy`; it is simply not on the critical path, and it
+  > has never been executed by a human or the harness. The runner's `expected_receipts`
+  > default of 4 must be set to 3 for a three-leg descriptor, and **no PASS may be composed
+  > that claims the TAMPER AT was observed.**
+
 ---
 
 ## Consequences
@@ -993,6 +1109,14 @@ deferred to M4 but are required before M6.**
   / disposable-world-gated on exact UID+name; (d) server has no host listener;
   (e) no command surface on the game console; (f) only the external runner emits a
   verdict.
+
+  > **Clarification (2026-07-30, M5-SEED-RELAY).** Point (e) means the harness must not
+  > *register* its control surface as game console commands, nor drive its verbs through
+  > `Terminal`/`ScriptTools` — that is the re-entrancy/deadlock hazard §5.2 exists to close.
+  > It does NOT prohibit invoking a per-peer ZRpc that the product also happens to expose a
+  > console wrapper for. The `sbpr_master` relay adds no console command, patches no
+  > `Terminal`, and takes no console lock; it calls the same `GetServerRPC().Invoke` the
+  > product's own wrapper calls. Point (e) stands unamended.
 - **Cost:** a new subsystem, a new CI job, and drift-pinning against product head.
   Accepted: the alternative is repeatedly rebuilding throwaway scenario drivers and
   risking an entitlement-forging or false-sent test shortcut.

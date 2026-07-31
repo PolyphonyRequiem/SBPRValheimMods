@@ -494,7 +494,13 @@ class EntitlementControlChannel:
             "verb": SBPR_MASTER_ADMIN_VERB,
             "requestId": request_id,
             "connectionGeneration": cfg.connection_generation,
-            "args": {"command": command, "commandType": discriminator},
+            # The helper's VerbCatalog declares `sbpr_master` with EXACTLY one typed argument,
+            # `discriminator`, bounded to OFFER(1)/BUY(2). Admission enforces a CLOSED schema —
+            # every declared arg present and in bounds, and NO undeclared arg — so the older
+            # {command, commandType} shape is rejected OutOfBoundsArg before reaching the relay.
+            # The human-readable "offer"/"buy" label is not sent; it is derived from the
+            # discriminator on both sides.
+            "args": {"discriminator": discriminator},
         }
         return json.dumps(envelope, separators=(",", ":"), sort_keys=True)
 

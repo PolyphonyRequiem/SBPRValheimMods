@@ -107,7 +107,12 @@ class AdminControlStub:
             )
             if compute_hmac(HMAC_SECRET, canonical) != env["hmac"]:
                 return self._reject("BadHmac", env)
-        command = env.get("args", {}).get("command", "?")
+        # The label is DERIVED from the discriminator, not carried on the wire — the real
+        # helper's closed schema permits only `discriminator`. Mirroring the product's own
+        # CmdOffer=1 / CmdBuy=2 (MasterworkOwnershipProvisioningAdmin.cs).
+        command = {1: "offer", 2: "buy"}.get(
+            env.get("args", {}).get("discriminator"), "?"
+        )
         return {
             "requestId": env["requestId"],
             "verb": env["verb"],
@@ -145,7 +150,7 @@ class AdminControlStub:
 
 def _delivery_config(stub: AdminControlStub) -> EntitlementDeliveryConfig:
     return EntitlementDeliveryConfig(
-        endpoint=ChannelEndpoint(host="127.0.0.1", port=stub.port, role="Server"),
+        endpoint=ChannelEndpoint(host="127.0.0.1", port=stub.port, role="Client"),
         operator_token=OPERATOR_TOKEN,
         hmac_secret=HMAC_SECRET,
         nonce=NONCE,
@@ -186,7 +191,7 @@ def _descriptor(stub: AdminControlStub) -> dict:
                 "client_a": {"host": "127.0.0.1", "port": stub.port, "role": "Client"},
                 "client_b": {"host": "127.0.0.1", "port": stub.port, "role": "Client"},
             },
-            "entitlement": {"host": "127.0.0.1", "port": stub.port, "role": "Server"},
+            "entitlement": {"host": "127.0.0.1", "port": stub.port, "role": "Client"},
         },
         "lease": {"lane_id": "seedl", "our_id": "runner-1"},
         "pins": {p: hashlib.sha256(p.encode()).hexdigest() for p in REQUIRED_PARTS},
@@ -220,11 +225,12 @@ def test_real_environment_delivery_emits_offer_then_buy_over_the_wire() -> None:
         offer_env, buy_env = stub.requests
         assert offer_env["verb"] == SBPR_MASTER_ADMIN_VERB == "sbpr_master"
         assert buy_env["verb"] == "sbpr_master"
-        # The OFFER (1) then BUY (2) discriminators rode in args.commandType, correct order.
-        assert offer_env["args"]["commandType"] == 1
-        assert offer_env["args"]["command"] == "offer"
-        assert buy_env["args"]["commandType"] == 2
-        assert buy_env["args"]["command"] == "buy"
+        # The OFFER (1) then BUY (2) discriminators rode in args.discriminator, correct
+        # order. The catalog declares `sbpr_master` with EXACTLY this one argument and a
+        # CLOSED schema, so the older {command, commandType} pair would be rejected
+        # OutOfBoundsArg by the helper's admission gate before reaching the relay.
+        assert offer_env["args"] == {"discriminator": 1}
+        assert buy_env["args"] == {"discriminator": 2}
         # The product's operator line was parsed back from the receipt.
         assert offer_line == "sbpr_master offer: Applied"
         assert buy_line == "sbpr_master buy: Applied"
@@ -243,7 +249,7 @@ def test_build_live_run_wires_the_real_delivering_seam() -> None:
         # emits a genuine sbpr_master envelope and returns the product line.
         line = env.deliver_entitlement(1)
         assert stub.requests[0]["verb"] == "sbpr_master"
-        assert stub.requests[0]["args"]["commandType"] == 1
+        assert stub.requests[0]["args"] == {"discriminator": 1}
         assert line == "sbpr_master offer: Applied"
     finally:
         stub.close()
@@ -258,7 +264,7 @@ def test_seeder_run_over_real_channel_yields_both_legs() -> None:
         results = EntitlementSeeder(env.deliver_entitlement).seed()
         assert [r.discriminator for r in results] == [1, 2]
         assert [r.command for r in results] == ["offer", "buy"]
-        assert [s["args"]["commandType"] for s in stub.requests] == [1, 2]
+        assert [s["args"]["discriminator"] for s in stub.requests] == [1, 2]
     finally:
         stub.close()
 
@@ -299,7 +305,7 @@ def test_bad_operator_token_rejected_on_the_wire() -> None:
     stub = AdminControlStub()
     try:
         cfg = EntitlementDeliveryConfig(
-            endpoint=ChannelEndpoint(host="127.0.0.1", port=stub.port, role="Server"),
+            endpoint=ChannelEndpoint(host="127.0.0.1", port=stub.port, role="Client"),
             operator_token="WRONG-TOKEN",
             hmac_secret=HMAC_SECRET,
             nonce=NONCE,
@@ -319,5 +325,39 @@ def test_unknown_discriminator_refused_before_send() -> None:
         with pytest.raises(TransportError):
             ch.deliver(3)  # only OFFER(1)/BUY(2) permitted
         assert stub.requests == []  # refused BEFORE anything hit the wire
+    finally:
+        stub.close()
+
+
+def test_entitlement_envelope_matches_the_helper_catalog_schema() -> None:
+    """Contract guard: the wire shape must satisfy the helper's CLOSED arg schema.
+
+    This test exists because of a real defect. Historically the runner sent
+    ``args={"command": "offer", "commandType": 1}`` to a verb that did not exist in
+    ``VerbCatalog`` at all, aimed at a Server-role endpoint that starts no listener.
+    Every runner-side test passed anyway, because ``AdminControlStub`` answers ANY
+    verb with ANY arguments and never checks catalog membership, role admission, or
+    the closed-schema rule. That is textbook green-against-stubs, and it hid the gap
+    for twelve days.
+
+    The helper declares ``sbpr_master`` with EXACTLY one argument, ``discriminator``,
+    a BoundedInt over the product's real CmdOffer=1 / CmdBuy=2. Admission requires
+    every declared arg present and in bounds AND rejects any undeclared arg
+    (``RequestAdmission.ArgsInBounds``). So this asserts the envelope the runner
+    actually emits would survive the REAL gate, not just the permissive stub.
+    """
+    stub = AdminControlStub()
+    try:
+        EntitlementControlChannel(_delivery_config(stub)).deliver(1)
+        args = stub.requests[0]["args"]
+        # Exactly one key, exactly the declared name — an undeclared extra would be
+        # rejected OutOfBoundsArg by the real helper.
+        assert set(args) == {"discriminator"}
+        # In-bounds and an int, not a string: BoundedInt rejects implicit coercion.
+        assert args["discriminator"] in (1, 2)
+        assert isinstance(args["discriminator"], int)
+        # Client role: sbpr_master is a ClientLoopback verb and the dedicated server
+        # starts no host listener, so a Server-role envelope is refused RoleMismatch.
+        assert stub.requests[0]["role"] == "Client"
     finally:
         stub.close()

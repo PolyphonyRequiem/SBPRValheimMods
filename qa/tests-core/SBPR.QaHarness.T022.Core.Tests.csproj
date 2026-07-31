@@ -59,6 +59,7 @@
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/LoopbackFrameParser.cs" />
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/DeliveringPeerState.cs" />
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ControlDispatcher.cs" />
+    <Compile Include="../SBPR.QaHarness.T022/ControlPlane/ClientActionVerbExecutor.cs" />
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/GameBindingAdapters.cs" />
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/MiniJson.cs" />
     <Compile Include="../SBPR.QaHarness.T022/ControlPlane/EnvelopeCodec.cs" />
