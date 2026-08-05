@@ -70,10 +70,16 @@ other mod loader / third-party mod. **It is NOT a firewall around vanilla Valhei
   wind-driver logic). Reading and replicating the behavior of the game we're
   modding is normal engineering, not a violation. Verify names against
   `assembly_valheim.dll` metadata when uncertain.
-- ❌ **Do not copy code from Jotunn or any other mod loader / third-party mod
-  directly.** Those authors never consented to be our line-by-line reference.
-- ✅ **You MAY reproduce another mod's *functionality* via a clean-room RE process
-  (a Chinese wall).** The mechanism, using our standing profiles:
+- ⚖️ **For OTHER mods, the LICENCE decides the process** (amended 2026-08-04, ADR-0001):
+  - ✅ **Permissively licensed (MIT/BSD/Apache-2.0) — read AND adapt directly.**
+    Jotunn is MIT (`Copyright (c) 2021 JotunnLib Team`). Two mandatory conditions:
+    the work must be listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)
+    with verbatim licence text **before** the adapted code lands, and each adapted
+    site must carry an inline attribution comment. No Chinese wall required.
+  - ❌ **Non-permissive, unlicensed, or licence-unknown — do not copy directly.**
+    Those authors never consented to be our line-by-line reference.
+- ✅ **You MAY reproduce a NON-PERMISSIVE mod's *functionality* via a clean-room RE
+  process (a Chinese wall).** The mechanism, using our standing profiles:
   1. A **`reviewer-cleanroom`** (or `re-analyst`) reads the other mod's source and
      writes a *behavioral description* — what it does, the observable
      inputs/outputs/algorithm — **in its own words, copying no code**.
