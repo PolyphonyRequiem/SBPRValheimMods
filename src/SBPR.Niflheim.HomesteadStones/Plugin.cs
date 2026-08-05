@@ -292,6 +292,22 @@ namespace SBPR.Niflheim.HomesteadStones
             // next live smoke reads to distinguish an armed surface from the 04efd544 dead-code defect.
             Features.PilotIdentity.OperatorSurfaceConformance.Verify(ModId);
 
+            // ADO #126 — GENERAL patch-registration watchdog (ported from SBPR.Trailborne's
+            // Runtime/PatchCheck.cs, which HomesteadStones never received). Runs LAST, after every
+            // PatchAll above INCLUDING the operator conformance check. Reflects over this assembly for
+            // every [HarmonyPatch] class and reports any that produced no woven method — the defect that
+            // has now shipped three times here (IAP-015's three dead operator classes at t_48797ca3; the
+            // T030 Humanoid misbind at t_2b1e690d; the T030 missing registration, ADO #125). It reports
+            // the two causes DISTINCTLY: "never registered" vs "binding resolves zero targets".
+            //
+            // This SUPERSEDES OperatorSurfaceConformance in coverage but does not replace it: that check
+            // asserts three SPECIFIC named roles wove and prints a per-role console/server/client line the
+            // live-smoke procedure reads by name. PatchCheck asserts the weaker "every class wove at least
+            // once" over ALL classes. Keeping both is deliberate — general net, specific assertion.
+            //
+            // ERROR-logs and continues (scream, don't brick), matching Trailborne and the operator check.
+            Features.Diagnostics.PatchCheck.Run(ModId);
+
             Log.LogInfo("[Niflheim.HomesteadStones] Harmony patches installed.");
         }
 
