@@ -60,6 +60,18 @@ If spec and code disagree, **the spec wins** unless Daniel explicitly overrides.
   `dotnet build src/SBPR.Trailborne/SBPR.Trailborne.csproj -c Release` →
   0 errors, **0 warnings (clean build)**. `<TreatWarningsAsErrors>` is ON, so
   any new nullable (or other) warning fails the build — keep it clean.
+- **Every `[HarmonyPatch]` class MUST be registered in `Plugin.Awake()`.** HarmonyX
+  patches ONLY the types explicitly passed to `harmony.PatchAll(typeof(X))` — there
+  is no assembly-wide auto-scan. An unregistered patch class compiles, ships, passes
+  its unit tests, and does **nothing** in-world, with no build error and no boot
+  signal. This has shipped three times (IAP-015's three dead operator classes; the
+  T030 Ready Hands `Humanoid` misbind; the T030 missing registration, ADO #125).
+  A new patch class is not "landed" until the `PatchAll` line exists. If a class is
+  intentionally never registered, mark it `[DeliberatelyUnregistered("reason")]` —
+  the opt-out must be explicit and greppable, because silence-by-omission is exactly
+  what caused these bugs. Enforced two ways: `HomesteadPatchRegistrationConformanceTests`
+  fails at PR time, and `Features/Diagnostics/PatchCheck.cs` (Niflheim) /
+  `Runtime/PatchCheck.cs` (Trailborne) ERROR-log at boot.
 - **Incremental delivery.** Milestone-based with named acceptance tests. Don't
   jump milestones.
 
