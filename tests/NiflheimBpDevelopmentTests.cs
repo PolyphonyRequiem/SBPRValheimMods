@@ -588,6 +588,60 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(DevelopmentCommandOutcome.Replayed, replay.Outcome);
         }
 
+        // ── AT-JOURNAL-DELIMITER-SAFE (ADO #127) ──
+        // Covers BOTH handlers in this fixture: the activity (BP credit) journal and the
+        // development journal. A StoneId is "world|zoneX|zoneZ" by construction, so a
+        // caller-composed operation id legitimately embeds '|'. Written raw into the
+        // pipe-delimited frame it explodes the field count and the strict parser rejects EVERY
+        // record — and the journal IS the save, so that is total, silent progression loss.
+        [Fact]
+        public void Activity_and_development_with_pipes_in_operation_id_survive_restart()
+        {
+            const string PipedCredit = "savor-seam-uid:-898655635|3|2-credit";
+            const string PipedDevelop = "savor-seam-uid:-898655635|3|2-develop";
+
+            CreditBp(_account, _governor, HomesteadProgressionCatalog.CookingTree, 5, PipedCredit);
+            Assert.Equal(5, BpOf(_account, _governor));
+            var first = _develop.Handle(Develop(PipedDevelop, HomesteadProgressionCatalog.CookingTree, FieldPrep, 1));
+            Assert.Equal(DevelopmentCommandOutcome.Applied, first.Outcome);
+
+            // Restart: fresh stores seeded with the ORIGINAL pre-credit state; both handlers rehydrate
+            // from the same journals, in boot order (activity first, then development).
+            var freshStones = new InMemoryStoneAggregateStore();
+            freshStones.PutStone(BuildStone(revision: 10, activeLevel: 2, committed: new[]
+            {
+                new CommittedTreeRecord(HomesteadProgressionCatalog.ProfessionFacetId,
+                    HomesteadProgressionCatalog.CookingTree, "seed-commit-cook", _governor.Value, 1, 0),
+            }));
+            var freshChars = new InMemoryCharacterAggregateStore();
+            freshChars.PutCharacter(BuildGovernor(_account, _governor, BondRelId, personalBp: 0));
+
+            var rehydratedActivity = new ActivityCommandHandler(_activityJournal, new PrincipalResolver(),
+                freshStones, freshChars, _authority, new StubDevelopmentAuthority());
+            var rehydratedDevelop = new DevelopmentCommandHandler(_developJournal, new PrincipalResolver(),
+                freshStones, freshChars, _authority, new StubDevelopmentAuthority(),
+                new HomesteadProgressionCatalog(), null);
+
+            // The BP credit replayed from the activity journal, and the development debit from the
+            // development journal: 5 credited - 1 spent = 4.
+            Assert.Equal(4, BondPower.BalanceAt(freshChars.GetCharacter(_account, _governor)!, _stone));
+
+            NodeDevelopmentRecord? dev = null;
+            foreach (var n in freshStones.GetStone(_stone)!.NodeDevelopment)
+                if (n.Node.Key == FieldPrep.Key) dev = n;
+            Assert.NotNull(dev);
+            Assert.Equal(1, dev!.BpProgress);
+
+            // Re-submitting either piped op after restart is a pure replay, never a double-apply.
+            Assert.Equal(ActivityCommandOutcome.Replayed,
+                rehydratedActivity.Handle(Activity(PipedCredit, _account, _governor,
+                    HomesteadProgressionCatalog.CookingTree, 5)).Outcome);
+            Assert.Equal(DevelopmentCommandOutcome.Replayed,
+                rehydratedDevelop.Handle(Develop(PipedDevelop, HomesteadProgressionCatalog.CookingTree,
+                    FieldPrep, 1)).Outcome);
+            Assert.Equal(4, BondPower.BalanceAt(freshChars.GetCharacter(_account, _governor)!, _stone));
+        }
+
         // ── Local vs personal completion ──
         [Fact]
         public void Local_node_completes_but_is_never_offered()

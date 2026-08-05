@@ -521,6 +521,38 @@ namespace SBPR.Trailborne.Tests
             _ = purchased; _ = rehydratedPurchase;
         }
 
+        // ── AT-JOURNAL-DELIMITER-SAFE (ADO #127) ──
+        // A StoneId is "world|zoneX|zoneZ" by construction, so a caller-composed operation id
+        // legitimately embeds '|'. Written raw into the pipe-delimited frame it explodes the field
+        // count and the strict parser rejects EVERY record — total, silent loss of the PERMANENT
+        // Weapon Discipline choice on restart.
+        [Fact]
+        public void Choice_with_pipes_in_operation_id_survives_restart_from_journal()
+        {
+            const string PipedOp = "savor-seam-on-uid:-898655635|3|2";
+            PurchaseWeaponDiscipline();
+            var pick = _provider.Choices[0];
+            Assert.Equal(WeaponDisciplineCommandOutcome.Applied,
+                _choice.Handle(Choose(PipedOp, pick.ChoiceId)).Outcome);
+
+            var freshChars = new InMemoryCharacterAggregateStore();
+            freshChars.PutCharacter(BuildAttuned(_accountAtt, _attuned, personalAp: 10));
+            var rehydratedPurchase = new PurchaseCommandHandler(_purchaseJournal, new PrincipalResolver(),
+                _stones, freshChars, _authority, new HomesteadProgressionCatalog());
+            var rehydratedChoice = new WeaponDisciplineCommandHandler(_choiceJournal, new PrincipalResolver(),
+                _stones, freshChars, _authority, new SkillCapProvider());
+
+            var c = freshChars.GetCharacter(_accountAtt, _attuned)!;
+            Assert.Equal(1, ChoiceCountOf(c));
+            Assert.Equal(System.Math.Max(SkillCapProvider.VanillaBaselineCap, pick.CapValue),
+                new SkillCapProvider().EffectiveCap(c, _stone, pick.TargetSkill));
+
+            var replay = rehydratedChoice.Handle(Choose(PipedOp, pick.ChoiceId));
+            Assert.Equal(WeaponDisciplineCommandOutcome.Replayed, replay.Outcome);
+            Assert.Equal(1, ChoiceCountOf(freshChars.GetCharacter(_accountAtt, _attuned)!));
+            _ = rehydratedPurchase;
+        }
+
         [Fact]
         public void State_roundtrip_preserves_the_skill_cap_choice_record()
         {

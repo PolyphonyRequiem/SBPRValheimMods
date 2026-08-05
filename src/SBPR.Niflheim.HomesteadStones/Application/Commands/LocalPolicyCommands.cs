@@ -317,15 +317,24 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 
         private static string Record(LocalPolicyBoundary boundary, CommittedLocalPolicy r)
         {
+            // Delimiter-safe framing invariant (ADO #127, mirroring RelationshipCommands.cs / PR #351):
+            // the record is pipe-delimited, so EVERY free-text field is base64-encoded before it enters
+            // the frame — never written raw. The OperationId in particular is a caller-composed value
+            // that legitimately embeds '|' (a StoneId is "world|zoneX|zoneZ" by construction, e.g.
+            // "uid:-898655635|3|2"); writing it unencoded exploded an 11-field record into more and the
+            // strict parser rejected EVERY frame — and the journal IS the save. Encoding it (and the
+            // ResultCode) here, and decoding symmetrically in ParseRecord, keeps the field count
+            // exactly 11 for ANY operation id. Digest fields are hex and integer fields are numeric, so
+            // neither can contain '|' — they stay raw.
             return string.Join("|", new[]
             {
                 "LOCALPOLICYREC",
-                r.OperationId,
+                Encode(r.OperationId),
                 ((int)boundary).ToString(CultureInfo.InvariantCulture),
                 r.BindingDigest,
                 r.PayloadDigest,
                 Encode(r.StoneId),
-                r.ResultCode,
+                Encode(r.ResultCode),
                 r.Mode.ToString(CultureInfo.InvariantCulture),
                 r.PolicyRevision.ToString(CultureInfo.InvariantCulture),
                 r.StoneRevision.ToString(CultureInfo.InvariantCulture),
@@ -336,25 +345,40 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
+            // Delimiter-safe framing (ADO #127): every free-text field is base64-encoded on write, so no
+            // raw '|' can appear inside a field and the field count is a reliable structural check. A
+            // torn or malformed frame is rejected honestly as null — never partially applied.
             if (parts.Length != 11 || parts[0] != "LOCALPOLICYREC") return null;
-            var rec = new CommittedLocalPolicy
+            try
             {
-                OperationId = parts[1],
-                BindingDigest = parts[3],
-                PayloadDigest = parts[4],
-                StoneId = Decode(parts[5]),
-                ResultCode = parts[6],
-                Mode = int.Parse(parts[7], CultureInfo.InvariantCulture),
-                PolicyRevision = long.Parse(parts[8], CultureInfo.InvariantCulture),
-                StoneRevision = long.Parse(parts[9], CultureInfo.InvariantCulture),
-                StoneSnapshot = Decode(parts[10])
-            };
-            return new ParsedRecord
+                string operationId = Decode(parts[1]);
+                var rec = new CommittedLocalPolicy
+                {
+                    OperationId = operationId,
+                    BindingDigest = parts[3],
+                    PayloadDigest = parts[4],
+                    StoneId = Decode(parts[5]),
+                    ResultCode = Decode(parts[6]),
+                    Mode = int.Parse(parts[7], CultureInfo.InvariantCulture),
+                    PolicyRevision = long.Parse(parts[8], CultureInfo.InvariantCulture),
+                    StoneRevision = long.Parse(parts[9], CultureInfo.InvariantCulture),
+                    StoneSnapshot = Decode(parts[10])
+                };
+                return new ParsedRecord
+                {
+                    OperationId = operationId,
+                    Boundary = (LocalPolicyBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
+                    Record = rec
+                };
+            }
+            catch (FormatException)
             {
-                OperationId = parts[1],
-                Boundary = (LocalPolicyBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
-                Record = rec
-            };
+                return null;   // not valid base64 / not a well-formed number — reject honestly.
+            }
+            catch (OverflowException)
+            {
+                return null;   // a revision field that overflowed long — malformed, reject honestly.
+            }
         }
 
         private void Append(string text)

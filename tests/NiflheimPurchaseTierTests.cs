@@ -551,6 +551,39 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(PurchaseCommandOutcome.Replayed, replay.Outcome);
         }
 
+        // ── AT-JOURNAL-DELIMITER-SAFE (ADO #127) ──
+        // A StoneId is "world|zoneX|zoneZ" by construction, so a caller-composed operation id
+        // legitimately embeds '|'. Written raw into the pipe-delimited frame it explodes the field
+        // count and the strict parser rejects EVERY record — total, silent purchase loss on restart.
+        [Fact]
+        public void Purchase_with_pipes_in_operation_id_survives_restart_from_journal()
+        {
+            const string PipedOp = "savor-seam-on-uid:-898655635|3|2";
+            OfferPersonalCookingL1();
+            Assert.Equal(PurchaseCommandOutcome.Applied,
+                _purchase.Handle(Purchase(PipedOp, _accountAtt, _attuned, Cooking, FieldPrep)).Outcome);
+
+            var freshChars = new InMemoryCharacterAggregateStore();
+            freshChars.PutCharacter(BuildAttuned(_accountAtt, _attuned, personalAp: 10));
+
+            var rehydrated = new PurchaseCommandHandler(_purchaseJournal, new PrincipalResolver(),
+                _stones, freshChars, _authority, new HomesteadProgressionCatalog());
+
+            var c = freshChars.GetCharacter(_accountAtt, _attuned)!;
+            int count = 0, ap = 0;
+            foreach (var sr in c.StoneRecords)
+                if (sr.StoneId.Equals(_stone))
+                {
+                    ap = sr.PersonalAp;
+                    foreach (var p in sr.Purchases) if (p.Node.Key == FieldPrep.Key) count++;
+                }
+            Assert.Equal(1, count);
+            Assert.Equal(9, ap);
+
+            var replay = rehydrated.Handle(Purchase(PipedOp, _accountAtt, _attuned, Cooking, FieldPrep));
+            Assert.Equal(PurchaseCommandOutcome.Replayed, replay.Outcome);
+        }
+
         private CharacterProgressionAggregate BuildAttunedPoor(AccountId account, CharacterId character)
         {
             var att = new RelationshipRecord("rel-att-poor", RelationshipKind.Attunement,

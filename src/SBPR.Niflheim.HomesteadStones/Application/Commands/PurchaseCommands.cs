@@ -475,17 +475,26 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 
         private static string Record(PurchaseBoundary boundary, CommittedPurchase r)
         {
+            // Delimiter-safe framing invariant (ADO #127, mirroring RelationshipCommands.cs / PR #351):
+            // the record is pipe-delimited, so EVERY free-text field is base64-encoded before it enters
+            // the frame — never written raw. The OperationId in particular is a caller-composed value
+            // that legitimately embeds '|' (a StoneId is "world|zoneX|zoneZ" by construction, e.g.
+            // "uid:-898655635|3|2"); writing it unencoded exploded a 15-field record into more and the
+            // strict parser rejected EVERY frame — and the journal IS the save. Encoding it (and the
+            // ResultCode) here, and decoding symmetrically in ParseRecord, keeps the field count
+            // exactly 15 for ANY operation id. Digest fields are hex and integer fields are numeric, so
+            // neither can contain '|' — they stay raw.
             return string.Join("|", new[]
             {
                 "PURCHASEREC",
-                r.OperationId,
+                Encode(r.OperationId),
                 ((int)boundary).ToString(CultureInfo.InvariantCulture),
                 r.BindingDigest,
                 r.PayloadDigest,
                 Encode(r.AccountId),
                 Encode(r.CharacterId),
                 Encode(r.StoneId),
-                r.ResultCode,
+                Encode(r.ResultCode),
                 r.ApDebited.ToString(CultureInfo.InvariantCulture),
                 Encode(r.PaymentSource),
                 Encode(r.OfferedSetKey),
@@ -498,29 +507,44 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
+            // Delimiter-safe framing (ADO #127): every free-text field is base64-encoded on write, so no
+            // raw '|' can appear inside a field and the field count is a reliable structural check. A
+            // torn or malformed frame is rejected honestly as null — never partially applied.
             if (parts.Length != 15 || parts[0] != "PURCHASEREC") return null;
-            var rec = new CommittedPurchase
+            try
             {
-                OperationId = parts[1],
-                BindingDigest = parts[3],
-                PayloadDigest = parts[4],
-                AccountId = Decode(parts[5]),
-                CharacterId = Decode(parts[6]),
-                StoneId = Decode(parts[7]),
-                ResultCode = parts[8],
-                ApDebited = int.Parse(parts[9], CultureInfo.InvariantCulture),
-                PaymentSource = Decode(parts[10]),
-                OfferedSetKey = Decode(parts[11]),
-                OfferedSetVersion = int.Parse(parts[12], CultureInfo.InvariantCulture),
-                CharacterRevision = long.Parse(parts[13], CultureInfo.InvariantCulture),
-                CharacterSnapshot = Decode(parts[14])
-            };
-            return new ParsedRecord
+                string operationId = Decode(parts[1]);
+                var rec = new CommittedPurchase
+                {
+                    OperationId = operationId,
+                    BindingDigest = parts[3],
+                    PayloadDigest = parts[4],
+                    AccountId = Decode(parts[5]),
+                    CharacterId = Decode(parts[6]),
+                    StoneId = Decode(parts[7]),
+                    ResultCode = Decode(parts[8]),
+                    ApDebited = int.Parse(parts[9], CultureInfo.InvariantCulture),
+                    PaymentSource = Decode(parts[10]),
+                    OfferedSetKey = Decode(parts[11]),
+                    OfferedSetVersion = int.Parse(parts[12], CultureInfo.InvariantCulture),
+                    CharacterRevision = long.Parse(parts[13], CultureInfo.InvariantCulture),
+                    CharacterSnapshot = Decode(parts[14])
+                };
+                return new ParsedRecord
+                {
+                    OperationId = operationId,
+                    Boundary = (PurchaseBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
+                    Record = rec
+                };
+            }
+            catch (FormatException)
             {
-                OperationId = parts[1],
-                Boundary = (PurchaseBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
-                Record = rec
-            };
+                return null;   // not valid base64 / not a well-formed number — reject honestly.
+            }
+            catch (OverflowException)
+            {
+                return null;   // a revision field that overflowed long — malformed, reject honestly.
+            }
         }
 
         private void Append(string text)
@@ -918,17 +942,26 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 
         private static string Record(ChoiceBoundary boundary, CommittedChoice r)
         {
+            // Delimiter-safe framing invariant (ADO #127, mirroring RelationshipCommands.cs / PR #351):
+            // the record is pipe-delimited, so EVERY free-text field is base64-encoded before it enters
+            // the frame — never written raw. The OperationId in particular is a caller-composed value
+            // that legitimately embeds '|' (a StoneId is "world|zoneX|zoneZ" by construction, e.g.
+            // "uid:-898655635|3|2"); writing it unencoded exploded a 14-field record into more and the
+            // strict parser rejected EVERY frame — and the journal IS the save, so a PERMANENT Weapon
+            // Discipline choice would be lost. Encoding it (and the ResultCode) here, and decoding
+            // symmetrically in ParseRecord, keeps the field count exactly 14 for ANY operation id.
+            // Digest fields are hex and integer fields are numeric, so neither can contain '|'.
             return string.Join("|", new[]
             {
                 "WEAPDISCREC",
-                r.OperationId,
+                Encode(r.OperationId),
                 ((int)boundary).ToString(CultureInfo.InvariantCulture),
                 r.BindingDigest,
                 r.PayloadDigest,
                 Encode(r.AccountId),
                 Encode(r.CharacterId),
                 Encode(r.StoneId),
-                r.ResultCode,
+                Encode(r.ResultCode),
                 Encode(r.ChoiceId),
                 Encode(r.TargetSkill),
                 r.CapValue.ToString(CultureInfo.InvariantCulture),
@@ -940,28 +973,43 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
+            // Delimiter-safe framing (ADO #127): every free-text field is base64-encoded on write, so no
+            // raw '|' can appear inside a field and the field count is a reliable structural check. A
+            // torn or malformed frame is rejected honestly as null — never partially applied.
             if (parts.Length != 14 || parts[0] != "WEAPDISCREC") return null;
-            var rec = new CommittedChoice
+            try
             {
-                OperationId = parts[1],
-                BindingDigest = parts[3],
-                PayloadDigest = parts[4],
-                AccountId = Decode(parts[5]),
-                CharacterId = Decode(parts[6]),
-                StoneId = Decode(parts[7]),
-                ResultCode = parts[8],
-                ChoiceId = Decode(parts[9]),
-                TargetSkill = Decode(parts[10]),
-                CapValue = int.Parse(parts[11], CultureInfo.InvariantCulture),
-                CharacterRevision = long.Parse(parts[12], CultureInfo.InvariantCulture),
-                CharacterSnapshot = Decode(parts[13])
-            };
-            return new ParsedRecord
+                string operationId = Decode(parts[1]);
+                var rec = new CommittedChoice
+                {
+                    OperationId = operationId,
+                    BindingDigest = parts[3],
+                    PayloadDigest = parts[4],
+                    AccountId = Decode(parts[5]),
+                    CharacterId = Decode(parts[6]),
+                    StoneId = Decode(parts[7]),
+                    ResultCode = Decode(parts[8]),
+                    ChoiceId = Decode(parts[9]),
+                    TargetSkill = Decode(parts[10]),
+                    CapValue = int.Parse(parts[11], CultureInfo.InvariantCulture),
+                    CharacterRevision = long.Parse(parts[12], CultureInfo.InvariantCulture),
+                    CharacterSnapshot = Decode(parts[13])
+                };
+                return new ParsedRecord
+                {
+                    OperationId = operationId,
+                    Boundary = (ChoiceBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
+                    Record = rec
+                };
+            }
+            catch (FormatException)
             {
-                OperationId = parts[1],
-                Boundary = (ChoiceBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
-                Record = rec
-            };
+                return null;   // not valid base64 / not a well-formed number — reject honestly.
+            }
+            catch (OverflowException)
+            {
+                return null;   // a revision field that overflowed long — malformed, reject honestly.
+            }
         }
 
         private void Append(string text)

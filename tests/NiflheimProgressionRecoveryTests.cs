@@ -175,6 +175,91 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(RecoveryStatus.Recoverable, recovery.Inspect("op-clean").Status);
             Assert.Equal(1, recovery.Inspect("op-clean").MirroredStoneAp);
         }
+
+        // ── AT-JOURNAL-NO-CROSS-CONTAMINATION (ADO #127) ──
+        // Pins the CURRENT, deliberate behaviour: the framing is fail-closed at the FRAME layer and
+        // fail-honest at the RECORD layer, and those are different guarantees.
+        //   * A structurally broken FRAME (bad CRC / torn length header) truncates the read at that
+        //     point — everything AFTER it is unreadable, because an append-only log with a corrupt
+        //     length prefix cannot be resynchronised without guessing. Records BEFORE it still replay
+        //     (proved by Recovery_TornTailFromPartialWrite_IsTruncatedNotAccepted above).
+        //   * A well-framed record whose CONTENT is malformed (wrong field count, bad tag, non-base64
+        //     field) is rejected individually as null and SKIPPED; the surrounding valid records still
+        //     replay. That is the behaviour the delimiter fix relies on and it does NOT poison the file.
+        // This is the design call the card flagged: keep fail-closed at the frame layer (resyncing a
+        // corrupt length prefix would be guessing at durable data), keep skip-and-continue at the
+        // record layer. Neither is changed by this fix; this test exists so a future change to either
+        // is a deliberate decision rather than a silent regression.
+        [Fact]
+        public void OneMalformedRecordDoesNotPreventReplayOfTheOthers()
+        {
+            var store = NewStore(out _, out _);
+            store.SubmitFoundationalAp(new OperationId("op-before"), _stone, _owner, "evi");
+
+            // Splice in a WELL-FRAMED record (correct length + CRC) whose payload is garbage content.
+            byte[] payload = System.Text.Encoding.UTF8.GetBytes("REC|not|a|valid|record");
+            using (var fs = new FileStream(_journalPath, FileMode.Append, FileAccess.Write))
+            using (var bw = new BinaryWriter(fs, System.Text.Encoding.UTF8))
+            {
+                bw.Write(payload.Length);
+                bw.Write(Crc32Of(payload));
+                bw.Write(payload);
+                bw.Flush();
+            }
+
+            var afterStore = NewStore(out _, out _);
+            afterStore.SubmitFoundationalAp(new OperationId("op-after"), _stone, _owner, "evi");
+
+            // Both the record written BEFORE and the one written AFTER the malformed frame replay.
+            var recovery = new ReceiptRecovery(NewStore(out _, out _));
+            Assert.Equal(RecoveryStatus.Recoverable, recovery.Inspect("op-before").Status);
+            Assert.Equal(RecoveryStatus.Recoverable, recovery.Inspect("op-after").Status);
+        }
+
+        /// <summary>The journal's frame CRC (same polynomial as the shipped writers), so this test can
+        /// splice a WELL-FRAMED but content-malformed record rather than a torn one.</summary>
+        private static uint Crc32Of(byte[] data)
+        {
+            uint crc = 0xFFFFFFFFu;
+            for (int i = 0; i < data.Length; i++)
+            {
+                crc ^= data[i];
+                for (int b = 0; b < 8; b++)
+                    crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+            }
+            return crc ^ 0xFFFFFFFFu;
+        }
+
+        // ── AT-ZDO-DERIVED (ADO #127) ──
+        // The Mirrored-AP ZDO projection (ZdoStoneProgressionStore, net48-only) is the ONLY place
+        // progression data lands in vanilla persistence, and is therefore the only seam where genuine
+        // journal-vs-world drift could occur. Its contract is: DERIVED from journal truth, never read
+        // back as authority, accumulate-only. The engine-free half of that contract is pinned here:
+        // rebuilding the sink from the journal alone reproduces the exact total, with no ZDO read
+        // anywhere in the path — so a ZDO that is stale, absent, or tampered cannot change the answer.
+        [Fact]
+        public void ZdoProjectionIsDerivedFromJournalTruthNotReadBackAsAuthority()
+        {
+            var store = NewStore(out var stoneSink, out _);
+            store.SubmitFoundationalAp(new OperationId("op-zdo-a"), _stone, _owner, "evi");
+            store.SubmitFoundationalAp(new OperationId("op-zdo-b"), _stone, _owner, "evi");
+            Assert.Equal(2, stoneSink.GetMirroredStoneAp(_stone));
+
+            // A FRESH sink with no world/ZDO state at all, rehydrated from the journal alone, lands on
+            // the identical total and revision. The journal is authoritative; the projection is derived.
+            var rebuilt = NewStore(out var freshSink, out _);
+            Assert.Equal(2, freshSink.GetMirroredStoneAp(_stone));
+            Assert.Equal(stoneSink.GetStoneRevision(_stone), freshSink.GetStoneRevision(_stone));
+
+            // Replay is idempotent (set-to-total per operation), so a re-derivation never accumulates.
+            rebuilt.SubmitFoundationalAp(new OperationId("op-zdo-a"), _stone, _owner, "evi");
+            Assert.Equal(2, freshSink.GetMirroredStoneAp(_stone));
+
+            // The sink exposes NO debit path — accumulate-only is a type-level guarantee, not a
+            // convention: IMirroredStoneApStore has only Apply/Get members, and Apply rejects negatives.
+            Assert.Throws<System.ArgumentOutOfRangeException>(() =>
+                freshSink.ApplyMirroredApProjection(_stone, "op-negative", -1));
+        }
     }
 
     // ========================================================================

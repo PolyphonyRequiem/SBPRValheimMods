@@ -316,6 +316,53 @@ now closed; the revalidation core, the authored Stone seat, and the placement ar
   recovers the committed op and an exact re-provision returns `Replayed`. This is unreleased QA state, so
   no production migration policy is introduced; the framing simply round-trips correctly from now on.
 
+**Delimiter-safe framing generalised to every command journal (ADO #127, 2026-08-04).** The T009L2
+Blocker-2 fix above was applied to `RelationshipCommandHandler` only. The six sibling handlers — a
+duplicated copy of the same protocol in each — kept writing `OperationId` and `ResultCode` raw, so the
+identical defect remained live in six journals:
+
+| Handler | file | journal |
+|---|---|---|
+| `ActivityCommandHandler` | `ActivityCommands.cs` | `aligned-activity.journal` |
+| `FacetCommandHandler` | `FacetCommands.cs` | `facet-commit.journal` |
+| `LocalPolicyCommandHandler` | `LocalPolicyCommands.cs` | (Settlement local policy) |
+| `DevelopmentCommandHandler` | `DevelopmentCommands.cs` | `node-development.journal` |
+| `PurchaseCommandHandler` | `PurchaseCommands.cs` | `node-purchase.journal` |
+| `WeaponDisciplineCommandHandler` | `PurchaseCommands.cs` | (weapon-discipline choices) |
+
+This is data LOSS, not a recovery inconvenience: the progression projection stores are in-memory only
+(`InMemoryCharacterApStore`, `InMemoryStoneAggregateStore`, `InMemoryAccountStoneAuthorityStore`) and are
+rebuilt from these journals at server boot, so the journal IS the authoritative save. Every `StoneId` is
+`world|zoneX|zoneZ` by construction (`ProgressionIdentity.FromHostZone`), so an operation id composed from
+one embeds `|` as its NORMAL shape — not as hostile input.
+
+All six now apply the same invariant as the relationship handler: EVERY free-text field is base64-encoded
+on write and decoded symmetrically in `ParseRecord`, keeping the field count exact for ANY operation id;
+digest fields (hex), boolean fields (`0`/`1`) and integer fields cannot contain `|` and stay raw. Each
+handler's parse is wrapped in the same `FormatException`/`OverflowException` guards, so a malformed record
+is rejected honestly as unparsed rather than throwing. Named acceptance `AT-JOURNAL-DELIMITER-SAFE` covers
+all six with a piped operation id round-tripping write → `RehydrateFromJournal` → identical state.
+
+Two adjacent invariants are now pinned explicitly:
+
+- `AT-JOURNAL-NO-CROSS-CONTAMINATION` — the framing is fail-closed at the FRAME layer and fail-honest at
+  the RECORD layer, deliberately. A torn/CRC-invalid frame truncates the read there (an append-only log
+  with a corrupt length prefix cannot be resynchronised without guessing at durable data), while a
+  well-framed but content-malformed record is skipped individually and the surrounding valid records still
+  replay. Both halves are now tested rather than assumed.
+- `AT-ZDO-DERIVED` — `ZdoStoneProgressionStore` projects the Mirrored Stone AP scalar onto the world
+  Stone's ZDO. That is the only place progression data lands in vanilla persistence and hence the only seam
+  where journal-vs-world drift could occur. It remains OWNER-ONLY, accumulate-only, and DERIVED: rebuilding
+  the sink from the journal alone reproduces the exact total with no ZDO read in the path, so a stale,
+  absent, or tampered ZDO cannot change the answer.
+
+**Back-compat:** base64-encoding changes the on-disk bytes, so pre-fix journals do not round-trip. This
+costs nothing, because every pre-fix journal on the QA box is ALREADY unparseable by its own handler —
+210/210 records across the live and archived QA journal sets fail their handler's strict field-count check
+(e.g. `ACTIVITYREC` records carrying 15 fields where the parser demands 13). There is no corpus of
+readable pre-fix journals to preserve. This fix PREVENTS future corruption; it does not repair journals
+already written with raw pipes, and no such recovery is claimed.
+
 ### `RecordAlignedActivity`
 
 Used by server adapters for eligible Cooking, Crafting, Archer, or Warrior activity.
