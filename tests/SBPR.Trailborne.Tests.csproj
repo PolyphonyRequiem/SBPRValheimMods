@@ -259,6 +259,12 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalProgressionServer.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/GovernorPresenceResolver.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Activation/LocalNodeProvisioningDriver.cs" />
+
+    <!-- ADO #123 — the OFFLINE operator shape report + its honest wiring observer. Engine-free by
+         construction (the net48 side is a thin boot-log caller inside FoundationalRuntimeBootstrap),
+         so the asserted behaviour IS the shipped behaviour. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Diagnostics/OperatorShapeReport.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Diagnostics/HomesteadHandlerWiringObserver.cs" />
     <!-- T029 (Tracer 8, Warrior node 1): the T.W.I.G. Training Local placement capability. The
          engine-free LocalPlacementProvider exposes ONLY the exact unchanged vanilla T.W.I.G.
          ("TrainingDummy") build piece and admits a placement exactly when the shared T014

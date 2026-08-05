@@ -5,8 +5,10 @@ using BepInEx;
 using HarmonyLib;
 using SBPR.Niflheim.HomesteadStones.Application.Activation;
 using SBPR.Niflheim.HomesteadStones.Application.Commands;
+using SBPR.Niflheim.HomesteadStones.Application.Diagnostics;
 using SBPR.Niflheim.HomesteadStones.Application.Runtime;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
+using SBPR.Niflheim.HomesteadStones.Persistence.Recovery;
 using SBPR.Niflheim.HomesteadStones.Persistence.Stone;
 using UnityEngine;
 
@@ -104,6 +106,28 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                     Plugin.Log.LogInfo(
                         "[Niflheim/HomesteadStones] Local progression runtime composed (server-authoritative). " +
                         $"durable='{durableDir}' warriorTwigArmed={server.WarriorTwigGate != null}.");
+
+                    // ADO #123 — OFFLINE operator shape report. The smallest thing that satisfies "an
+                    // operator can ask": emit it once at boot, right here, where BOTH composition roots
+                    // are in hand. This is a THIN CALLER of the engine-free, unit-tested
+                    // OperatorShapeReport/HomesteadHandlerWiringObserver pair — this net48 side owns no
+                    // logic, so nothing here is untestable. It adds NO Harmony patch class: this method
+                    // already lives inside FoundationalRuntimeBootstrap, which Plugin.Awake() registers.
+                    //
+                    // Passing the two real roots (and no provisioning ingress, because production composes
+                    // one only inside the config-gated admin seam) means every line is an OBSERVATION.
+                    // A green report here proves shape, never playability — the rendered text says so.
+                    try
+                    {
+                        var wiring = HomesteadHandlerWiringObserver.Observe(server, localServer);
+                        Plugin.Log.LogInfo(OperatorShapeReport.BuildAndRender(
+                            localServer.Catalog, wiring, new ReceiptRecovery(server.Receipts)));
+                    }
+                    catch (Exception rex)
+                    {
+                        // A diagnostic must never take down composition.
+                        Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Operator shape report failed: " + rex);
+                    }
                 }
                 catch (Exception lex)
                 {
