@@ -31,17 +31,22 @@ If spec and code disagree, **the spec wins** unless Daniel explicitly overrides.
 - **Clean-room = a firewall around OTHER developers' mod code, NOT around the base
   game.** **Vanilla Valheim is fair game: you MAY read AND adapt its decompiled
   source** to write our implementation — reading/adapting the game we're modding is
-  normal and allowed, not a clean-room violation. **Other mods (Jotunn, etc.) are
-  different:** do NOT copy their code directly, but you MAY still *reproduce* their
-  functionality through a proper **clean-room RE process** — a `reviewer-cleanroom`
-  reads the original and writes a behavioral *description*, then a separate
-  implementer who never saw that source reproduces it from the description (a
-  Chinese wall). You may also just *ask questions* about another mod to learn
-  *where* to investigate vanilla yourself. The hard limits: (a) no direct copying
-  of other mods' code (use the RE wall instead), and (b) don't *commit* copyrighted
-  files (game binaries, decompiled IronGate source, other mods' source) into this
-  MIT repo. Verify vanilla names against `assembly_valheim.dll` metadata when in
-  doubt. See ADR-0001.
+  normal and allowed, not a clean-room violation. **Other mods are different, but
+  LICENCE decides how:** for a **permissively licensed** work (MIT/BSD/Apache-2.0 —
+  Jotunn is MIT), you MAY read AND adapt the source directly, provided the work is
+  listed in `THIRD-PARTY-NOTICES.md` with verbatim licence text BEFORE the code
+  lands, and each adapted site carries an inline attribution comment. For
+  **non-permissive, unlicensed, or licence-unknown** sources, do NOT copy directly —
+  reproduce functionality through a proper **clean-room RE process**: a
+  `reviewer-cleanroom` reads the original and writes a behavioral *description*,
+  then a separate implementer who never saw that source reproduces it from the
+  description (a Chinese wall). You may also just *ask questions* about another mod
+  to learn *where* to investigate vanilla yourself. The hard limits: (a) match the
+  process to the licence, (b) don't *commit* copyrighted files (game binaries,
+  decompiled IronGate source, other mods' source trees) into this MIT repo, and
+  (c) a third-party mod loader as a RUNTIME dependency still needs a new ADR.
+  Verify vanilla names against `assembly_valheim.dll` metadata when in doubt.
+  See ADR-0001 (incl. the 2026-08-04 amendment).
 - **Additive construction — NO runtime prefab cloning (ADR-0006).** Build content
   prefabs from `new GameObject()` + `AddComponent` of only the components you
   intend. Do NOT `Instantiate` a vanilla/ZNetView-bearing prefab as a mutable base
