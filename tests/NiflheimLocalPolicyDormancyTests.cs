@@ -457,6 +457,32 @@ namespace SBPR.Trailborne.Tests
             _ = h2; // handler constructed to exercise rehydrate path
         }
 
+        // ── AT-JOURNAL-DELIMITER-SAFE (ADO #127) ──
+        // A StoneId is "world|zoneX|zoneZ" by construction, so a caller-composed operation id
+        // legitimately embeds '|'. Written raw into the pipe-delimited frame it explodes the field
+        // count and the strict parser rejects EVERY record — total, silent policy loss on restart.
+        [Fact]
+        public void Policy_with_pipes_in_operation_id_survives_restart_from_journal()
+        {
+            const string PipedOp = "savor-seam-on-uid:-898655635|3|2";
+            var h1 = NewHandler();
+            var applied = h1.Handle(Cmd(PipedOp, _owner, _ownerChar, LocalBeneficiaryMode.Private,
+                allow: new[] { _guest.Value }));
+            Assert.Equal(LocalPolicyCommandOutcome.Applied, applied.Outcome);
+
+            var freshStore = new InMemoryStoneAggregateStore();
+            freshStore.PutStone(BuildStone(revision: 5));
+            var h2 = new LocalPolicyCommandHandler(_policyJournal, new PrincipalResolver(), freshStore, _ownerAuthority);
+
+            var recovered = freshStore.GetStone(_stone)!;
+            Assert.Equal(LocalBeneficiaryMode.Private, recovered.LocalPolicy.Mode);
+            Assert.Equal(applied.PolicyRevision, recovered.LocalPolicy.Revision);
+
+            var replay = h2.Handle(Cmd(PipedOp, _owner, _ownerChar, LocalBeneficiaryMode.Private,
+                allow: new[] { _guest.Value }));
+            Assert.Equal(LocalPolicyCommandOutcome.Replayed, replay.Outcome);
+        }
+
         // ============================================================================
         //  Pure value-object + aggregate round-trip coverage.
         // ============================================================================

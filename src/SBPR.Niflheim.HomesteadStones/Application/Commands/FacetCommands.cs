@@ -373,17 +373,26 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 
         private static string Record(FacetBoundary boundary, CommittedFacet r)
         {
+            // Delimiter-safe framing invariant (ADO #127, mirroring RelationshipCommands.cs / PR #351):
+            // the record is pipe-delimited, so EVERY free-text field is base64-encoded before it enters
+            // the frame — never written raw. The OperationId in particular is a caller-composed value
+            // that legitimately embeds '|' (a StoneId is "world|zoneX|zoneZ" by construction, e.g.
+            // "uid:-898655635|3|2"); writing it unencoded exploded a 12-field record into more and the
+            // strict parser rejected EVERY frame — and the journal IS the save. Encoding it (and the
+            // ResultCode) here, and decoding symmetrically in ParseRecord, keeps the field count
+            // exactly 12 for ANY operation id. Digest fields are hex and integer fields are numeric, so
+            // neither can contain '|' — they stay raw.
             return string.Join("|", new[]
             {
                 "FACETREC",
-                r.OperationId,
+                Encode(r.OperationId),
                 ((int)boundary).ToString(CultureInfo.InvariantCulture),
                 r.BindingDigest,
                 r.PayloadDigest,
                 Encode(r.AccountId),
                 Encode(r.CharacterId),
                 Encode(r.StoneId),
-                r.ResultCode,
+                Encode(r.ResultCode),
                 Encode(r.FacetId),
                 r.StoneRevision.ToString(CultureInfo.InvariantCulture),
                 Encode(r.StoneSnapshot)
@@ -393,26 +402,41 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
+            // Delimiter-safe framing (ADO #127): every free-text field is base64-encoded on write, so no
+            // raw '|' can appear inside a field and the field count is a reliable structural check. A
+            // torn or malformed frame is rejected honestly as null — never partially applied.
             if (parts.Length != 12 || parts[0] != "FACETREC") return null;
-            var rec = new CommittedFacet
+            try
             {
-                OperationId = parts[1],
-                BindingDigest = parts[3],
-                PayloadDigest = parts[4],
-                AccountId = Decode(parts[5]),
-                CharacterId = Decode(parts[6]),
-                StoneId = Decode(parts[7]),
-                ResultCode = parts[8],
-                FacetId = Decode(parts[9]),
-                StoneRevision = long.Parse(parts[10], CultureInfo.InvariantCulture),
-                StoneSnapshot = Decode(parts[11])
-            };
-            return new ParsedRecord
+                string operationId = Decode(parts[1]);
+                var rec = new CommittedFacet
+                {
+                    OperationId = operationId,
+                    BindingDigest = parts[3],
+                    PayloadDigest = parts[4],
+                    AccountId = Decode(parts[5]),
+                    CharacterId = Decode(parts[6]),
+                    StoneId = Decode(parts[7]),
+                    ResultCode = Decode(parts[8]),
+                    FacetId = Decode(parts[9]),
+                    StoneRevision = long.Parse(parts[10], CultureInfo.InvariantCulture),
+                    StoneSnapshot = Decode(parts[11])
+                };
+                return new ParsedRecord
+                {
+                    OperationId = operationId,
+                    Boundary = (FacetBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
+                    Record = rec
+                };
+            }
+            catch (FormatException)
             {
-                OperationId = parts[1],
-                Boundary = (FacetBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
-                Record = rec
-            };
+                return null;   // not valid base64 / not a well-formed number — reject honestly.
+            }
+            catch (OverflowException)
+            {
+                return null;   // a revision field that overflowed long — malformed, reject honestly.
+            }
         }
 
         private void Append(string text)

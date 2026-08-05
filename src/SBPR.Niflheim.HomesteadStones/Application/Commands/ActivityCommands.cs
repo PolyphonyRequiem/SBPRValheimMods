@@ -366,17 +366,26 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 
         private static string Record(ActivityBoundary boundary, CommittedActivity r)
         {
+            // Delimiter-safe framing invariant (ADO #127, mirroring RelationshipCommands.cs / PR #351):
+            // the record is pipe-delimited, so EVERY free-text field is base64-encoded before it enters
+            // the frame — never written raw. The OperationId in particular is a caller-composed value
+            // that legitimately embeds '|' (a StoneId is "world|zoneX|zoneZ" by construction, e.g.
+            // "uid:-898655635|3|2"); writing it unencoded exploded a 13-field record into more and the
+            // strict parser rejected EVERY frame — and the journal IS the save. Encoding it (and the
+            // ResultCode) here, and decoding symmetrically in ParseRecord, keeps the field count
+            // exactly 13 for ANY operation id. Digest fields are hex and integer fields are numeric, so
+            // neither can contain '|' — they stay raw.
             return string.Join("|", new[]
             {
                 "ACTIVITYREC",
-                r.OperationId,
+                Encode(r.OperationId),
                 ((int)boundary).ToString(CultureInfo.InvariantCulture),
                 r.BindingDigest,
                 r.PayloadDigest,
                 Encode(r.AccountId),
                 Encode(r.CharacterId),
                 Encode(r.StoneId),
-                r.ResultCode,
+                Encode(r.ResultCode),
                 r.BpAwarded.ToString(CultureInfo.InvariantCulture),
                 r.NewBpBalance.ToString(CultureInfo.InvariantCulture),
                 r.CharacterRevision.ToString(CultureInfo.InvariantCulture),
@@ -387,27 +396,43 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private static ParsedRecord? ParseRecord(string line)
         {
             var parts = line.Split('|');
+            // Delimiter-safe framing (ADO #127): every free-text field is base64-encoded on write, so no
+            // raw '|' can appear inside a field and the field count is a reliable structural check. A
+            // torn or malformed frame (wrong field count, bad tag, non-base64 field, or an integer field
+            // that overflows) is rejected honestly as null — never partially applied.
             if (parts.Length != 13 || parts[0] != "ACTIVITYREC") return null;
-            var rec = new CommittedActivity
+            try
             {
-                OperationId = parts[1],
-                BindingDigest = parts[3],
-                PayloadDigest = parts[4],
-                AccountId = Decode(parts[5]),
-                CharacterId = Decode(parts[6]),
-                StoneId = Decode(parts[7]),
-                ResultCode = parts[8],
-                BpAwarded = int.Parse(parts[9], CultureInfo.InvariantCulture),
-                NewBpBalance = int.Parse(parts[10], CultureInfo.InvariantCulture),
-                CharacterRevision = long.Parse(parts[11], CultureInfo.InvariantCulture),
-                CharacterSnapshot = Decode(parts[12])
-            };
-            return new ParsedRecord
+                string operationId = Decode(parts[1]);
+                var rec = new CommittedActivity
+                {
+                    OperationId = operationId,
+                    BindingDigest = parts[3],
+                    PayloadDigest = parts[4],
+                    AccountId = Decode(parts[5]),
+                    CharacterId = Decode(parts[6]),
+                    StoneId = Decode(parts[7]),
+                    ResultCode = Decode(parts[8]),
+                    BpAwarded = int.Parse(parts[9], CultureInfo.InvariantCulture),
+                    NewBpBalance = int.Parse(parts[10], CultureInfo.InvariantCulture),
+                    CharacterRevision = long.Parse(parts[11], CultureInfo.InvariantCulture),
+                    CharacterSnapshot = Decode(parts[12])
+                };
+                return new ParsedRecord
+                {
+                    OperationId = operationId,
+                    Boundary = (ActivityBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
+                    Record = rec
+                };
+            }
+            catch (FormatException)
             {
-                OperationId = parts[1],
-                Boundary = (ActivityBoundary)int.Parse(parts[2], CultureInfo.InvariantCulture),
-                Record = rec
-            };
+                return null;   // not valid base64 / not a well-formed number — reject honestly.
+            }
+            catch (OverflowException)
+            {
+                return null;   // a revision field that overflowed long — malformed, reject honestly.
+            }
         }
 
         private void Append(string text)

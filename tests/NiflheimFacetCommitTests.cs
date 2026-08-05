@@ -361,6 +361,33 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(first.StoneRevision, replay.StoneRevision);
         }
 
+        // ── AT-JOURNAL-DELIMITER-SAFE (ADO #127) ──
+        // A StoneId is "world|zoneX|zoneZ" by construction (ProgressionIdentity.FromHostZone), so
+        // caller-composed operation ids legitimately embed '|'. Writing them raw into the
+        // pipe-delimited frame explodes the field count and the strict parser rejects EVERY record —
+        // the journal IS the save, so that is total, silent progression loss.
+        [Fact]
+        public void Commit_with_pipes_in_operation_id_survives_restart_from_journal()
+        {
+            const string PipedOp = "savor-seam-on-uid:-898655635|3|2";
+            var first = _handler.Handle(GovCommit(PipedOp, HomesteadProgressionCatalog.ProfessionFacetId, "Cooking"));
+            Assert.Equal(FacetCommandOutcome.Applied, first.Outcome);
+
+            var freshStones = new InMemoryStoneAggregateStore();
+            freshStones.PutStone(BuildStone(_stone, revision: 5, activeLevel: 2, committed: null));
+            var rehydrated = new FacetCommandHandler(_journalPath, new PrincipalResolver(), freshStones,
+                _characters, _authority, new StubGovernorAuthorityPolicy());
+
+            var stone = freshStones.GetStone(_stone)!;
+            Assert.Single(stone.CommittedTrees);
+            Assert.Equal("Cooking", stone.CommittedTrees[0].Tree.Key);
+            Assert.Equal(PipedOp, stone.CommittedTrees[0].CommitOperationId);
+
+            var replay = rehydrated.Handle(GovCommit(PipedOp, HomesteadProgressionCatalog.ProfessionFacetId, "Cooking"));
+            Assert.Equal(FacetCommandOutcome.Replayed, replay.Outcome);
+            Assert.Equal(first.StoneRevision, replay.StoneRevision);
+        }
+
         // ── AT-NO-STONE-LEVEL-MUTATION ──
         [Fact]
         public void Commit_changes_no_stone_level_ap_bp_or_purchase()
