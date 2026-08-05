@@ -77,6 +77,17 @@ namespace SBPR.Niflheim.HomesteadStones
             harmony.PatchAll(typeof(Features.Progression.WarriorTwigPlacementObserver));
             harmony.PatchAll(typeof(Features.Progression.WarriorTwigDedicatedIngressObserver));
 
+            // T030 — the Ready Hands equip/unequip duration runtime seam. THIS REGISTRATION IS LOAD-BEARING:
+            // ReadyHandsEquipDurationPatch carries [HarmonyPatch] and two postfixes on the PRIVATE
+            // Player.QueueEquipAction / Player.QueueUnequipAction, but HarmonyX only weaves types explicitly
+            // handed to PatchAll — an unregistered [HarmonyPatch] class is inert no matter how correct it is,
+            // and the pure EquipDurationProvider behind it has no other runtime caller. Without this line the
+            // shipped, purchasable Ready Hands effect silently does NOTHING in-world while every unit test
+            // stays green (the defect fixed by ADO #125; the same family as the IAP-015 dead-code incident
+            // documented below). The CI apiprobe guard at .github/workflows/ci.yml only proves the two target
+            // methods still exist on Player — it is structurally blind to whether this class was registered.
+            harmony.PatchAll(typeof(Features.Warrior.ReadyHandsEquipDurationPatch));
+
             // IAP-007W — live session admission. Composes the shipped account+character admission stack
             // (Tracer 1/2) on the authoritative server and reconciles it against the connected-peer set on
             // the ZDOMan.Update cadence: a peer whose server-observed profile s_playerID + authenticated
