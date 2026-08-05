@@ -350,6 +350,57 @@ Two adjacent invariants are now pinned explicitly:
   with a corrupt length prefix cannot be resynchronised without guessing at durable data), while a
   well-framed but content-malformed record is skipped individually and the surrounding valid records still
   replay. Both halves are now tested rather than assumed.
+
+  **Coverage extended to all seven handlers (ADO #129).** As landed with #127 this invariant was
+  exercised for exactly ONE of the seven command handlers — `RelationshipCommandHandler`, the same lone
+  sibling that had received the #127 delimiter fix first. That is the fix-inheritance gap: the handler
+  with the test is the handler with the fix, and the other six were merely presumed correct. #129 closes
+  it. `AT-TORN-FRAME-ALL-SEVEN` now asserts the full contract against every handler, through one shared
+  test harness (`tests/JournalCorruptionHarness.cs`) so the seven cannot drift apart:
+
+  | Handler | record tag | fields | torn tail | CRC-invalid frame | malformed content | covered since |
+  |---|---|---|---|---|---|---|
+  | `RelationshipCommandHandler` | `RELREC` | 14 / 16 | ✅ | ✅ | ✅ | pre-#129 (restated via harness) |
+  | `LocalPolicyCommandHandler` | `LOCALPOLICYREC` | 11 | ✅ | ✅ | ✅ | ADO #129 |
+  | `FacetCommandHandler` | `FACETREC` | 12 | ✅ | ✅ | ✅ | ADO #129 |
+  | `ActivityCommandHandler` | `ACTIVITYREC` | 13 | ✅ | ✅ | ✅ | ADO #129 |
+  | `PurchaseCommandHandler` | `PURCHASEREC` | 15 | ✅ | ✅ | ✅ | ADO #129 |
+  | `WeaponDisciplineCommandHandler` | `WEAPDISCREC` | 14 | ✅ | ✅ | ✅ | ADO #129 |
+  | `DevelopmentCommandHandler` | `DEVELOPREC` | 19 | ✅ | ✅ | ✅ | ADO #129 |
+
+  Sub-acceptances: `AT-TORN-FRAME-PRIOR-RECORDS-SURVIVE` (a committed op written BEFORE the corruption
+  rehydrates into identical state, per handler) and `AT-TORN-FRAME-NO-THROW` (no handler throws on any
+  corruption shape).
+
+  **Result: all six previously-uncovered handlers were already correct. No production behaviour was
+  changed by #129.** The shared protocol was already right in each copy; what was missing was the proof.
+  The deliverable is six handlers now provably correct where before they were presumed correct.
+
+  Two properties of the tests are worth recording, because the first draft got them wrong and passed
+  anyway. (a) Corruption spliced PAST the last committed record is invisible — with the CRC check
+  deleted the reader simply hands the garbage payload to `ParseRecord`, which rejects it regardless, so
+  the observable outcome is unchanged. The frame-layer shapes are therefore spliced BETWEEN two committed
+  records and the test asserts the SECOND is UNREACHABLE; that unreachability is the observable
+  consequence of fail-closed truncation and is what makes the assertion bite. (b) A short-record test
+  whose filler fields fail base64 or integer parsing never reaches the missing field, so the field-count
+  guard looks redundant; the filler must be valid as BOTH (`"1234"`) for the guard to be the thing under
+  test. Verified by `scripts/ado129-mutation-evidence.py`, which deletes the CRC term and the
+  field-count guard from each of the six handler files in turn: 12/12 mutations turn the suite RED.
+
+  **Not proven:** these are unit-level assertions over SYNTHETICALLY corrupted journal files. No live
+  mid-write process kill on a running dedicated server was reproduced, so this does not prove the live
+  boot path behaves identically end to end.
+
+  **Adjacent, deliberately out of scope.** Three further journal writers exist outside
+  `Application/Commands/` — `Application/Receipts/OperationReceiptStore.cs` (`foundational-ap.journal`),
+  `Persistence/Accounts/PilotAccountStore.cs` (`pilot-account.journal`), and
+  `Application/ResourceDelivery/StoneConnectionSourceRegistry.cs` (`connection-sources.journal`). They
+  were audited during #127 and were already encoding their free-text fields correctly. `OperationReceiptStore`
+  additionally carries its own torn-frame coverage in `tests/NiflheimProgressionRecoveryTests.cs`. "All
+  seven" means the seven command handlers; extending this harness to the other three needs a new card.
+  Extracting the shared journal PROTOCOL into production code is ADO #128 and remains undecided — a shared
+  module converts "one feature loses data" into "all progression loses data", which is a real tradeoff the
+  architect owns. The shared harness above is TEST-only and carries none of that correlated-failure risk.
 - `AT-ZDO-DERIVED` — `ZdoStoneProgressionStore` projects the Mirrored Stone AP scalar onto the world
   Stone's ZDO. That is the only place progression data lands in vanilla persistence and hence the only seam
   where journal-vs-world drift could occur. It remains OWNER-ONLY, accumulate-only, and DERIVED: rebuilding
