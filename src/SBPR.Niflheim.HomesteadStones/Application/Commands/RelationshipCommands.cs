@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Security.Cryptography;
 using System.Text;
 using SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery;
 using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
@@ -26,9 +24,11 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
     // returns the recorded terminal result (Replayed); a conflicting binding under a committed op
     // rejects OperationConflict with no mutation.
     //
-    // net48 audit: FileStream(.Flush(true)), BinaryReader/Writer, SHA256, Encoding.UTF8, engine-free
-    // domain types only. No net5+ surface, no UnityEngine/Valheim/BepInEx reference: link-compiles
-    // into the net8 test project.
+    // net48 audit: engine-free domain types only. Since ADO #128 the durable framing
+    // primitives (FileStream/.Flush(true), BinaryReader/Writer, SHA256, Encoding.UTF8) live in
+    // CommandJournalFraming rather than in this file; this handler still owns its own journal
+    // FILE. No net5+ surface, no UnityEngine/Valheim/BepInEx reference.
+    // Link-compiles into the net8 test project.
 
     public enum RelationshipCommandType
     {
@@ -544,81 +544,29 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             }
         }
 
-        private void Append(string text)
-        {
-            byte[] payload = Encoding.UTF8.GetBytes(text);
-            using (var fs = new FileStream(_journalPath, FileMode.Append, FileAccess.Write, FileShare.Read))
-            using (var bw = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
-            {
-                bw.Write(payload.Length);
-                bw.Write(Crc32(payload));
-                bw.Write(payload);
-                bw.Flush();
-                fs.Flush(true); // fsync-equivalent durable boundary
-            }
-        }
+        // ---- Durable framing (ADO #128) ----
+        //
+        // The frame format (length prefix, CRC32, fsync'd append, truncate-at-first-damage
+        // read) now lives in CommandJournalFraming, shared with the other five progression
+        // handlers. It was extracted from six byte-for-byte identical private copies, proven
+        // byte-identical by NiflheimCommandJournalFramingOracleTests before any handler moved.
+        //
+        // THIS HANDLER STILL OWNS ITS OWN JOURNAL FILE (_journalPath). Shared code,
+        // INDEPENDENT durable state — a defect in another handler's journal cannot reach this
+        // one's rehydration. Do not "simplify" this toward a shared file or shared stream.
+        //
+        // The record layout above (RELREC) deliberately stays here: it is domain-specific,
+        // and the ADO #127 delimiter-safety invariant is enforced at that layer via Encode.
+        // The framing layer below is delimiter-agnostic.
 
-        private List<string> ReadDurable()
-        {
-            var results = new List<string>();
-            if (!File.Exists(_journalPath)) return results;
-            using (var fs = new FileStream(_journalPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            using (var br = new BinaryReader(fs, Encoding.UTF8))
-            {
-                long length = fs.Length;
-                while (true)
-                {
-                    long recordStart = fs.Position;
-                    if (recordStart + 8 > length) break;
-                    int payloadLen = br.ReadInt32();
-                    uint crc = br.ReadUInt32();
-                    if (payloadLen < 0 || fs.Position + payloadLen > length) break;
-                    byte[] payload = br.ReadBytes(payloadLen);
-                    if (payload.Length != payloadLen || Crc32(payload) != crc) break;
-                    results.Add(Encoding.UTF8.GetString(payload));
-                }
-            }
-            return results;
-        }
+        private void Append(string text) => CommandJournalFraming.Append(_journalPath, text);
 
-        private static string Encode(string s) =>
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(s ?? string.Empty));
+        private List<string> ReadDurable() => CommandJournalFraming.ReadDurable(_journalPath);
 
-        private static string Decode(string s) =>
-            Encoding.UTF8.GetString(Convert.FromBase64String(s));
+        private static string Encode(string s) => CommandJournalFraming.Encode(s);
 
-        public static string Digest(string s)
-        {
-            using (var sha = SHA256.Create())
-            {
-                byte[] h = sha.ComputeHash(Encoding.UTF8.GetBytes(s));
-                var sb = new StringBuilder(16);
-                for (int i = 0; i < 8; i++) sb.Append(h[i].ToString("x2", CultureInfo.InvariantCulture));
-                return sb.ToString();
-            }
-        }
+        private static string Decode(string s) => CommandJournalFraming.Decode(s);
 
-        private static readonly uint[] CrcTable = BuildCrcTable();
-
-        private static uint[] BuildCrcTable()
-        {
-            var table = new uint[256];
-            for (uint i = 0; i < 256; i++)
-            {
-                uint c = i;
-                for (int k = 0; k < 8; k++)
-                    c = ((c & 1) != 0) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-                table[i] = c;
-            }
-            return table;
-        }
-
-        private static uint Crc32(byte[] data)
-        {
-            uint crc = 0xFFFFFFFFu;
-            for (int i = 0; i < data.Length; i++)
-                crc = CrcTable[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
-            return crc ^ 0xFFFFFFFFu;
-        }
+        public static string Digest(string s) => CommandJournalFraming.Digest(s);
     }
 }

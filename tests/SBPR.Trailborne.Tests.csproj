@@ -120,6 +120,7 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Stone/MirroredStoneApStore.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Characters/CharacterProgressionStore.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Receipts/OperationReceiptStore.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/CommandJournalFraming.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/ProgressionCommandPipeline.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Activities/FoundationalPlacementAdapter.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Recovery/ReceiptRecovery.cs" />

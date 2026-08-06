@@ -398,9 +398,10 @@ Two adjacent invariants are now pinned explicitly:
   were audited during #127 and were already encoding their free-text fields correctly. `OperationReceiptStore`
   additionally carries its own torn-frame coverage in `tests/NiflheimProgressionRecoveryTests.cs`. "All
   seven" means the seven command handlers; extending this harness to the other three needs a new card.
-  Extracting the shared journal PROTOCOL into production code is ADO #128 and remains undecided — a shared
-  module converts "one feature loses data" into "all progression loses data", which is a real tradeoff the
-  architect owns. The shared harness above is TEST-only and carries none of that correlated-failure risk.
+  Extracting the shared journal PROTOCOL into production code is ADO #128, now DECIDED and landed —
+  see the dedicated section after the back-compat note below. The shared harness above is TEST-only and carries none of the
+  correlated-failure risk that decision had to price.
+
 - `AT-ZDO-DERIVED` — `ZdoStoneProgressionStore` projects the Mirrored Stone AP scalar onto the world
   Stone's ZDO. That is the only place progression data lands in vanilla persistence and hence the only seam
   where journal-vs-world drift could occur. It remains OWNER-ONLY, accumulate-only, and DERIVED: rebuilding
@@ -413,6 +414,65 @@ costs nothing, because every pre-fix journal on the QA box is ALREADY unparseabl
 (e.g. `ACTIVITYREC` records carrying 15 fields where the parser demands 13). There is no corpus of
 readable pre-fix journals to preserve. This fix PREVENTS future corruption; it does not repair journals
 already written with raw pipes, and no such recovery is claimed.
+
+**Shared durable framing extracted — `CommandJournalFraming` (ADO #128, 2026-08-05).**
+
+The frame format that all seven command handlers wrote — `[int32 payloadLength][uint32 crc32(payload)]
+[payload UTF-8]`, appended with `fs.Flush(true)` and read with truncate-at-first-damage — existed as six
+byte-for-byte identical private copies (verified: after comment stripping, `Append`, `ReadDurable`,
+`Encode`, `Decode`, `Digest`, `BuildCrcTable`, and `Crc32` hash-identical across `PurchaseCommands.cs`,
+`DevelopmentCommands.cs`, `RelationshipCommands.cs`, `FacetCommands.cs`, `LocalPolicyCommands.cs`, and
+`ActivityCommands.cs`; the only variation was `LocalPolicyCommands`' cosmetic `foreach` vs indexed `for`
+in `Crc32`). They now share one module,
+`src/SBPR.Niflheim.HomesteadStones/Application/Commands/CommandJournalFraming.cs`.
+
+**Why, and what was priced against it.** The duplication is a LOCALITY failure, not an aesthetic one: it
+is the mechanism by which a fix lands on one sibling and misses the rest. ADO #127 is the proof — the
+delimiter fix landed in `RelationshipCommands` and left latent total data loss in six handlers — and
+#125/#126 are the same shape one level up. The counter-argument is real and was weighed: seven
+independent recovery paths mean a defect in one cannot corrupt another, and shared code converts "one
+feature loses data" into "all progression loses data". That risk is bounded here by what was deliberately
+NOT shared:
+
+- **Each handler still owns its own journal FILE.** Shared code, INDEPENDENT durable state. Corrupting
+  one handler's journal cannot affect another's rehydration; `AT-TORN-FRAME-ALL-SEVEN` continues to
+  assert this per handler. There is no shared-file or shared-stream API and none may be added.
+- **The record layout stays in the handler** — field set, field count, and record tag (`LOCALPOLICYREC`,
+  `FACETREC`, …). Those genuinely differ per handler; the ADO #127 delimiter-safety invariant is enforced
+  at that layer via `Encode`. The extracted layer is delimiter-agnostic and moves opaque bytes.
+- **Replay/conflict detection, the domain transition, and the authority policy stay in the handler**
+  behind their existing interfaces (`IGovernorAuthorityPolicy`, `IBondAuthorityPolicy`,
+  `IHomesteadOwnerAuthority`, `IGovernorDevelopmentAuthority`).
+
+**`AT-EXTRACT-BYTE-IDENTICAL`.** The journals ARE the save, so the extraction is not accepted on a green
+suite — a single changed byte would silently orphan every existing player's progression at the next boot.
+`tests/NiflheimCommandJournalFramingOracleTests.cs` holds a frozen, INDEPENDENT transcription of the
+pre-extraction format (`LegacyFraming`, captured at `448d081`) and asserts byte-for-byte file equality
+against `CommandJournalFraming` over an adversarial corpus: pipes (the #127 shape — a `StoneId` is
+`world|zoneX|zoneZ` by construction), empty and whitespace strings, non-ASCII and astral-plane emoji,
+embedded newlines and NUL, every code point below the surrogate range, and a payload larger than one disk
+page. It further asserts BIDIRECTIONAL compatibility — the extracted reader reads legacy-written bytes
+(the upgrade path) and the legacy reader reads extracted-written bytes (the rollback path) — plus
+multi-frame append order, torn-tail truncation, and CRC-invalid-frame unreachability. 36 assertions.
+
+`LegacyFraming` must never be refactored to delegate to `CommandJournalFraming`; that would make the
+oracle vacuously self-comparing. It is deliberately written in the pre-extraction style.
+
+**Mutation evidence.** Mutating `CommandJournalFraming` and re-running the oracle: swapping the
+length/CRC write order → 21/36 RED; truncating the digest to 9 bytes instead of 8 → 10/36 RED; deleting
+the CRC verification from the read → 1/36 RED; perturbing the CRC polynomial `0xEDB88320` → 22/36 RED.
+
+**One mutation SURVIVES and is recorded honestly:** changing `fs.Flush(true)` to `fs.Flush()` keeps all
+36 GREEN. An in-process unit test cannot observe an OS write barrier — the bytes sit in the page cache
+either way, and only real power loss distinguishes them. The fsync is protected by code review and an
+in-file comment, NOT by a test. A green oracle run is not evidence that durability survived.
+
+**Result: no production behaviour changed.** 513 lines deleted against 165 added across the six files;
+the six handlers' bodies are untouched apart from thin private forwarders, so call sites did not move.
+Full suite 1688/1688 PASS (1652 baseline + 36 oracle), both net48 Release builds 0 warnings / 0 errors.
+
+**Not proven:** the oracle is unit-level, over synthetic files. It does not prove any handler is wired
+correctly on a live dedicated server, and it does not prove the fsync. Logs green is not playable.
 
 ### `RecordAlignedActivity`
 
