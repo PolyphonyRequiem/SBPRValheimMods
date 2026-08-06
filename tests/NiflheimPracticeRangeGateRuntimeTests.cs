@@ -100,7 +100,7 @@ namespace SBPR.Trailborne.Tests
                 revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[]
                 {
-                    new CharacterStoneRecord(_stone, 0, 0, 0, facetCredits: null, purchases: null,
+                    new CharacterStoneRecord(_stone, 0, 0, 0, purchases: null,
                         relationships: new[]
                         {
                             new RelationshipRecord("rel-bond-gov", RelationshipKind.Bond,

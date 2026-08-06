@@ -12,7 +12,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
     // character aggregate: given the current character + Stone snapshots + the authored content
     // registry, it validates the accepted purchase contract and PRODUCES the next authoritative
     // character state with:
-    //   * exactly ONE debit of the permitted balance (Personal AP or matching Facet Credit), and
+    //   * exactly ONE debit of the caller's Stone-wide Personal AP, and
     //   * exactly ONE appended purchase record carrying the exact Offered-Set/version provenance.
     // It never mutates its input, never journals, never invents a wallet, and never writes a second
     // active-effect ledger — the active/dormant status of the purchase is derived by
@@ -30,8 +30,11 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
     //   * the node is not already acquired (AlreadyAcquired — unique purchase);
     //   * the caller-supplied expected Offered-Set identity/version matches the derived one
     //     (ContentVersionMismatch);
-    //   * the selected balance funds the authored AP price (InsufficientPersonalAP /
-    //     InsufficientFacetCredit; Facet Credit must match the committed Tree's Stone Facet).
+    //   * the caller's Stone-wide Personal AP funds the authored AP price (InsufficientPersonalAP).
+    //
+    // Tree revocation refunds a refundable Character-Effect purchase as ordinary Stone-wide Personal AP
+    // (ADO #106/#132). There is no Facet-locked "Facet Credit" balance: nothing mints one, nothing can
+    // be paid from one, and no purchase can be funded by one.
     //
     // The active-Attunement authority gate (Bond alone is NOT purchase authority) and optimistic
     // concurrency are enforced by the application command layer (PurchaseCommands), mirroring how
@@ -40,6 +43,16 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
     // net48 audit: engine-free (System.Collections.Generic + value objects + content catalog). No net5+
     // surface, no UnityEngine/Valheim/BepInEx reference: link-compiles into the net8 test project.
 
+    /// <summary>Payment source for a personal node purchase. <see cref="PersonalAp"/> is the ONLY
+    /// fundable source: Tree revocation refunds as ordinary Stone-wide Personal AP (ADO #106/#132).
+    ///
+    /// <para><see cref="FacetCredit"/> is RETIRED, NOT DELETED. Purchases already committed under the
+    /// withdrawn rule persist forever in the append-only purchase journal and are replayed on every boot
+    /// of those worlds, so the replay path must keep UNDERSTANDING this value (its numeric value pins the
+    /// payload digest that binds replay identity, and its "FacetCredit" journal string keeps those records
+    /// correctly excluded from the Personal-AP spend derivation). Removing this member as "dead code"
+    /// breaks replay on a pre-existing world. Nothing can produce it any more: it is never a valid
+    /// purchase preference and is rejected <see cref="NodePurchaseResult.PaymentSourceRetired"/>.</para></summary>
     public enum PurchasePaymentSource
     {
         PersonalAp = 0,
@@ -59,7 +72,11 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         PriorOfferedSetIncomplete = 8, // prior-level same-Tree personal Offered Nodes not all acquired
         AlreadyAcquired = 9,        // a purchase record for this node already exists
         InsufficientPersonalAP = 10, // Personal AP cannot fund the purchase
-        InsufficientFacetCredit = 11 // matching Facet Credit insufficient or wrong Facet
+        // Numeric value 11 is PINNED. It was InsufficientFacetCredit under the withdrawn Facet-Credit
+        // rule (ADO #106/#132); the slot is retained rather than reused so an old journal/receipt code
+        // never silently rebinds to a different meaning, and now names the only reachable outcome of
+        // asking to pay with the retired source.
+        PaymentSourceRetired = 11
     }
 
     /// <summary>Result of a pure PurchaseNode transition. On rejection <see cref="NextCharacter"/> is
@@ -193,29 +210,19 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
 
             int price = def.Pricing.PurchaseApPrice ?? 0;
 
-            // Payment: Personal AP or matching Facet Credit (keyed to the committed Tree's Stone Facet).
-            // No new wallet is invented — both are existing authoritative balances on the caller's Stone
-            // record. Personal AP funds by default; Facet Credit is the authored alternative used to
-            // spend credit returned by a prior revocation into the vacated Facet.
+            // Payment: the caller's Stone-wide Personal AP is the ONE fundable balance. No new wallet is
+            // invented and no Facet-locked balance exists — a revocation refund returns ordinary Personal
+            // AP (ADO #106/#132), which this same field already carries. Asking to pay with the retired
+            // Facet-Credit source is rejected with zero mutation; it can never be funded.
             var sr = FindStoneRecord(character, stone.StoneId);
             int personalAp = sr?.PersonalAp ?? 0;
 
-            CharacterProgressionAggregate next;
-            if (paymentPreference == PurchasePaymentSource.FacetCredit)
-            {
-                int facetCredit = FacetCreditAt(sr, committed.FacetId);
-                if (facetCredit < price)
-                    return NodePurchaseTransition.Reject(NodePurchaseResult.InsufficientFacetCredit, character);
-                next = WithPurchase(character, stone.StoneId, sr, def, derivedOfferedSet,
-                    PurchasePaymentSource.FacetCredit, committed.FacetId, price);
-                return NodePurchaseTransition.Accept(next, price, PurchasePaymentSource.FacetCredit,
-                    derivedOfferedSet, OutcomeClassOf(def));
-            }
+            if (paymentPreference != PurchasePaymentSource.PersonalAp)
+                return NodePurchaseTransition.Reject(NodePurchaseResult.PaymentSourceRetired, character);
 
             if (personalAp < price)
                 return NodePurchaseTransition.Reject(NodePurchaseResult.InsufficientPersonalAP, character);
-            next = WithPurchase(character, stone.StoneId, sr, def, derivedOfferedSet,
-                PurchasePaymentSource.PersonalAp, committed.FacetId, price);
+            var next = WithPurchase(character, stone.StoneId, sr, def, derivedOfferedSet, price);
             return NodePurchaseTransition.Accept(next, price, PurchasePaymentSource.PersonalAp,
                 derivedOfferedSet, OutcomeClassOf(def));
         }
@@ -316,22 +323,12 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             return set;
         }
 
-        private static int FacetCreditAt(CharacterStoneRecord? sr, string facetId)
-        {
-            if (sr == null) return 0;
-            int total = 0;
-            foreach (var fc in sr.FacetCredits)
-                if (string.Equals(fc.FacetId, facetId, StringComparison.Ordinal))
-                    total += fc.Amount;
-            return total;
-        }
-
-        /// <summary>Produce the next character with ONE debit (Personal AP or matching Facet Credit)
-        /// and ONE appended purchase record on the Stone record for <paramref name="stoneId"/>. Every
-        /// other balance/record/field is preserved verbatim; the aggregate revision advances once.</summary>
+        /// <summary>Produce the next character with ONE Personal-AP debit and ONE appended purchase record
+        /// on the Stone record for <paramref name="stoneId"/>. Every other balance/record/field is
+        /// preserved verbatim; the aggregate revision advances once.</summary>
         private static CharacterProgressionAggregate WithPurchase(
             CharacterProgressionAggregate character, StoneId stoneId, CharacterStoneRecord? existing,
-            NodeDefinition def, VersionedId offeredSet, PurchasePaymentSource source, string facetId, int price)
+            NodeDefinition def, VersionedId offeredSet, int price)
         {
             var newRecords = new List<CharacterStoneRecord>(character.StoneRecords.Count + 1);
             bool found = false;
@@ -343,14 +340,14 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                     continue;
                 }
                 found = true;
-                newRecords.Add(RewriteWithPurchase(sr, def, offeredSet, source, facetId, price));
+                newRecords.Add(RewriteWithPurchase(sr, def, offeredSet, price));
             }
             if (!found)
             {
                 // No prior record for this Stone: purchase can only reach here when a caller has a
                 // record (they hold Attunement + a balance), so this is a defensive fresh-record path.
                 var seed = new CharacterStoneRecord(stoneId, 0, 0, 0);
-                newRecords.Add(RewriteWithPurchase(seed, def, offeredSet, source, facetId, price));
+                newRecords.Add(RewriteWithPurchase(seed, def, offeredSet, price));
             }
 
             return new CharacterProgressionAggregate(
@@ -360,53 +357,15 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         }
 
         private static CharacterStoneRecord RewriteWithPurchase(
-            CharacterStoneRecord sr, NodeDefinition def, VersionedId offeredSet,
-            PurchasePaymentSource source, string facetId, int price)
+            CharacterStoneRecord sr, NodeDefinition def, VersionedId offeredSet, int price)
         {
-            int newPersonalAp = sr.PersonalAp;
-            var newFacetCredits = sr.FacetCredits;
-
-            if (source == PurchasePaymentSource.PersonalAp)
-            {
-                newPersonalAp = sr.PersonalAp - price;
-            }
-            else
-            {
-                newFacetCredits = DebitFacetCredit(sr.FacetCredits, facetId, price);
-            }
-
             var purchases = new List<NodePurchaseRecord>(sr.Purchases.Count + 1);
             foreach (var p in sr.Purchases) purchases.Add(p);
-            purchases.Add(new NodePurchaseRecord(def.Tree, def.Node,
-                source == PurchasePaymentSource.PersonalAp ? "PersonalAP" : "FacetCredit",
+            purchases.Add(new NodePurchaseRecord(def.Tree, def.Node, "PersonalAP",
                 OutcomeClassOf(def), offeredSet, string.Empty));
 
-            return new CharacterStoneRecord(sr.StoneId, newPersonalAp, sr.CumulativeAp, sr.PersonalBp,
-                newFacetCredits, purchases, sr.Relationships, sr.SkillCapChoices);
-        }
-
-        private static IReadOnlyList<FacetCreditRecord> DebitFacetCredit(
-            IReadOnlyList<FacetCreditRecord> credits, string facetId, int price)
-        {
-            var result = new List<FacetCreditRecord>(credits.Count);
-            int remaining = price;
-            foreach (var fc in credits)
-            {
-                if (remaining > 0 && string.Equals(fc.FacetId, facetId, StringComparison.Ordinal))
-                {
-                    int take = fc.Amount <= remaining ? fc.Amount : remaining;
-                    int left = fc.Amount - take;
-                    remaining -= take;
-                    if (left > 0)
-                        result.Add(new FacetCreditRecord(fc.FacetId, left, fc.SourceProvenance));
-                    // fully-consumed credit rows are dropped
-                }
-                else
-                {
-                    result.Add(fc);
-                }
-            }
-            return result;
+            return new CharacterStoneRecord(sr.StoneId, sr.PersonalAp - price, sr.CumulativeAp,
+                sr.PersonalBp, purchases, sr.Relationships, sr.SkillCapChoices);
         }
     }
 }

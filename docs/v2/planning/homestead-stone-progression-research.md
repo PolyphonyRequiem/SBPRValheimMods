@@ -60,7 +60,7 @@ A source scan found no implementation of:
 
 - authenticated account-to-connection or account-to-character binding;
 - Bond, Attunement, relationship slots, or active sibling exclusivity;
-- Personal AP, Cumulative AP Earned, Mirrored Stone AP, personal BP, or Facet Credit;
+- Personal AP, Cumulative AP Earned, Mirrored Stone AP, or personal BP;
 - content definitions for Foundational/Profession/Martial Facets, Trees, and nodes;
 - revisioned commands, operation receipts, or a Stone progression read model;
 - Tree commitment, BP-driven node development/Tree advancement, personal Offering/purchase, or revocation;

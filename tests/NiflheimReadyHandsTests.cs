@@ -78,7 +78,7 @@ namespace SBPR.Trailborne.Tests
                 new NodePurchaseRecord(WarriorTree, ReadyHands, "PersonalAP", "CharacterEffect", WarriorL1, "op-buy-rh"),
             };
             var record = new CharacterStoneRecord(Stone, personalAp: 3, cumulativeAp: 3, personalBp: 5,
-                facetCredits: null, purchases: purchases);
+                purchases: purchases);
             return new CharacterProgressionAggregate(OwnerAccount, OwnerChar,
                 worldProductScope: "world/trailborne", revision: 3,
                 bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "receipt:char",

@@ -16,7 +16,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
 {
     // T013 — recoverable PurchaseNode command handler (contracts.md §"PurchaseNode"; data-model.md
     // §"Purchase personal node"). This is the CHARACTER-side mutation authority: one accepted purchase
-    //   * DEBITS the caller's permitted balance once (Personal AP or matching Facet Credit), and
+    //   * DEBITS the caller's Stone-wide Personal AP once, and
     //   * appends ONE purchase record carrying exact Offered-Set/version provenance,
     // under ONE durable, replayable receipt (data-model.md: "Debit the allowed balance exactly once").
     //
@@ -262,8 +262,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 StoneId = command.StoneId.Value,
                 ResultCode = "Applied",
                 ApDebited = transition.ApDebited,
-                PaymentSource = transition.PaymentSource == PurchasePaymentSource.PersonalAp
-                    ? "PersonalAP" : "FacetCredit",
+                PaymentSource = "PersonalAP",
                 OfferedSetKey = transition.OfferedSet.Key,
                 OfferedSetVersion = transition.OfferedSet.Version,
                 CharacterRevision = transition.NextCharacter.Revision,
@@ -296,7 +295,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 case NodePurchaseResult.PriorOfferedSetIncomplete: return "PriorOfferedSetIncomplete";
                 case NodePurchaseResult.AlreadyAcquired: return "AlreadyAcquired";
                 case NodePurchaseResult.InsufficientPersonalAP: return "InsufficientPersonalAP";
-                case NodePurchaseResult.InsufficientFacetCredit: return "InsufficientFacetCredit";
+                case NodePurchaseResult.PaymentSourceRetired: return "PaymentSourceRetired";
                 default: return "Rejected";
             }
         }
@@ -357,7 +356,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 }
                 found = true;
                 newRecords.Add(new CharacterStoneRecord(sr.StoneId, available, sr.CumulativeAp, sr.PersonalBp,
-                    sr.FacetCredits, sr.Purchases, sr.Relationships, sr.SkillCapChoices));
+                    sr.Purchases, sr.Relationships, sr.SkillCapChoices));
             }
             if (!found)
                 newRecords.Add(new CharacterStoneRecord(stoneId, available, 0, 0));
@@ -369,12 +368,30 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         }
 
         /// <summary>Sum the Personal-AP already spent by this principal at this Stone across every COMMITTED
-        /// purchase in the durable journal. Read straight off the same durable records the rehydration and
-        /// idempotency paths use, so it converges to exactly one debit per committed operation regardless of
-        /// crash point (a partial/non-terminal intent contributes nothing). Facet-Credit purchases are
-        /// excluded — they debit a separate balance, never Personal AP.</summary>
+        /// purchase in the durable journal, MINUS every purchase reversed by a committed cancellation entry.
+        /// Read straight off the same durable records the rehydration and idempotency paths use, so it
+        /// converges to exactly one debit per committed operation regardless of crash point (a partial/
+        /// non-terminal intent contributes nothing).
+        ///
+        /// <para>REFUND MODEL (ADO #106 decision 2 / #132). A Tree-revocation refund is NOT a removed
+        /// purchase row — the journal is append-only and is the source of truth crash recovery replays.
+        /// A refund appends a cancellation entry NAMING the purchase operation it reverses; this
+        /// derivation excludes the named purchase, so the caller's spendable Stone-wide Personal AP rises
+        /// by exactly the refunded amount with no stored balance and no second ledger. Two properties
+        /// this shape must hold, both asserted in the test suite:</para>
+        /// <list type="bullet">
+        /// <item>DETERMINISTIC REPLAY — replaying the journal twice yields the same balance. Held because
+        /// this is a pure fold over durable records with no accumulator outside the call.</item>
+        /// <item>IDEMPOTENT CANCELLATION — the same cancellation appended twice refunds ONCE. Held because
+        /// reversals are collected into a SET of reversed operation ids, not summed.</item>
+        /// </list>
+        /// <para>Purchases whose PaymentSource is the RETIRED "FacetCredit" string are excluded, exactly as
+        /// before: they never debited Personal AP, so they must never refund it either. Those records
+        /// persist forever in pre-existing worlds and replay on every boot — this exclusion is why the
+        /// retired payment-source value must keep being understood (see PurchasePaymentSource).</para></summary>
         private int SpentPersonalAp(AuthoritativePrincipal principal, StoneId stoneId)
         {
+            var reversed = ReversedOperationIds();
             var counted = new HashSet<string>(StringComparer.Ordinal);
             int spent = 0;
             foreach (var line in ReadDurable())
@@ -383,6 +400,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 if (rec == null || rec.Value.Boundary != PurchaseBoundary.Committed) continue;
                 var r = rec.Value.Record;
                 if (!counted.Add(r.OperationId)) continue; // one debit per committed op
+                if (reversed.Contains(r.OperationId)) continue; // refunded by a cancellation entry
                 if (!string.Equals(r.AccountId, principal.Account.Value, StringComparison.Ordinal)) continue;
                 if (!string.Equals(r.CharacterId, principal.Character.Value, StringComparison.Ordinal)) continue;
                 if (!string.Equals(r.StoneId, stoneId.Value, StringComparison.Ordinal)) continue;
@@ -390,6 +408,45 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
                 spent += r.ApDebited;
             }
             return spent;
+        }
+
+        /// <summary>Every purchase operation id reversed by a committed cancellation entry in this journal.
+        /// A SET, never a count — appending the identical cancellation twice reverses the purchase once.</summary>
+        private HashSet<string> ReversedOperationIds()
+        {
+            var reversed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var line in ReadDurable())
+            {
+                var c = ParseCancellation(line);
+                if (c != null) reversed.Add(c);
+            }
+            return reversed;
+        }
+
+        /// <summary>Append a cancellation entry reversing <paramref name="reversedOperationId"/> — the
+        /// durable refund primitive Tree revocation will use (ADO #106 decision 2). It removes nothing:
+        /// the reversed purchase record stays in the journal forever and the derivation simply stops
+        /// counting it as spent, so the refund lands as ordinary Stone-wide Personal AP. Appending the
+        /// same reversal again is a no-op on the derived balance.</summary>
+        public void AppendPurchaseCancellation(string reversedOperationId, string cancellationOperationId)
+        {
+            if (string.IsNullOrEmpty(reversedOperationId))
+                throw new ArgumentNullException(nameof(reversedOperationId));
+            Append(string.Join("|", new[]
+            {
+                "PURCHASECANCELREC",
+                Encode(cancellationOperationId ?? string.Empty),
+                Encode(reversedOperationId)
+            }));
+        }
+
+        /// <summary>The purchase operation id a cancellation line reverses, or null when the line is not
+        /// a cancellation record.</summary>
+        private static string? ParseCancellation(string line)
+        {
+            var parts = line.Split('|');
+            if (parts.Length != 3 || parts[0] != "PURCHASECANCELREC") return null;
+            return Decode(parts[2]);
         }
 
         private static PurchaseCommandResult Reject(string code) =>

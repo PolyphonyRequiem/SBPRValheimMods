@@ -69,7 +69,6 @@ namespace SBPR.Trailborne.Tests
                 personalAp: personalAp,
                 cumulativeAp: personalAp,
                 personalBp: 5,
-                facetCredits: new[] { new FacetCreditRecord("Profession", 2, "receipt:revoke-4") },
                 purchases: purchases);
             return new CharacterProgressionAggregate(
                 account, character,
@@ -143,8 +142,6 @@ namespace SBPR.Trailborne.Tests
             Assert.Equal(5, reloaded.Revision);
             Assert.Equal(6, reloaded.StoneRecords[0].PersonalAp);
             Assert.Equal(5, reloaded.StoneRecords[0].PersonalBp);
-            Assert.Equal("Profession", reloaded.StoneRecords[0].FacetCredits[0].FacetId);
-            Assert.Equal(2, reloaded.StoneRecords[0].FacetCredits[0].Amount);
             Assert.Equal(new VersionedId("FieldPrep", 1), reloaded.StoneRecords[0].Purchases[0].Node);
             Assert.Equal("op-buy-1", reloaded.StoneRecords[0].Purchases[0].SourceOperationId);
         }

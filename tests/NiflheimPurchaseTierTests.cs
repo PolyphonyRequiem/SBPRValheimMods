@@ -149,7 +149,7 @@ namespace SBPR.Trailborne.Tests
             var bond = new RelationshipRecord(bondRelId, RelationshipKind.Bond, RelationshipStatus.Active,
                 "Homestead:All", "Governor", "relreceipt:seed-bond", string.Empty);
             var stoneRecord = new CharacterStoneRecord(_stone, personalAp, 0, personalBp,
-                facetCredits: null, purchases: null, relationships: new[] { bond });
+                purchases: null, relationships: new[] { bond });
             return new CharacterProgressionAggregate(account, character, "pur-913/trailborne",
                 revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[] { stoneRecord });
@@ -160,7 +160,7 @@ namespace SBPR.Trailborne.Tests
             var att = new RelationshipRecord(AttRelId, RelationshipKind.Attunement, RelationshipStatus.Active,
                 string.Empty, string.Empty, "relreceipt:seed-att", string.Empty);
             var stoneRecord = new CharacterStoneRecord(_stone, personalAp, personalAp, 0,
-                facetCredits: null, purchases: null, relationships: new[] { att });
+                purchases: null, relationships: new[] { att });
             return new CharacterProgressionAggregate(account, character, "pur-913/trailborne",
                 revision: 1, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[] { stoneRecord });
@@ -487,38 +487,32 @@ namespace SBPR.Trailborne.Tests
         }
 
         [Fact]
-        public void Facet_credit_payment_debits_matching_facet_credit()
+        public void Retired_facet_credit_payment_source_is_rejected_and_never_funds_a_purchase()
         {
+            // ADO #106/#132: Facet Credit does not exist. A revocation refund returns ordinary Stone-wide
+            // Personal AP, so there is no Facet-locked balance to pay from. This REPLACES the former
+            // Facet_credit_payment_debits_matching_facet_credit, which asserted the withdrawn rule.
             OfferPersonalCookingL1();
-            // An attuned purchaser holding Facet Credit on the Cooking (Profession) Facet buys with it.
-            var acct = new AccountId("acct-credit");
-            var who = new CharacterId("char-credit");
-            var att = new RelationshipRecord("rel-att-credit", RelationshipKind.Attunement,
-                RelationshipStatus.Active, string.Empty, string.Empty, "relreceipt:credit", string.Empty);
-            var fc = new FacetCreditRecord(HomesteadProgressionCatalog.ProfessionFacetId, 3, "prov:revoke");
-            var sr = new CharacterStoneRecord(_stone, 0, 0, 0,
-                facetCredits: new[] { fc }, purchases: null, relationships: new[] { att });
-            _characters.PutCharacter(new CharacterProgressionAggregate(acct, who, "pur-913/trailborne",
-                revision: 1, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
-                stoneRecords: new[] { sr }));
-            _authority.ApplyAuthorityProjection("seed-credit",
-                AccountStoneAuthorityIndex.Vacant(acct, _stone).WithReservationAdded(
-                    new AuthorityReservation(who, RelationshipKind.Attunement, "rel-att-credit", "relreceipt:credit"), 1));
-
-            var r = _purchase.Handle(Purchase("op-credit-buy", acct, who, Cooking, FieldPrep,
+            var r = _purchase.Handle(Purchase("op-retired-source", _accountAtt, _attuned, Cooking, FieldPrep,
                 pay: PurchasePaymentSource.FacetCredit));
-            Assert.Equal(PurchaseCommandOutcome.Applied, r.Outcome);
-            Assert.Equal("FacetCredit", r.PaymentSource);
 
-            // Remaining Facet Credit dropped by the AP price (1).
-            var after = _characters.GetCharacter(acct, who)!;
-            int credit = 0;
+            Assert.Equal(PurchaseCommandOutcome.Rejected, r.Outcome);
+            Assert.Equal("PaymentSourceRetired", r.ResultCode);
+
+            // Zero mutation: no purchase record, and the buyer's Personal AP is untouched.
+            var after = _characters.GetCharacter(_accountAtt, _attuned)!;
             foreach (var s in after.StoneRecords)
                 if (s.StoneId.Equals(_stone))
-                    foreach (var c in s.FacetCredits)
-                        if (c.FacetId == HomesteadProgressionCatalog.ProfessionFacetId) credit += c.Amount;
-            Assert.Equal(2, credit);
+                {
+                    Assert.Empty(s.Purchases);
+                    Assert.Equal(10, s.PersonalAp);
+                }
         }
+
+        // The cancellation-entry refund (deterministic replay + idempotent cancellation) is asserted in
+        // NiflheimPersonalApAuthorityTests, against the REAL derived earned−spent balance path. This
+        // fixture uses the legacy pure-domain seam (no ICharacterApStore), where the derivation does not
+        // run, so an assertion here would be vacuous.
 
         // ── Restart / recovery ──
         [Fact]
@@ -556,7 +550,7 @@ namespace SBPR.Trailborne.Tests
             var att = new RelationshipRecord("rel-att-poor", RelationshipKind.Attunement,
                 RelationshipStatus.Active, string.Empty, string.Empty, "relreceipt:poor", string.Empty);
             var stoneRecord = new CharacterStoneRecord(_stone, 0, 0, 0,
-                facetCredits: null, purchases: null, relationships: new[] { att });
+                purchases: null, relationships: new[] { att });
             return new CharacterProgressionAggregate(account, character, "pur-913/trailborne",
                 revision: 1, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[] { stoneRecord });

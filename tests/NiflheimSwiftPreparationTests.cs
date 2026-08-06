@@ -123,7 +123,7 @@ namespace SBPR.Trailborne.Tests
             if (withSwift)
                 purchases.Add(new NodePurchaseRecord(Cooking, SwiftPrep, "PersonalAP", "CharacterEffect", VersionedId.None, "op-buy-swift"));
 
-            var stoneRecord = new CharacterStoneRecord(_stone, personalAp, personalAp, 1, null,
+            var stoneRecord = new CharacterStoneRecord(_stone, personalAp, personalAp, 1,
                 purchases.Count == 0 ? null : purchases.ToArray(), null);
             return new CharacterProgressionAggregate(_account, character,
                 "world-scope", 1, 2, 2, "receipt", new[] { stoneRecord });

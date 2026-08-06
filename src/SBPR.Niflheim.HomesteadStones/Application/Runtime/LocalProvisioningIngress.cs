@@ -135,7 +135,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         ///      (commit Crafting Tree → credit BP → ApplyBPToNode to completion), so the personal node is Offered
         ///      and therefore purchasable. Idempotent: an already-Offered node replays without re-development.
         ///   2. PURCHASE Masterwork via the accepted <see cref="PurchaseCommandHandler"/> for the acting buyer,
-        ///      which enforces the active-Attunement authority, the Personal-AP/Facet-Credit debit, the
+        ///      which enforces the active-Attunement authority, the Personal-AP debit, the
         ///      prior-Offered-Set gate, and one-purchase idempotency. Replay returns the recorded terminal
         ///      result with a single purchase record and a single AP debit.
         /// The <paramref name="governor"/> develops+offers (must hold an active Bond covering Crafting); the

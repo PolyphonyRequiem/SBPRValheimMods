@@ -108,7 +108,7 @@ namespace SBPR.Trailborne.Tests
             var bond = new RelationshipRecord(BondRelId, RelationshipKind.Bond, RelationshipStatus.Active,
                 "Homestead:All", "Governor", "relreceipt:seed-bond", string.Empty);
             var stoneRecord = new CharacterStoneRecord(StoneId.FromHostZone(new WorldId("uid:facet-777"), 12, -4),
-                personalAp, personalAp, personalBp, facetCredits: null, purchases: null,
+                personalAp, personalAp, personalBp, purchases: null,
                 relationships: new[] { bond });
             return new CharacterProgressionAggregate(account, character, "facet-777/trailborne",
                 revision: 2, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
@@ -120,7 +120,7 @@ namespace SBPR.Trailborne.Tests
             var att = new RelationshipRecord(AttRelId, RelationshipKind.Attunement, RelationshipStatus.Active,
                 string.Empty, string.Empty, "relreceipt:seed-att", string.Empty);
             var stoneRecord = new CharacterStoneRecord(StoneId.FromHostZone(new WorldId("uid:facet-777"), 12, -4),
-                1, 1, 0, facetCredits: null, purchases: null, relationships: new[] { att });
+                1, 1, 0, purchases: null, relationships: new[] { att });
             return new CharacterProgressionAggregate(account, character, "facet-777/trailborne",
                 revision: 1, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[] { stoneRecord });

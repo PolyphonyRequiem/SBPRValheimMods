@@ -123,7 +123,7 @@ namespace SBPR.Trailborne.Tests
                 revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[]
                 {
-                    new CharacterStoneRecord(_stone, 0, 0, 0, facetCredits: null, purchases: null,
+                    new CharacterStoneRecord(_stone, 0, 0, 0, purchases: null,
                         relationships: new[]
                         {
                             new RelationshipRecord("rel-bond-gov", RelationshipKind.Bond,
@@ -144,7 +144,7 @@ namespace SBPR.Trailborne.Tests
                 revision: 2, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[]
                 {
-                    new CharacterStoneRecord(_stone, 0, 0, 0, facetCredits: null, purchases: null,
+                    new CharacterStoneRecord(_stone, 0, 0, 0, purchases: null,
                         relationships: new[]
                         {
                             new RelationshipRecord(relId, RelationshipKind.Attunement,
@@ -351,6 +351,112 @@ namespace SBPR.Trailborne.Tests
         }
 
         // ── Stubs (mirror the shared-suite server-owned authority fixtures) ──
+
+        [Fact]
+        public void Revocation_cancellation_entry_refunds_personal_ap_deterministically_and_only_once()
+        {
+            // ADO #106 decision 2 / #132 review addition 2 — asserted against the REAL derived-balance
+            // path (earned − spent), not a pure-domain seam.
+            //
+            // A Tree-revocation refund is an APPENDED CANCELLATION ENTRY naming the purchase it reverses,
+            // never a deleted purchase row: the journal is append-only and is the source of truth crash
+            // recovery replays. The refund lands as ordinary Stone-wide Personal AP because the derivation
+            // stops counting the reversed purchase as spent — no stored balance, no second ledger.
+            //
+            // Two properties, because a crash-recovery replay is precisely what would otherwise double a
+            // refund:
+            //   * DETERMINISTIC REPLAY   — replaying the journal twice yields the same balance.
+            //   * IDEMPOTENT CANCELLATION — the same cancellation appended twice refunds ONCE.
+            var (server, _, _, _, apSink) = Bootstrap();
+            EarnPlacements(apSink, _buyer, _buyerChar, count: 1, prefix: "earn-buyer");
+            Offer(server);
+            Assert.True(Buy(server, _buyer, _buyerChar, "qa-mw").Succeeded);
+
+            // The buy ingress derives the purchase operation id from the prefix; read it back off the
+            // journal rather than assuming its shape.
+            string purchaseJournal = Path.Combine(_dir, LocalProgressionServer.PurchaseJournalFile);
+            var handler = new PurchaseCommandHandler(purchaseJournal, new PrincipalResolver(),
+                server.Stones, server.Characters, server.Authority, server.Catalog, apSink);
+
+            int Available() =>
+                apSink.GetPersonalAp(_buyer, _buyerChar, _stone) - SpentFromJournal(purchaseJournal);
+
+            // Earned 1, spent 1 on Masterwork -> nothing spendable.
+            Assert.Equal(1, apSink.GetPersonalAp(_buyer, _buyerChar, _stone));
+            Assert.Equal(0, Available());
+            // Deterministic replay: re-reading the same durable journal yields the same answer.
+            Assert.Equal(0, Available());
+
+            // Refund: append a cancellation naming the purchase. The purchase row is NOT removed.
+            string purchaseOp = SoleCommittedPurchaseOperationId(purchaseJournal);
+            handler.AppendPurchaseCancellation(purchaseOp, "op-revoke-1");
+            Assert.Equal(1, Available());
+
+            // Idempotent cancellation: appending the identical reversal again refunds ONCE, not twice.
+            handler.AppendPurchaseCancellation(purchaseOp, "op-revoke-1");
+            Assert.Equal(1, Available());
+
+            // And the reversed purchase is still on the journal — history preserved, replay still terminal.
+            Assert.Equal("Replayed", Buy(server, _buyer, _buyerChar, "qa-mw").Kind);
+        }
+
+        // Independent re-derivation of "Personal AP spent" straight off the durable journal, so the
+        // assertions above do not merely re-run the implementation they are testing.
+        private int SpentFromJournal(string journalPath)
+        {
+            int spent = 0;
+            var counted = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+            var reversed = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+            foreach (var parts in JournalLines(journalPath))
+                if (parts.Length == 3 && parts[0] == "PURCHASECANCELREC")
+                    reversed.Add(B64(parts[2]));
+            foreach (var parts in JournalLines(journalPath))
+            {
+                if (parts.Length != 15 || parts[0] != "PURCHASEREC") continue;
+                if (parts[2] != "2") continue; // Committed boundary only
+                string op = parts[1];
+                if (!counted.Add(op)) continue;
+                if (reversed.Contains(op)) continue;
+                if (B64(parts[5]) != _buyer.Value || B64(parts[6]) != _buyerChar.Value) continue;
+                if (B64(parts[7]) != _stone.Value) continue;
+                if (B64(parts[10]) != "PersonalAP") continue;
+                spent += int.Parse(parts[9], System.Globalization.CultureInfo.InvariantCulture);
+            }
+            return spent;
+        }
+
+        private string SoleCommittedPurchaseOperationId(string journalPath)
+        {
+            foreach (var parts in JournalLines(journalPath))
+                if (parts.Length == 15 && parts[0] == "PURCHASEREC" && parts[2] == "2")
+                    return parts[1];
+            throw new Xunit.Sdk.XunitException("no committed purchase record in " + journalPath);
+        }
+
+        private static string B64(string s) =>
+            System.Text.Encoding.UTF8.GetString(System.Convert.FromBase64String(s));
+
+        /// <summary>Framed-record reader mirroring the handler's own durable format (len|crc|payload).</summary>
+        private static System.Collections.Generic.List<string[]> JournalLines(string path)
+        {
+            var lines = new System.Collections.Generic.List<string[]>();
+            if (!File.Exists(path)) return lines;
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var br = new BinaryReader(fs, System.Text.Encoding.UTF8))
+            {
+                long length = fs.Length;
+                while (fs.Position + 8 <= length)
+                {
+                    int payloadLen = br.ReadInt32();
+                    br.ReadUInt32(); // crc — framing is the handler's concern; we only need the payload
+                    if (payloadLen < 0 || fs.Position + payloadLen > length) break;
+                    byte[] payload = br.ReadBytes(payloadLen);
+                    if (payload.Length != payloadLen) break;
+                    lines.Add(System.Text.Encoding.UTF8.GetString(payload).Split('|'));
+                }
+            }
+            return lines;
+        }
 
         private sealed class FixedFamilyResolver : IStoneFamilyResolver
         {

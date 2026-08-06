@@ -217,11 +217,9 @@ namespace SBPR.Trailborne.Tests
 
         private static CharacterProgressionAggregate BuildCharacter(
             IReadOnlyList<NodePurchaseRecord>? purchases = null,
-            int personalAp = 3, int personalBp = 5,
-            IReadOnlyList<FacetCreditRecord>? facetCredits = null)
+            int personalAp = 3, int personalBp = 5)
         {
             var sr = new CharacterStoneRecord(Stone, personalAp, personalAp, personalBp,
-                facetCredits: facetCredits,
                 purchases: purchases);
             return new CharacterProgressionAggregate(Account, Character, "world/prod",
                 revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "receipt:c",
@@ -385,13 +383,53 @@ namespace SBPR.Trailborne.Tests
         }
 
         [Fact]
-        public void AT_INVARIANT_QUARANTINE_NegativeFacetCredit_IsIsolated()
+        public void AT_INVARIANT_QUARANTINE_NegativePersonalAp_IsIsolated()
         {
-            // Facet Credit is a non-negative ledger; a negative amount is corrupt state and is isolated.
-            var credits = new[] { new FacetCreditRecord("Cooking", -2, "op-revoke") };
+            // The retired Facet-Credit ledger's non-negativity invariant did not vanish with it (ADO
+            // #132): a revocation refund now lands in Personal AP, and a negative Personal AP is corrupt
+            // state that is isolated, never repaired.
             var repair = new ProgressionStateRepair(Catalog);
-            var report = repair.Scan(BuildStone(), BuildCharacter(facetCredits: credits), BuildAuthority());
-            Assert.True(report.Has(QuarantineReason.NegativeLedgerValue));
+            var report = repair.Scan(BuildStone(), BuildCharacter(personalAp: -2), BuildAuthority());
+            Assert.True(report.Has(QuarantineReason.NegativeCharacterBalance));
+        }
+
+        [Fact]
+        public void Preexisting_snapshot_carrying_a_facet_credit_value_loads_and_derives_correct_ap()
+        {
+            // ADO #132 persistence gate. BOOTING IS NOT CORRECTNESS: a pre-existing character snapshot
+            // written under the withdrawn Facet-Credit rule still CARRIES a "facetCredit" list, and it is
+            // not enough that the polite removal fails to throw — the character must also derive the
+            // CORRECT Stone-wide Personal AP. It does, because the retired balance is deliberately not
+            // migrated: nothing could ever mint a non-zero credit (no RevokeTree exists), so honouring
+            // the recorded value would be a double-credit, not a migration.
+            //
+            // The literal below is a snapshot in the shipped codec's format, hand-built to match exactly
+            // what the PREVIOUS build wrote: the retired "facetCredit" list is present and non-empty.
+            string retiredChild = new SnapshotWriter()
+                .Put("facet", "Profession").PutInt("amount", 7).Put("prov", "receipt:revoke-4").Build();
+            string legacy = new SnapshotWriter()
+                .Put("stoneId", Stone.Value)
+                .PutInt("personalAp", 3)
+                .PutInt("cumulativeAp", 3)
+                .PutInt("personalBp", 5)
+                .PutInt("facetCredit.count", 1)
+                .Put("facetCredit.0", retiredChild)
+                .PutInt("purchases.count", 0)
+                .Build();
+
+            // 1. It loads — the polite removal does not throw on a key this build no longer writes.
+            var reloaded = CharacterStoneRecord.Deserialize(legacy);
+
+            // 2. And it is CORRECT — every surviving balance is verbatim, and the recorded 7 credit did
+            //    NOT inflate Personal AP.
+            Assert.Equal(Stone, reloaded.StoneId);
+            Assert.Equal(3, reloaded.PersonalAp);
+            Assert.Equal(3, reloaded.CumulativeAp);
+            Assert.Equal(5, reloaded.PersonalBp);
+            Assert.Empty(reloaded.Purchases);
+
+            // 3. And re-serializing drops the retired key, so the snapshot converges on the new shape.
+            Assert.DoesNotContain("facetCredit", reloaded.Serialize(), System.StringComparison.Ordinal);
         }
 
         [Fact]
