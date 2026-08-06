@@ -17,7 +17,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
     //
     // T004 (AT-READMODEL-STONE-ID): returns the correct world-scoped Homestead identity plus a
     // caller-specific projection. Two different callers against the same Stone share the Stone-identity
-    // section but get their own AP/BP/Facet-Credit and derived node statuses. The projection NEVER
+    // section but get their own AP/BP and derived node statuses. The projection NEVER
     // contains a client-authoritative ready flag; command affordances are hints only and commands
     // revalidate current state (contracts.md).
     //
@@ -32,18 +32,16 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
     /// <summary>Caller-specific balances at one Stone.</summary>
     public readonly struct CallerBalances
     {
-        public CallerBalances(int personalAp, int cumulativeAp, int personalBp, int totalFacetCredit)
+        public CallerBalances(int personalAp, int cumulativeAp, int personalBp)
         {
             PersonalAp = personalAp;
             CumulativeAp = cumulativeAp;
             PersonalBp = personalBp;
-            TotalFacetCredit = totalFacetCredit;
         }
 
         public int PersonalAp { get; }
         public int CumulativeAp { get; }
         public int PersonalBp { get; }
-        public int TotalFacetCredit { get; }
     }
 
     /// <summary>One authored node's exact registry-reported identity, status, price, and requirements.
@@ -215,14 +213,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
             if (authority == null) throw new ArgumentNullException(nameof(authority));
 
             // Caller-specific balances: sum the caller's own record at THIS Stone only.
-            int personalAp = 0, cumulativeAp = 0, personalBp = 0, facetCredit = 0;
+            int personalAp = 0, cumulativeAp = 0, personalBp = 0;
             foreach (var sr in caller.StoneRecords)
             {
                 if (!sr.StoneId.Equals(stone.StoneId)) continue;
                 personalAp += sr.PersonalAp;
                 cumulativeAp += sr.CumulativeAp;
                 personalBp += sr.PersonalBp;
-                foreach (var fc in sr.FacetCredits) facetCredit += fc.Amount;
             }
 
             var callerReservation = authority.ReservationFor(caller.Character);
@@ -249,7 +246,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Queries
                 stone.ActiveStoneLevel,
                 stone.FoundationalTree,
                 callerRelationship,
-                new CallerBalances(personalAp, cumulativeAp, personalBp, facetCredit),
+                new CallerBalances(personalAp, cumulativeAp, personalBp),
                 view.Nodes,
                 new ReadOnlyCollection<NodeCatalogEntry>(catalogEntries));
         }

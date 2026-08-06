@@ -127,7 +127,7 @@ indexed by stable `StoneId`; exact physical persistence is left to Gate A.
 | Relationships | per-Stone Bond/Attunement records, status, responsibility range, provenance |
 | AP | Personal AP and Cumulative AP Earned per Stone |
 | BP | one personal BP balance per bonded Stone; no Tree/source/target binding |
-| Revocation credit | Facet Credit keyed by `StoneId + FacetId`, with source purchase/revocation provenance |
+| Revocation refund | appended purchase-cancellation entries naming the purchase each reverses; the refunded value returns as ordinary Stone-wide Personal AP |
 | Purchases | personal node purchase records keyed by Stone/Tree/node/version, AP source, refundable/durable outcome class |
 | Offered provenance | exact Offered-Set IDs/versions acquired per Tree level for Tier Access |
 | Durable outcomes | Permanent Effects and Progression Keys keyed by stable identity |
@@ -153,8 +153,8 @@ indexed by stable `StoneId`; exact physical persistence is left to Gate A.
     Foundational runtime) so earned placement AP is authoritatively visible to Masterwork purchase. Restart
     is safe with no fabricated migration: both terms rehydrate from their durable journals at server boot.
     The legacy pure-domain seam (no `ICharacterApStore`) still reads the aggregate's `PersonalAp` verbatim.
-- Facet Credit is separate from Personal AP and usable only in the matching replacement Facet under the
-  revocation contract.
+- A revocation refund returns ordinary Stone-wide Personal AP, spendable on any Facet. No Facet-keyed balance
+  separate from Personal AP exists.
 - A node purchase is unique by character, Stone, stable node identity/version, and authored repeatability.
 - Local Nodes never appear in purchases or Offered-Set provenance.
 - Character Effects may dormant, but their purchase records persist except when explicit Tree revocation removes
@@ -287,7 +287,7 @@ For each node/outcome it derives:
 - authored, visible, Offered, developable, unavailable, purchased, developed;
 - Tree Level and Active Stone Level gates;
 - prior-level same-Tree Offered-Set acquisition;
-- AP/BP/Facet-Credit affordability;
+- AP/BP affordability;
 - relationship/responsibility and Settlement-policy eligibility;
 - active, dormant, durable, quarantined, or invalid state;
 - actionable rejection reasons.
@@ -314,7 +314,7 @@ It includes:
 - Historical/Active Stone Level and preconfigured-test marker;
 - Foundational Tree/catalog summary;
 - Stone Facets, palettes, commitments, Tree Levels, cumulative BP development, and node development/offerings;
-- Personal AP, Cumulative AP, personal BP, and Facet Credit for the caller;
+- Personal AP, Cumulative AP, and personal BP for the caller;
 - exact node definitions and derived statuses;
 - Local beneficiary policy and ordinary Permission note;
 - durable-outcome summaries;
@@ -373,7 +373,7 @@ The projection never contains a client-authoritative ready flag. Commands revali
 ### Purchase personal node
 
 1. Validate Attunement, expected Stone and character revisions, Tree commitment, node Offered status, same-Tree
-   Tier Access, Active Stone Level, Tree Level, AP/Facet-Credit price, and other requirements.
+   Tier Access, Active Stone Level, Tree Level, Personal-AP price, and other requirements.
 2. Debit the allowed balance exactly once.
 3. Persist purchase and Offered-Set provenance.
 4. Derive activation from current state; do not write an active-effect ledger.
@@ -385,12 +385,14 @@ One atomic/recoverable operation:
 1. Validate Governor authority, expected revisions, Facet, and current commitment.
 2. Delete Stone commitment, cumulative BP development, node development, Local Nodes, and personal-node offerings.
 3. Refund no BP.
-4. For every affected character, remove refundable Character-Effect purchases and add their AP values to that
-   character's Facet Credit for the vacated Stone Facet.
+4. For every affected character, append a cancellation entry naming each reversed refundable Character-Effect
+   purchase. The purchase record is never removed; the derivation of spendable Personal AP excludes cancelled
+   purchases, so the refunded AP returns in full as ordinary Stone-wide Personal AP with no stored balance and
+   no second ledger. The same cancellation appended twice refunds exactly once.
 5. Preserve Permanent Effects, Progression Keys, and their purchase records with
    no AP refund.
 6. Vacate the Facet and record complete provenance.
-7. A replacement commitment starts Stone-owned progress at zero; credit enables only deliberate purchases.
+7. A replacement commitment starts Stone-owned progress at zero and buys nothing automatically.
 
 ### Dormancy
 

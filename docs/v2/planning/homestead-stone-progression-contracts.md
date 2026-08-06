@@ -550,10 +550,16 @@ Facet/Tree/version, expected revisions, no conflicting in-flight mutation.
 
 - delete the Stone-owned commitment, cumulative BP development, node development, Local Nodes, and personal-node offerings;
 - refund no BP;
-- remove each affected refundable Character-Effect purchase;
-- credit its AP value to that character's `StoneId + FacetId` Facet Credit;
+- append, for each affected refundable Character-Effect purchase, a cancellation entry naming the purchase it
+  reverses — never remove the purchase record, which stays in the durable journal as history;
+- return each reversed purchase's AP value in full to that character as ordinary Stone-wide Personal AP; the
+  derivation of spendable Personal AP excludes cancelled purchases, so no stored balance and no second ledger
+  are introduced. Appending the same cancellation twice refunds exactly once;
 - preserve Permanent Effects and Progression Keys with their provenance and no refund;
 - vacate the Facet and record all affected character/Stone revisions.
+
+Before the Governor confirms, revocation states how much node development / Bond Power will be lost:
+revocation is a two-step act (compute and present the loss, then confirm), not a single button.
 
 A large fan-out may use a journaled multi-phase physical implementation, but its externally visible outcome
 must be one convergent operation. Partial revocation is never exposed as success.
@@ -563,7 +569,7 @@ must be one convergent operation. Partial revocation is never exposed as success
 ### `PurchaseNode`
 
 **Payload:** `treeId/version`, `nodeId/version`, expected `OfferedSetId/version`, payment source preference
-(`PersonalAP` or matching `FacetCredit` where allowed).
+(`PersonalAP` — the only fundable source; the retired `FacetCredit` value is rejected `PaymentSourceRetired`).
 
 **Validates:**
 
@@ -604,7 +610,7 @@ Required sections:
 - Historical/Active Stone Level;
 - Foundational Tree/catalog summary;
 - Stone Facets, candidate palettes, commitments, Tree Levels, cumulative BP development and node development;
-- Personal AP, Cumulative AP, personal BP, and Facet Credit for the caller;
+- Personal AP, Cumulative AP, and personal BP for the caller;
 - each node's exact outcome, status, price, requirements, Offered-Set/Tier state, and rejection reasons;
 - Settlement-wide Local policy and separate Permission caveat;
 - durable outcomes and choices;
@@ -851,7 +857,7 @@ Stable machine codes are part of the contract; localized text is presentation.
 | `NodeNotOffered` | Node is Local, unavailable, or not in caller's Offered Set |
 | `AlreadyAcquired` | Unique purchase already exists |
 | `InsufficientPersonalAP` | Personal AP cannot fund purchase |
-| `InsufficientFacetCredit` | Matching Facet Credit insufficient or wrong Facet |
+| `PaymentSourceRetired` | Payment source requested is the retired Facet Credit; only `PersonalAP` funds a purchase |
 | `InsufficientBP` | Caller-owned Stone-wide BP insufficient |
 | `RequirementNotMet` | Authored non-price requirement failed; include IDs |
 | `PermissionDenied` | Ordinary build/access Permission failed in addition to Local policy |
