@@ -853,6 +853,36 @@ These are derived-provider contracts, not direct ledger writes.
   ledger on either side.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.
+  **Implemented (T027, `Adapters/Archer/ProjectileRecoveryProvider.cs` + `ProjectileRecoverySession.cs`):**
+  Fletcher's Habit is the FIRST personal PERMANENT Effect. Ownership is DURABLE: `OwnsFletchersHabit(stone,
+  character, authority)` derives it from the shipped T004 `DerivedActivationView` as **developed +
+  purchased**, deliberately NOT gated on the currently-active relationship — a Permanent Effect survives
+  relationship loss / revocation (spec line 130 "Permanent Effects remain active"; spec line 260 "A released
+  character retains Permanent Effects and Progression Keys"). This is the single behavioural divergence from
+  the sibling Field Fletching I Character Effect, whose activation dormants on relationship loss. No second
+  active-effects ledger (AT-NO-ACTIVE-LEDGER, carried by T004). `Resolve(owned, provenance, surface,
+  targetReturnWon, roll)` makes ONE authoritative decision with a fixed total precedence: not-owned → ineligible
+  arrow → target-return suppression → non-recoverable surface → the one configured roll. Only the exact
+  eligible arrow (`ArrowWood`) is affected; non-recoverable surfaces (water, miss/TTL) are definitively lost
+  with no roll; recoverable surfaces (solid structure, ground, creature, shield-blocked at-rest) roll the one
+  configurable chance (`FletchersHabitContent.DefaultRecoveryChance`, half-open `roll < chance`) and on a pass
+  respawn the EXACT consumed `ConsumedArrowProvenance` (item id, quality, variant, durability, crafter, custom
+  data — no substitution). Deterministic Practice Range target return (T025 `TargetReturnDecision`) sets
+  `targetReturnWon` and SUPPRESSES the roll entirely (spec Edge case "target return wins its deterministic path
+  and the permanent recovery roll does not run"). `ProjectileRecoverySession` keys resolution by the fired
+  instance id so the SAME instance resolves at most once (no duplication) and a multishot volley resolves each
+  instance independently. **Live-wired (T027, net48, `Features/Archer/ProjectileRecoveryGate`):** a
+  `Projectile.Setup` postfix captures the exact consumed ammo provenance (only the local player's own Wood
+  Arrow shots), and a `Projectile.OnHit` postfix classifies the terminal surface, resolves durable ownership,
+  asks the shipped pure provider the one authoritative question, and — on Recovered — drops the exact consumed
+  `ItemData` ONCE via vanilla `ItemDrop.DropItem` (additive, ADR-0006 — a fresh dropped instance, never a clone
+  of a ZNetView-bearing projectile). The once-per-instance / multishot guard is a per-process
+  `ProjectileRecoverySession` keyed by the projectile's ZDOID; the ArcheryTarget surface sets target-return
+  suppression so the deterministic Practice Range return never double-returns. Ownership resolves two ways,
+  both authoritative and fail-closed: on the HOST from the composed server stores via `OwnsFletchersHabit`; on
+  a PURE CLIENT from the server-stamped `PersonalActivationSnapshot.IsOwned` (its durable **Purchased** bit,
+  relationship-independent) delivered over the existing personal-effect channel. Absent confirmed ownership the
+  roll never runs (vanilla behaviour); the client authors nothing.
 
 ### Warrior
 
@@ -994,6 +1024,46 @@ accepted, receipt-backed handlers — no gameplay shortcut, no progression redes
   that gate the handler is never registered or rejects — production fails closed. No provisional activation, no
   direct purchase/node-state write, no second ledger; Masterwork's exact dedicated-server entitlement and
   key-never-on-wire issuance contracts are unchanged.
+
+### Personal-node ownership provisioning (T027 remediation)
+
+**Implementation (isolated-QA personal-node OWNERSHIP ingress, T027 remediation).** The `PurchaseNode`
+routing above is a real reachable caller only for the *purchase* step, but the T027 Fletcher's Habit
+joined-client verdict (`tracer-7-archer/t027-fletchers-habit/R2-joined-client-verdict.md`) proved that at
+reviewed head no runtime seam could make a character *own* a personal Offered node (developed **and**
+purchased): the sole runtime caller of the ingress drove `DevelopLocalNode`, never `PurchaseNode`, so
+`ProjectileRecoveryProvider.OwnsFletchersHabit` (which needs a durable `NodePurchaseRecord`) could never
+return owned on a joined client, and the required OWNER in-world proof was structurally unreachable. The
+sibling T026 Field Fletching I owner proof had the same gap. `LocalProvisioningIngress.ProvisionPersonalNodeOwnership`
+is the smallest server-authoritative seam that closes it, reaching a personal purchase through the accepted
+handlers on ONE server-derived subject in the order the spec's state machine requires:
+
+- **Bond → develop → release → attune → purchase.** It (1) establishes a Governor Bond via the accepted
+  `RelationshipCommandHandler` (cultivation authority), (2) develops the personal node to Offered through the
+  accepted Facet→BP→development handlers (`LocalNodeProvisioningDriver.ProvisionOffered`), (3) RELEASES
+  that Bond — a single character cannot ACTIVELY hold both a Bond and an Attunement to one Stone (the authority
+  index is sibling/self exclusive) and purchase requires an active Attunement, and a personal Permanent/Character
+  Effect's ownership persists through relationship loss so the release is harmless — (4) establishes an
+  Attunement (purchase authority), and (5) purchases the node through the accepted `PurchaseCommandHandler`.
+  Every content/level/prior-Offered-Set/price/authority/idempotency gate is the shipped handler's; an exact
+  re-run replays idempotently (single durable `NodePurchaseRecord`).
+- **Seeds only the empty funded owner row.** Like `DevelopLocalNode` seeds the bare Stone envelope and
+  `RelationshipProvisioningIngress` seeds an absent character aggregate, this seam additionally seeds the
+  acting subject's authored Personal AP *price* onto their character record before the purchase — no runtime
+  handler credits aggregate Personal AP (Foundational AP lands in a separate receipt sink; BP is the only
+  aggregate-credited balance), so this is the purchase analogue of seeding the row the accepted debit needs to
+  exist. It is NOT a purchase-state write: the debit and the single purchase record are still produced by the
+  accepted handler, and a disabled-funding run rejects `InsufficientPersonalAP` at the real gate — proving the
+  seam crosses it rather than fabricating ownership. It never inflates an already-sufficient balance.
+- The net48 seam is `Features/Progression/PersonalNodeProvisioningAdmin.cs`: a DIRECT per-peer `ZRpc` handler
+  (`SBPR_Niflheim_ProvisionPersonalNode`) + the `sbpr_purchase fletcher|fieldfletch` console command, registered
+  ONLY when the server-owned `Progression.EnableAdminPersonalNodeProvisioning` flag is true (default false) AND
+  the transport-authenticated sender is a normalized server ADMIN — the exact gate/identity model of the
+  `sbpr_develop` (`LocalProgressionProvisioningAdmin`) and `sbpr_provision` (`RelationshipProvisioningAdmin`)
+  siblings. Identity is the peer's bound-internal principal (never a client claim); the target Stone is resolved
+  from the peer's server-owned character ZDO position. Outside that gate the handler is never registered or
+  rejects — production fails closed. It unblocks the T027 Fletcher's Habit AND T026 Field Fletching I owner
+  in-world proofs; the node's gameplay mechanics are unchanged.
 
 ## Security and hostile-client contract
 
