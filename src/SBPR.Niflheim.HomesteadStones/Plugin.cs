@@ -224,6 +224,29 @@ namespace SBPR.Niflheim.HomesteadStones
             // artifact and the client-side tamper-degrade. Additive (ADR-0006); mutates nothing.
             harmony.PatchAll(typeof(Features.Crafting.MasterworkWorkmanshipTooltip));
 
+            // T023-RT — Crafting / Built to Last runtime seam (three registrations; AGENTS.md: a patch class
+            // is NOT landed until its PatchAll line exists, and this family has shipped inert three times).
+            //   1. ISSUANCE — a postfix on InventoryGui.DoCrafting stamps one FROZEN maximum-durability factor
+            //      onto a freshly produced eligible non-stackable durable output, on the authoritative host,
+            //      whenever the crafter DURABLY holds the Built to Last Permanent Effect. Entitlement is the
+            //      purchase record alone: no relationship / policy / development conjunct, so issuance keeps
+            //      working after relationship loss and Tree revocation (contracts.md §Crafting). FUTURE outputs
+            //      only — this is the sole write path and it touches only the item vanilla just produced.
+            //   2. APPLICATION — a postfix on ItemDrop.ItemData.GetMaxDurability(int) (decomp :58135, the single
+            //      vanilla authority the parameterless overload and GetDurabilityPercentage both route through)
+            //      scales vanilla's answer by the factor frozen into THAT INSTANCE's stamp. An unstamped item,
+            //      and a tampered/foreign stamp, read vanilla — so nothing already in the world is ever
+            //      retroactively mutated, and the shared prefab is never written.
+            //   3. UPGRADE PRESERVATION — vanilla's upgrade branch destroys the source and creates a fresh
+            //      replacement with an EMPTY custom-data map, so the signed stamp is captured and restored
+            //      byte-for-byte (no re-mint, no reissue, no leaking of a retuned current factor).
+            // All three consume the engine-free, unit-tested DurabilityIssuanceProvider + DurabilityCodec, and
+            // fail closed with no armed server key. Additive (ADR-0006): only our own domain-prefixed keys on
+            // one existing instance's dictionary.
+            harmony.PatchAll(typeof(Features.Crafting.BuiltToLastIssuanceObserver));
+            harmony.PatchAll(typeof(Features.Crafting.BuiltToLastMaxDurabilityPatch));
+            harmony.PatchAll(typeof(Features.Crafting.BuiltToLastUpgradePreservationObserver));
+
             // T025-RT — Archer / Practice Range runtime seam. Registers the Practice Arrow item + its
             // 100-for-8-Wood recipe, wires the deterministic vanilla target return (ArrowPractice added to
             // ArcheryTarget.m_returnAmmo), and adds the exact vanilla piece_ArcheryTarget build piece to

@@ -103,6 +103,13 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                     var workmanshipKey = SBPR.Niflheim.HomesteadStones.Features.Crafting.WorkmanshipIntegrityKeyFile.LoadOrCreate(durableDir);
                     SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkIssuanceObserver.Arm(workmanshipKey);
 
+                    // T023 — arm the Built to Last seams with the SAME durable server key. The two item
+                    // provenances share one secret but sign DISJOINT canonical domains ("workmanship-v1" vs
+                    // "builttolast-v1") under disjoint custom-data key namespaces, so neither token can be
+                    // replayed as the other and there is only one key file / rotation surface to operate.
+                    SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastIssuanceObserver.Arm(workmanshipKey);
+                    SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastMaxDurabilityPatch.ClearMemo();
+
                     Plugin.Log.LogInfo(
                         "[Niflheim/HomesteadStones] Local progression runtime composed (server-authoritative). " +
                         $"durable='{durableDir}' warriorTwigArmed={server.WarriorTwigGate != null}.");
@@ -149,6 +156,8 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 composedFor = null;
                 FoundationalPlacementObserver.Server = null;
                 SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkIssuanceObserver.Disarm();
+                SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastIssuanceObserver.Disarm();
+                SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastMaxDurabilityPatch.ClearMemo();
                 SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkClientState.Clear();
                 LocalProgressionObserver.Clear();
             }
