@@ -89,3 +89,26 @@ The historical FAIL (`T021-JOINED-CLIENT-RERUN-FAIL.md`) is retained honestly.
 | RWJ2 | Developed node derives Active; real L2 station operates as effective L3 (prod/upgrade/repair) | `T021-JOINED-CLIENT-RERUN-PASS.md` §3 |
 | RWJ3 | Structures/build/absent-station/ineligible/area-exit/no-governor all no-bonus | `T021-JOINED-CLIENT-RERUN-PASS.md` §4 |
 | RWJ4 | Restart rehydrates developed state from durable journals; effective L3 reproduced | `T021-JOINED-CLIENT-RERUN-PASS.md` §5 |
+
+## T023 — Built to Last
+
+Acceptance: `AT-BUILT-TO-LAST`. Full record with the 32-row machine manifest,
+the red-first probes, and the runtime-seam binding table:
+`T023-BUILT-TO-LAST.md`.
+
+| id | claim | artifact |
+|----|-------|----------|
+| BTL-A | Acquired Built to Last issues the configured maximum-durability property on a future eligible non-stackable durable output | `tests/NiflheimBuiltToLastTests.cs::AcquiredBuiltToLast_IssuesConfiguredMaxDurabilityProperty_OnEligibleDurableOutput` |
+| BTL-B | Issuance survives relationship loss, Tree revocation, and restart (Permanent Effect: purchase record alone) | `tests/NiflheimBuiltToLastTests.cs::IssuanceSurvives*` |
+| BTL-C | Issuance is idempotent per exact instance; a replayed production event stamps once | `tests/NiflheimBuiltToLastTests.cs::RepeatedIssuanceAgainstOneItem_StampsOnce_AndTheStampIsUnchanged` |
+| BTL-D | No retroactive mutation: a pre-acquisition item is never improved, a retuned factor never rewrites an issued one, and losing the effect never strips one | `tests/NiflheimBuiltToLastTests.cs::ItemCraftedBeforeAcquisition_IsNeverRetroactivelyImproved` + `RetuningTheConfiguredFactor_DoesNotAlterAlreadyCraftedItems` + `LosingTheEffectAfterIssuance_DoesNotStripAnAlreadyIssuedItem` |
+| BTL-E | Tampered / unknown / foreign-key stamps degrade to vanilla; a durability token cannot be replayed as a Workmanship one | `tests/NiflheimBuiltToLastTests.cs::*Tampered*` + `ADurabilityTokenIsNotAWorkmanshipToken_CrossDomainReplayFails` |
+
+Source: `src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/DurabilityProvenance.cs`
++ `src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/DurabilityIssuanceProvider.cs`.
+Runtime seam: `Features/Crafting/BuiltToLast{IssuanceObserver,MaxDurabilityPatch,UpgradePreservationObserver}`,
+all three registered in `Plugin.Awake()`.
+
+**Not claimed:** no in-world / joined-client behaviour. No game client was
+available; the joined-client artifact is produced separately and the independent
+Tracer-6 verdict is T024.

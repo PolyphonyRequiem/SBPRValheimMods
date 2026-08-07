@@ -87,6 +87,10 @@ state.
 **Validates:**
 
 - authenticated account/character match;
+- **the acting character is standing at the Stone, checked by the SERVER** (ADO #138): the server resolves the
+  acting character's own world position and confirms it lies inside the TARGET Stone's Area; a client claim is
+  never accepted, an unknown position or an unregistered Area fails closed, and standing inside a *different*
+  Stone's Area does not authorize this one. Rejects `NotAtStone` with no mutation;
 - Stone exists and is a bondable Homestead;
 - Bond Slot capacity;
 - no active relationship by this or a sibling character at this Stone;
@@ -104,6 +108,10 @@ It does not create Stone ownership by inference for non-Settlement families and 
 
 ### `CreateAttunement`
 
+Attunement formation is a proximate act on the same server-checked terms as `CreateBond` (ADO #138): requesting
+it requires the acting character to actually be at that Stone, and the server decides that from its own position
+and Stone Area facts.
+
 For this Homestead proof, use the same active sibling-exclusivity rule as `CreateBond`, consume an Attunement
 Slot, and grant no cultivation authority. The proof participant must be on a different authenticated account
 from the bonded owner. The exclusivity rule is variant-authored rather than universal: Community Stone
@@ -112,6 +120,10 @@ Attunement permits sibling characters, while Community Bond remains account-excl
 ### `ReleaseRelationship`
 
 **Payload:** `relationshipId`, expected status.
+
+Release is deliberately **not** proximity-gated (ADO #138). Releasing is not the proximate act, and gating it
+would strand a character who released away from the Stone.
+
 **Commits:** mark relationship released/inactive and clear any applicable account–Stone active-character index
 in one recoverable operation.
 
@@ -808,7 +820,18 @@ These are derived-provider contracts, not direct ledger writes.
   `AT-ITEM-UPGRADE-PRESERVE`, `AT-ITEM-TRANSFER`, `AT-ITEM-TAMPER-DEGRADE`) are therefore reachable on the
   dedicated-server + genuine-joined-client topology, not host-only.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on
-  future eligible outputs after relationship loss as well.
+  future eligible outputs after relationship loss as well. Built to Last is a **Permanent Effect**, so
+  entitlement is the character's durable purchase record ALONE — no relationship, Settlement Local policy,
+  build Permission, or Stone node-development conjunct — and it therefore keeps issuing after relationship
+  release, Tree revocation, and a process restart. Eligibility is the same exact-instance rule as Workmanship
+  (non-stackable AND durable). Issuance is idempotent per exact instance: an item already carrying a valid
+  durability stamp is never re-stamped or re-minted. The configured factor is **frozen into the signed stamp
+  at issuance**, and an item's effective maximum durability is derived from ONLY the stamp that exact instance
+  carries — so an item crafted before acquisition stays vanilla forever, a later retune of the configured
+  factor cannot rewrite an already-crafted item, and losing the effect does not strip an already-issued one.
+  There is no retroactive mutation path. The durability provenance shares the Workmanship server integrity key
+  but signs a **disjoint canonical domain** (`builttolast-v1`) under a disjoint custom-data key namespace, so
+  the two provenances coexist on one item and neither token can be replayed as the other.
 - Both item providers bind a server-validated `ItemProvenanceId`, survive upgrade/transfer where valid, explicitly
   dirty persistence, and degrade tampered/unknown metadata to vanilla behavior.
 
@@ -868,6 +891,36 @@ These are derived-provider contracts, not direct ledger writes.
   ledger on either side.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.
+  **Implemented (T027, `Adapters/Archer/ProjectileRecoveryProvider.cs` + `ProjectileRecoverySession.cs`):**
+  Fletcher's Habit is the FIRST personal PERMANENT Effect. Ownership is DURABLE: `OwnsFletchersHabit(stone,
+  character, authority)` derives it from the shipped T004 `DerivedActivationView` as **developed +
+  purchased**, deliberately NOT gated on the currently-active relationship — a Permanent Effect survives
+  relationship loss / revocation (spec line 130 "Permanent Effects remain active"; spec line 260 "A released
+  character retains Permanent Effects and Progression Keys"). This is the single behavioural divergence from
+  the sibling Field Fletching I Character Effect, whose activation dormants on relationship loss. No second
+  active-effects ledger (AT-NO-ACTIVE-LEDGER, carried by T004). `Resolve(owned, provenance, surface,
+  targetReturnWon, roll)` makes ONE authoritative decision with a fixed total precedence: not-owned → ineligible
+  arrow → target-return suppression → non-recoverable surface → the one configured roll. Only the exact
+  eligible arrow (`ArrowWood`) is affected; non-recoverable surfaces (water, miss/TTL) are definitively lost
+  with no roll; recoverable surfaces (solid structure, ground, creature, shield-blocked at-rest) roll the one
+  configurable chance (`FletchersHabitContent.DefaultRecoveryChance`, half-open `roll < chance`) and on a pass
+  respawn the EXACT consumed `ConsumedArrowProvenance` (item id, quality, variant, durability, crafter, custom
+  data — no substitution). Deterministic Practice Range target return (T025 `TargetReturnDecision`) sets
+  `targetReturnWon` and SUPPRESSES the roll entirely (spec Edge case "target return wins its deterministic path
+  and the permanent recovery roll does not run"). `ProjectileRecoverySession` keys resolution by the fired
+  instance id so the SAME instance resolves at most once (no duplication) and a multishot volley resolves each
+  instance independently. **Live-wired (T027, net48, `Features/Archer/ProjectileRecoveryGate`):** a
+  `Projectile.Setup` postfix captures the exact consumed ammo provenance (only the local player's own Wood
+  Arrow shots), and a `Projectile.OnHit` postfix classifies the terminal surface, resolves durable ownership,
+  asks the shipped pure provider the one authoritative question, and — on Recovered — drops the exact consumed
+  `ItemData` ONCE via vanilla `ItemDrop.DropItem` (additive, ADR-0006 — a fresh dropped instance, never a clone
+  of a ZNetView-bearing projectile). The once-per-instance / multishot guard is a per-process
+  `ProjectileRecoverySession` keyed by the projectile's ZDOID; the ArcheryTarget surface sets target-return
+  suppression so the deterministic Practice Range return never double-returns. Ownership resolves two ways,
+  both authoritative and fail-closed: on the HOST from the composed server stores via `OwnsFletchersHabit`; on
+  a PURE CLIENT from the server-stamped `PersonalActivationSnapshot.IsOwned` (its durable **Purchased** bit,
+  relationship-independent) delivered over the existing personal-effect channel. Absent confirmed ownership the
+  roll never runs (vanilla behaviour); the client authors nothing.
 
 ### Warrior
 
@@ -892,6 +945,7 @@ Stable machine codes are part of the contract; localized text is presentation.
 | `RelationshipConflict` | Requested relationship conflicts with current state |
 | `RelationshipCapacityExceeded` | No matching Bond/Attunement Slot |
 | `Unauthorized` | Caller lacks owner/Governor/participant authority |
+| `NotAtStone` | Server-resolved acting-character position is not inside the target Stone's Area (Bond/Attunement formation only) |
 | `OutsideResponsibilityRange` | Governor cannot mutate this Tree/node |
 | `StaleStoneRevision` | Stone snapshot changed |
 | `StalePolicyRevision` | Settlement Local policy revision changed under a concurrent/replayed policy write |
@@ -1026,6 +1080,46 @@ accepted, receipt-backed handlers — no gameplay shortcut, no progression redes
   that gate the handler is never registered or rejects — production fails closed. No provisional activation, no
   direct purchase/node-state write, no second ledger; Masterwork's exact dedicated-server entitlement and
   key-never-on-wire issuance contracts are unchanged.
+
+### Personal-node ownership provisioning (T027 remediation)
+
+**Implementation (isolated-QA personal-node OWNERSHIP ingress, T027 remediation).** The `PurchaseNode`
+routing above is a real reachable caller only for the *purchase* step, but the T027 Fletcher's Habit
+joined-client verdict (`tracer-7-archer/t027-fletchers-habit/R2-joined-client-verdict.md`) proved that at
+reviewed head no runtime seam could make a character *own* a personal Offered node (developed **and**
+purchased): the sole runtime caller of the ingress drove `DevelopLocalNode`, never `PurchaseNode`, so
+`ProjectileRecoveryProvider.OwnsFletchersHabit` (which needs a durable `NodePurchaseRecord`) could never
+return owned on a joined client, and the required OWNER in-world proof was structurally unreachable. The
+sibling T026 Field Fletching I owner proof had the same gap. `LocalProvisioningIngress.ProvisionPersonalNodeOwnership`
+is the smallest server-authoritative seam that closes it, reaching a personal purchase through the accepted
+handlers on ONE server-derived subject in the order the spec's state machine requires:
+
+- **Bond → develop → release → attune → purchase.** It (1) establishes a Governor Bond via the accepted
+  `RelationshipCommandHandler` (cultivation authority), (2) develops the personal node to Offered through the
+  accepted Facet→BP→development handlers (`LocalNodeProvisioningDriver.ProvisionOffered`), (3) RELEASES
+  that Bond — a single character cannot ACTIVELY hold both a Bond and an Attunement to one Stone (the authority
+  index is sibling/self exclusive) and purchase requires an active Attunement, and a personal Permanent/Character
+  Effect's ownership persists through relationship loss so the release is harmless — (4) establishes an
+  Attunement (purchase authority), and (5) purchases the node through the accepted `PurchaseCommandHandler`.
+  Every content/level/prior-Offered-Set/price/authority/idempotency gate is the shipped handler's; an exact
+  re-run replays idempotently (single durable `NodePurchaseRecord`).
+- **Seeds only the empty funded owner row.** Like `DevelopLocalNode` seeds the bare Stone envelope and
+  `RelationshipProvisioningIngress` seeds an absent character aggregate, this seam additionally seeds the
+  acting subject's authored Personal AP *price* onto their character record before the purchase — no runtime
+  handler credits aggregate Personal AP (Foundational AP lands in a separate receipt sink; BP is the only
+  aggregate-credited balance), so this is the purchase analogue of seeding the row the accepted debit needs to
+  exist. It is NOT a purchase-state write: the debit and the single purchase record are still produced by the
+  accepted handler, and a disabled-funding run rejects `InsufficientPersonalAP` at the real gate — proving the
+  seam crosses it rather than fabricating ownership. It never inflates an already-sufficient balance.
+- The net48 seam is `Features/Progression/PersonalNodeProvisioningAdmin.cs`: a DIRECT per-peer `ZRpc` handler
+  (`SBPR_Niflheim_ProvisionPersonalNode`) + the `sbpr_purchase fletcher|fieldfletch` console command, registered
+  ONLY when the server-owned `Progression.EnableAdminPersonalNodeProvisioning` flag is true (default false) AND
+  the transport-authenticated sender is a normalized server ADMIN — the exact gate/identity model of the
+  `sbpr_develop` (`LocalProgressionProvisioningAdmin`) and `sbpr_provision` (`RelationshipProvisioningAdmin`)
+  siblings. Identity is the peer's bound-internal principal (never a client claim); the target Stone is resolved
+  from the peer's server-owned character ZDO position. Outside that gate the handler is never registered or
+  rejects — production fails closed. It unblocks the T027 Fletcher's Habit AND T026 Field Fletching I owner
+  in-world proofs; the node's gameplay mechanics are unchanged.
 
 ## Security and hostile-client contract
 

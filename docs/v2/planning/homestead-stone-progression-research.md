@@ -228,6 +228,7 @@ claims are never the source of truth.
 | Practice Arrows = 100 for 8 Wood, 0 ammo damage | Wider ammunition registry and combat tuning |
 | Field Fletching I = unchanged Wood Arrow recipe | Later Field Fletching levels |
 | Refined Workshop = +1 effective Workbench level | Eligible operation/station registry expansion |
+| Built to Last = maximum-durability factor 1.25 on eligible outputs | The factor itself (provisional playtest value; frozen per issued item so retuning never alters an already-crafted one) |
 
 ## Unsafe assumptions explicitly rejected
 

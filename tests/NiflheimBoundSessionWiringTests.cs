@@ -313,6 +313,9 @@ namespace SBPR.Trailborne.Tests
                     worldProductScope: "t007w/trailborne", revision: 0, bondSlots: 1, attunementSlots: 2,
                     lastAppliedReceiptId: "seed",
                     stoneRecords: new[] { new CharacterStoneRecord(stone, 0, 0, 0, null, null) }));
+            // ADO #138: the relationship handler checks proximity itself now, so this fixture must
+            // state the server-observed fact that the acting character is standing AT the Stone.
+            server.CharacterPositions.Publish(internalCharacter, sx, sz);
             var att = server.Relationships.Handle(new RelationshipCommand(
                 new OperationId("op-attune"), RelationshipCommandType.CreateAttunement, stone,
                 new AuthenticatedConnection(internalAccount.Value, internalCharacter.Value), default, "rel-att-1"));

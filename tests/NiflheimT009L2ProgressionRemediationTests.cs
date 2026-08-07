@@ -127,6 +127,9 @@ namespace SBPR.Trailborne.Tests
             var server = FoundationalProgressionServer.Create(
                 _dir, new FixedFamilyResolver(_stone), new HomesteadBondPolicy(), stoneStore);
             server.StoneAreas.Register(_stone, StoneX, StoneZ, radius: 20.0);
+            // ADO #138: the relationship handler checks proximity itself now, so this fixture must
+            // state the server-observed fact that the acting character is standing AT the Stone.
+            server.CharacterPositions.Publish(_character, StoneX, StoneZ);
             return server;
         }
 

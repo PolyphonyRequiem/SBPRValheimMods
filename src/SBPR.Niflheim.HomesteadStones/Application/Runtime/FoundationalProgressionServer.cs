@@ -54,6 +54,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             ICharacterApStore characterApStore,
             OperationReceiptStore receipts,
             StoneAreaMembership stoneAreas,
+            ServerObservedCharacterPositions characterPositions,
             PendingRevalidationQueue pendingPlacements,
             BoundSessionPrincipalIndex boundSessions,
             StoneConnectionSourceRegistry connectionSources,
@@ -68,6 +69,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             CharacterApStore = characterApStore;
             Receipts = receipts;
             StoneAreas = stoneAreas;
+            CharacterPositions = characterPositions;
             PendingPlacements = pendingPlacements;
             BoundSessions = boundSessions;
             ConnectionSources = connectionSources;
@@ -89,6 +91,14 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
         /// queries per placement. Populated by the engine-bound layer from world Stone facts; empty
         /// until a Stone is registered (an empty membership resolves every position to OutsideStoneArea).</summary>
         public StoneAreaMembership StoneAreas { get; }
+
+        /// <summary>ADO #138 — server-observed world positions of acting characters, published by the
+        /// engine-bound layer from each peer's own character ZDO. This is the position half of the
+        /// server-checked proximity gate on Bond/Attunement formation; <see cref="StoneAreas"/> is the
+        /// Area half. Non-durable by design: a restart clears it and the next server-side observation
+        /// republishes, and an unknown position fails closed (the relationship command rejects
+        /// <c>NotAtStone</c>).</summary>
+        public ServerObservedCharacterPositions CharacterPositions { get; }
 
         /// <summary>T009R4 (Blocker 5) — the bounded pending-revalidation queue that absorbs the ZDO
         /// replication race. A dedicated-client placement notice captures the transport-authenticated
@@ -226,9 +236,20 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
             // — including the ones replayed during this boot rehydration — drives the matching account-pair
             // Connection source transition in the same logical transaction.
             var connectionSources = new StoneConnectionSourceRegistry(sourceJournal);
+
+            // ADO #138 — the server-owned proximity facts must exist BEFORE the relationship handler,
+            // because the handler now REQUIRES the authority composed over them (Bond/Attunement
+            // formation is server-checked-at-the-Stone). The Area membership is the same instance the
+            // placement pipeline reads; the positions index is published by the engine-bound layer from
+            // each peer's own character ZDO. Both start empty, so before any Stone is registered / any
+            // position observed the gate fails closed — the same posture placement already has.
+            var stoneAreas = new StoneAreaMembership();
+            var characterPositions = new ServerObservedCharacterPositions();
+            var proximity = new StoneAreaProximityAuthority(stoneAreas, characterPositions);
+
             var relationships = new RelationshipCommandHandler(
                 relJournal, resolver, characters, authority, familyResolver, bondAuthority,
-                connectionSources, world, new ProductScope(ConnectionProduct));
+                proximity, connectionSources, world, new ProductScope(ConnectionProduct));
 
             // Rehydrate the AP receipt projections from the durable AP journal (server boot). The Stone
             // AP sink is injected so production re-stamps the world Stone ZDO during this replay.
@@ -243,8 +264,6 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
                 catalog ?? FoundationalPieceCatalog.CurrentBuild, new InMemoryPlacementRepetitionPolicy());
 
             var runtime = new FoundationalPlacementRuntime(adapter, pipeline, log);
-
-            var stoneAreas = new StoneAreaMembership();
 
             var pending = new PendingRevalidationQueue(
                 pendingRevalidationDeadline ?? TimeSpan.FromSeconds(30), pendingRevalidationCapacity);
@@ -261,7 +280,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Runtime
 
             return new FoundationalProgressionServer(
                 runtime, relationships, authority, characters, stoneApStore, characterApStore,
-                receipts, stoneAreas, pending, boundSessions, connectionSources,
+                receipts, stoneAreas, characterPositions, pending, boundSessions, connectionSources,
                 warriorTwigPendingDeadline, durableDirectory);
         }
     }
