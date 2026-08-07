@@ -139,12 +139,19 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 string account = boundPrincipal.Account.Value;
                 string character = boundPrincipal.Character.Value;
 
-                if (!TryResolveSenderStone(peer, server, out var stoneId))
+                if (!TryResolveSenderStone(peer, server, out var stoneId, out float senderX, out float senderZ))
                 {
                     Plugin.Log.LogWarning(
                         "[Niflheim/HomesteadStones] Relationship provisioning: sender not inside a Homestead Stone Area.");
                     return;
                 }
+
+                // ADO #138 — publish the SERVER-READ position of the acting character so the command
+                // handler's proximity authority can check it itself. The check now lives in the handler
+                // (never in this caller): this seam only supplies the server-owned fact. A character
+                // whose position is unknown or outside the target Stone's Area is rejected there with
+                // NotAtStone, even if this seam were bypassed entirely.
+                server.CharacterPositions.Publish(new CharacterId(character), senderX, senderZ);
 
                 var subject = new AuthoritativeSubject(new AccountId(account), new CharacterId(character));
                 var ingress = server.CreateRelationshipProvisioningIngress();
@@ -194,16 +201,20 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
         }
 
         /// <summary>Resolve the Stone whose Area the sender character currently occupies, from the server's
-        /// own character ZDO position — never a client claim.</summary>
-        private static bool TryResolveSenderStone(ZNetPeer peer, FoundationalProgressionServer server, out Domain.Identity.StoneId stoneId)
+        /// own character ZDO position — never a client claim. Also emits that server-read position so the
+        /// caller can publish it for the command handler's own proximity check (ADO #138).</summary>
+        private static bool TryResolveSenderStone(ZNetPeer peer, FoundationalProgressionServer server,
+            out Domain.Identity.StoneId stoneId, out float x, out float z)
         {
             stoneId = default;
+            x = 0f; z = 0f;
             var zdoMan = ZDOMan.instance;
             if (zdoMan == null) return false;
             if (peer.m_characterID.IsNone()) return false;
             var zdo = zdoMan.GetZDO(peer.m_characterID);
             if (zdo == null || !zdo.IsValid()) return false;
             Vector3 pos = zdo.GetPosition();
+            x = pos.x; z = pos.z;
             return server.StoneAreas.TryResolve(pos.x, pos.z, out stoneId);
         }
 

@@ -194,6 +194,9 @@ namespace SBPR.Trailborne.Tests
         // handler (writes the character relationship record + the account–Stone authority reservation).
         private void BondGovernor(FoundationalProgressionServer server, AccountId acct, CharacterId ch)
         {
+            // ADO #138: the relationship handler checks proximity itself now, so this fixture must
+            // state the server-observed fact that the acting character is standing AT the Stone.
+            server.CharacterPositions.Publish(ch, StoneX, StoneZ);
             var res = server.Relationships.Handle(new RelationshipCommand(
                 new OperationId("op-bond-" + ch.Value), RelationshipCommandType.CreateBond, _stone,
                 new AuthenticatedConnection(acct.Value, ch.Value), default,

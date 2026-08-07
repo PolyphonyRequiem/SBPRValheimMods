@@ -644,7 +644,7 @@ namespace SBPR.Trailborne.Tests
             var chars = NewBareCharacterStore();
             var authority = new InMemoryAccountStoneAuthorityStore();
             var h1 = new RelationshipCommandHandler(journal, new PrincipalResolver(), chars, authority,
-                families, new StubBondAuthorityPolicy());
+                families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance);
             Assert.Equal(RelationshipCommandOutcome.Applied,
                 h1.Handle(BondCmd("op-before", "rel-bond-129")).Outcome);
 
@@ -656,14 +656,14 @@ namespace SBPR.Trailborne.Tests
             var chars2 = NewBareCharacterStore();
             var authority2 = new InMemoryAccountStoneAuthorityStore();
             var h2 = new RelationshipCommandHandler(journal, new PrincipalResolver(), chars2, authority2,
-                families, new StubBondAuthorityPolicy());
+                families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance);
             Assert.Equal(RelationshipCommandOutcome.Applied,
                 h2.Handle(AttuneCmd("op-after", "rel-att-129")).Outcome);
 
             var freshChars = NewBareCharacterStore();
             var freshAuthority = new InMemoryAccountStoneAuthorityStore();
             var booted = new RelationshipCommandHandler(journal, new PrincipalResolver(), freshChars,
-                freshAuthority, families, new StubBondAuthorityPolicy());
+                freshAuthority, families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance);
 
             var idx = freshAuthority.GetAuthority(_account, _stone);
             Assert.False(idx.IsVacant);

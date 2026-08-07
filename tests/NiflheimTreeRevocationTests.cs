@@ -584,7 +584,7 @@ namespace SBPR.Trailborne.Tests
 
             var relationships = new RelationshipCommandHandler(
                 Path.Combine(_dir, "relationships.journal"), new PrincipalResolver(), characters, authority,
-                new FixedFamilyResolver(), new AllowHomesteadBondPolicy(), null, _world,
+                new FixedFamilyResolver(), new AllowHomesteadBondPolicy(), AlwaysAtStoneProximity.Instance, null, _world,
                 new ProductScope("SBPR.Trailborne"));
 
             var server = LocalProgressionServer.Create(

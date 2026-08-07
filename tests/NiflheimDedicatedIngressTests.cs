@@ -127,6 +127,9 @@ namespace SBPR.Trailborne.Tests
 
         private void Attune(FoundationalProgressionServer server, CharacterId who)
         {
+            // ADO #138: the relationship handler now checks proximity itself, so this fixture must
+            // state the server-observed fact that the acting character is standing AT the Stone.
+            server.CharacterPositions.Publish(who, StoneX, StoneZ);
             var res = server.Relationships.Handle(new RelationshipCommand(
                 new OperationId("op-attune"), RelationshipCommandType.CreateAttunement, _stone,
                 new AuthenticatedConnection(_account.Value, who.Value), default, "rel-att-1"));
