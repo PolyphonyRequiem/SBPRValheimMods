@@ -89,6 +89,24 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             return false;
         }
 
+        /// <summary>Whether the PERMANENT effect for <paramref name="node"/> is OWNED by the LOCAL occupant at
+        /// <paramref name="stone"/> (T027 Fletcher's Habit), WITHOUT the caller naming the account/character.
+        /// Like <see cref="IsActiveForStone"/> every snapshot held for a Stone belongs to the local player
+        /// (the server stamps snapshots for the requesting peer's own bound principal). Ownership is durable:
+        /// it does not require the relationship to be currently active (spec line 130 / line 260). Fail
+        /// closed: no held snapshot for the Stone, a denied snapshot, or an unpurchased/undeveloped node ⇒
+        /// false.</summary>
+        public bool IsOwnedForStone(StoneId stone, VersionedId node)
+        {
+            foreach (var kv in _byCaller)
+            {
+                var snap = kv.Value;
+                if (!snap.StoneId.Equals(stone)) continue;
+                if (snap.IsOwned(node)) return true;
+            }
+            return false;
+        }
+
         /// <summary>Explicitly invalidate the held snapshot for one caller — e.g. on relog, disconnect, or
         /// relationship loss before a fresh fetch arrives. After this, IsActive fails closed until a new
         /// snapshot is applied.</summary>

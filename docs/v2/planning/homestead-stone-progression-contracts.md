@@ -830,6 +830,36 @@ These are derived-provider contracts, not direct ledger writes.
   ledger on either side.
 - `ProjectileRecoveryProvider`: Fletcher's Habit makes one authoritative terminal-impact decision for one exact
   consumed eligible arrow; deterministic Practice Range return suppresses this roll.
+  **Implemented (T027, `Adapters/Archer/ProjectileRecoveryProvider.cs` + `ProjectileRecoverySession.cs`):**
+  Fletcher's Habit is the FIRST personal PERMANENT Effect. Ownership is DURABLE: `OwnsFletchersHabit(stone,
+  character, authority)` derives it from the shipped T004 `DerivedActivationView` as **developed +
+  purchased**, deliberately NOT gated on the currently-active relationship — a Permanent Effect survives
+  relationship loss / revocation (spec line 130 "Permanent Effects remain active"; spec line 260 "A released
+  character retains Permanent Effects and Progression Keys"). This is the single behavioural divergence from
+  the sibling Field Fletching I Character Effect, whose activation dormants on relationship loss. No second
+  active-effects ledger (AT-NO-ACTIVE-LEDGER, carried by T004). `Resolve(owned, provenance, surface,
+  targetReturnWon, roll)` makes ONE authoritative decision with a fixed total precedence: not-owned → ineligible
+  arrow → target-return suppression → non-recoverable surface → the one configured roll. Only the exact
+  eligible arrow (`ArrowWood`) is affected; non-recoverable surfaces (water, miss/TTL) are definitively lost
+  with no roll; recoverable surfaces (solid structure, ground, creature, shield-blocked at-rest) roll the one
+  configurable chance (`FletchersHabitContent.DefaultRecoveryChance`, half-open `roll < chance`) and on a pass
+  respawn the EXACT consumed `ConsumedArrowProvenance` (item id, quality, variant, durability, crafter, custom
+  data — no substitution). Deterministic Practice Range target return (T025 `TargetReturnDecision`) sets
+  `targetReturnWon` and SUPPRESSES the roll entirely (spec Edge case "target return wins its deterministic path
+  and the permanent recovery roll does not run"). `ProjectileRecoverySession` keys resolution by the fired
+  instance id so the SAME instance resolves at most once (no duplication) and a multishot volley resolves each
+  instance independently. **Live-wired (T027, net48, `Features/Archer/ProjectileRecoveryGate`):** a
+  `Projectile.Setup` postfix captures the exact consumed ammo provenance (only the local player's own Wood
+  Arrow shots), and a `Projectile.OnHit` postfix classifies the terminal surface, resolves durable ownership,
+  asks the shipped pure provider the one authoritative question, and — on Recovered — drops the exact consumed
+  `ItemData` ONCE via vanilla `ItemDrop.DropItem` (additive, ADR-0006 — a fresh dropped instance, never a clone
+  of a ZNetView-bearing projectile). The once-per-instance / multishot guard is a per-process
+  `ProjectileRecoverySession` keyed by the projectile's ZDOID; the ArcheryTarget surface sets target-return
+  suppression so the deterministic Practice Range return never double-returns. Ownership resolves two ways,
+  both authoritative and fail-closed: on the HOST from the composed server stores via `OwnsFletchersHabit`; on
+  a PURE CLIENT from the server-stamped `PersonalActivationSnapshot.IsOwned` (its durable **Purchased** bit,
+  relationship-independent) delivered over the existing personal-effect channel. Absent confirmed ownership the
+  roll never runs (vanilla behaviour); the client authors nothing.
 
 ### Warrior
 
