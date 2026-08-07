@@ -41,7 +41,11 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
         WrongTreePurchase,          // a purchase's claimed Tree does not own the resolved node
         UnavailableNodeDevelopment, // a developed node is first-build Unavailable (rejects development)
         UnavailableNodePurchased,   // a purchase references a first-build Unavailable node
-        NegativeLedgerValue         // a modeled ledger field (committed BP, node BP progress/cost) is negative
+        NegativeLedgerValue,        // a modeled ledger field (committed BP, node BP progress/cost) is negative
+        OrphanedAuthorityReservation, // the index reserves a relationship the character does not hold ACTIVE
+        UnreservedActiveRelationship, // the character holds an ACTIVE relationship the index does not reserve
+        RelationshipKindMismatch,     // record and reservation disagree about Bond vs Attunement
+        DuplicatePurchase             // the same node is recorded twice as a personal purchase at one Stone
     }
 
     public readonly struct QuarantineNotice
@@ -229,9 +233,70 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
                 notices.Add(new QuarantineNotice(QuarantineReason.AuthorityMismatch, authority.StoneId.Value,
                     "authority Stone != Stone aggregate " + stone.StoneId.Value));
 
+            // RELATIONSHIP BOUNDARY (T034; data-model.md §"Validation and recovery": "compare
+            // account–Stone index to active relationship records"). A relog/rejoin writes the
+            // character aggregate and the authority index as two separate projections, so an
+            // interrupted mutation can leave them disagreeing. Both directions are contradictions and
+            // both are ISOLATED, never reconciled by guessing which side is right:
+            //
+            //   * the index reserves a relationship the character does not hold ACTIVE
+            //     (OrphanedAuthorityReservation) — the character write landed, the index write did not
+            //     get released, or vice versa;
+            //   * the character holds an ACTIVE relationship the index does not reserve
+            //     (UnreservedActiveRelationship) — the index would deny authority the record claims;
+            //   * both sides name the relationship but disagree about Bond vs Attunement
+            //     (RelationshipKindMismatch) — an Attunement must never inherit Bond authority.
+            //
+            // Only checked when the index is keyed to THIS account and Stone; a key mismatch is already
+            // reported above as AuthorityMismatch and comparing across keys would be meaningless.
+            if (authority.Account.Equals(character.Account) && authority.StoneId.Equals(stone.StoneId))
+            {
+                var activeById = new Dictionary<string, RelationshipRecord>(StringComparer.Ordinal);
+                foreach (var sr in character.StoneRecords)
+                {
+                    if (!sr.StoneId.Equals(stone.StoneId)) continue;
+                    foreach (var rel in sr.Relationships)
+                        if (rel.IsActive) activeById[rel.RelationshipId] = rel;
+                }
+
+                foreach (var reservation in authority.Reservations)
+                {
+                    // Only this character's reservations are comparable against this aggregate; a
+                    // sibling character's reservation is another aggregate's business.
+                    if (!reservation.Character.Equals(character.Character)) continue;
+
+                    if (!activeById.TryGetValue(reservation.RelationshipId, out var rel))
+                    {
+                        notices.Add(new QuarantineNotice(QuarantineReason.OrphanedAuthorityReservation,
+                            reservation.RelationshipId,
+                            "authority reserves relationship '" + reservation.RelationshipId
+                            + "' but the character holds no ACTIVE record for it at this Stone"));
+                        continue;
+                    }
+                    if (rel.Kind != reservation.Kind)
+                        notices.Add(new QuarantineNotice(QuarantineReason.RelationshipKindMismatch,
+                            reservation.RelationshipId,
+                            "relationship '" + reservation.RelationshipId + "' is " + rel.Kind
+                            + " on the character record but " + reservation.Kind + " in the authority index"));
+                }
+
+                foreach (var pair in activeById)
+                {
+                    if (authority.ReservationByRelationship(pair.Key) == null)
+                        notices.Add(new QuarantineNotice(QuarantineReason.UnreservedActiveRelationship,
+                            pair.Key,
+                            "character holds ACTIVE relationship '" + pair.Key
+                            + "' at this Stone but the authority index reserves no such relationship"));
+                }
+            }
+
             // Character-side ledgers and purchase ownership.
             foreach (var sr in character.StoneRecords)
             {
+                // A personal purchase is one record per node (a node "cannot be bought twice"). Two
+                // records for the same node at one Stone is the fingerprint of a re-applied projection
+                // and would double any refund derived from it — isolate it, never de-duplicate silently.
+                var seenPurchases = new HashSet<string>(StringComparer.Ordinal);
                 if (sr.PersonalAp < 0 || sr.CumulativeAp < 0 || sr.PersonalBp < 0)
                     notices.Add(new QuarantineNotice(QuarantineReason.NegativeCharacterBalance, sr.StoneId.Value,
                         "PersonalAp=" + sr.PersonalAp + " CumulativeAp=" + sr.CumulativeAp + " PersonalBp=" + sr.PersonalBp));
@@ -242,6 +307,11 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
 
                 foreach (var p in sr.Purchases)
                 {
+                    if (!seenPurchases.Add(p.Node.Key + "@" + p.Node.Version))
+                        notices.Add(new QuarantineNotice(QuarantineReason.DuplicatePurchase, p.Node.Key,
+                            "node '" + p.Node.Key + "' is recorded as a personal purchase more than once at Stone "
+                            + sr.StoneId.Value));
+
                     var def = _catalog.TryResolveNode(p.Node);
                     if (def == null)
                     {

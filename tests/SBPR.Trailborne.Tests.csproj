@@ -143,6 +143,10 @@
          (membership + exclusions + version) that hardens the ongoing protected AP source. Engine-free. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/Content/FoundationalPieceCatalog.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Persistence/Recovery/ProgressionStateRepair.cs" />
+    <!-- T034: the operator inspection / quarantine + disposable-reset RENDERING surface over the
+         shipped ProgressionStateRepair. Engine-free (no Harmony patch class, so no Plugin.Awake
+         registration applies); link-compiled so its report text is unit-tested. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/Progression/ProgressionDiagnostics.cs" />
     <!-- Homestead progression Tracer 2 (T007): recoverable Bond/Attunement/Release lifecycle.
          Pure relationship transitions + the receipt-backed cross-aggregate command handler and its
          authority/character projection sinks. Engine-free, link-compiled like the rest. -->
