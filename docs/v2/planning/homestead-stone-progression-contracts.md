@@ -782,7 +782,18 @@ These are derived-provider contracts, not direct ledger writes.
   `AT-ITEM-UPGRADE-PRESERVE`, `AT-ITEM-TRANSFER`, `AT-ITEM-TAMPER-DEGRADE`) are therefore reachable on the
   dedicated-server + genuine-joined-client topology, not host-only.
 - `DurabilityIssuanceProvider`: acquired Built to Last supplies the configured maximum-durability property on
-  future eligible outputs after relationship loss as well.
+  future eligible outputs after relationship loss as well. Built to Last is a **Permanent Effect**, so
+  entitlement is the character's durable purchase record ALONE — no relationship, Settlement Local policy,
+  build Permission, or Stone node-development conjunct — and it therefore keeps issuing after relationship
+  release, Tree revocation, and a process restart. Eligibility is the same exact-instance rule as Workmanship
+  (non-stackable AND durable). Issuance is idempotent per exact instance: an item already carrying a valid
+  durability stamp is never re-stamped or re-minted. The configured factor is **frozen into the signed stamp
+  at issuance**, and an item's effective maximum durability is derived from ONLY the stamp that exact instance
+  carries — so an item crafted before acquisition stays vanilla forever, a later retune of the configured
+  factor cannot rewrite an already-crafted item, and losing the effect does not strip an already-issued one.
+  There is no retroactive mutation path. The durability provenance shares the Workmanship server integrity key
+  but signs a **disjoint canonical domain** (`builttolast-v1`) under a disjoint custom-data key namespace, so
+  the two provenances coexist on one item and neither token can be replayed as the other.
 - Both item providers bind a server-validated `ItemProvenanceId`, survive upgrade/transfer where valid, explicitly
   dirty persistence, and degrade tampered/unknown metadata to vanilla behavior.
 
