@@ -84,7 +84,7 @@ namespace SBPR.Trailborne.Tests
 
         private RelationshipCommandHandler NewHandler(StoneConnectionSourceRegistry sources) =>
             new RelationshipCommandHandler(_relJournal, new PrincipalResolver(), _characters, _authority,
-                _families, new StubBondAuthorityPolicy(), sources, World, Product);
+                _families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance, sources, World, Product);
 
         private RelationshipCommand Bond(AccountId account, CharacterId who, string relId, long time) =>
             new RelationshipCommand(new OperationId("op-bond-" + relId), RelationshipCommandType.CreateBond, _stone,
@@ -184,7 +184,7 @@ namespace SBPR.Trailborne.Tests
             characters2.PutCharacter(BuildCharacter(_accountA, _charA));
             characters2.PutCharacter(BuildCharacter(_accountB, _charB));
             _ = new RelationshipCommandHandler(_relJournal, new PrincipalResolver(), characters2, authority2,
-                _families, new StubBondAuthorityPolicy(), sources2, World, Product);
+                _families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance, sources2, World, Product);
 
             var conn = sources2.GetConnection(Conn("acct-A", "acct-B"));
             Assert.Equal(ConnectionLifecycle.Active, conn.Lifecycle);

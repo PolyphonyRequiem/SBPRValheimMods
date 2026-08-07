@@ -479,6 +479,9 @@ namespace SBPR.Trailborne.Tests
                 bondAuthority: new HomesteadBondPolicy(),
                 stoneApStore: stoneStore ?? new InMemoryMirroredStoneApStore());
             if (registerArea) server.StoneAreas.Register(_stone, StoneX, StoneZ, radius: 20.0);
+            // ADO #138: the relationship handler checks proximity itself now, so this fixture must
+            // state the server-observed fact that the acting character is standing AT the Stone.
+            server.CharacterPositions.Publish(_character, StoneX, StoneZ);
             return server;
         }
 

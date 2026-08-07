@@ -276,6 +276,12 @@ the same Stone-identity command seam from a non-proximate test client.
   variant-authored policy, not a universal Stone invariant: Community Stone Attunement permits sibling
   characters, while Community Bond remains account-exclusive for now. Bond Slots and Attunement Slots MUST be
   the character-wide relationship scarcity mechanism; this proof MUST NOT add a separate node/Tree portfolio cap.
+- **FR-003a:** Forming a Bond or requesting an Attunement MUST require the acting character to be standing at the
+  target Stone, and the SERVER MUST check it from its own position and Stone Area facts — never a client claim, and
+  never a check that lives only in a caller in front of the command authority. An unknown position, an unregistered
+  Stone Area, or a position inside a *different* Stone's Area MUST fail closed. Releasing a relationship MUST NOT be
+  proximity-gated, and this requirement MUST NOT be extended to other progression selections, which remain explicitly
+  non-proximate (FR-024/FR-025, scenario 7).
 - **FR-004:** The proof MUST use at least three preconfigured test Homesteads at Historical/Active Stone
   Level 2 and one bonded-owner character plus one attuned character from different authenticated accounts.
   Provisioning MUST NOT be presented as a Stone-level advancement mechanism.

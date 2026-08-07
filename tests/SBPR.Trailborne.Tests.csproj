@@ -202,6 +202,11 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/PendingRevalidationQueue.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/VanillaAdminIdentity.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneAreaRegistrar.cs" />
+    <!-- ADO #138: the server-checked proximity gate in front of the proximate relationship acts
+         (Bond / Attunement formation). The engine-free authority + the process-local index of
+         server-observed acting-character positions the net48 layer publishes from each peer's own
+         character ZDO. Engine-free, so every deny branch is unit-tested without a live server. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/StoneProximityAuthority.cs" />
     <!-- Homestead progression Tracer 3 (T010): Stone Facets + revisioned Profession/Martial Tree
          commitment. Pure Facet transition, engine-free Stone aggregate store, the receipt-backed
          CommitTreeToFacet command handler, and the hints-only panel affordance. Engine-free. -->

@@ -75,7 +75,7 @@ namespace SBPR.Trailborne.Tests
         {
             var families = new FixedFamilyResolver(_stone, "Settlement", "Homestead");
             return new RelationshipCommandHandler(_relJournal, Resolver(), characters, authority,
-                families, new HomesteadBondPolicy());
+                families, new HomesteadBondPolicy(), AlwaysAtStoneProximity.Instance);
         }
 
         private ProgressionCommandPipeline NewPipeline(

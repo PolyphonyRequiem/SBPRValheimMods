@@ -87,6 +87,10 @@ state.
 **Validates:**
 
 - authenticated account/character match;
+- **the acting character is standing at the Stone, checked by the SERVER** (ADO #138): the server resolves the
+  acting character's own world position and confirms it lies inside the TARGET Stone's Area; a client claim is
+  never accepted, an unknown position or an unregistered Area fails closed, and standing inside a *different*
+  Stone's Area does not authorize this one. Rejects `NotAtStone` with no mutation;
 - Stone exists and is a bondable Homestead;
 - Bond Slot capacity;
 - no active relationship by this or a sibling character at this Stone;
@@ -104,6 +108,10 @@ It does not create Stone ownership by inference for non-Settlement families and 
 
 ### `CreateAttunement`
 
+Attunement formation is a proximate act on the same server-checked terms as `CreateBond` (ADO #138): requesting
+it requires the acting character to actually be at that Stone, and the server decides that from its own position
+and Stone Area facts.
+
 For this Homestead proof, use the same active sibling-exclusivity rule as `CreateBond`, consume an Attunement
 Slot, and grant no cultivation authority. The proof participant must be on a different authenticated account
 from the bonded owner. The exclusivity rule is variant-authored rather than universal: Community Stone
@@ -112,6 +120,10 @@ Attunement permits sibling characters, while Community Bond remains account-excl
 ### `ReleaseRelationship`
 
 **Payload:** `relationshipId`, expected status.
+
+Release is deliberately **not** proximity-gated (ADO #138). Releasing is not the proximate act, and gating it
+would strand a character who released away from the Stone.
+
 **Commits:** mark relationship released/inactive and clear any applicable account–Stone active-character index
 in one recoverable operation.
 
@@ -854,6 +866,7 @@ Stable machine codes are part of the contract; localized text is presentation.
 | `RelationshipConflict` | Requested relationship conflicts with current state |
 | `RelationshipCapacityExceeded` | No matching Bond/Attunement Slot |
 | `Unauthorized` | Caller lacks owner/Governor/participant authority |
+| `NotAtStone` | Server-resolved acting-character position is not inside the target Stone's Area (Bond/Attunement formation only) |
 | `OutsideResponsibilityRange` | Governor cannot mutate this Tree/node |
 | `StaleStoneRevision` | Stone snapshot changed |
 | `StalePolicyRevision` | Settlement Local policy revision changed under a concurrent/replayed policy write |
