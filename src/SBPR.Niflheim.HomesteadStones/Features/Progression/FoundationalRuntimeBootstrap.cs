@@ -30,6 +30,12 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
     {
         private static ZNet? composedFor;
 
+        /// <summary>T036 — server-owned config gate for the VERBOSE progression conformance detail
+        /// (per-tree/per-node listing + recovery counts). Bound in <c>Plugin.Awake()</c>; default false.
+        /// The verdict line and every WARNING/ERROR finding are emitted regardless of this flag, because
+        /// a drift guard an operator can silence is not a guard.</summary>
+        internal static bool VerboseDiagnostics;
+
         [HarmonyPatch(typeof(ZNet), "Awake")]
         [HarmonyPostfix]
         private static void OnZNetAwake(ZNet __instance)
@@ -134,6 +140,33 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                     {
                         // A diagnostic must never take down composition.
                         Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Operator shape report failed: " + rex);
+                    }
+
+                    // T036 — progression runtime conformance. Runs HERE, not in Plugin.Awake, because this
+                    // is the only place where BOTH composition roots exist; the woven-patch registry is
+                    // global and equally readable from here. Thin caller: every decision lives in the
+                    // engine-free, unit-tested ProgressionConformance.
+                    //
+                    // The VERDICT LINE AND EVERY WARNING/ERROR ARE ALWAYS ON — a guard an operator can
+                    // switch off is not a guard. The config flag only adds the verbose per-tree/per-node
+                    // detail. Neither form can emit a secret or raw PII: the surface's inputs are authored
+                    // content, type names and integer counts (see ProgressionConformance's header).
+                    try
+                    {
+                        var conformance = ProgressionConformance.Verify(
+                            localServer.Catalog,
+                            Domain.StoneProgression.StoneFacetPalette.Current,
+                            HomesteadHandlerWiringObserver.Observe(server, localServer),
+                            Diagnostics.PatchCheck.WovenPatchClassNames(Plugin.ModId),
+                            new ReceiptRecovery(server.Receipts));
+
+                        string rendered = ProgressionConformance.Render(conformance, VerboseDiagnostics);
+                        if (conformance.Passed) Plugin.Log.LogInfo(rendered);
+                        else Plugin.Log.LogError(rendered);
+                    }
+                    catch (Exception cex)
+                    {
+                        Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Progression conformance failed: " + cex);
                     }
                 }
                 catch (Exception lex)

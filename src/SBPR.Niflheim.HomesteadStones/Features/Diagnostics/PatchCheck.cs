@@ -193,6 +193,32 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Diagnostics
         }
 
         /// <summary>
+        /// The SIMPLE type names of every patch class of ours that actually wove under
+        /// <paramref name="ownerId"/>. Exposed for T036's ProgressionConformance, which asserts that a
+        /// SPECIFIC named set of progression seams is among them — the complement of this guard's own
+        /// "every attributed class wove at least once". Reads the same global Harmony registry; never
+        /// throws (an unreadable registry yields an empty set, which conformance reports as missing).
+        /// </summary>
+        internal static HashSet<string> WovenPatchClassNames(string ownerId)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            try
+            {
+                foreach (Type t in CollectWovenPatchClasses(ownerId))
+                {
+                    if (t.Name != null) names.Add(t.Name);
+                    if (t.FullName != null) names.Add(t.FullName);
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.LogWarning(
+                    "[Niflheim/HomesteadStones/PatchCheck] Could not enumerate woven patch classes: " + ex.GetType().Name);
+            }
+            return names;
+        }
+
+        /// <summary>
         /// True if <paramref name="t"/> is one of our Harmony patch containers: it carries a
         /// type-level <c>[HarmonyPatch]</c>, OR any of its declared methods carries one. The
         /// method-level prong catches containers whose attributes live only on their postfixes.
