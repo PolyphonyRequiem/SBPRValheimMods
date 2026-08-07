@@ -57,6 +57,16 @@ namespace SBPR.Niflheim.HomesteadStones
 
             // T009 — live Foundational AP runtime. The bootstrap Harmony patch composes the durable
             // FoundationalProgressionServer on the authoritative server and arms the placement observer.
+            //
+            // T036 — the bootstrap ALSO emits the progression runtime conformance report once both
+            // composition roots exist. This flag gates only the VERBOSE detail; the verdict line and
+            // every WARNING/ERROR finding are always emitted (a silenceable drift guard is not a guard).
+            Features.Progression.FoundationalRuntimeBootstrap.VerboseDiagnostics = Config.Bind(
+                "Diagnostics", "VerboseProgressionConformance", false,
+                "When true, the boot-time progression conformance report also lists the enumerated Trees, the "
+                + "honestly-unavailable nodes, and the startup recovery counts. The PASS/FAIL verdict and every "
+                + "warning/error are logged regardless. This surface emits authored content identity, type names "
+                + "and integer counts only — never an account, character, principal, world path or journal payload.").Value;
             harmony.PatchAll(typeof(Features.Progression.FoundationalRuntimeBootstrap));
             harmony.PatchAll(typeof(Features.Progression.FoundationalPlacementObserver));
 

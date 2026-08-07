@@ -469,6 +469,16 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/DonationMenu.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/StockWithdrawalPermission.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StoneStockRegistry.cs" />
+    <!-- T036 (Tracer 9): the progression runtime conformance surface — the THIRD boot-time drift guard
+         (after Trailborne's SpecCheck and HomesteadStones' PatchCheck). It holds the authored manifest
+         (registry/palette version, Facets + candidates, the exact 20 stable node ids with Tree/level/
+         first-build status, required handlers, required woven patch classes, required per-node runtime
+         providers) in CODE and compares it against the live catalog/palette plus what the caller
+         observed. Engine-free by construction — it lives under Features/ per the task spec, but takes
+         no UnityEngine/Valheim/BepInEx/Harmony reference, so it link-compiles here and the asserted
+         behaviour IS the shipped behaviour; the net48 side is a thin caller in
+         FoundationalRuntimeBootstrap. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/Progression/ProgressionConformance.cs" />
   </ItemGroup>
 
   <ItemGroup>
