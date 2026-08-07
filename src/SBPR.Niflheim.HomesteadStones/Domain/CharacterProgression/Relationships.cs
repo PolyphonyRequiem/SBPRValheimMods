@@ -411,7 +411,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 // No prior record for this Stone: create a clean zeroed one carrying only the new
                 // relationship (create path). Release can never reach here (existing != null).
                 newStoneRecords.Add(new CharacterStoneRecord(stoneId, 0, 0, 0,
-                    facetCredits: null, purchases: null,
+                    purchases: null,
                     relationships: new[] { record }));
             }
 
@@ -442,7 +442,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             if (!replaced) rels.Add(record);
 
             return new CharacterStoneRecord(sr.StoneId, sr.PersonalAp, sr.CumulativeAp, sr.PersonalBp,
-                sr.FacetCredits, sr.Purchases, rels, sr.SkillCapChoices);
+                sr.Purchases, rels, sr.SkillCapChoices);
         }
     }
 }

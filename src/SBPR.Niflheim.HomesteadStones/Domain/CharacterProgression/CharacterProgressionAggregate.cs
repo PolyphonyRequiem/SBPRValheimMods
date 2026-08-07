@@ -10,7 +10,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
     // stable StoneId. Gameplay progression belongs to the CHARACTER, not the account.
     //
     // T004 envelope scope: persist earned/selected/provenance state only. Personal AP, Cumulative AP,
-    // personal BP, Facet Credit, and node-purchase provenance are authoritative owner state; the
+    // personal BP, and node-purchase provenance are authoritative owner state; the
     // derived "active effect" of any purchase is NOT stored here (AT-NO-ACTIVE-LEDGER) — it is
     // recomputed by DerivedActivationView from these persisted facts.
     //
@@ -20,7 +20,6 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
     public sealed class CharacterStoneRecord
     {
         public CharacterStoneRecord(StoneId stoneId, int personalAp, int cumulativeAp, int personalBp,
-            IReadOnlyList<FacetCreditRecord>? facetCredits = null,
             IReadOnlyList<NodePurchaseRecord>? purchases = null,
             IReadOnlyList<RelationshipRecord>? relationships = null,
             IReadOnlyList<SkillCapChoiceRecord>? skillCapChoices = null)
@@ -29,7 +28,6 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             PersonalAp = personalAp;
             CumulativeAp = cumulativeAp;
             PersonalBp = personalBp;
-            FacetCredits = facetCredits ?? Array.Empty<FacetCreditRecord>();
             Purchases = purchases ?? Array.Empty<NodePurchaseRecord>();
             Relationships = relationships ?? Array.Empty<RelationshipRecord>();
             SkillCapChoices = skillCapChoices ?? Array.Empty<SkillCapChoiceRecord>();
@@ -39,7 +37,6 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         public int PersonalAp { get; }
         public int CumulativeAp { get; }
         public int PersonalBp { get; }
-        public IReadOnlyList<FacetCreditRecord> FacetCredits { get; }
         public IReadOnlyList<NodePurchaseRecord> Purchases { get; }
 
         /// <summary>Per-Stone Bond/Attunement records for this character (T007). Active and Released
@@ -58,7 +55,6 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             .PutInt("personalAp", PersonalAp)
             .PutInt("cumulativeAp", CumulativeAp)
             .PutInt("personalBp", PersonalBp)
-            .PutList("facetCredit", FacetCredits, f => f.Serialize())
             .PutList("purchases", Purchases, p => p.Serialize())
             .PutList("relationships", Relationships, x => x.Serialize())
             .PutList("skillCapChoices", SkillCapChoices, c => c.Serialize())
@@ -67,12 +63,19 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
         public static CharacterStoneRecord Deserialize(string s)
         {
             var r = new SnapshotReader(s);
+            // POLITE REMOVAL of the retired "facetCredit" list (ADO #132). Character snapshots are
+            // embedded in durable journals and replayed on boot, so a pre-existing snapshot still
+            // CARRIES this key. It is deliberately not read: the balance it held is not migrated into
+            // Personal AP, because under the withdrawn rule nothing could ever mint a non-zero credit
+            // (no RevokeTree exists), so every recorded value is structurally 0 and the correct
+            // Stone-wide Personal AP is the one already derived from the purchase journal. Reading it
+            // would be the double-credit bug. The key is simply ignored — an unread key never throws,
+            // and a snapshot written by this build no longer emits it.
             return new CharacterStoneRecord(
                 new StoneId(r.GetString("stoneId")),
                 r.GetInt("personalAp"),
                 r.GetInt("cumulativeAp"),
                 r.GetInt("personalBp"),
-                r.GetList("facetCredit", FacetCreditRecord.Deserialize),
                 r.GetList("purchases", NodePurchaseRecord.Deserialize),
                 // Backward-compatible: pre-T007 snapshots carry no relationships list.
                 r.HasKey("relationships.count")
@@ -82,31 +85,6 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 r.HasKey("skillCapChoices.count")
                     ? r.GetList("skillCapChoices", SkillCapChoiceRecord.Deserialize)
                     : null);
-        }
-    }
-
-    /// <summary>Facet Credit keyed by StoneId + FacetId, separate from Personal AP, with source
-    /// purchase/revocation provenance (data-model.md CharacterProgression "Revocation credit").</summary>
-    public sealed class FacetCreditRecord
-    {
-        public FacetCreditRecord(string facetId, int amount, string sourceProvenance)
-        {
-            FacetId = facetId ?? string.Empty;
-            Amount = amount;
-            SourceProvenance = sourceProvenance ?? string.Empty;
-        }
-
-        public string FacetId { get; }
-        public int Amount { get; }
-        public string SourceProvenance { get; }
-
-        public string Serialize() => new SnapshotWriter()
-            .Put("facet", FacetId).PutInt("amount", Amount).Put("prov", SourceProvenance).Build();
-
-        public static FacetCreditRecord Deserialize(string s)
-        {
-            var r = new SnapshotReader(s);
-            return new FacetCreditRecord(r.GetString("facet"), r.GetInt("amount"), r.GetString("prov"));
         }
     }
 

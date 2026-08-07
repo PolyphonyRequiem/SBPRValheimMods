@@ -92,7 +92,7 @@ namespace SBPR.Trailborne.Tests
                         "CharacterEffect", VersionedId.None, "op-buy-ff")
                 }
                 : null;
-            var stoneRecord = new CharacterStoneRecord(_stone, 3, 3, 1, null, purchases, null);
+            var stoneRecord = new CharacterStoneRecord(_stone, 3, 3, 1, purchases, null);
             return new CharacterProgressionAggregate(account, character,
                 "world-scope", revision, 2, 2, "receipt", new[] { stoneRecord });
         }

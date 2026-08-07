@@ -14,7 +14,7 @@ verification: authoritative `origin/main` merge `51e59dc3d145183326ccd29a7998818
 | T2 | Cross-Tree BP spend gated by Governor Responsibility Range (`OutsideResponsibilityRange` when denied) | `tests/NiflheimBpDevelopmentTests.cs:445` |
 | T3 | Node development + equal cumulative Tree investment are one accepted mutation | `tests/NiflheimBpDevelopmentTests.cs:251` |
 | T4 | Cooking Tree advances 1→2 via configurable cumulative threshold only; no direct level meter; Active-Stone-Level cap holds | `tests/NiflheimBpDevelopmentTests.cs:276,290,324,344` |
-| T5 | Offering + personal AP/Facet-Credit purchase ownership/provenance; one debit + one record | `tests/NiflheimPurchaseTierTests.cs:277,490,302` |
+| T5 | Offering + personal AP/Facet-Credit purchase ownership/provenance; one debit + one record [^superseded-t5] | `tests/NiflheimPurchaseTierTests.cs:277,490,302` |
 | T6 | Same-Tree Tier Access DERIVED (never stored); Swift prior-Offered-Set exclusion; sibling/Local inert | `tests/NiflheimPurchaseTierTests.cs:346,370,394` |
 | T7 | Local nodes complete but are never Offered/purchased (`NodeNotOffered`) | `tests/NiflheimBpDevelopmentTests.cs:593`; `tests/NiflheimPurchaseTierTests.cs:246,259` |
 | T8 | One Settlement-wide Local policy, no per-effect override; placement = policy AND ordinary build Permission | `tests/NiflheimLocalPolicyDormancyTests.cs:150,173,202` |
@@ -25,3 +25,9 @@ verification: authoritative `origin/main` merge `51e59dc3d145183326ccd29a7998818
 | T13 | Engine-free: no UnityEngine/BepInEx/ZNetView/Harmony/Valheim type in tested source; net8 link-compile = real execution. Restart is in-process rehydration; NO playable/live-client claim | README §"Engine-free vs real-runtime honesty" |
 
 - [README.md](README.md) — full analysis and PASS verdict
+
+[^superseded-t5]: **Provenance annotation (ADO #132, 2026-08-06).** Manifest row T5's Facet-Credit payment
+    clause (`NiflheimPurchaseTierTests.cs:490`) verifies a since-superseded contract — Facet Credit was
+    withdrawn and a revocation refund now returns ordinary Stone-wide Personal AP (ADO #106, #132). The PASS
+    is not invalidated and is NOT re-run: the code it verified has not changed. See the fuller note in
+    `README.md`. All other rows are unaffected.

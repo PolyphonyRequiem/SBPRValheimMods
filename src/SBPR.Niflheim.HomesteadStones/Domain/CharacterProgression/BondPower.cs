@@ -21,7 +21,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
     //     mutation (InsufficientBp); a non-positive credit/debit amount is rejected (NonPositiveAmount).
     //   * BP is Stone-wide: it is keyed only by StoneId on the character aggregate, never by Tree. A
     //     credit/debit finds (or creates, for credit) the character's record at that Stone and adjusts
-    //     ONLY its PersonalBp — Personal AP, Cumulative AP, Facet Credit, purchases, and relationships
+    //     ONLY its PersonalBp — Personal AP, Cumulative AP, purchases, and relationships
     //     are preserved verbatim.
     //   * Every other Stone record on the aggregate is preserved verbatim (one Governor's Stone balance
     //     is independent of every other Stone AND of every other character).
@@ -134,7 +134,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
                 {
                     found = true;
                     records.Add(new CharacterStoneRecord(sr.StoneId, sr.PersonalAp, sr.CumulativeAp,
-                        newBp, sr.FacetCredits, sr.Purchases, sr.Relationships, sr.SkillCapChoices));
+                        newBp, sr.Purchases, sr.Relationships, sr.SkillCapChoices));
                 }
                 else
                 {

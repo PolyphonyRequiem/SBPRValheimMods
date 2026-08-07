@@ -96,7 +96,7 @@ namespace SBPR.Trailborne.Tests
                 : null;
             var stone = stoneOverride ?? StoneId.FromHostZone(new WorldId("uid:rel-777"), 12, -4);
             var stoneRecord = new CharacterStoneRecord(stone, personalAp, personalAp, personalBp,
-                facetCredits: null, purchases: purchases);
+                purchases: purchases);
             return new CharacterProgressionAggregate(account, character,
                 worldProductScope: "rel-777/trailborne", revision: 0,
                 bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",

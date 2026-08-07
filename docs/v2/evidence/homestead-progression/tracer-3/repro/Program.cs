@@ -123,6 +123,10 @@ namespace Tracer3Harness
             var bond = new RelationshipRecord(BondRelId, RelationshipKind.Bond, RelationshipStatus.Active,
                 "Homestead:All", "Governor", "relreceipt:seed-bond", string.Empty);
             var stoneRecord = new CharacterStoneRecord(Stone(), 7, 7, 4,
+                // ADO #132 provenance note: `facetCredits` was removed from CharacterStoneRecord when the
+                // Facet Credit rule was retired. This file is FROZEN Tracer-3 evidence — it is not compiled
+                // by any project and is preserved verbatim as the artifact that was actually run. Do not
+                // "fix" it; it will not compile against current source, and that is correct.
                 facetCredits: null, purchases: null, relationships: new[] { bond });
             return new CharacterProgressionAggregate(Account, Governor, "facet-harness/trailborne",
                 revision: 2, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",

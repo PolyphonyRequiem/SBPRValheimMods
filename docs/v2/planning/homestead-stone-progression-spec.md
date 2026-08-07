@@ -224,11 +224,11 @@ the same Stone-identity command seam from a non-proximate test client.
    atomic operation commits, **then** Stone-owned commitment, cumulative BP development, node development,
    Local Nodes, and personal-node offerings are deleted with no BP refund.
 4. **Given** revocation removes refundable Character-Effect purchases, **when** it commits, **then** each AP
-   value becomes Facet Credit attached to that character's vacated Stone Facet; Permanent Effects and
+   value is returned to that character as ordinary Stone-wide Personal AP, in full; Permanent Effects and
    Progression Keys survive without refund.
-5. **Given** a replacement Tree is committed, **when** the character inspects it, **then** Facet Credit is
-   available for deliberate eligible purchases but buys nothing automatically; recommitting the old Tree does
-   not restore removed purchases.
+5. **Given** a replacement Tree is committed, **when** the character inspects it, **then** nothing is purchased
+   automatically; recommitting the old Tree does not restore removed purchases. Refunded Personal AP is
+   Stone-wide and may be deliberately spent on any Facet.
 6. **Given** relog or server restart under the same proof build, **when** state reloads, **then** authoritative
    earned state and provenance persist, current-build references validate, and active effects are re-derived.
 7. **Given** an authorized remote-shaped command with current revisions and already-satisfied world
@@ -292,7 +292,8 @@ the same Stone-identity command seam from a non-proximate test client.
   exactly N Personal AP, N Cumulative AP Earned, N Mirrored Stone AP, and provenance. Mirrored Stone AP MUST
   only accumulate in this proof; it has no spend, threshold, or Facet operation yet.
 - **FR-009:** Personal AP MUST be one Stone-wide character balance and MUST NOT be bound to a source Tree or
-  Personal Target; Facet Credit MUST remain separate and keyed to its Stone Facet.
+  Personal Target; a revocation refund MUST return ordinary Stone-wide Personal AP and MUST NOT introduce a
+  Facet-keyed balance separate from it.
 - **FR-010:** BP MUST be one personal balance per bonded character per Stone, spendable across every Committed
   Tree in that Governor's Responsibility Range; different Governors MUST NOT share balances.
 - **FR-011:** BP MUST be spent developing eligible nodes and offerings; accepted spends MUST also contribute to
@@ -352,7 +353,7 @@ the same Stone-identity command seam from a non-proximate test client.
   provenance state.
 - **Account–Stone Active-Character Index:** Variant-authored authority/anti-abuse constraint, not gameplay progression.
 - **Character Progression Aggregate:** Character-owned relationships, relationship slots, AP/BP, purchases,
-  Facet Credit, durable outcomes, and choices, keyed by Stone where applicable.
+  durable outcomes, and choices, keyed by Stone where applicable.
 - **Content Registry:** Current-build stable-ID definitions for Facets, Tree palettes, Trees, nodes, activities,
   catalogs, and properties.
 - **Operation Receipt:** Idempotent audit record binding principal, Stone, command/payload, revisions, deltas,
@@ -372,8 +373,8 @@ the same Stone-identity command seam from a non-proximate test client.
   unaffected by sibling Trees, Local Nodes, or unavailable nodes.
 - **SC-005:** Attunement release/rejoin and voluntary Bond release/rejoin preserve the exact character/Stone state
   defined in User Story 5, dormancy is derived correctly, no refund/cooldown is invented, and governance restores safely.
-- **SC-006:** Tree revocation/replacement produces no BP refund, no automatic replacement purchase, correct
-  per-character Facet Credit, and survival of Permanent Effects and Progression Keys.
+- **SC-006:** Tree revocation/replacement produces no BP refund, no automatic replacement purchase, a correct
+  full per-character Personal AP refund, and survival of Permanent Effects and Progression Keys.
 - **SC-007:** Every mutation boundary is replay-safe and race-safe: no negative/double balance, split receipt,
   double level, duplicate property, duplicate cap choice, or partial revocation.
 - **SC-008:** At least one progression selection executes through the reusable Stone-identity command/read-model

@@ -22,7 +22,7 @@ account/character authority and progression state, versioned content, operation 
 activation behind explicit Stone-identity commands/read models. It will prove a preconfigured Stone-Level-2
 Homestead journey through authenticated AP mirroring, Tree commitment, one personal Stone-wide BP balance,
 BP-driven Cooking node development and Tree advancement, personal purchases, 13 executable nodes,
-revocation/Facet Credit, relationship release/dormancy, and recovery.
+revocation and the Personal-AP refund, relationship release/dormancy, and recovery.
 
 The work proceeds as dependency-linked tracer bullets. Gate A—authenticated identity plus one atomic,
 idempotent AP receipt—blocks all gameplay progression work.
@@ -276,10 +276,10 @@ unavailable.
 ### Tracer 9 — Revocation, cross-Tree suite, recovery, and remote-shaped command
 
 **Goal:** exercise all branches over at least three preconfigured test Homesteads, Tree revocation/replacement
-Facet Credit, Attunement/Bond release/rejoin, relog/restart, explicit incompatible-test-data reset, and one
+and the Personal-AP refund, Attunement/Bond release/rejoin, relog/restart, explicit incompatible-test-data reset, and one
 non-proximate selection through the shared command seam.
 
-**Named acceptance:** `AT-REVOKE-ATOMIC`, `AT-REVOKE-NO-BP-REFUND`, `AT-FACET-CREDIT`,
+**Named acceptance:** `AT-REVOKE-ATOMIC`, `AT-REVOKE-NO-BP-REFUND`, `AT-REVOKE-AP-REFUND`,
 `AT-REPLACEMENT-NO-AUTOBUY`, `AT-DURABLE-OUTCOMES-SURVIVE`, `AT-CROSS-TREE-13`,
 `AT-UNAVAILABLE-7`, `AT-REMOTE-SHAPED`, `AT-LOCAL-EVIDENCE-NOT-REMOTE`,
 `AT-UNRELEASED-DATA-RESET`, `AT-RESTART-SUITE`.

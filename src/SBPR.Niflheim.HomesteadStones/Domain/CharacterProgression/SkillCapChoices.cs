@@ -305,7 +305,7 @@ namespace SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression
             foreach (var c in sr.SkillCapChoices) choices.Add(c);
             choices.Add(record);
             return new CharacterStoneRecord(sr.StoneId, sr.PersonalAp, sr.CumulativeAp, sr.PersonalBp,
-                sr.FacetCredits, sr.Purchases, sr.Relationships, choices);
+                sr.Purchases, sr.Relationships, choices);
         }
     }
 }

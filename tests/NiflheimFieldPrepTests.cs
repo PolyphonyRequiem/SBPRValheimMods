@@ -107,7 +107,7 @@ namespace SBPR.Trailborne.Tests
                 }
                 : null;
 
-            var stoneRecord = new CharacterStoneRecord(_stone, 3, 3, 1, null, purchases, null);
+            var stoneRecord = new CharacterStoneRecord(_stone, 3, 3, 1, purchases, null);
             return new CharacterProgressionAggregate(_account, character,
                 "world-scope", 1, 2, 2, "receipt", new[] { stoneRecord });
         }

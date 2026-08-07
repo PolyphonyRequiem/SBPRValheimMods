@@ -41,7 +41,7 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
         WrongTreePurchase,          // a purchase's claimed Tree does not own the resolved node
         UnavailableNodeDevelopment, // a developed node is first-build Unavailable (rejects development)
         UnavailableNodePurchased,   // a purchase references a first-build Unavailable node
-        NegativeLedgerValue         // a modeled ledger field (committed BP, node BP progress/cost, facet credit) is negative
+        NegativeLedgerValue         // a modeled ledger field (committed BP, node BP progress/cost) is negative
     }
 
     public readonly struct QuarantineNotice
@@ -236,14 +236,9 @@ namespace SBPR.Niflheim.HomesteadStones.Persistence.Recovery
                     notices.Add(new QuarantineNotice(QuarantineReason.NegativeCharacterBalance, sr.StoneId.Value,
                         "PersonalAp=" + sr.PersonalAp + " CumulativeAp=" + sr.CumulativeAp + " PersonalBp=" + sr.PersonalBp));
 
-                // Facet Credit is a non-negative ledger (data-model.md §"Validation and recovery":
-                // validate all ledger non-negativity). A negative credit amount is corrupt state.
-                foreach (var fc in sr.FacetCredits)
-                {
-                    if (fc.Amount < 0)
-                        notices.Add(new QuarantineNotice(QuarantineReason.NegativeLedgerValue, sr.StoneId.Value,
-                            "facet credit '" + fc.FacetId + "' Amount=" + fc.Amount + " is negative"));
-                }
+                // The retired Facet-Credit ledger no longer exists (ADO #132). Its non-negativity
+                // invariant is not lost: a revocation refund now lands in Personal AP, whose
+                // non-negativity is asserted immediately above as NegativeCharacterBalance.
 
                 foreach (var p in sr.Purchases)
                 {

@@ -83,7 +83,7 @@ namespace SBPR.Trailborne.Tests
                 purchases.Add(new NodePurchaseRecord(Cooking, FieldPrep, "ap:personal",
                     "CharacterEffect", VersionedId.None, "op-buy-fp"));
 
-            var stoneRecord = new CharacterStoneRecord(_stone, 3, 3, 1, null,
+            var stoneRecord = new CharacterStoneRecord(_stone, 3, 3, 1,
                 purchases.Count > 0 ? purchases.ToArray() : null, null);
             return new CharacterProgressionAggregate(_account, _character,
                 "world-scope", 1, 2, 2, "receipt", new[] { stoneRecord });

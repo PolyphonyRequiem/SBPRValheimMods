@@ -771,7 +771,7 @@ namespace SBPR.Trailborne.Tests
             var bond = new RelationshipRecord(BondRelId, RelationshipKind.Bond, RelationshipStatus.Active,
                 "Homestead:All", "Governor", "relreceipt:seed-bond", string.Empty);
             var stoneRecord = new CharacterStoneRecord(_stone, 0, 0, personalBp,
-                facetCredits: null, purchases: null, relationships: new[] { bond });
+                purchases: null, relationships: new[] { bond });
             return new CharacterProgressionAggregate(account, character, "corrupt-129/trailborne",
                 revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[] { stoneRecord });
@@ -782,7 +782,7 @@ namespace SBPR.Trailborne.Tests
             var att = new RelationshipRecord(AttRelId, RelationshipKind.Attunement, RelationshipStatus.Active,
                 string.Empty, string.Empty, "relreceipt:seed-att", string.Empty);
             var stoneRecord = new CharacterStoneRecord(_stone, personalAp, personalAp, 0,
-                facetCredits: null, purchases: null, relationships: new[] { att });
+                purchases: null, relationships: new[] { att });
             return new CharacterProgressionAggregate(account, character, "corrupt-129/trailborne",
                 revision: 1, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[] { stoneRecord });
@@ -791,7 +791,7 @@ namespace SBPR.Trailborne.Tests
         private CharacterProgressionAggregate BuildBareCharacter(AccountId account, CharacterId character)
         {
             var stoneRecord = new CharacterStoneRecord(_stone, 0, 0, 0,
-                facetCredits: null, purchases: null);
+                purchases: null);
             return new CharacterProgressionAggregate(account, character, "corrupt-129/trailborne",
                 revision: 0, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                 stoneRecords: new[] { stoneRecord });
