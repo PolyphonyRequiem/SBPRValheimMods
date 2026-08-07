@@ -308,7 +308,38 @@ within this branch.
 **Purpose:** Close lifecycle and integration boundaries only after all four family branches pass.
 
 - [x] **T033 [US5] Implement atomic Tree revocation and the Personal-AP refund.** Revocation transitions in `Domain/StoneProgression/TreeRevocation.cs` (`Preview` computes the loss and mutates nothing; `RevokeTree` deletes the commitment, its cumulative BP and the Tree's node development), the receipt-backed authority-gated `Application/Commands/RevocationCommands.cs` (`PreviewRevocation` + `Handle`, Governor Bond + Responsibility Range + dual-revision CAS, one replayable operation naming the complete reversal set), and `tests/NiflheimTreeRevocationTests.cs` (18 tests over the real handlers and durable journals). The refund primitive already existed: `PurchaseCommandHandler.AppendPurchaseCancellation` appends a cancellation entry naming the purchase it reverses, and the spendable-Personal-AP derivation excludes it (ADO #132) — no stored balance, no second ledger, no Facet-keyed credit was introduced. That primitive was `public` and UNGUARDED; ADO #137 narrowed it to `internal` and made this handler its one production caller. Acceptance: `AT-REVOKE-TWO-STEP`, `AT-REVOKE-ATOMIC`, `AT-REVOKE-NO-BP-REFUND`, `AT-REVOKE-AP-REFUND`, `AT-REPLACEMENT-NO-AUTOBUY`, `AT-DURABLE-OUTCOMES-SURVIVE`. **Logs-green ≠ playable:** the step-one warning is a player-facing surface and was proven in tests only — no in-world client verification, which belongs to Tracer 9 / T037. Telling a RETURNING player what happened is out of scope (ADO #136/#131); this card is that surface's first producer, not its owner.
-- [ ] **T034 [US5] Complete relog/restart/rejoin recovery and explicit disposable-data reset across all aggregates.** Extend `Persistence/Recovery/ProgressionStateRepair.cs`, add operator inspection/quarantine output in `Features/Progression/ProgressionDiagnostics.cs`, and run process-kill/restart fixtures across relationship, purchase, item, choice, and revocation boundaries. Acceptance: `AT-RESTART-SUITE`, `AT-UNRELEASED-DATA-RESET`.
+- [x] **T034 [US5] Complete relog/restart/rejoin recovery and explicit disposable-data reset across all aggregates.** Extend `Persistence/Recovery/ProgressionStateRepair.cs`, add operator inspection/quarantine output in `Features/Progression/ProgressionDiagnostics.cs`, and run process-kill/restart fixtures across relationship, purchase, item, choice, and revocation boundaries. Acceptance: `AT-RESTART-SUITE`, `AT-UNRELEASED-DATA-RESET`.
+  - Implementation landed (engine-free, headless). `ProgressionStateRepair.Scan` now also enforces the
+    RELATIONSHIP boundary data-model.md §"Validation and recovery" requires — "compare account–Stone index to
+    active relationship records" — isolating an index reservation with no matching ACTIVE character record
+    (`OrphanedAuthorityReservation`), an ACTIVE character record the index does not reserve
+    (`UnreservedActiveRelationship`), and a Bond-vs-Attunement disagreement between the two sides
+    (`RelationshipKindMismatch`); plus the same node recorded twice as a personal purchase at one Stone
+    (`DuplicatePurchase`), which is the fingerprint of a re-applied projection and would double a derived
+    refund. As always these are ISOLATED with a reason, never reconciled by guessing which side is right.
+    New `Features/Progression/ProgressionDiagnostics.cs` is the operator inspection/quarantine surface: it
+    re-derives no invariant of its own (every notice comes from the shipped `Scan`) and prints the DERIVED
+    answer — balances, purchase/relationship/choice counts, committed-Tree and developed/offered tallies, the
+    per-caller active/dormant projection, and a stable `DerivedFingerprint` — BESIDE the quarantine verdict,
+    plus a rendered `BootIsNotCorrectnessCaveat`, because "it still boots" is not "it derives the right
+    answer". `RenderReset` makes an explicit disposable-fixture reset auditable (what was discarded, what was
+    preserved, and that it is not a production migration). New `tests/NiflheimRestartRecoveryTests.cs` (12
+    tests) drives restart fixtures across all five boundaries — relationship release/rejoin, purchase, item
+    stamp, permanent skill-cap choice, and revocation — through the REAL handlers on real durable journals,
+    every boot gate paired with a correctness gate (re-derived spendable AP taken independently off the
+    purchase journal, and an identical fingerprint across the restart). The revocation coverage is the kill
+    window ADO #137 opened, not a duplicate of `NiflheimTreeRevocationTests`' two-restart test: the purchase
+    journal is TRUNCATED at the exact byte offset preceding the cancellation frames (a process death between
+    the terminal revocation record and its refunds), and reconvergence is proven to land the refund exactly
+    once — neither lost nor doubled; a kill BEFORE the terminal record is proven to apply nothing. NOTE the
+    idempotency shape: every boot re-appends the recorded cancellations, so cancellation ROW count grows with
+    restarts while the derived BALANCE stays put — reversals collect into a SET in the spend derivation, so
+    the balance is the correctness gate, never the row count. One pre-existing T005 fixture was corrected: its
+    "clean" state reserved a relationship the character record never held, which the new relationship-boundary
+    check correctly flags. Suite 1720/1720, both net48 Release builds 0 warnings / 0 errors, docs-lint OK,
+    `git diff --check` clean, `SpecCheck.cs` checked and correctly UNCHANGED (no recipe/piece/station moved).
+    NO in-world verification: there was no game client for this work, so nothing here is evidence that a
+    joined client can do any of it. Independent verification is T037; this box marks code+tests+docs landed.
 - [ ] **T035 [US5] Prove one non-proximate selection through the shared Stone-identity command seam without remote evidence fabrication.** Add transport-neutral routing in `Features/Progression/ProgressionCommandEndpoint.cs`, the compact portfolio query in `Application/Queries/GetRelationshipPortfolio.cs`, and bounded revision/invalidation notifications in `Application/Queries/ProgressionNotifications.cs`; keep local/server-observed evidence adapters non-client-callable, add hostile remote contract tests, and produce a joined-client proof away from the Stone. Acceptance: `AT-REMOTE-SHAPED`, `AT-LOCAL-EVIDENCE-NOT-REMOTE`.
 - [ ] **T036 [US1] [US5] Add the progression runtime conformance and bounded observability surface.** Add `Features/Progression/ProgressionConformance.cs` for registry/version, Facet/Tree/node counts, executable/unavailable status, required handlers/providers, stable IDs, and startup recovery report; add config-gated diagnostics that avoid secrets/raw PII; and update `AGENTS.md` only if a new always-on rule is required. A green conformance report proves shape, never playability.
 - [ ] **T037 [US4] [US5] Independently verify the complete technical proof.** A non-author runs at least three preconfigured Stone-Level-2 Homesteads, all relationship and hostile-client cases, all four family branches, revocation/replacement, restart/reset, and the remote-shaped command. Confirm each of the 13 executable nodes has its own joined-client/in-world artifact and all seven unavailable nodes reject AP/BP/Offering/activation. Record the final matrix under `docs/v2/evidence/homestead-progression/tracer-9/`. Acceptance: `AT-CROSS-TREE-13`, `AT-UNAVAILABLE-7`.

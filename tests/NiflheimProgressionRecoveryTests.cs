@@ -304,8 +304,14 @@ namespace SBPR.Trailborne.Tests
             IReadOnlyList<NodePurchaseRecord>? purchases = null,
             int personalAp = 3, int personalBp = 5)
         {
+            // T034: the character-side ACTIVE Bond record matching BuildAuthority's reservation.
+            // Scan now compares the account-Stone index against the active relationship records
+            // (data-model.md §"Validation and recovery"), so a clean fixture must carry BOTH sides —
+            // an index reserving a relationship the character never held is itself a contradiction.
+            var bond = new RelationshipRecord("rel", RelationshipKind.Bond, RelationshipStatus.Active,
+                "Homestead:All", "Governor", "receipt:act", string.Empty);
             var sr = new CharacterStoneRecord(Stone, personalAp, personalAp, personalBp,
-                purchases: purchases);
+                purchases: purchases, relationships: new[] { bond });
             return new CharacterProgressionAggregate(Account, Character, "world/prod",
                 revision: 3, bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "receipt:c",
                 stoneRecords: new[] { sr });
