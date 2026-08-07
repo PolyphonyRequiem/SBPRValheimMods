@@ -222,7 +222,9 @@ the same Stone-identity command seam from a non-proximate test client.
    development stop, and no refund or cooldown is created. A later valid Bond restores eligible governance.
 3. **Given** an authorized Governor revokes a Committed Tree, **when** the
    atomic operation commits, **then** Stone-owned commitment, cumulative BP development, node development,
-   Local Nodes, and personal-node offerings are deleted with no BP refund.
+   Local Nodes, and personal-node offerings are deleted with no BP refund. Revocation is a **two-step act**:
+   before anything is destroyed the Governor is told how much node development and Bond Power will be lost,
+   and abandoning that first step mutates nothing at all.
 4. **Given** revocation removes refundable Character-Effect purchases, **when** it commits, **then** each AP
    value is returned to that character as ordinary Stone-wide Personal AP, in full; Permanent Effects and
    Progression Keys survive without refund.

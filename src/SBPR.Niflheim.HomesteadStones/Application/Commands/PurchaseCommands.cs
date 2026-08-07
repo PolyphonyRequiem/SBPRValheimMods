@@ -424,12 +424,115 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             return reversed;
         }
 
+        /// <summary>One committed, still-unreversed, refundable Character-Effect purchase discovered for
+        /// a Tree revocation fan-out (ADO #137). Carries the journal operation id the cancellation must
+        /// name, the owning principal, and the exact AP value that will be returned.</summary>
+        public readonly struct RefundablePurchase
+        {
+            public RefundablePurchase(string operationId, AccountId account, CharacterId character,
+                VersionedId node, int apValue)
+            {
+                OperationId = operationId ?? string.Empty;
+                Account = account;
+                Character = character;
+                Node = node;
+                ApValue = apValue;
+            }
+
+            public string OperationId { get; }
+            public AccountId Account { get; }
+            public CharacterId Character { get; }
+            public VersionedId Node { get; }
+            public int ApValue { get; }
+        }
+
+        /// <summary>ADO #137 — every committed purchase in this journal that a revocation of
+        /// <paramref name="tree"/> at <paramref name="stoneId"/> must reverse, across ALL characters.
+        /// Deterministic (a fold over durable records in journal order) and side-effect free: this is
+        /// the discovery half of the fan-out, so the caller can journal the exact reversal set BEFORE
+        /// writing any of it.
+        ///
+        /// <para>Four exclusions, each load-bearing:</para>
+        /// <list type="bullet">
+        /// <item>ALREADY REVERSED — a purchase named by an existing cancellation is not returned, so a
+        /// re-run of revocation refunds nothing twice even before the set-valued derivation deduplicates.</item>
+        /// <item>NOT <c>PersonalAP</c> — a purchase recorded under the RETIRED Facet-Credit source never
+        /// debited Personal AP, so it must never refund it (ADO #132). Those records persist forever in
+        /// pre-existing worlds and replay on every boot; this is where they stay correctly excluded, and
+        /// it is what keeps the degenerate "refund a Facet-Credit purchase" case unreachable.</item>
+        /// <item>NOT <c>CharacterEffect</c> — Permanent Effects and Progression Keys SURVIVE revocation
+        /// with no refund (spec US5 scenario 4, AT-DURABLE-OUTCOMES-SURVIVE).</item>
+        /// <item>OTHER TREE / OTHER STONE — only the revoked commitment's own purchases reverse.</item>
+        /// </list>
+        /// <para>The node/Tree/outcome identity is read from the committed record's own character
+        /// SNAPSHOT (the purchase the record appended is its last purchase entry for that Stone), not
+        /// from a new journal field: the frame layout is durable and pre-existing worlds must keep
+        /// parsing at exactly 15 fields.</para></summary>
+        internal List<RefundablePurchase> FindRefundablePurchases(StoneId stoneId, VersionedId tree)
+        {
+            var reversed = ReversedOperationIds();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var found = new List<RefundablePurchase>();
+
+            foreach (var line in ReadDurable())
+            {
+                var rec = ParseRecord(line);
+                if (rec == null || rec.Value.Boundary != PurchaseBoundary.Committed) continue;
+                var r = rec.Value.Record;
+                if (!seen.Add(r.OperationId)) continue;
+                if (reversed.Contains(r.OperationId)) continue;
+                if (!string.Equals(r.StoneId, stoneId.Value, StringComparison.Ordinal)) continue;
+                if (!string.Equals(r.PaymentSource, "PersonalAP", StringComparison.Ordinal)) continue;
+
+                var purchase = LastPurchaseIn(r.CharacterSnapshot, stoneId);
+                if (purchase == null) continue;
+                if (!string.Equals(purchase.Tree.Key, tree.Key, StringComparison.Ordinal)) continue;
+                if (!string.Equals(purchase.OutcomeClass, "CharacterEffect", StringComparison.Ordinal)) continue;
+
+                found.Add(new RefundablePurchase(r.OperationId, new AccountId(r.AccountId),
+                    new CharacterId(r.CharacterId), purchase.Node, r.ApDebited));
+            }
+            return found;
+        }
+
+        /// <summary>The purchase a committed record appended: the LAST entry of its character snapshot's
+        /// purchase list for that Stone, since the pure transition appends exactly one. Null when the
+        /// snapshot is unreadable or carries no purchase for the Stone — an unreadable record is skipped,
+        /// never guessed at, because guessing here would refund the wrong purchase.</summary>
+        private static NodePurchaseRecord? LastPurchaseIn(string characterSnapshot, StoneId stoneId)
+        {
+            if (string.IsNullOrEmpty(characterSnapshot)) return null;
+            CharacterProgressionAggregate character;
+            try
+            {
+                character = CharacterProgressionAggregate.Deserialize(characterSnapshot);
+            }
+            catch (FormatException) { return null; }
+            catch (KeyNotFoundException) { return null; }
+
+            foreach (var sr in character.StoneRecords)
+            {
+                if (!sr.StoneId.Equals(stoneId)) continue;
+                if (sr.Purchases.Count == 0) return null;
+                return sr.Purchases[sr.Purchases.Count - 1];
+            }
+            return null;
+        }
+
         /// <summary>Append a cancellation entry reversing <paramref name="reversedOperationId"/> — the
-        /// durable refund primitive Tree revocation will use (ADO #106 decision 2). It removes nothing:
+        /// durable refund primitive Tree revocation uses (ADO #106 decision 2). It removes nothing:
         /// the reversed purchase record stays in the journal forever and the derivation simply stops
         /// counting it as spent, so the refund lands as ordinary Stone-wide Personal AP. Appending the
-        /// same reversal again is a no-op on the derived balance.</summary>
-        public void AppendPurchaseCancellation(string reversedOperationId, string cancellationOperationId)
+        /// same reversal again is a no-op on the derived balance.
+        ///
+        /// <para>DELIBERATELY <c>internal</c> (ADO #137). It writes a durable, permanently-honoured
+        /// refund with no authority check and no receipt, so it must not be a public entry point: the
+        /// ONE production caller is <see cref="RevocationCommandHandler"/>, which authenticates the
+        /// principal, enforces Governor authority and dual-revision CAS, and journals the whole fan-out
+        /// under one replayable operation before any cancellation is written. The net8 test project
+        /// link-compiles this source, so the guard tests still reach it without a friend assembly —
+        /// narrowing cost nothing here.</para></summary>
+        internal void AppendPurchaseCancellation(string reversedOperationId, string cancellationOperationId)
         {
             if (string.IsNullOrEmpty(reversedOperationId))
                 throw new ArgumentNullException(nameof(reversedOperationId));
