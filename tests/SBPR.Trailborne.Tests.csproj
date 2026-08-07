@@ -469,6 +469,21 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/DonationMenu.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/StockWithdrawalPermission.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StoneStockRegistry.cs" />
+    <!-- T035 (Tracer 9): the reusable, TRANSPORT-NEUTRAL command/read seam that makes one non-proximate
+         progression selection possible without any remote evidence fabrication.
+         * ProgressionCommandEndpoint.cs routes an envelope onto the ALREADY-ACCEPTED receipt-backed
+           handlers and owns no gameplay logic. Its exhaustive routability table classifies the
+           server-observed evidence commands NON-CLIENT-CALLABLE and rejects them before any handler is
+           consulted (AT-LOCAL-EVIDENCE-NOT-REMOTE); nothing in its input names a position or a panel
+           (AT-REMOTE-SHAPED). Despite living under Features/, it is engine-free and carries NO
+           [HarmonyPatch] class, so it link-compiles here and every hostile branch is unit-tested.
+         * GetRelationshipPortfolio.cs is the compact, caller-scoped Stones-UI-shaped portfolio read:
+           stable ids + status + revisions only, never balances or ledgers.
+         * ProgressionNotifications.cs is the BOUNDED revision/invalidation pair for the progression read
+           model — per-subscriber monotonic events that carry no data and are never authority. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Queries/GetRelationshipPortfolio.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/Progression/ProgressionCommandEndpoint.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Queries/ProgressionNotifications.cs" />
   </ItemGroup>
 
   <ItemGroup>

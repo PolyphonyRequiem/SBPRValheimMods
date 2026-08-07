@@ -640,6 +640,44 @@ Future Stones-UI-shaped query returning all Stones related to the authenticated 
 revisions/status and links/keys for full `GetStoneProgressionView` queries. This proof needs only enough shape
 to demonstrate that the current Homestead commands are not bound to a nearby panel.
 
+**Implemented (T035, `Application/Queries/GetRelationshipPortfolio.cs`).** One row per relationship the
+AUTHENTICATED caller's own character aggregate carries, active and released alike (a returning player's UI
+must be able to show what it can recover). A row is a LINK, not a ledger: stable `StoneId`, family/variant,
+relationship kind/status/id/Responsibility Range, whether the account–Stone authority index still reserves it,
+and the compact `stone`/`character`/`authority` revisions + content-registry version a follow-up
+`GetStoneProgressionView` or command must pass as its expected values. It carries NO balances (AP/BP), no
+purchases, no node catalog/statuses, and no policy allowlist — those stay behind the full read model. Identity
+is the shared `PrincipalResolver`, so a payload claim naming another principal is rejected `PrincipalMismatch`
+and a bound caller can never enumerate a sibling's or another account's rows. A Stone this server holds no
+aggregate for is reported `StoneResolved=false` with zero revisions rather than a fabricated zeroed Stone.
+Pure: it derives on every call and stores nothing.
+
+### Transport-neutral command routing (`ProgressionCommandEndpoint`)
+
+**Implemented (T035, `Features/Progression/ProgressionCommandEndpoint.cs`).** The single routing surface that
+makes FR-024 concrete — the temporary in-world panel and the future remote Stones UI submit the SAME envelope
+and reach the SAME accepted, receipt-backed handlers, so one authorized progression selection can be executed
+away from the Stone (`AT-REMOTE-SHAPED`).
+
+- The endpoint owns NO gameplay logic: no authority check, no revision arithmetic, no journal, no ledger. Every
+  FR-025 revalidation (authority, relationship, responsibility, balances, requirements, content version,
+  revisions, replay/idempotency) remains in the shipped handler and fires on EVERY submission, proximate or
+  not. A rejected submission returns the handler's verbatim result code.
+- The envelope and payload carry NO position, Area, proximity, panel, or transport field. A client cannot lie
+  about where it stands because there is nowhere to say it — this is asserted structurally by test, so a future
+  proximity field fails the suite.
+- **`AT-LOCAL-EVIDENCE-NOT-REMOTE`.** An EXHAUSTIVE routability table classifies every command type, and its
+  default arm is `Rejected` so an unclassified addition cannot silently become reachable. The server-observed
+  evidence commands (`RecordFoundationalPlacement`, `RecordAlignedActivity` — the placement/presence/cooking/
+  crafting/combat facts attributed by the trusted adapters in `Adapters/Activities/`) are classified
+  `ServerObservedEvidenceOnly` and refused `EvidenceNotRemotelyInvocable` **before any handler is consulted**,
+  so a client message produces no receipt, no journal entry, and no balance movement. Reachability is checked
+  first regardless of composition, so the refusal is never a side effect of a missing handler.
+- Relationship FORMATION/RELEASE is proximate and owned by a separate card; it is classified
+  `ProximateRelationshipFlow` and refused `NotRemotelyInvocable` rather than widening the remote surface here.
+- A route whose handler was not composed rejects `HandlerUnavailable`. There is no permissive fallback.
+
+
 ## Effect delivery contracts
 
 These are derived-provider contracts, not direct ledger writes.
@@ -888,6 +926,24 @@ Stable machine codes are part of the contract; localized text is presentation.
 After a committed operation, publish a bounded invalidation/event containing stable entity IDs, new revisions,
 and result code. Do not broadcast entire character ledgers or trust notification order as authority. Clients
 that miss or reorder notifications fetch the current read model.
+
+**Implementation (progression READ MODEL invalidation, T035, `Application/Queries/ProgressionNotifications.cs`).**
+The sibling of the Local-Effect delivery pair below, for the read model a Stones UI renders. They are
+deliberately separate surfaces: an effect-activation change and a read-model change have different consumers
+and different fetch targets.
+
+- `ProgressionRevisionNotification` is the bounded event: stable `StoneId` + subscriber account, the command
+  type that moved it, the new Stone/character/policy revisions, a monotonic per-subscriber `Sequence`, and a
+  result code — never balances, purchases, relationships, or node rows. Its serialized form is fixed in field
+  count; there is no list to grow.
+- `ProgressionNotificationHub` publishes per-SUBSCRIBER only. An account must have subscribed for a Stone to
+  receive anything, so there is no broadcast path and a Stone mutation never leaks its revisions to an
+  unrelated account. `ProgressionCommandEndpoint` attaches a notification ONLY to a non-rejected outcome, so a
+  hostile caller cannot drive other clients into refetch storms with rejected submissions.
+- `ProgressionRevisionCache` is the client consumer. It learns authoritative revisions ONLY from a read model
+  it actually FETCHED, never from a notification, and uses an event solely to decide whether to refetch: ahead
+  sequence, or any moved revision. A dropped notification therefore cannot strand a client on stale data (the
+  next event it sees has moved revisions and forces the fetch), and a duplicate/reordered one is dropped.
 
 **Implementation (shared Local Effect runtime substrate, `t_02c13405`).** The bounded delivery seam is
 `Application/Activation/LocalActivationDelivery.cs` + `LocalActivationService.cs` + `LocalActivationClientCache.cs`:
