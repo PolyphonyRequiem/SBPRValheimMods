@@ -561,6 +561,22 @@ Facet/Tree/version, expected revisions, no conflicting in-flight mutation.
 Before the Governor confirms, revocation states how much node development / Bond Power will be lost:
 revocation is a two-step act (compute and present the loss, then confirm), not a single button.
 
+**Step one — `PreviewRevocation`.** Same payload, same validation, same authority: an unauthenticated,
+non-Governor, out-of-range, stale, protected-Tree, or uncommitted request is refused at the warning rather
+than being shown a loss it could never confirm. It returns the Tree Level, cumulative Bond Power, per-node
+development progress, and the destroyed node list, plus the per-character Personal-AP refunds the confirm
+would issue. It writes nothing — no journal record, no projection, no cancellation — so abandoning it is not
+a rollback; there is nothing to roll back. The loss presented is computed by the same function the confirm
+step uses over the same state, so the number shown is the number destroyed. A preview also reports the Stone
+revision it was computed against; passing that back as `expectedStoneRevision` on confirm fails closed
+(`StaleStoneRevision`) if the Stone moved, so a Governor cannot confirm a warning that has gone stale.
+
+**Step two — `RevokeTree`.** Re-validates from current authoritative state; the preview is advisory and is
+never accepted as a token of authority. The complete reversal set is decided before any of it is written and
+is named in the one committed record, so a physically multi-append fan-out is externally one convergent
+operation: replay after a crash re-derives exactly that set, and cancellation is idempotent by construction
+(reversals collect into a set, never a sum), so a refund converges to exactly once.
+
 A large fan-out may use a journaled multi-phase physical implementation, but its externally visible outcome
 must be one convergent operation. Partial revocation is never exposed as success.
 

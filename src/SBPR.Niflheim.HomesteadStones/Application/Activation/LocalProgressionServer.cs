@@ -37,6 +37,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         public const string ActivityJournalFile = "aligned-activity.journal";
         public const string LocalPolicyJournalFile = "local-policy.journal";
         public const string PurchaseJournalFile = "node-purchase.journal";
+        public const string RevocationJournalFile = "tree-revocation.journal";
 
         private LocalProgressionServer(
             IStoneAggregateStore stones,
@@ -52,6 +53,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             PersonalActivationService personalActivation,
             GovernorPresenceResolver governorPresence,
             HomesteadProgressionCatalog catalog,
+            IGovernorAuthorityPolicy governorAuthority,
             string durableDirectory)
         {
             Stones = stones;
@@ -67,6 +69,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
             PersonalActivation = personalActivation;
             GovernorPresence = governorPresence;
             Catalog = catalog;
+            GovernorAuthority = governorAuthority;
             DurableDirectory = durableDirectory;
         }
 
@@ -131,6 +134,14 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
         }
 
         public HomesteadProgressionCatalog Catalog { get; }
+
+        /// <summary>The server-owned Governor authority + Responsibility Range policy this root was
+        /// composed with. Retained (not just passed to the Facet handler) because Tree REVOCATION gates
+        /// on exactly the same authority as Tree commitment — revoking a commitment is at least as
+        /// authoritative an act as making one, so it must not be composed against a second, laxer
+        /// policy.</summary>
+        public IGovernorAuthorityPolicy GovernorAuthority { get; }
+
         public string DurableDirectory { get; }
 
         /// <summary>T021 remediation 2 — build the isolated-QA Local-node development / personal-node
@@ -146,6 +157,33 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
                 Path.Combine(DurableDirectory, PurchaseJournalFile), new PrincipalResolver(),
                 Stones, Characters, Authority, Catalog, CharacterApStore);
             return new LocalProvisioningIngress(this, purchases);
+        }
+
+        /// <summary>ADO #137 — compose the authority-gated Tree revocation handler over this server's
+        /// shared stores, the SAME server-owned Governor authority policy the Facet handler uses, and a
+        /// purchase handler over the SAME durable node-purchase journal.
+        ///
+        /// <para>The purchase handler is passed in rather than reconstructed independently because it is
+        /// the single writer of that journal AND the owner of the (now <c>internal</c>) cancellation
+        /// primitive: revocation issues refunds only THROUGH it, never by opening the journal itself.
+        /// This is the wrapping the #132 review demanded — the unguarded primitive now has exactly one
+        /// production caller, and that caller authenticates, authorizes, and journals first.</para></summary>
+        public RevocationCommandHandler CreateRevocationCommandHandler(PurchaseCommandHandler purchases)
+        {
+            if (purchases == null) throw new ArgumentNullException(nameof(purchases));
+            return new RevocationCommandHandler(
+                Path.Combine(DurableDirectory, RevocationJournalFile), new PrincipalResolver(),
+                Stones, Characters, Authority, GovernorAuthority, purchases, palette: null, catalog: Catalog);
+        }
+
+        /// <summary>Convenience overload composing the purchase handler over this server's own durable
+        /// node-purchase journal and shared stores — the same composition
+        /// <see cref="CreateLocalProvisioningIngress"/> uses, so both surfaces read and write one journal.</summary>
+        public RevocationCommandHandler CreateRevocationCommandHandler()
+        {
+            return CreateRevocationCommandHandler(new PurchaseCommandHandler(
+                Path.Combine(DurableDirectory, PurchaseJournalFile), new PrincipalResolver(),
+                Stones, Characters, Authority, Catalog, CharacterApStore));
         }
 
         /// <summary>Compose the live Local progression runtime over a stable server-owned durable directory
@@ -211,7 +249,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Activation
 
             return new LocalProgressionServer(
                 stones, characters, authority, apStore, relationships, facets, activities, development, localPolicy,
-                activation, personalActivation, governorPresence, effectiveCatalog, durableDirectory);
+                activation, personalActivation, governorPresence, effectiveCatalog, governorAuthority, durableDirectory);
         }
     }
 }

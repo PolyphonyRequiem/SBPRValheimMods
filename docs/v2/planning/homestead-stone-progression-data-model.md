@@ -380,7 +380,8 @@ The projection never contains a client-authoritative ready flag. Commands revali
 
 ### Revoke Tree
 
-One atomic/recoverable operation:
+Two steps, not one button. Step one computes and presents the loss and mutates nothing; step two is the
+atomic/recoverable operation below. Abandoning step one is not a rollback — nothing was written.
 
 1. Validate Governor authority, expected revisions, Facet, and current commitment.
 2. Delete Stone commitment, cumulative BP development, node development, Local Nodes, and personal-node offerings.

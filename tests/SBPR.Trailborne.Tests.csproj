@@ -225,6 +225,16 @@
          PurchaseNode command handler. All engine-free; DerivedActivationView already derives Offered. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/NodePurchases.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/PurchaseCommands.cs" />
+    <!-- T033 / ADO #137 (Tracer 9): atomic Tree revocation — the two-step Governor warning and the
+         Personal-AP refund fan-out. The pure TreeRevocation transitions (Preview computes the loss and
+         mutates nothing; RevokeTree deletes the commitment, its cumulative Bond Power, and the Tree's
+         node development, refunding NO BP) and the receipt-backed, authority-gated RevocationCommandHandler
+         that wraps PurchaseCommandHandler's now-`internal` cancellation primitive. Engine-free, so the
+         whole two-step act — including replay/idempotency of the fan-out — is exercised under net8.
+         Named acceptance AT-REVOKE-TWO-STEP, AT-REVOKE-ATOMIC, AT-REVOKE-NO-BP-REFUND,
+         AT-REVOKE-AP-REFUND, AT-REPLACEMENT-NO-AUTOBUY, AT-DURABLE-OUTCOMES-SURVIVE. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/TreeRevocation.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Commands/RevocationCommands.cs" />
     <!-- T014 (t_8e33d773): the single Settlement-wide Local beneficiary policy + relationship-driven
          dormancy projection. The pure SettlementLocalPolicy value object + Stone-aggregate policy field,
          the receipt-backed SetSettlementLocalPolicy command handler (owner-only, dual-revision CAS,
