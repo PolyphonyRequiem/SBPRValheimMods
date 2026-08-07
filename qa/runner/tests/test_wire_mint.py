@@ -24,6 +24,7 @@ if RUNNER_DIR not in sys.path:
     sys.path.insert(0, RUNNER_DIR)
 
 from runner_core.live_composition import build_live_run  # noqa: E402
+from runner_core.lane_password_mint import LanePasswordPersistedError  # noqa: E402
 from runner_core.manifest import REQUIRED_PARTS  # noqa: E402
 from runner_core.operator_drivers import LICENSED_STEAM_IDENTITIES  # noqa: E402
 from runner_core.wire_mint import (  # noqa: E402
@@ -271,3 +272,98 @@ def test_build_live_run_does_not_mint_for_open_lane(tmp_path, monkeypatch) -> No
     monkeypatch.setattr(live_composition, "mint_lane_password", unexpected_mint)
 
     build_live_run(descriptor)
+
+
+# --------------------------------------------------------------------------- #
+# Externally-managed lane + the minted-expiry regression (2026-07-30 live run).
+# --------------------------------------------------------------------------- #
+
+def test_plan_expiry_is_the_minted_wire_expiry_not_a_persisted_field(tmp_path) -> None:
+    """`plan.expiry` MUST come from the minted wire envelope.
+
+    Regression from the mint refactor: the plan still read a top-level
+    `descriptor["expiry"]` after that field stopped being persisted, so a real live
+    run died with `KeyError: 'expiry'`. The subtler danger is worse than the crash —
+    had a stale value been present, it would have DISAGREED with the expiry the arm
+    docs and transport authenticate against, which is exactly the divergence that
+    produced a 106-minute-past expiry and a helper that refused to arm (t_e8777cca).
+
+    A deliberately absurd persisted value is planted here: if the plan ever reads it
+    again instead of the minted one, this fails loudly.
+    """
+    descriptor = _live_descriptor(tmp_path)
+    descriptor["expiry"] = 1  # long past; must be IGNORED
+
+    plan, _env = build_live_run(descriptor)
+
+    assert plan.expiry == plan.run_config.expiry_unix_ms
+    assert plan.expiry > int(time.time() * 1000), "plan expiry must be in the future"
+    assert plan.expiry != 1, "plan must not read the stale persisted descriptor field"
+
+
+def test_externally_managed_lane_uses_env_password_and_never_mints(
+    tmp_path, monkeypatch
+) -> None:
+    """A lane the runner does not launch takes its password from the environment.
+
+    t009l is a long-lived docker container whose SERVER_PASS was fixed when it
+    started, and whose descriptor sets `server_binary` to /bin/true because the
+    runner must NOT launch it. Minting there would hand the CLIENTS a fresh password
+    the SERVER has never heard of, and every join would fail with a misleading
+    wrong-password error. Opting in via `server.externally_managed` must therefore
+    suppress the mint entirely and use the operator-supplied value.
+    """
+    from runner_core import live_composition
+
+    descriptor = _live_descriptor(tmp_path)
+    password_paths = []
+    for index, client in enumerate(descriptor["clients"]):
+        client["uid"] = os.geteuid()
+        client["server_password_file"] = str(tmp_path / f"ext-{index}.secret")
+        password_paths.append(client["server_password_file"])
+
+    descriptor["server"]["server_binary"] = "/bin/true"
+    descriptor["server"]["externally_managed"] = True
+
+    def unexpected_mint():
+        raise AssertionError("externally-managed lane must NOT mint a password")
+
+    monkeypatch.setattr(live_composition, "mint_lane_password", unexpected_mint)
+    monkeypatch.setenv("SBPR_QA_LANE_PASSWORD", "preexisting-lane-pw")
+
+    _plan, env = build_live_run(descriptor)
+    env.provision_bootstraps()
+    try:
+        for path in password_paths:
+            assert open(path, encoding="utf-8").read().strip() == "preexisting-lane-pw"
+    finally:
+        env.cleanup_bootstraps()
+
+
+def test_externally_managed_lane_refuses_when_env_password_missing(
+    tmp_path, monkeypatch
+) -> None:
+    """Fail closed: no silent fallback to a minted password the server would reject."""
+    descriptor = _live_descriptor(tmp_path)
+    for client in descriptor["clients"]:
+        client["uid"] = os.geteuid()
+        client["server_password_file"] = str(tmp_path / "x.secret")
+    descriptor["server"]["server_binary"] = "/bin/true"
+    descriptor["server"]["externally_managed"] = True
+    monkeypatch.delenv("SBPR_QA_LANE_PASSWORD", raising=False)
+
+    with pytest.raises(ValueError, match="SBPR_QA_LANE_PASSWORD"):
+        build_live_run(descriptor)
+
+
+def test_externally_managed_lane_still_refuses_a_persisted_secret(
+    tmp_path, monkeypatch
+) -> None:
+    """The #452 no-persisted-secret guard is NOT weakened by the env path."""
+    descriptor = _live_descriptor(tmp_path)
+    descriptor["server"]["externally_managed"] = True
+    descriptor["lane_password"] = "persisted-is-always-refused"
+    monkeypatch.setenv("SBPR_QA_LANE_PASSWORD", "preexisting-lane-pw")
+
+    with pytest.raises(LanePasswordPersistedError):
+        build_live_run(descriptor)
