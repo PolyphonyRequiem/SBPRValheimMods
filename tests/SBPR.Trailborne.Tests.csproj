@@ -206,6 +206,11 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/PendingRevalidationQueue.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/VanillaAdminIdentity.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/StoneProgression/StoneAreaRegistrar.cs" />
+    <!-- ADO #138: the server-checked proximity gate in front of the proximate relationship acts
+         (Bond / Attunement formation). The engine-free authority + the process-local index of
+         server-observed acting-character positions the net48 layer publishes from each peer's own
+         character ZDO. Engine-free, so every deny branch is unit-tested without a live server. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Runtime/StoneProximityAuthority.cs" />
     <!-- Homestead progression Tracer 3 (T010): Stone Facets + revisioned Profession/Martial Tree
          commitment. Pure Facet transition, engine-free Stone aggregate store, the receipt-backed
          CommitTreeToFacet command handler, and the hints-only panel affordance. Engine-free. -->
@@ -355,6 +360,12 @@
     <!-- T026 Archer node 2: Field Fletching I personal Character Effect exposes the unchanged vanilla
          Wood Arrow recipe through Bushcraft (station-free) while active. Engine-free — link-compiled. -->
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/BushcraftRecipeProvider.cs" />
+    <!-- T027 Archer node 3: Fletcher's Habit personal Permanent Effect — one authoritative terminal-impact
+         recovery decision for one exact consumed eligible arrow instance, target-return exclusion, and the
+         once-per-instance / multishot no-duplication session guard. Engine-free — link-compiled. Named
+         acceptance AT-FLETCHER-HIT-LIFECYCLE, AT-FLETCHER-NO-DUP. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/ProjectileRecoveryProvider.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Archer/ProjectileRecoverySession.cs" />
     <!-- Homestead progression Tracer 6 (T021, US4): Refined Workshop real-versus-effective station-level
          policy. The pure crafting adapter surface (Adapters/Crafting/EffectiveStationLevelProvider.cs)
          composes over the shipped LocalEffectActivationView to grant +1 EFFECTIVE station level only for
@@ -383,6 +394,19 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipIssuanceDelivery.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipDeliveryService.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/Crafting/WorkmanshipVerdictCache.cs" />
+    <!-- T023 Crafting node 3 (US4): Built to Last as durable FUTURE-output provenance. The engine-free
+         durability-provenance codec (Domain/CharacterProgression/DurabilityProvenance.cs) stamps/reads/
+         validates one frozen maximum-durability factor onto an item's custom-data map behind the same
+         server-keyed HMAC integrity key as Workmanship but under a DISJOINT key namespace and a distinct
+         canonical domain label, so the two provenances coexist and neither token can be replayed as the
+         other; the pure provider (Adapters/Crafting/DurabilityIssuanceProvider.cs) issues it on eligible
+         non-stackable durable outputs whenever the crafter DURABLY holds the Built to Last Permanent
+         Effect (purchase record alone — surviving relationship loss, Tree revocation, and restart), is
+         idempotent per exact instance, and derives an item's effective maximum durability ONLY from the
+         stamp that instance carries, so no already-crafted item is ever retroactively mutated. Named
+         acceptance AT-BUILT-TO-LAST. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/CharacterProgression/DurabilityProvenance.cs" />
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Adapters/Crafting/DurabilityIssuanceProvider.cs" />
     <!-- IAP-001 Gate 0 (t_b8570a62): the engine-free CLEAN-side pilot transport-principal tracer — the
          provider gate (one named Steamworks backend + subject canonicalization/rejections), the protected
          operator provisioning-INPUT gate (no-echo stdin, owner-only path, allowlist-only verb scope), and
@@ -473,6 +497,16 @@
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/DonationMenu.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Domain/ResourceDelivery/StockWithdrawalPermission.cs" />
     <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Application/ResourceDelivery/StoneStockRegistry.cs" />
+    <!-- T036 (Tracer 9): the progression runtime conformance surface — the THIRD boot-time drift guard
+         (after Trailborne's SpecCheck and HomesteadStones' PatchCheck). It holds the authored manifest
+         (registry/palette version, Facets + candidates, the exact 20 stable node ids with Tree/level/
+         first-build status, required handlers, required woven patch classes, required per-node runtime
+         providers) in CODE and compares it against the live catalog/palette plus what the caller
+         observed. Engine-free by construction — it lives under Features/ per the task spec, but takes
+         no UnityEngine/Valheim/BepInEx/Harmony reference, so it link-compiles here and the asserted
+         behaviour IS the shipped behaviour; the net48 side is a thin caller in
+         FoundationalRuntimeBootstrap. -->
+    <Compile Include="../src/SBPR.Niflheim.HomesteadStones/Features/Progression/ProgressionConformance.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -81,7 +81,7 @@ namespace SBPR.Trailborne.Tests
         {
             var resolver = new PrincipalResolver();
             return new RelationshipCommandHandler(_journalPath, resolver, _characters, _authority,
-                _families, new StubBondAuthorityPolicy());
+                _families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance);
         }
 
         private static CharacterProgressionAggregate BuildCharacter(AccountId account, CharacterId character,
@@ -368,7 +368,7 @@ namespace SBPR.Trailborne.Tests
             var authority2 = new InMemoryAccountStoneAuthorityStore();
             var resolver = new PrincipalResolver();
             var handler2 = new RelationshipCommandHandler(_journalPath, resolver, characters2, authority2,
-                _families, new StubBondAuthorityPolicy());
+                _families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance);
 
             // Rehydrated: the index and the character relationship are restored from journal truth.
             var idx = authority2.GetAuthority(_account, _homestead);
@@ -511,7 +511,7 @@ namespace SBPR.Trailborne.Tests
             var authority2 = new InMemoryAccountStoneAuthorityStore();
             var resolver = new PrincipalResolver();
             var handler2 = new RelationshipCommandHandler(_journalPath, resolver, characters2, authority2,
-                _families, new StubBondAuthorityPolicy());
+                _families, new StubBondAuthorityPolicy(), AlwaysAtStoneProximity.Instance);
 
             var conflict = handler2.Handle(new RelationshipCommand(original.OperationId,
                 RelationshipCommandType.CreateBond, _homestead,

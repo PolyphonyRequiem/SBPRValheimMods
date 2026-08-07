@@ -30,6 +30,12 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
     {
         private static ZNet? composedFor;
 
+        /// <summary>T036 — server-owned config gate for the VERBOSE progression conformance detail
+        /// (per-tree/per-node listing + recovery counts). Bound in <c>Plugin.Awake()</c>; default false.
+        /// The verdict line and every WARNING/ERROR finding are emitted regardless of this flag, because
+        /// a drift guard an operator can silence is not a guard.</summary>
+        internal static bool VerboseDiagnostics;
+
         [HarmonyPatch(typeof(ZNet), "Awake")]
         [HarmonyPostfix]
         private static void OnZNetAwake(ZNet __instance)
@@ -103,6 +109,13 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                     var workmanshipKey = SBPR.Niflheim.HomesteadStones.Features.Crafting.WorkmanshipIntegrityKeyFile.LoadOrCreate(durableDir);
                     SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkIssuanceObserver.Arm(workmanshipKey);
 
+                    // T023 — arm the Built to Last seams with the SAME durable server key. The two item
+                    // provenances share one secret but sign DISJOINT canonical domains ("workmanship-v1" vs
+                    // "builttolast-v1") under disjoint custom-data key namespaces, so neither token can be
+                    // replayed as the other and there is only one key file / rotation surface to operate.
+                    SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastIssuanceObserver.Arm(workmanshipKey);
+                    SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastMaxDurabilityPatch.ClearMemo();
+
                     Plugin.Log.LogInfo(
                         "[Niflheim/HomesteadStones] Local progression runtime composed (server-authoritative). " +
                         $"durable='{durableDir}' warriorTwigArmed={server.WarriorTwigGate != null}.");
@@ -128,6 +141,33 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                         // A diagnostic must never take down composition.
                         Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Operator shape report failed: " + rex);
                     }
+
+                    // T036 — progression runtime conformance. Runs HERE, not in Plugin.Awake, because this
+                    // is the only place where BOTH composition roots exist; the woven-patch registry is
+                    // global and equally readable from here. Thin caller: every decision lives in the
+                    // engine-free, unit-tested ProgressionConformance.
+                    //
+                    // The VERDICT LINE AND EVERY WARNING/ERROR ARE ALWAYS ON — a guard an operator can
+                    // switch off is not a guard. The config flag only adds the verbose per-tree/per-node
+                    // detail. Neither form can emit a secret or raw PII: the surface's inputs are authored
+                    // content, type names and integer counts (see ProgressionConformance's header).
+                    try
+                    {
+                        var conformance = ProgressionConformance.Verify(
+                            localServer.Catalog,
+                            Domain.StoneProgression.StoneFacetPalette.Current,
+                            HomesteadHandlerWiringObserver.Observe(server, localServer),
+                            Diagnostics.PatchCheck.WovenPatchClassNames(Plugin.ModId),
+                            new ReceiptRecovery(server.Receipts));
+
+                        string rendered = ProgressionConformance.Render(conformance, VerboseDiagnostics);
+                        if (conformance.Passed) Plugin.Log.LogInfo(rendered);
+                        else Plugin.Log.LogError(rendered);
+                    }
+                    catch (Exception cex)
+                    {
+                        Plugin.Log.LogWarning("[Niflheim/HomesteadStones] Progression conformance failed: " + cex);
+                    }
                 }
                 catch (Exception lex)
                 {
@@ -149,6 +189,8 @@ namespace SBPR.Niflheim.HomesteadStones.Features.Progression
                 composedFor = null;
                 FoundationalPlacementObserver.Server = null;
                 SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkIssuanceObserver.Disarm();
+                SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastIssuanceObserver.Disarm();
+                SBPR.Niflheim.HomesteadStones.Features.Crafting.BuiltToLastMaxDurabilityPatch.ClearMemo();
                 SBPR.Niflheim.HomesteadStones.Features.Crafting.MasterworkClientState.Clear();
                 LocalProgressionObserver.Clear();
             }

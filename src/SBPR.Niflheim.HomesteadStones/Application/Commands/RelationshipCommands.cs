@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using SBPR.Niflheim.HomesteadStones.Application.ResourceDelivery;
+using SBPR.Niflheim.HomesteadStones.Application.Runtime;
 using SBPR.Niflheim.HomesteadStones.Domain.CharacterProgression;
 using SBPR.Niflheim.HomesteadStones.Domain.Identity;
 using SBPR.Niflheim.HomesteadStones.Domain.ResourceDelivery;
@@ -152,6 +153,13 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
         private readonly IStoneFamilyResolver _familyResolver;
         private readonly IBondAuthorityPolicy _bondAuthority;
 
+        // ADO #138 — the server-owned proximity authority. Forming a Bond or requesting an Attunement is
+        // the PROXIMATE act: the acting character must actually be standing at the target Stone, and the
+        // SERVER decides that from its own position/Area facts. This is a required constructor dependency
+        // for the same reason _bondAuthority is: an optional "null means allow" seam is how an authority
+        // silently stops existing in one composition. Release is deliberately NOT gated.
+        private readonly IStoneProximityAuthority _proximity;
+
         // RD-T004 integration (item 1): the durable Connection source coordinator. When supplied, every
         // committed Bond/Attunement/Release drives the matching Connection source transition inside the
         // SAME logical transaction (via ApplyProjections, which runs on both live commit AND boot
@@ -168,6 +176,7 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             IAccountStoneAuthorityStore authorityStore,
             IStoneFamilyResolver familyResolver,
             IBondAuthorityPolicy bondAuthority,
+            IStoneProximityAuthority proximity,
             StoneConnectionSourceRegistry? sourceRegistry = null,
             WorldId world = default,
             ProductScope product = default)
@@ -180,6 +189,10 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             // There is deliberately no permissive fallback: every caller must inject a server-owned,
             // content-backed policy that can prove the requested range is authored and available.
             _bondAuthority = bondAuthority ?? throw new ArgumentNullException(nameof(bondAuthority));
+
+            // ADO #138: same discipline — no permissive fallback. A composition that genuinely has no
+            // position authority must pass DenyAllStoneProximityAuthority.Instance and be visibly closed.
+            _proximity = proximity ?? throw new ArgumentNullException(nameof(proximity));
 
             _sourceRegistry = sourceRegistry;
             _world = world;
@@ -252,6 +265,26 @@ namespace SBPR.Niflheim.HomesteadStones.Application.Commands
             // "absent" (data-model.md idempotency invariant).
             if (HasConflictingPartialIntent(opId, bindingDigest, payloadDigest))
                 return Reject("OperationConflict");
+
+            // ADO #138 — SERVER-CHECKED PROXIMITY. Forming a Bond or requesting an Attunement is the
+            // proximate act: the acting character must actually be standing inside the TARGET Stone's
+            // Area, proven from server-owned position + Area facts (never the client's claim, never a
+            // second position source). Release is deliberately NOT gated — releasing is not the
+            // proximate act and gating it would strand a character who released away from the Stone.
+            // Non-relationship progression selections stay explicitly non-proximate (spec scenario 7 /
+            // SC-008); this gate is narrow by design.
+            //
+            // Placement is deliberately AFTER the idempotency lookups and BEFORE any state load or
+            // journal write: a committed operation still replays its recorded terminal result (the
+            // data-model "timeout after commit, before acknowledgement" edge must not turn into a false
+            // failure just because the player has since walked away), while every NEW mutation is gated.
+            // A rejection here changes nothing durable.
+            if (command.CommandType == RelationshipCommandType.CreateBond ||
+                command.CommandType == RelationshipCommandType.CreateAttunement)
+            {
+                if (!_proximity.IsAtStone(principal, command.StoneId))
+                    return Reject("NotAtStone");
+            }
 
             // Load current authoritative state.
             var character = _characterStore.GetCharacter(principal.Account, principal.Character);

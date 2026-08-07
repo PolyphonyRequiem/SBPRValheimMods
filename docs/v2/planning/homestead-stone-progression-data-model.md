@@ -327,6 +327,10 @@ The projection never contains a client-authoritative ready flag. Commands revali
 ### Form relationship
 
 1. Authenticate account and acting character.
+1a. Confirm SERVER-SIDE that the acting character is inside the target Stone's Area (ADO #138). The check runs
+   after the idempotency lookup — so a committed operation still replays its recorded terminal result even if the
+   actor has since walked away — and before any state load or journal write, so a `NotAtStone` rejection changes
+   nothing durable. Applies to Bond and Attunement formation only.
 2. Load character aggregate and account–Stone index.
 3. Validate slot capacity, family contract, no active sibling, and no conflicting relationship.
 4. Commit relationship plus active index under one recoverable receipt.

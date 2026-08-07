@@ -57,6 +57,16 @@ namespace SBPR.Niflheim.HomesteadStones
 
             // T009 — live Foundational AP runtime. The bootstrap Harmony patch composes the durable
             // FoundationalProgressionServer on the authoritative server and arms the placement observer.
+            //
+            // T036 — the bootstrap ALSO emits the progression runtime conformance report once both
+            // composition roots exist. This flag gates only the VERBOSE detail; the verdict line and
+            // every WARNING/ERROR finding are always emitted (a silenceable drift guard is not a guard).
+            Features.Progression.FoundationalRuntimeBootstrap.VerboseDiagnostics = Config.Bind(
+                "Diagnostics", "VerboseProgressionConformance", false,
+                "When true, the boot-time progression conformance report also lists the enumerated Trees, the "
+                + "honestly-unavailable nodes, and the startup recovery counts. The PASS/FAIL verdict and every "
+                + "warning/error are logged regardless. This surface emits authored content identity, type names "
+                + "and integer counts only — never an account, character, principal, world path or journal payload.").Value;
             harmony.PatchAll(typeof(Features.Progression.FoundationalRuntimeBootstrap));
             harmony.PatchAll(typeof(Features.Progression.FoundationalPlacementObserver));
 
@@ -139,6 +149,23 @@ namespace SBPR.Niflheim.HomesteadStones
                 + "false on any non-QA server.");
             harmony.PatchAll(typeof(Features.Progression.LocalProgressionProvisioningAdmin));
             harmony.PatchAll(typeof(Features.Progression.LocalProgressionProvisioningConsole));
+
+            // T027 remediation — the personal-node OWNERSHIP provisioning seam. Same gate/identity model as
+            // the Local-node seam above, but reaches a personal NodePurchaseRecord (developed + purchased)
+            // instead of a Stone-owned Local develop: it drives the accepted Bond→develop→release→Attune→
+            // purchase handlers so a personal Permanent/Character Effect (Fletcher's Habit T027 / Field
+            // Fletching I T026) can actually be OWNED at runtime before a joined-client OWNER in-world proof
+            // (the ingress the T027 joined-client verdict found structurally missing). Never a shipping
+            // gameplay command; never client-open; production fails closed.
+            Features.Progression.PersonalNodeProvisioningAdmin.EnableProvisioning = Config.Bind(
+                "Progression", "EnableAdminPersonalNodeProvisioning", false,
+                "Isolated-QA ONLY. When true, server admins may come to OWN a personal Homestead node (Fletcher's "
+                + "Habit / Field Fletching I) for themselves via the SBPR_Niflheim_ProvisionPersonalNode direct "
+                + "RPC — driving the accepted develop→purchase handlers — so an OWNER in-world recovery/effect "
+                + "proof can be produced on a joined client. Server-owned; not client-settable. Leave false on "
+                + "any non-QA server.");
+            harmony.PatchAll(typeof(Features.Progression.PersonalNodeProvisioningAdmin));
+            harmony.PatchAll(typeof(Features.Progression.PersonalNodeProvisioningConsole));
 
             // T016 shared runtime substrate — the BOUNDED server→client Local Effect activation delivery
             // transport (per-peer request/snapshot ZRpc). The T016 PR (#368) shipped this observer class but
@@ -224,6 +251,29 @@ namespace SBPR.Niflheim.HomesteadStones
             // artifact and the client-side tamper-degrade. Additive (ADR-0006); mutates nothing.
             harmony.PatchAll(typeof(Features.Crafting.MasterworkWorkmanshipTooltip));
 
+            // T023-RT — Crafting / Built to Last runtime seam (three registrations; AGENTS.md: a patch class
+            // is NOT landed until its PatchAll line exists, and this family has shipped inert three times).
+            //   1. ISSUANCE — a postfix on InventoryGui.DoCrafting stamps one FROZEN maximum-durability factor
+            //      onto a freshly produced eligible non-stackable durable output, on the authoritative host,
+            //      whenever the crafter DURABLY holds the Built to Last Permanent Effect. Entitlement is the
+            //      purchase record alone: no relationship / policy / development conjunct, so issuance keeps
+            //      working after relationship loss and Tree revocation (contracts.md §Crafting). FUTURE outputs
+            //      only — this is the sole write path and it touches only the item vanilla just produced.
+            //   2. APPLICATION — a postfix on ItemDrop.ItemData.GetMaxDurability(int) (decomp :58135, the single
+            //      vanilla authority the parameterless overload and GetDurabilityPercentage both route through)
+            //      scales vanilla's answer by the factor frozen into THAT INSTANCE's stamp. An unstamped item,
+            //      and a tampered/foreign stamp, read vanilla — so nothing already in the world is ever
+            //      retroactively mutated, and the shared prefab is never written.
+            //   3. UPGRADE PRESERVATION — vanilla's upgrade branch destroys the source and creates a fresh
+            //      replacement with an EMPTY custom-data map, so the signed stamp is captured and restored
+            //      byte-for-byte (no re-mint, no reissue, no leaking of a retuned current factor).
+            // All three consume the engine-free, unit-tested DurabilityIssuanceProvider + DurabilityCodec, and
+            // fail closed with no armed server key. Additive (ADR-0006): only our own domain-prefixed keys on
+            // one existing instance's dictionary.
+            harmony.PatchAll(typeof(Features.Crafting.BuiltToLastIssuanceObserver));
+            harmony.PatchAll(typeof(Features.Crafting.BuiltToLastMaxDurabilityPatch));
+            harmony.PatchAll(typeof(Features.Crafting.BuiltToLastUpgradePreservationObserver));
+
             // T025-RT — Archer / Practice Range runtime seam. Registers the Practice Arrow item + its
             // 100-for-8-Wood recipe, wires the deterministic vanilla target return (ArrowPractice added to
             // ArcheryTarget.m_returnAmmo), and adds the exact vanilla piece_ArcheryTarget build piece to
@@ -241,6 +291,18 @@ namespace SBPR.Niflheim.HomesteadStones
             // listen-host, or the server-stamped personal snapshot (PersonalActivationDeliveryObserver
             // transport above) on a pure joined client, and fails closed when neither is present.
             harmony.PatchAll(typeof(Features.Archer.FieldFletchingRecipeGate));
+
+            // T027 — Archer / Fletcher's Habit runtime seam. A personal PERMANENT Effect: once purchased it
+            // is OWNED durably (through relationship loss / revocation, spec line 130 / line 260). While the
+            // shooter owns it, a fired eligible Wood Arrow that terminally impacts a recoverable surface gets
+            // ONE authoritative recovery chance (via the shipped ProjectileRecoveryProvider) to respawn the
+            // EXACT consumed arrow instance once. Provenance is captured at Projectile.Setup; the single
+            // terminal decision + at-most-once recovery is made in the Projectile.OnHit postfix and guarded by
+            // a per-projectile-ZDOID session (multishot no-duplication). Deterministic Practice Range target
+            // return SUPPRESSES the roll (spec Edge case). Ownership resolves from the composed server on a
+            // host, or the server-stamped personal snapshot's durable Purchased bit on a pure client; fails
+            // closed (vanilla behaviour) when neither confirms ownership.
+            harmony.PatchAll(typeof(Features.Archer.ProjectileRecoveryGate));
 
             // T016 — Savor the Hearth live food-timer delivery seam. The net48 Player.UpdateFood prefix
             // scales ONLY the elapsed food-drain slice for the local player by the shipped

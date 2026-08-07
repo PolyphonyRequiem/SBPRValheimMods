@@ -301,6 +301,9 @@ namespace SBPR.Trailborne.Tests
                 bondAuthority: new HomesteadBondPolicy(),
                 stoneApStore: stoneStore ?? new InMemoryMirroredStoneApStore());
             server.StoneAreas.Register(_stone, StoneX, StoneZ, radius: 20.0);
+            // ADO #138: the relationship handler checks proximity itself now, so this fixture must
+            // state the server-observed fact that the acting character is standing AT the Stone.
+            server.CharacterPositions.Publish(_character, StoneX, StoneZ);
             return server;
         }
 
@@ -311,6 +314,9 @@ namespace SBPR.Trailborne.Tests
                     worldProductScope: "t009r3/trailborne", revision: 0,
                     bondSlots: 1, attunementSlots: 2, lastAppliedReceiptId: "seed",
                     stoneRecords: new[] { new CharacterStoneRecord(_stone, 0, 0, 0, null, null) }));
+            // ADO #138: the relationship handler checks proximity itself now, so this fixture must
+            // state the server-observed fact that the acting character is standing AT the Stone.
+            server.CharacterPositions.Publish(_character, StoneX, StoneZ);
             var res = server.Relationships.Handle(new RelationshipCommand(
                 new OperationId("op-att-r3"), RelationshipCommandType.CreateAttunement, _stone,
                 new AuthenticatedConnection(_account.Value, _character.Value), default, "rel-att-r3"));
